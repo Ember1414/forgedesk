@@ -6,15 +6,16 @@ name: CI
 #
 # 【私有阶段（当前）】目标是把免费配额花在最值钱的地方。
 #   GitHub Free 的私有仓库额度为 2000 分钟/月，且 macOS runner 按 10x、
-#   Windows runner 按 2x 计费。因此：
+#   Windows runner 按 2x 计费（实测一次三平台矩阵约 130 配额分钟）。因此：
 #     · pull_request      → 只跑 Linux 质量门禁（1x），约 6-8 分钟
-#     · push to main      → 质量门禁 + 三平台构建
-#     · workflow_dispatch → 手动触发
-#     · 不启用夜间任务，PR 不跑三平台矩阵
+#     · push to main      → 同样只跑质量门禁（**不跑矩阵**）
+#     · tag v*.*.*        → 质量门禁 + 三平台构建
+#     · workflow_dispatch → 手动；勾选 run_build 才跑矩阵
+#     · 不启用夜间任务
 #
-# 【公开阶段（转公开后）】公共仓库的 Actions 额度不受上述限制。
+# 【公开阶段（转公开后）】公共仓库的 Actions 额度不受限制。
 #   需要执行的改动（清单见 docs/OPEN-SOURCE-READINESS.md）：
-#     1. 删除 build job 上的 `if: github.event_name != 'pull_request'`
+#     1. 删除 build job 上的 `if:`，恢复"每个 PR 都跑三平台矩阵"
 #     2. 启用 e2e 与 nightly 工作流
 #     3. 把所有 `uses:` 固定到 commit SHA
 #
@@ -31,7 +32,14 @@ on:
   pull_request:
   push:
     branches: [main]
+    # 打 tag 时必然需要三平台产物（见 build job 的 if 条件）
+    tags: ['v*.*.*']
   workflow_dispatch:
+    inputs:
+      run_build:
+        description: '运行三平台构建矩阵？私有仓库下约消耗 130 配额分钟，谨慎勾选'
+        type: boolean
+        default: false
 
 # 同一分支的旧运行会被取消，避免浪费配额
 concurrency:
@@ -118,8 +126,19 @@ jobs:
   build:
     name: build (${{ matrix.platform }})
     needs: quality
-    # 私有阶段：PR 不跑三平台矩阵（macOS 10x / Windows 2x 计费，会快速耗尽配额）
-    if: github.event_name != 'pull_request'
+    # 私有阶段的三平台矩阵只在这两种情况运行：
+    #   1. 打 tag（发布需要三平台产物）
+    #   2. 手动触发且显式勾选 run_build
+    #
+    # 为什么不再"每次推 main 都跑"：macOS 10x / Windows 2x 计费，
+    # 一次矩阵约 130 配额分钟，而私有仓库每月只有 2000 分钟。
+    # 按每天推几次 main 的频率，两周就会耗尽配额；配额耗尽的后果是 CI 整体不可用，
+    # 比"少跑几次矩阵"严重得多。
+    # 平台差异由本地开发（Windows）+ 发布前的 tag 构建共同覆盖。
+    #
+    # 转公开后请删除这个 if，恢复"每个 PR 都跑三平台矩阵"（额度不再受限）。
+    # 单行写法：块标量会让表达式带上换行，虽然 GitHub 能处理，但这里刻意保持单行以便本地校验
+    if: startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && inputs.run_build)
     strategy:
       fail-fast: false
       matrix:
