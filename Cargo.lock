@@ -929,6 +929,7 @@ dependencies = [
 name = "forgedesk-git-engine"
 version = "0.0.1"
 dependencies = [
+ "forgedesk-diagnostics",
  "forgedesk-domain",
  "serde",
  "thiserror 2.0.20",
