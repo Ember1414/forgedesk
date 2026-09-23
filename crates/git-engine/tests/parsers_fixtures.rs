@@ -343,10 +343,11 @@ fn log_linear_history_is_parsed_in_git_order_with_parent_links() {
     assert_eq!(commits[0].refs, vec!["HEAD -> main".to_owned()]);
     assert!(commits[1].refs.is_empty());
 
-    assert_eq!(commits[0].author_name, "Fixture Author");
-    assert_eq!(commits[0].author_email, "author@example.com");
-    assert_eq!(commits[0].author_time, Some(1_704_164_645));
+    assert_eq!(commits[0].author.name, "Fixture Author");
+    assert_eq!(commits[0].author.email, "author@example.com");
+    assert_eq!(commits[0].author.time, Some(1_704_164_645));
     assert_eq!(commits[0].signature, SignatureStatus::Unsigned);
+    assert_eq!(commits[0].body, None, "列表查询不取正文");
 }
 
 #[test]

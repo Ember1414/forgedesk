@@ -21,7 +21,7 @@
 //! `-z` 模式下 `%x1e` 后面跟 NUL，否则跟换行。两种都在首尾被裁掉，
 //! 因此解析器对 `-z` 与否都成立。
 
-use forgedesk_domain::git::{Commit, SignatureStatus};
+use forgedesk_domain::git::{Commit, Signature, SignatureStatus};
 
 /// `git log` 的机器可读格式串。
 ///
@@ -75,18 +75,25 @@ fn parse_record(record: &[u8]) -> Option<Commit> {
     Some(Commit {
         oid,
         parents: split_parents(fields[1]),
-        author_name: lossy(fields[2]),
-        author_email: lossy(fields[3]),
-        author_time: super::common::parse_decimal(fields[4]),
-        committer_name: lossy(fields[5]),
-        committer_email: lossy(fields[6]),
-        committer_time: super::common::parse_decimal(fields[7]),
+        author: signature(fields[2], fields[3], fields[4]),
+        committer: signature(fields[5], fields[6], fields[7]),
         refs: split_refs(fields[8]),
         signature: fields[9].first().map_or(SignatureStatus::Unknown, |byte| {
             SignatureStatus::from_byte(*byte)
         }),
         subject: lossy(fields[10]),
+        // 列表页不带正文（`LOG_FORMAT` 不含 `%b`），单条查询由 show() 填充
+        body: None,
     })
+}
+
+/// 组合作者 / 提交者身份。
+fn signature(name: &[u8], email: &[u8], time: &[u8]) -> Signature {
+    Signature {
+        name: lossy(name),
+        email: lossy(email),
+        time: super::common::parse_decimal(time),
+    }
 }
 
 /// 元数据字段的 lossy 转换（见 [`forgedesk_domain::git`] 模块头的取舍说明）。
@@ -176,13 +183,15 @@ mod tests {
             commit.parents,
             vec!["63daff978b6cc470c01793c73fd055e32655f2a8".to_owned()]
         );
-        assert_eq!(commit.author_name, "Fixture Author");
-        assert_eq!(commit.author_email, "author@example.com");
-        assert_eq!(commit.author_time, Some(1_704_164_645));
-        assert_eq!(commit.committer_time, Some(1_704_164_645));
+        assert_eq!(commit.author.name, "Fixture Author");
+        assert_eq!(commit.author.email, "author@example.com");
+        assert_eq!(commit.author.time, Some(1_704_164_645));
+        assert_eq!(commit.committer.name, "Fixture Committer");
+        assert_eq!(commit.committer.time, Some(1_704_164_645));
         assert_eq!(commit.refs, vec!["HEAD -> main".to_owned()]);
         assert_eq!(commit.signature, SignatureStatus::Unsigned);
         assert_eq!(commit.subject, "third commit");
+        assert_eq!(commit.body, None, "列表页不带正文");
         assert!(!commit.is_root());
         assert!(!commit.is_merge());
     }
@@ -308,7 +317,7 @@ mod tests {
         ]);
         input.push(RECORD_SEPARATOR);
 
-        assert_eq!(parse_log_format(&input)[0].author_time, None);
+        assert_eq!(parse_log_format(&input)[0].author.time, None);
     }
 
     #[test]

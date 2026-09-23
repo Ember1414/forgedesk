@@ -16,19 +16,44 @@
 //!    界面无法渲染任意编码，所以这些字段统一 lossy —— 与路径相反，它们不参与
 //!    文件系统操作，丢掉真值不会造成数据损坏。
 //!
-//! 本模块**不**定义 IPC 序列化契约（那是 T1.2/T1.4 的事），因此这里的类型暂不派生
-//! `Serialize`：字节路径的线上表示需要与前端一起定（lossy 字符串 + "是否合法 UTF-8"标记）。
+//! # 规格（Spec）与结果（Outcome）成对出现
+//!
+//! 写操作的参数与返回值都建模在 [`spec`] 里。理由见该模块头：这些结构体会被
+//! 整体脱敏后写进审计日志与快照标签（红线 R7），散装参数做不到这一点。
+//!
+//! # 本模块不定义 IPC 序列化契约
+//!
+//! 这些类型暂不派生 `Serialize`：字节路径的线上表示需要与前端一起定
+//! （lossy 字符串 + "是否合法 UTF-8"标记），那是 T1.4 的 DTO 层工作。
+//! 现在随便定一个形状，只会在前端接上时返工。
 
 pub mod commit;
 pub mod diff;
 pub mod index;
 pub mod path;
+pub mod query;
+pub mod refs;
+pub mod repository;
+pub mod spec;
+pub mod stash;
 pub mod status;
 
-pub use commit::{Commit, SignatureStatus};
-pub use diff::FileStat;
+pub use commit::{Commit, Signature, SignatureStatus};
+pub use diff::{
+    DiffChangeKind, DiffHunk, DiffLine, DiffLineKind, DiffReport, DiffSpec, DiffTarget, FileDiff,
+    FileStat,
+};
 pub use index::{StageEntry, UnmergedEntry, UnmergedStage};
 pub use path::RepoPath;
+pub use query::{LogQuery, Page};
+pub use refs::{Branch, RefUpdate, RefUpdateKind, Remote, RemoteKind, Tag};
+pub use repository::{BranchLabel, RepoId, RepositoryInfo};
+pub use spec::{
+    CommitSpec, FetchOutcome, FetchSpec, MergeKind, MergeOutcome, MergeSpec, PullOutcome, PullSpec,
+    PullStrategy, PushOutcome, PushRejection, PushSpec, ReorderAction, ReorderSpec, ReorderStep,
+    ResetMode, ResetSpec, StageSpec,
+};
+pub use stash::StashEntry;
 pub use status::{
     BranchInfo, ChangeKind, ConflictStages, EntryKind, FileChange, StatusReport, SubmoduleState,
 };

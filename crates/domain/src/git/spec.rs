@@ -1,0 +1,601 @@
+//! 写操作的参数与结果规格。
+//!
+//! 为什么把参数收进结构体而不是给每个方法一长串入参：这些操作最终都要被
+//! **序列化进审计日志与快照标签**（红线 R7），结构体天然可以整体脱敏后落库；
+//! 而 12 个位置参数的函数在调用点几乎无法阅读，也没法在不改所有调用点的情况下
+//! 新增一个选项。
+
+use super::commit::Signature;
+use super::path::RepoPath;
+use super::refs::RefUpdate;
+
+/// 重置模式（`git reset --soft|--mixed|--hard`）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ResetMode {
+    /// `--soft`：只移动 HEAD，索引与工作区不动。
+    Soft,
+    /// `--mixed`：移动 HEAD 并重置索引，工作区不动（Git 默认）。
+    Mixed,
+    /// `--hard`：三者全部重置。**会丢弃工作区改动**（能力等级 Dangerous）。
+    Hard,
+}
+
+impl ResetMode {
+    /// 对应的命令行开关。
+    pub const fn as_flag(self) -> &'static str {
+        match self {
+            Self::Soft => "--soft",
+            Self::Mixed => "--mixed",
+            Self::Hard => "--hard",
+        }
+    }
+
+    /// 是否会丢弃工作区改动。
+    ///
+    /// 界面据此决定是否强制走"预览 + 快照 + 二次确认"（红线 R7）。
+    pub const fn is_destructive(self) -> bool {
+        matches!(self, Self::Hard)
+    }
+}
+
+/// 重置操作的参数。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResetSpec {
+    /// 目标提交（oid、分支名或相对引用）。
+    pub revision: String,
+    /// 重置模式。
+    pub mode: ResetMode,
+    /// 只重置这些路径（非空时等价于 `git reset <rev> -- <paths>`，
+    /// 此时 `mode` 只允许 `Mixed`）。
+    pub paths: Vec<RepoPath>,
+}
+
+impl ResetSpec {
+    /// 重置整棵工作树到某个提交。
+    pub fn to(revision: impl Into<String>, mode: ResetMode) -> Self {
+        Self {
+            revision: revision.into(),
+            mode,
+            paths: Vec::new(),
+        }
+    }
+
+    /// 只重置部分路径的索引。
+    pub fn paths(revision: Option<String>, paths: Vec<RepoPath>) -> Self {
+        Self {
+            revision: revision.unwrap_or_else(|| "HEAD".to_owned()),
+            mode: ResetMode::Mixed,
+            paths,
+        }
+    }
+
+    /// 是否为"只重置部分路径"。
+    pub fn is_path_scoped(&self) -> bool {
+        !self.paths.is_empty()
+    }
+}
+
+/// 暂存 / 取消暂存的参数。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StageSpec {
+    /// 整文件暂存（或取消暂存）。
+    Paths(Vec<RepoPath>),
+    /// 把补丁应用到索引：行级 / 块级暂存的实现路径（T1.6）。
+    ///
+    /// 为什么走补丁而不是逐文件：`git add` 的最小粒度是文件，
+    /// 而用户要的是"这个文件里只有第 12–15 行"，唯一可靠的通道就是
+    /// `git apply --cached`。
+    Patch(Vec<u8>),
+    /// 全部变更（含删除与未跟踪文件）。
+    All,
+}
+
+/// 提交参数。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CommitSpec {
+    /// 提交信息（首行是 subject）。
+    pub message: String,
+    /// 只提交这些路径（空 = 提交索引里的全部内容）。
+    pub paths: Vec<RepoPath>,
+    /// 是否 amend 上一个提交。
+    pub amend: bool,
+    /// 是否允许空提交。
+    pub allow_empty: bool,
+    /// 是否 GPG 签名。`None` = 跟随仓库/全局配置（不显式传 `-S`/`--no-gpg-sign`）。
+    pub sign: Option<bool>,
+    /// 覆盖作者身份（amend 时用于保留原作者）。
+    pub author: Option<Signature>,
+    /// 是否跳过 pre-commit / commit-msg 钩子。
+    ///
+    /// 默认 `false`：钩子拒绝是**正常流程**（T1.8 要求把 hook 输出展示给用户），
+    /// 绕过钩子应当是一个用户显式选择的动作。
+    pub no_verify: bool,
+}
+
+impl CommitSpec {
+    /// 用提交信息创建。
+    pub fn new(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            paths: Vec::new(),
+            amend: false,
+            allow_empty: false,
+            sign: None,
+            author: None,
+            no_verify: false,
+        }
+    }
+
+    /// 提交信息首行（subject）。
+    ///
+    /// 界面与日志都只展示这一行，因此由领域层统一裁切，
+    /// 避免各处自己 `lines().next()` 而行为不一致（例如空字符串的处理）。
+    pub fn subject(&self) -> &str {
+        self.message.lines().next().unwrap_or_default()
+    }
+}
+
+/// 合并参数。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MergeSpec {
+    /// 要合并进来的引用。
+    pub revision: String,
+    /// 禁止快进（`--no-ff`），总是产生合并提交。
+    pub no_ff: bool,
+    /// 只允许快进（`--ff-only`），否则失败。
+    pub ff_only: bool,
+    /// 合并提交信息（`no_ff` 时使用）。
+    pub message: Option<String>,
+}
+
+impl MergeSpec {
+    /// 默认合并（允许快进）。
+    pub fn new(revision: impl Into<String>) -> Self {
+        Self {
+            revision: revision.into(),
+            no_ff: false,
+            ff_only: false,
+            message: None,
+        }
+    }
+}
+
+/// 拉取策略。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum PullStrategy {
+    /// 只允许快进，否则失败（最安全，也是默认）。
+    FastForwardOnly,
+    /// 允许产生合并提交。
+    Merge,
+    /// 变基后再快进。
+    Rebase,
+}
+
+impl PullStrategy {
+    /// 对应的命令行开关。
+    pub const fn as_flag(self) -> &'static str {
+        match self {
+            Self::FastForwardOnly => "--ff-only",
+            Self::Merge => "--no-rebase",
+            Self::Rebase => "--rebase",
+        }
+    }
+}
+
+/// fetch 参数。
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct FetchSpec {
+    /// 远端名。`None` = 当前分支的上游远端（没有上游时用 `origin`）。
+    pub remote: Option<String>,
+    /// 是否清理远端已删除的跟踪分支（`--prune`）。
+    pub prune: bool,
+    /// 只取这些引用（空 = 远端默认 refspec）。
+    pub refspecs: Vec<String>,
+    /// 是否同时取标签。
+    pub tags: bool,
+}
+
+impl FetchSpec {
+    /// 默认 fetch（取默认远端、不清理）。
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// 指定远端。
+    #[must_use]
+    pub fn with_remote(mut self, remote: impl Into<String>) -> Self {
+        self.remote = Some(remote.into());
+        self
+    }
+
+    /// 开启清理。
+    #[must_use]
+    pub fn with_prune(mut self, prune: bool) -> Self {
+        self.prune = prune;
+        self
+    }
+}
+
+/// pull 参数。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PullSpec {
+    /// 远端名。`None` = 当前分支的上游。
+    pub remote: Option<String>,
+    /// 远端分支名。`None` = 上游分支。
+    pub branch: Option<String>,
+    /// 策略。
+    pub strategy: PullStrategy,
+}
+
+impl Default for PullSpec {
+    fn default() -> Self {
+        Self {
+            remote: None,
+            branch: None,
+            strategy: PullStrategy::FastForwardOnly,
+        }
+    }
+}
+
+impl PullSpec {
+    /// 默认 pull（上游 + 只允许快进）。
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// 指定策略。
+    #[must_use]
+    pub fn with_strategy(mut self, strategy: PullStrategy) -> Self {
+        self.strategy = strategy;
+        self
+    }
+}
+
+/// push 参数。
+///
+/// **红线 R7**：这里刻意**没有**裸 `force` 字段。远端被拒绝时只有三条路
+/// ——先拉取、`--force-with-lease`、取消；裸 `--force` 会无条件覆盖别人的提交，
+/// 而它带来的"我推上去了"的错觉正是本产品要消灭的东西。
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct PushSpec {
+    /// 远端名。`None` = 当前分支的上游远端。
+    pub remote: Option<String>,
+    /// 本地分支名。`None` = 当前分支。
+    pub branch: Option<String>,
+    /// 设置上游（`-u`）。
+    pub set_upstream: bool,
+    /// 仅当远端仍指向我们预期的提交时才强推（`--force-with-lease`）。
+    pub force_with_lease: bool,
+    /// 是否同时推送标签。
+    pub tags: bool,
+}
+
+impl PushSpec {
+    /// 默认 push（当前分支到其上游）。
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// 设置上游。
+    #[must_use]
+    pub fn with_set_upstream(mut self, set_upstream: bool) -> Self {
+        self.set_upstream = set_upstream;
+        self
+    }
+
+    /// 使用 `--force-with-lease`。
+    #[must_use]
+    pub fn with_force_with_lease(mut self, force_with_lease: bool) -> Self {
+        self.force_with_lease = force_with_lease;
+        self
+    }
+}
+
+/// rebase / 重排计划中的单个步骤。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReorderStep {
+    /// 被操作的提交 oid。
+    pub oid: String,
+    /// 对该提交执行的动作。
+    pub action: ReorderAction,
+    /// 新的提交信息（`Reword` / `Squash` 使用）。
+    pub new_message: Option<String>,
+}
+
+/// rebase 计划里对单个提交的动作（与 `git rebase -i` 的指令一一对应）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ReorderAction {
+    /// 保留提交。
+    Pick,
+    /// 保留提交但改写信息。
+    Reword,
+    /// 保留提交并停下让用户修改内容。
+    Edit,
+    /// 合并进上一个提交并拼接信息。
+    Squash,
+    /// 合并进上一个提交并丢弃本条信息。
+    Fixup,
+    /// 丢弃提交。
+    Drop,
+}
+
+impl ReorderAction {
+    /// `git rebase -i` 的指令字。
+    pub const fn as_instruction(self) -> &'static str {
+        match self {
+            Self::Pick => "pick",
+            Self::Reword => "reword",
+            Self::Edit => "edit",
+            Self::Squash => "squash",
+            Self::Fixup => "fixup",
+            Self::Drop => "drop",
+        }
+    }
+
+    /// 是否会丢失用户写下的提交内容（用于危险操作提示）。
+    pub const fn discards_content(self) -> bool {
+        matches!(self, Self::Drop | Self::Fixup)
+    }
+}
+
+/// rebase / 重排计划。
+///
+/// M3 才会执行它；T1.2 只定义类型，让 `GitEngine` 的签名提前稳定下来，
+/// 避免 M3 时再改 trait（改 trait 意味着两套实现一起改）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReorderSpec {
+    /// 新的基点（`--onto`）。
+    pub onto: String,
+    /// 计划中的步骤，顺序为**从旧到新**（与 `git rebase -i` 的清单一致）。
+    pub steps: Vec<ReorderStep>,
+}
+
+/// 合并的结果类别。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum MergeKind {
+    /// 已经在目标提交上，什么都没做。
+    AlreadyUpToDate,
+    /// 快进（没有产生新提交）。
+    FastForward,
+    /// 产生了合并提交。
+    MergeCommit,
+    /// 产生冲突，停在冲突状态。
+    Conflicted,
+}
+
+/// 合并结果。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MergeOutcome {
+    /// 结果类别。
+    pub kind: MergeKind,
+    /// 合并后的 HEAD oid（冲突时为 `None`）。
+    pub oid: Option<String>,
+    /// 冲突文件（`kind == Conflicted` 时非空）。
+    pub conflicts: Vec<RepoPath>,
+}
+
+impl MergeOutcome {
+    /// 是否产生了冲突。
+    pub fn has_conflicts(&self) -> bool {
+        !self.conflicts.is_empty()
+    }
+}
+
+/// fetch 结果。
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct FetchOutcome {
+    /// 实际使用的远端名。
+    pub remote: String,
+    /// 引用变更明细。
+    pub updates: Vec<RefUpdate>,
+}
+
+impl FetchOutcome {
+    /// 有实际变更的引用条数（不含 `UpToDate`）。
+    pub fn changed_refs(&self) -> usize {
+        self.updates
+            .iter()
+            .filter(|update| update.kind != super::refs::RefUpdateKind::UpToDate)
+            .count()
+    }
+}
+
+/// pull 结果。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PullOutcome {
+    /// fetch 阶段的结果。
+    pub fetch: FetchOutcome,
+    /// 实际使用的策略。
+    pub strategy: PullStrategy,
+    /// 本地是否本来就已经是最新（此时不会有合并结果）。
+    pub up_to_date: bool,
+    /// 合并 / 快进阶段的结果；`up_to_date` 时为 `None`。
+    pub merge: Option<MergeOutcome>,
+}
+
+impl PullOutcome {
+    /// 是否产生了冲突。
+    pub fn has_conflicts(&self) -> bool {
+        self.merge.as_ref().is_some_and(MergeOutcome::has_conflicts)
+    }
+}
+
+/// push 被拒绝的原因。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PushRejection {
+    /// 被拒绝的引用短名。
+    pub name: String,
+    /// 原因（原始 stderr 片段，已脱敏）。
+    pub reason: String,
+    /// 是否属于"非快进"这一类——界面据此提供 `force-with-lease` 选项；
+    /// 其他原因（权限、hook）给这个选项只会误导用户。
+    pub non_fast_forward: bool,
+}
+
+/// push 结果。
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct PushOutcome {
+    /// 实际使用的远端名。
+    pub remote: String,
+    /// 成功推送的引用变更。
+    pub updates: Vec<RefUpdate>,
+    /// 被拒绝的引用。
+    pub rejections: Vec<PushRejection>,
+}
+
+impl PushOutcome {
+    /// 是否全部成功。
+    pub fn is_success(&self) -> bool {
+        self.rejections.is_empty()
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod tests {
+    use super::{
+        CommitSpec, FetchOutcome, MergeKind, MergeOutcome, PullOutcome, PullStrategy, PushOutcome,
+        ReorderAction, ResetMode, ResetSpec, StageSpec,
+    };
+    use crate::git::refs::{RefUpdate, RefUpdateKind};
+
+    #[test]
+    fn only_hard_reset_is_destructive() {
+        assert!(ResetMode::Hard.is_destructive());
+        assert!(!ResetMode::Soft.is_destructive());
+        assert!(!ResetMode::Mixed.is_destructive());
+        assert_eq!(ResetMode::Hard.as_flag(), "--hard");
+    }
+
+    #[test]
+    fn path_scoped_reset_forces_mixed_and_defaults_to_head() {
+        let spec = ResetSpec::paths(None, vec!["a.txt".into()]);
+
+        assert!(spec.is_path_scoped());
+        assert_eq!(spec.revision, "HEAD");
+        assert_eq!(spec.mode, ResetMode::Mixed);
+    }
+
+    #[test]
+    fn commit_subject_is_the_first_line_and_empty_message_is_safe() {
+        let multi = CommitSpec::new("subject line\n\nbody text");
+        assert_eq!(multi.subject(), "subject line");
+
+        let empty = CommitSpec::new("");
+        assert_eq!(empty.subject(), "");
+    }
+
+    #[test]
+    fn pull_strategies_map_to_their_git_flags() {
+        assert_eq!(PullStrategy::FastForwardOnly.as_flag(), "--ff-only");
+        assert_eq!(PullStrategy::Merge.as_flag(), "--no-rebase");
+        assert_eq!(PullStrategy::Rebase.as_flag(), "--rebase");
+    }
+
+    #[test]
+    fn push_spec_has_no_bare_force_option() {
+        // 这条断言的意义是"红线 R7 在类型层面被表达出来"：
+        // 没有字段可以表达裸 --force，因此也不可能有调用点误用它。
+        let spec = super::PushSpec::new().with_force_with_lease(true);
+        assert!(spec.force_with_lease);
+    }
+
+    #[test]
+    fn fetch_changed_refs_excludes_unchanged_ones() {
+        let outcome = FetchOutcome {
+            remote: "origin".to_owned(),
+            updates: vec![
+                RefUpdate {
+                    name: "origin/main".to_owned(),
+                    old_oid: Some("a".to_owned()),
+                    new_oid: Some("b".to_owned()),
+                    kind: RefUpdateKind::Updated,
+                    reason: None,
+                },
+                RefUpdate {
+                    name: "origin/other".to_owned(),
+                    old_oid: Some("c".to_owned()),
+                    new_oid: Some("c".to_owned()),
+                    kind: RefUpdateKind::UpToDate,
+                    reason: None,
+                },
+            ],
+        };
+
+        assert_eq!(outcome.changed_refs(), 1);
+    }
+
+    #[test]
+    fn pull_outcome_reports_conflicts_through_its_merge_result() {
+        let conflicted = PullOutcome {
+            fetch: FetchOutcome::default(),
+            strategy: PullStrategy::Merge,
+            up_to_date: false,
+            merge: Some(MergeOutcome {
+                kind: MergeKind::Conflicted,
+                oid: None,
+                conflicts: vec!["a.txt".into()],
+            }),
+        };
+        let fast_forwarded = PullOutcome {
+            merge: Some(MergeOutcome {
+                kind: MergeKind::FastForward,
+                oid: Some("abc".to_owned()),
+                conflicts: Vec::new(),
+            }),
+            ..conflicted.clone()
+        };
+
+        assert!(conflicted.has_conflicts());
+        assert!(!fast_forwarded.has_conflicts());
+    }
+
+    #[test]
+    fn up_to_date_pull_has_no_merge_result_at_all() {
+        let outcome = PullOutcome {
+            fetch: FetchOutcome::default(),
+            strategy: PullStrategy::FastForwardOnly,
+            up_to_date: true,
+            merge: None,
+        };
+
+        assert!(!outcome.has_conflicts());
+    }
+
+    #[test]
+    fn push_outcome_success_requires_no_rejections() {
+        let ok = PushOutcome::default();
+        let rejected = PushOutcome {
+            remote: "origin".to_owned(),
+            updates: Vec::new(),
+            rejections: vec![super::PushRejection {
+                name: "main".to_owned(),
+                reason: "non-fast-forward".to_owned(),
+                non_fast_forward: true,
+            }],
+        };
+
+        assert!(ok.is_success());
+        assert!(!rejected.is_success());
+    }
+
+    #[test]
+    fn reorder_actions_map_to_rebase_instructions_and_flag_content_loss() {
+        assert_eq!(ReorderAction::Pick.as_instruction(), "pick");
+        assert_eq!(ReorderAction::Fixup.as_instruction(), "fixup");
+        assert!(ReorderAction::Drop.discards_content());
+        assert!(ReorderAction::Fixup.discards_content());
+        assert!(!ReorderAction::Pick.discards_content());
+        assert!(!ReorderAction::Squash.discards_content());
+    }
+
+    #[test]
+    fn stage_spec_distinguishes_paths_patch_and_all() {
+        let paths = StageSpec::Paths(vec!["a.txt".into()]);
+        let patch = StageSpec::Patch(b"diff --git a/x b/x\n".to_vec());
+        let all = StageSpec::All;
+
+        assert_ne!(paths, patch);
+        assert_ne!(patch, all);
+    }
+}

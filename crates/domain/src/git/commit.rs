@@ -1,5 +1,44 @@
 //! 提交模型（`git log --format=...` 的语义）。
 
+/// 作者 / 提交者身份。
+///
+/// 嵌套而不是把 `author_name`/`author_email`/`author_time` 平铺在 [`Commit`] 上：
+/// PLAN §5.4 的数据模型就是 `author{name,email,time}`，而且"给谁署名"在
+/// [`super::spec::CommitSpec`] 里也要用同一组字段（amend 保留原作者）。
+/// 平铺会让同一组语义出现两种形状。
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Signature {
+    /// 姓名。
+    pub name: String,
+    /// 邮箱。
+    pub email: String,
+    /// 时间（Unix 秒）。无法解析或未指定时为 `None`。
+    pub time: Option<i64>,
+}
+
+impl Signature {
+    /// 用姓名与邮箱创建（时间未知）。
+    pub fn new(name: impl Into<String>, email: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            email: email.into(),
+            time: None,
+        }
+    }
+
+    /// 附加时间。
+    #[must_use]
+    pub fn with_time(mut self, time: i64) -> Self {
+        self.time = Some(time);
+        self
+    }
+
+    /// `Name <email>` 形式，用于生成等价命令与日志。
+    pub fn display(&self) -> String {
+        format!("{} <{}>", self.name, self.email)
+    }
+}
+
 /// `git log --format=%G?` 给出的签名校验状态。
 ///
 /// T1.1 只做**占位解析**（把字符映射成枚举）；真正的校验与展示（可信度、
@@ -62,24 +101,21 @@ pub struct Commit {
     pub oid: String,
     /// 父提交 oid，顺序与 Git 一致（第一个是 first-parent）。根提交为空。
     pub parents: Vec<String>,
-    /// 作者名。
-    pub author_name: String,
-    /// 作者邮箱。
-    pub author_email: String,
-    /// 作者时间（Unix 秒）。无法解析时为 `None`——不伪造 1970 年的时间戳。
-    pub author_time: Option<i64>,
-    /// 提交者名。
-    pub committer_name: String,
-    /// 提交者邮箱。
-    pub committer_email: String,
-    /// 提交时间（Unix 秒）。
-    pub committer_time: Option<i64>,
+    /// 作者。
+    pub author: Signature,
+    /// 提交者。
+    pub committer: Signature,
     /// 指向该提交的引用（`%D` 的输出，如 `HEAD -> main`、`tag: v1.0.0`）。
     pub refs: Vec<String>,
     /// 签名校验状态。
     pub signature: SignatureStatus,
     /// 提交信息的第一行（subject）。
     pub subject: String,
+    /// 提交信息正文（subject 之后的内容）。
+    ///
+    /// T1.1 的 `LOG_FORMAT` 不含 `%b`（列表页不需要正文，带上它会让大仓库的
+    /// 日志输出成倍增长）；只有 `show()` 单条查询会填这个字段，其余为 `None`。
+    pub body: Option<String>,
 }
 
 impl Commit {
@@ -97,7 +133,7 @@ impl Commit {
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
-    use super::SignatureStatus;
+    use super::{Signature, SignatureStatus};
 
     #[test]
     fn signature_characters_map_to_their_status() {
@@ -115,5 +151,13 @@ mod tests {
         assert!(!SignatureStatus::Unsigned.is_valid());
         assert!(!SignatureStatus::Bad.is_valid());
         assert!(!SignatureStatus::MissingKey.is_valid());
+    }
+
+    #[test]
+    fn signature_display_is_the_git_identity_form() {
+        let signature = Signature::new("Ada", "ada@example.com").with_time(1_704_164_645);
+
+        assert_eq!(signature.display(), "Ada <ada@example.com>");
+        assert_eq!(signature.time, Some(1_704_164_645));
     }
 }
