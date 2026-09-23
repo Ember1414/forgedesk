@@ -490,6 +490,12 @@ pub struct CloneSpec {
     pub bare: bool,
     /// 是否递归初始化子模块（`--recurse-submodules`）。
     pub recurse_submodules: bool,
+    /// 是否只取单个分支（`--single-branch`）。
+    ///
+    /// 与 `--branch` 的区别：`--branch` 决定**检出**哪个分支，
+    /// `--single-branch` 决定**只取**哪个分支的引用（其余分支不下载）。
+    /// 大仓库上这个区别就是几百 MB。
+    pub single_branch: bool,
 }
 
 impl CloneSpec {
@@ -502,6 +508,7 @@ impl CloneSpec {
             branch: None,
             bare: false,
             recurse_submodules: false,
+            single_branch: false,
         }
     }
 
@@ -523,6 +530,13 @@ impl CloneSpec {
     #[must_use]
     pub fn with_submodules(mut self, recurse: bool) -> Self {
         self.recurse_submodules = recurse;
+        self
+    }
+
+    /// 只取单个分支的引用。
+    #[must_use]
+    pub fn with_single_branch(mut self, single: bool) -> Self {
+        self.single_branch = single;
         self
     }
 }

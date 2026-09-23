@@ -313,6 +313,9 @@ pub fn clone_args(spec: &CloneSpec) -> Vec<String> {
     if spec.recurse_submodules {
         args.push("--recurse-submodules".to_owned());
     }
+    if spec.single_branch {
+        args.push("--single-branch".to_owned());
+    }
     args.push("--".to_owned());
     args.push(spec.url.clone());
     args.push(spec.into.to_string_lossy().into_owned());
@@ -834,6 +837,38 @@ mod tests {
         // URL 与目标目录放在 `--` 之后，避免以 `-` 开头的值被当成开关
         let separator = args.iter().position(|arg| arg == "--").unwrap();
         assert_eq!(args[separator + 1], "https://example.com/r.git");
+    }
+
+    #[test]
+    fn clone_forwards_branch_submodules_and_single_branch() {
+        let spec = CloneSpec::new("https://example.com/r.git", "dest")
+            .with_branch("release")
+            .with_submodules(true)
+            .with_single_branch(true);
+        let args = clone_args(&spec);
+
+        assert!(args.contains(&"--branch".to_owned()));
+        assert!(args.contains(&"release".to_owned()));
+        assert!(args.contains(&"--recurse-submodules".to_owned()));
+        assert!(args.contains(&"--single-branch".to_owned()));
+    }
+
+    #[test]
+    fn clone_omits_the_optional_switches_by_default() {
+        let args = clone_args(&CloneSpec::new("https://example.com/r.git", "dest"));
+
+        for absent in [
+            "--depth",
+            "--branch",
+            "--bare",
+            "--recurse-submodules",
+            "--single-branch",
+        ] {
+            assert!(
+                !args.contains(&absent.to_owned()),
+                "默认克隆不应带 {absent}：{args:?}"
+            );
+        }
     }
 
     #[test]

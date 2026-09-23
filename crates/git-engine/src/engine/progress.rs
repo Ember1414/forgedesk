@@ -8,6 +8,8 @@
 //! 解析放在这里而不是散在四个写方法里：四种操作的进度行格式由 git 统一产生
 //! （`Counting objects:` / `Receiving objects:` …），一个解析器覆盖全部。
 
+use forgedesk_diagnostics::sanitize_log;
+
 /// 进度所处的阶段。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ProgressPhase {
@@ -28,6 +30,23 @@ pub enum ProgressPhase {
     RefUpdate,
     /// 其他（`remote:` 前缀的用户侧输出等）。
     Other,
+}
+
+impl ProgressPhase {
+    /// 稳定的短名（`job:progress` 事件的 `phase` 字段）。
+    ///
+    /// 界面按它选 i18n 文案，因此**不能**改：改了文案 key 就失效了。
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Counting => "counting",
+            Self::Compressing => "compressing",
+            Self::Receiving => "receiving",
+            Self::Resolving => "resolving",
+            Self::Writing => "writing",
+            Self::RefUpdate => "ref-update",
+            Self::Other => "other",
+        }
+    }
 }
 
 /// 一条进度事件。
@@ -169,8 +188,13 @@ impl ProgressSink {
     }
 
     /// 解析一行 stderr 并投递（无法识别时忽略）。
+    ///
+    /// 行先经过 `sanitize_log`：进度行里可能出现 `remote:` 回显的 URL，
+    /// 而 [`ProgressEvent::message`] 会一路走到界面与日志（红线 R8）。
+    /// 脱敏放在**入口**而不是出口：出口有多个（日志、事件、诊断），
+    /// 只在一个出口做脱敏迟早会漏掉新加的那个。
     pub fn emit_line(&self, line: &str) {
-        if let Some(event) = parse_progress_line(line) {
+        if let Some(event) = parse_progress_line(&sanitize_log(line)) {
             self.emit(event);
         }
     }
@@ -181,7 +205,9 @@ impl ProgressSink {
     pub fn handler(&self) -> impl Fn(&str) + Send + Sync + 'static {
         let handler = self.handler.clone();
         move |line: &str| {
-            if let (Some(handler), Some(event)) = (&handler, parse_progress_line(line)) {
+            if let (Some(handler), Some(event)) =
+                (&handler, parse_progress_line(&sanitize_log(line)))
+            {
                 handler(event);
             }
         }
@@ -293,5 +319,35 @@ mod tests {
         .unwrap();
 
         assert_eq!(*collected.lock().unwrap(), 1);
+    }
+
+    #[test]
+    fn phase_short_names_are_stable() {
+        // 这些短名是 job:progress 事件的 phase 字段，界面按它选 i18n 文案
+        assert_eq!(ProgressPhase::Counting.as_str(), "counting");
+        assert_eq!(ProgressPhase::RefUpdate.as_str(), "ref-update");
+        assert_eq!(ProgressPhase::Other.as_str(), "other");
+    }
+
+    #[test]
+    fn progress_messages_are_sanitised_before_they_leave_the_sink() {
+        let collected = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let sink = ProgressSink::new({
+            let collected = std::sync::Arc::clone(&collected);
+            move |event: ProgressEvent| collected.lock().unwrap().push(event.message)
+        });
+
+        // 远端可以在 `remote:` 行里回显带凭据的 URL；这条消息会一路走到界面与日志
+        sink.emit_line(
+            "remote: fetching https://ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789@example.com/a.git",
+        );
+
+        let messages = collected.lock().unwrap();
+        assert_eq!(messages.len(), 1);
+        assert!(
+            !messages[0].contains("ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"),
+            "进度消息未脱敏：{}",
+            messages[0]
+        );
     }
 }
