@@ -27,6 +27,7 @@
 //! （lossy 字符串 + "是否合法 UTF-8"标记），那是 T1.4 的 DTO 层工作。
 //! 现在随便定一个形状，只会在前端接上时返工。
 
+pub mod audit;
 pub mod commit;
 pub mod diff;
 pub mod index;
@@ -37,7 +38,12 @@ pub mod repository;
 pub mod spec;
 pub mod stash;
 pub mod status;
+pub mod version;
 
+pub use audit::{
+    audit_config, AuditFinding, AuditFindingId, AuditSeverity, ConfigEntry, ConfigScope,
+    RepoAuditReport,
+};
 pub use commit::{Commit, Signature, SignatureStatus};
 pub use diff::{
     DiffChangeKind, DiffHunk, DiffLine, DiffLineKind, DiffReport, DiffSpec, DiffTarget, FileDiff,
@@ -47,7 +53,7 @@ pub use index::{StageEntry, UnmergedEntry, UnmergedStage};
 pub use path::RepoPath;
 pub use query::{LogQuery, Page};
 pub use refs::{Branch, RefUpdate, RefUpdateKind, Remote, RemoteKind, Tag};
-pub use repository::{BranchLabel, RepoId, RepositoryInfo};
+pub use repository::{BranchLabel, RepoId, RepositoryInfo, Worktree};
 pub use spec::{
     CheckoutSpec, CloneSpec, CommitSpec, FetchOutcome, FetchSpec, InitSpec, MergeKind,
     MergeOutcome, MergeSpec, PullOutcome, PullSpec, PullStrategy, PushOutcome, PushRejection,
@@ -58,3 +64,4 @@ pub use stash::StashEntry;
 pub use status::{
     BranchInfo, ChangeKind, ConflictStages, EntryKind, FileChange, StatusReport, SubmoduleState,
 };
+pub use version::{GitVersion, MINIMUM_GIT_VERSION};
