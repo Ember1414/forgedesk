@@ -9,7 +9,8 @@ name: Deploy site
 #   Direct Upload 只需要一个仅含 Pages: Edit 的 API Token 存在 Secrets 里，
 #   且构建入口始终是我们自己的 CI，与"CI 是唯一构建入口"的约定一致。
 #
-# 计费：Linux runner 1x，静态站部署约 1-2 分钟，对私有阶段配额友好。
+# 凭据未配置时本工作流会**优雅跳过**而不是失败：
+#   站点托管属于 M7 的交付物，在 Token 配好之前不应该让每次 main 推送都变红。
 # ===========================================================================
 
 on:
@@ -38,10 +39,25 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # GitHub Actions 不允许在 if 中直接引用 secrets，因此先探测再作为步骤输出传递
+      - name: Check Cloudflare credentials
+        id: creds
+        run: |
+          if [ -z "${CF_TOKEN}" ]; then
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::warning title=跳过站点部署::未配置 CLOUDFLARE_API_TOKEN，已跳过部署。配置方法见 docs/adr/ADR-003-cloudflare-instead-of-github-pages.md"
+          else
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
       - name: Setup pnpm
+        if: steps.creds.outputs.available == 'true'
         uses: pnpm/action-setup@v4
 
       - name: Setup Node
+        if: steps.creds.outputs.available == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -50,6 +66,7 @@ jobs:
       # 保留该步骤是为了让流程可在全新账号上自举：项目已存在时 create 会失败，
       # 因此允许失败——真正的成败由下一步的 deploy 判定。
       - name: Ensure Pages project exists
+        if: steps.creds.outputs.available == 'true'
         continue-on-error: true
         run: npx --yes wrangler@4 pages project create forgedesk --production-branch=main
         env:
@@ -59,12 +76,14 @@ jobs:
       # 使用 npx 而非 pnpm dlx：pnpm 遇到需要构建的依赖（esbuild/workerd）时会弹出
       # 交互式选择框，且 dlx 的隔离环境不读取项目配置，在 CI 中会卡住。
       - name: Deploy
+        if: steps.creds.outputs.available == 'true'
         run: npx --yes wrangler@4 pages deploy site --project-name=forgedesk --branch=main
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
       - name: Summary
+        if: steps.creds.outputs.available == 'true'
         run: |
           {
             echo "### 站点已部署"
