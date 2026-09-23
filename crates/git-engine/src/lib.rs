@@ -2,18 +2,21 @@
 //!
 //! 归属里程碑：见 docs/PLAN.md §5.6（引擎抽象）与 §5.2（模块划分）。
 //!
-//! M1/T1.1 先落地两个**纯能力**模块，它们是后续所有 git 操作的公共底座：
+//! 模块分层（自下而上）：
 //!
 //! - [`process`]：`GitProcess` 安全执行器（参数数组、固定环境、超时、取消、
 //!   字节级捕获、脱敏日志）。所有 CLI 调用必须经它，不允许在别处直接
 //!   `Command::new("git")`——见该模块头的理由。
-//! - [`parsers`]：git 机器可读输出的解析器（porcelain v2 / numdiff / log / ls-files）。
+//! - [`parsers`]：git 机器可读输出的解析器（porcelain v2 / numstat / log / ls-files）。
 //!   它们不做 IO，因此可以用固定样本完整覆盖边界（`tests/fixtures/`）。
+//! - [`engine`]：`GitEngine` trait 与两套实现，以及参数构造、进度解析与同步桥。
 //!
-//! `GitEngine` trait 与双实现（`CliGitEngine` / `Libgit2Engine`）落在 T1.2。
+//! 谁来做哪一半由 `services` 层决定：读走 libgit2（无进程开销、可高频调用），
+//! 写走系统 git CLI（完整复刻用户环境：hooks、attributes、签名、filter）。
 
 #![forbid(unsafe_code)]
 
+pub mod engine;
 pub mod parsers;
 pub mod process;
 

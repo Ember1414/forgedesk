@@ -1,0 +1,801 @@
+//! 读操作的实现与输出解析。
+//!
+//! 每个格式串都紧挨着它的解析器：格式串与解析器必须成对演进，
+//! 分开写迟早出现"改了 `--format` 忘了改解析器"（表现是字段整体错位，
+//! 而不是报错）。
+//!
+//! 解析统一走**字节切片**（同 T1.1）：路径可能不是合法 UTF-8。
+
+use std::path::Path;
+
+use forgedesk_domain::git::{
+    Branch, Commit, DiffChangeKind, DiffReport, DiffSpec, FileDiff, FileStat, LogQuery, Page,
+    ReflogEntry, Remote, RemoteKind, RepoId, RepositoryInfo, StashEntry, StatusReport, Tag,
+};
+use forgedesk_domain::{AppError, AppResult, ErrorCode};
+
+use super::args::{self, GitInvocation};
+use super::CliGitEngine;
+use crate::parsers::{parse_diff_numstat, parse_log_format, parse_status_porcelain_v2, LOG_FORMAT};
+use crate::process::GitOutput;
+
+/// 字段分隔符（US），与 T1.1 的 `LOG_FORMAT` 保持一致。
+const FIELD: char = '\u{1f}';
+
+/// `git for-each-ref` 的分支格式。
+const BRANCH_FORMAT: &str =
+    "%(refname)\u{1f}%(refname:short)\u{1f}%(objectname)\u{1f}%(upstream:short)\u{1f}%(upstream:track)\u{1f}%(HEAD)";
+
+/// `git for-each-ref` 的标签格式。
+const TAG_FORMAT: &str =
+    "%(refname:short)\u{1f}%(objectname)\u{1f}%(objecttype)\u{1f}%(*objectname)\u{1f}%(creatordate:unix)\u{1f}%(contents:subject)";
+
+/// `git stash list` 的格式。
+const STASH_FORMAT: &str = "%gd\u{1f}%H\u{1f}%P\u{1f}%ct\u{1f}%gs";
+
+/// `git reflog` 的格式。
+const REFLOG_FORMAT: &str = "%H\u{1f}%gd\u{1f}%gs\u{1f}%ct";
+
+/// reflog 的默认条数上限。
+pub const DEFAULT_REFLOG_LIMIT: usize = 200;
+
+/// 执行一条读命令并返回原始输出。
+fn run(engine: &CliGitEngine, repo: &RepoId, invocation: GitInvocation) -> AppResult<GitOutput> {
+    engine.run_read(repo, invocation)
+}
+
+// ---------------------------------------------------------------- discover
+
+/// 从任意目录向上查找仓库。
+///
+/// 为什么用 `rev-parse` 而不是 `status`：`status` 会计算整个工作区的差异，
+/// 在十万文件级别的仓库上要几秒；而"打开仓库"这一步只需要知道仓库在哪、
+/// HEAD 是什么。M1 的验收标准是"打开仓库 ≤2s"，这里的差别就是那 2 秒。
+pub(super) fn discover(engine: &CliGitEngine, path: &Path) -> AppResult<RepositoryInfo> {
+    let probe = GitInvocation::new(vec![
+        "rev-parse".to_owned(),
+        "--absolute-git-dir".to_owned(),
+        "--is-bare-repository".to_owned(),
+        "--is-inside-work-tree".to_owned(),
+    ]);
+    let output = engine.run_checked_at(path, probe, super::RunKind::Read)?;
+    let stdout = output.stdout_lossy();
+    let mut lines = stdout.lines().map(str::trim);
+
+    let git_dir = lines.next().unwrap_or_default().to_owned();
+    let is_bare = lines.next().unwrap_or_default() == "true";
+    let inside_work_tree = lines.next().unwrap_or_default() == "true";
+    if git_dir.is_empty() {
+        return Err(
+            AppError::new(ErrorCode::PathNotRepo, "git did not report a git directory")
+                .with_hint(path.to_string_lossy().into_owned()),
+        );
+    }
+
+    // 裸仓库没有工作区；`--show-toplevel` 在裸仓库里会失败，因此要先判断
+    let workdir = if inside_work_tree {
+        let invocation =
+            GitInvocation::new(vec!["rev-parse".to_owned(), "--show-toplevel".to_owned()]);
+        let output = engine.run_checked_at(path, invocation, super::RunKind::Read)?;
+        let text = output.stdout_lossy().trim().to_owned();
+        if text.is_empty() {
+            None
+        } else {
+            Some(std::path::PathBuf::from(text))
+        }
+    } else {
+        None
+    };
+
+    let root = workdir
+        .clone()
+        .unwrap_or_else(|| std::path::PathBuf::from(&git_dir));
+    let repo = RepoId::new(root);
+
+    // HEAD 是分支名还是游离：`symbolic-ref` 在游离 HEAD 时以退出码 1 失败，
+    // 这是**正常状态**，不能当错误上报
+    let head = head_branch(engine, &repo)?;
+    // 有提交才有 oid；空仓库在这里以非零退出，同样属于正常状态
+    let has_commits = engine
+        .run_at(
+            repo.root(),
+            GitInvocation::new(vec![
+                "rev-parse".to_owned(),
+                "--verify".to_owned(),
+                "--quiet".to_owned(),
+                "HEAD".to_owned(),
+            ]),
+            super::RunKind::Read,
+        )?
+        .success();
+
+    let upstream = upstream_of(engine, &repo);
+    // 游离 HEAD 与空仓库都没有分支名，区别在"有没有提交"
+    let detached = head.is_none() && has_commits;
+
+    Ok(RepositoryInfo {
+        id: repo,
+        workdir,
+        git_dir: std::path::PathBuf::from(git_dir),
+        is_bare,
+        is_empty: !has_commits,
+        head,
+        detached,
+        upstream,
+    })
+}
+
+/// 当前分支短名；游离 HEAD 或空仓库返回 `None`。
+fn head_branch(engine: &CliGitEngine, repo: &RepoId) -> AppResult<Option<String>> {
+    let invocation = GitInvocation::new(vec![
+        "symbolic-ref".to_owned(),
+        "--short".to_owned(),
+        "--quiet".to_owned(),
+        "HEAD".to_owned(),
+    ]);
+    let output = engine.run_at(repo.root(), invocation, super::RunKind::Read)?;
+    if !output.success() {
+        return Ok(None);
+    }
+    let name = output.stdout_lossy().trim().to_owned();
+    Ok(if name.is_empty() { None } else { Some(name) })
+}
+
+/// 上游短名；没有上游返回 `None`。
+fn upstream_of(engine: &CliGitEngine, repo: &RepoId) -> Option<String> {
+    let invocation = GitInvocation::new(vec![
+        "rev-parse".to_owned(),
+        "--abbrev-ref".to_owned(),
+        "--symbolic-full-name".to_owned(),
+        "@{upstream}".to_owned(),
+    ]);
+    let output = engine
+        .run_at(repo.root(), invocation, super::RunKind::Read)
+        .ok()?;
+    if !output.success() {
+        return None;
+    }
+    let name = output.stdout_lossy().trim().to_owned();
+    if name.is_empty() {
+        None
+    } else {
+        Some(name)
+    }
+}
+
+// ---------------------------------------------------------------- status
+
+/// 工作区状态。
+pub(super) fn status(engine: &CliGitEngine, repo: &RepoId) -> AppResult<StatusReport> {
+    let output = run(engine, repo, GitInvocation::new(args::status_args()))?;
+    Ok(parse_status_porcelain_v2(&output.stdout))
+}
+
+// ---------------------------------------------------------------- diff
+
+/// 文件级 diff。
+///
+/// 两次调用：`--numstat` 给增删行数，`--name-status` 给变更类别
+/// （新增/删除/重命名…）。`--numstat` 本身**不带**变更类别：
+/// `1 1 path` 既可能是"修改"也可能是"新增后又改了"，靠行数猜会猜错。
+pub(super) fn diff(engine: &CliGitEngine, repo: &RepoId, spec: &DiffSpec) -> AppResult<DiffReport> {
+    let numstat = run(engine, repo, args::diff_args(spec)?)?;
+    let stats = parse_diff_numstat(&numstat.stdout);
+
+    let mut name_status_args = args::diff_args(spec)?.args;
+    // 把 --numstat 换成 --name-status，其余（目标、路径过滤、重命名检测）完全一致
+    if let Some(position) = name_status_args.iter().position(|arg| arg == "--numstat") {
+        name_status_args[position] = "--name-status".to_owned();
+    }
+    let names = run(engine, repo, GitInvocation::new(name_status_args))?;
+    let kinds = parse_name_status_z(&names.stdout);
+
+    let kind_for = |path: &forgedesk_domain::git::RepoPath| -> (DiffChangeKind, Option<forgedesk_domain::git::RepoPath>) {
+        kinds
+            .iter()
+            .find(|(_, target, _)| target == path)
+            .map(|(kind, _, original)| (*kind, original.clone()))
+            .unwrap_or((DiffChangeKind::Unknown, None))
+    };
+
+    let files = stats
+        .into_iter()
+        .map(|stat: FileStat| {
+            let (change, original) = kind_for(&stat.path);
+            FileDiff {
+                original_path: stat.original_path.or(original),
+                path: stat.path,
+                change,
+                binary: stat.binary,
+                additions: stat.additions.unwrap_or(0),
+                deletions: stat.deletions.unwrap_or(0),
+                // 行级内容由 T1.5 的补丁解析填充
+                hunks: Vec::new(),
+            }
+        })
+        .collect();
+
+    Ok(DiffReport {
+        files,
+        truncated_files: 0,
+    })
+}
+
+/// 解析 `git diff --name-status -z`。
+///
+/// 格式（实测 git 2.54）：普通条目是 `<状态>\0<路径>\0`；
+/// 重命名/复制是 `<状态>\0<来源>\0<目标>\0`。状态首字母决定后面跟几个路径。
+fn parse_name_status_z(
+    input: &[u8],
+) -> Vec<(
+    DiffChangeKind,
+    forgedesk_domain::git::RepoPath,
+    Option<forgedesk_domain::git::RepoPath>,
+)> {
+    let mut out = Vec::new();
+    let mut records = input
+        .split(|byte| *byte == 0)
+        .filter(|part| !part.is_empty());
+
+    while let Some(status) = records.next() {
+        let kind = match status.first() {
+            Some(b'A') => DiffChangeKind::Added,
+            Some(b'D') => DiffChangeKind::Deleted,
+            Some(b'M') => DiffChangeKind::Modified,
+            Some(b'R') => DiffChangeKind::Renamed,
+            Some(b'C') => DiffChangeKind::Copied,
+            Some(b'T') => DiffChangeKind::TypeChanged,
+            _ => DiffChangeKind::Unknown,
+        };
+        let is_rename = matches!(kind, DiffChangeKind::Renamed | DiffChangeKind::Copied);
+
+        if is_rename {
+            let (Some(original), Some(target)) = (records.next(), records.next()) else {
+                break;
+            };
+            out.push((
+                kind,
+                forgedesk_domain::git::RepoPath::from_bytes(target.to_vec()),
+                Some(forgedesk_domain::git::RepoPath::from_bytes(
+                    original.to_vec(),
+                )),
+            ));
+        } else {
+            let Some(target) = records.next() else { break };
+            out.push((
+                kind,
+                forgedesk_domain::git::RepoPath::from_bytes(target.to_vec()),
+                None,
+            ));
+        }
+    }
+
+    out
+}
+
+// ---------------------------------------------------------------- log / show
+
+/// 分页查询提交历史。
+pub(super) fn log(
+    engine: &CliGitEngine,
+    repo: &RepoId,
+    query: &LogQuery,
+) -> AppResult<Page<Commit>> {
+    let output = run(engine, repo, args::log_args(query, LOG_FORMAT)?)?;
+    let commits = parse_log_format(&output.stdout);
+    Ok(Page::from_over_fetch(commits, query.limit))
+}
+
+/// 单条提交（含正文）。
+///
+/// 用与列表相同的格式再加 `%b`：两个格式串不同会让"从列表点进详情"时
+/// 同一提交出现两种字段内容，很难排查。`body` 是唯一的差异，且是追加字段。
+pub(super) fn show(engine: &CliGitEngine, repo: &RepoId, revision: &str) -> AppResult<Commit> {
+    let format = format!("{LOG_FORMAT}\u{1f}%b");
+    let output = run(
+        engine,
+        repo,
+        GitInvocation::new(args::show_args(revision, &format)),
+    )?;
+    let commits = parse_log_format_with_body(&output.stdout);
+    commits.into_iter().next().ok_or_else(|| {
+        AppError::new(
+            ErrorCode::NotFound,
+            format!("revision `{revision}` produced no commit"),
+        )
+        .with_hint(revision.to_owned())
+    })
+}
+
+/// 解析带 `%b` 的提交记录（`show` 用）。
+fn parse_log_format_with_body(input: &[u8]) -> Vec<Commit> {
+    // 复用列表解析器再补正文：`%b` 是最后一个字段，
+    // 因此"按字段数切分"的校验会失败，这里先把 `%b` 摘掉再交给它。
+    let mut out = Vec::new();
+    for record in input.split(|byte| *byte == 0x1e) {
+        let record = record
+            .strip_suffix(b"\n")
+            .or_else(|| record.strip_suffix(b"\0"))
+            .unwrap_or(record);
+        let trimmed = match record.first() {
+            Some(b'\n') => &record[1..],
+            _ => record,
+        };
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        // 从**最后一个**字段分隔符处切开：正文里可能含分隔符的极端情况
+        // 也不影响前面字段的切分
+        let Some(separator) = trimmed.iter().rposition(|byte| *byte == 0x1f) else {
+            continue;
+        };
+        let (head, body) = trimmed.split_at(separator);
+        let mut commits = parse_log_format(head);
+        if let Some(commit) = commits.pop() {
+            let body_bytes = &body[1..];
+            let body = String::from_utf8_lossy(body_bytes).trim().to_owned();
+            out.push(Commit {
+                body: if body.is_empty() { None } else { Some(body) },
+                ..commit
+            });
+        }
+    }
+    out
+}
+
+// ---------------------------------------------------------------- refs
+
+/// 分支列表。
+pub(super) fn branch_list(engine: &CliGitEngine, repo: &RepoId) -> AppResult<Vec<Branch>> {
+    let output = run(
+        engine,
+        repo,
+        GitInvocation::new(args::branch_args(BRANCH_FORMAT)),
+    )?;
+    Ok(parse_branches(&output.stdout))
+}
+
+fn parse_branches(input: &[u8]) -> Vec<Branch> {
+    let mut out = Vec::new();
+    for line in input.split(|byte| *byte == b'\n') {
+        if line.is_empty() {
+            continue;
+        }
+        let text = String::from_utf8_lossy(line);
+        let fields: Vec<&str> = text.split(FIELD).collect();
+        if fields.len() < 6 {
+            continue;
+        }
+
+        let full_ref = fields[0];
+        let short = fields[1].to_owned();
+        let target = fields[2].to_owned();
+        let upstream = empty_to_none(fields[3]);
+        let track = fields[4];
+        let is_remote = full_ref.starts_with("refs/remotes/");
+
+        // `[ahead 1, behind 2]` / `[gone]` / 空
+        let upstream_gone = track.contains("gone");
+        let (ahead, behind) = parse_track(track);
+
+        out.push(Branch {
+            name: short,
+            is_remote,
+            is_head: fields[5].trim() == "*",
+            target,
+            upstream,
+            ahead,
+            behind,
+            upstream_gone,
+        });
+    }
+    out
+}
+
+/// 解析 `%(upstream:track)`：`[ahead 1, behind 2]`。
+fn parse_track(track: &str) -> (Option<i64>, Option<i64>) {
+    let mut ahead = None;
+    let mut behind = None;
+    for part in track.trim_matches(['[', ']']).split(',') {
+        let part = part.trim();
+        if let Some(value) = part.strip_prefix("ahead ") {
+            ahead = value.trim().parse::<i64>().ok();
+        } else if let Some(value) = part.strip_prefix("behind ") {
+            behind = value.trim().parse::<i64>().ok();
+        }
+    }
+    (ahead, behind)
+}
+
+/// 标签列表。
+pub(super) fn tag_list(engine: &CliGitEngine, repo: &RepoId) -> AppResult<Vec<Tag>> {
+    let output = run(engine, repo, GitInvocation::new(args::tag_args(TAG_FORMAT)))?;
+    Ok(parse_tags(&output.stdout))
+}
+
+fn parse_tags(input: &[u8]) -> Vec<Tag> {
+    let mut out = Vec::new();
+    for line in input.split(|byte| *byte == b'\n') {
+        if line.is_empty() {
+            continue;
+        }
+        let text = String::from_utf8_lossy(line);
+        let fields: Vec<&str> = text.split(FIELD).collect();
+        if fields.len() < 6 {
+            continue;
+        }
+
+        let annotated = fields[2] == "tag";
+        let peeled = empty_to_none(fields[3]);
+        out.push(Tag {
+            name: fields[0].to_owned(),
+            target: fields[1].to_owned(),
+            commit: peeled.clone().or_else(|| {
+                // 轻量标签直接指向提交
+                if annotated {
+                    None
+                } else {
+                    Some(fields[1].to_owned())
+                }
+            }),
+            annotated,
+            // `%(contents:subject)` 对轻量标签给的是**提交**的 subject，
+            // 那不是标签信息——把它当 message 会让界面显示"标签信息 = 提交标题"
+            message: if annotated {
+                empty_to_none(fields[5])
+            } else {
+                None
+            },
+            created_at: fields[4].trim().parse::<i64>().ok(),
+        });
+    }
+    out
+}
+
+/// 远端列表。
+pub(super) fn remote_list(engine: &CliGitEngine, repo: &RepoId) -> AppResult<Vec<Remote>> {
+    let output = run(engine, repo, GitInvocation::new(args::remote_args()))?;
+    Ok(parse_remotes(&output.stdout_lossy()))
+}
+
+fn parse_remotes(text: &str) -> Vec<Remote> {
+    let mut out: Vec<Remote> = Vec::new();
+    for line in text.lines() {
+        // `origin\thttps://example.com/r.git (fetch)`
+        let Some((name, rest)) = line.split_once('\t') else {
+            continue;
+        };
+        let (url, kind) = match rest.rsplit_once(' ') {
+            Some((url, kind)) => (url, kind),
+            None => (rest, ""),
+        };
+        let is_push = kind.contains("push");
+
+        // 不依赖"fetch 行一定在 push 行之前"：git 的顺序不保证
+        if let Some(remote) = out.iter_mut().find(|remote| remote.name == name) {
+            if is_push {
+                if url != remote.fetch_url {
+                    remote.push_url = Some(url.to_owned());
+                }
+            } else {
+                remote.fetch_url = url.to_owned();
+                remote.kind = RemoteKind::from_url(url);
+            }
+            continue;
+        }
+
+        out.push(if is_push {
+            Remote {
+                name: name.to_owned(),
+                fetch_url: String::new(),
+                push_url: Some(url.to_owned()),
+                kind: RemoteKind::Other,
+            }
+        } else {
+            Remote {
+                name: name.to_owned(),
+                fetch_url: url.to_owned(),
+                push_url: None,
+                kind: RemoteKind::from_url(url),
+            }
+        });
+    }
+    out
+}
+
+// ---------------------------------------------------------------- stash / reflog
+
+/// stash 列表。
+pub(super) fn stash_list(engine: &CliGitEngine, repo: &RepoId) -> AppResult<Vec<StashEntry>> {
+    let output = run(
+        engine,
+        repo,
+        GitInvocation::new(args::stash_list_args(STASH_FORMAT)),
+    )?;
+    Ok(parse_stash_list(&output.stdout))
+}
+
+fn parse_stash_list(input: &[u8]) -> Vec<StashEntry> {
+    let mut out = Vec::new();
+    for line in input.split(|byte| *byte == b'\n') {
+        if line.is_empty() {
+            continue;
+        }
+        let text = String::from_utf8_lossy(line);
+        let fields: Vec<&str> = text.split(FIELD).collect();
+        if fields.len() < 5 {
+            continue;
+        }
+
+        let parents: Vec<&str> = fields[2]
+            .split(' ')
+            .filter(|part| !part.is_empty())
+            .collect();
+        out.push(StashEntry {
+            index: parse_stash_index(fields[0]).unwrap_or(out.len()),
+            oid: fields[1].to_owned(),
+            base_oid: parents.first().map(|oid| (*oid).to_owned()),
+            message: fields[4].to_owned(),
+            created_at: fields[3].trim().parse::<i64>().ok(),
+            // `-u` 创建的 stash 有第三个父提交（未跟踪文件的提交）
+            includes_untracked: parents.len() >= 3,
+        });
+    }
+    out
+}
+
+/// 从 `stash@{3}` 里取出 3。
+fn parse_stash_index(selector: &str) -> Option<usize> {
+    let start = selector.find('{')? + 1;
+    let end = selector[start..].find('}')? + start;
+    selector[start..end].trim().parse::<usize>().ok()
+}
+
+/// reflog。
+pub(super) fn reflog(
+    engine: &CliGitEngine,
+    repo: &RepoId,
+    limit: usize,
+) -> AppResult<Vec<ReflogEntry>> {
+    let limit = if limit == 0 {
+        DEFAULT_REFLOG_LIMIT
+    } else {
+        limit
+    };
+    let output = run(
+        engine,
+        repo,
+        GitInvocation::new(args::reflog_args(limit, REFLOG_FORMAT)),
+    )?;
+    Ok(parse_reflog(&output.stdout))
+}
+
+fn parse_reflog(input: &[u8]) -> Vec<ReflogEntry> {
+    let mut out = Vec::new();
+    for (position, line) in input.split(|byte| *byte == b'\n').enumerate() {
+        if line.is_empty() {
+            continue;
+        }
+        let text = String::from_utf8_lossy(line);
+        let fields: Vec<&str> = text.split(FIELD).collect();
+        if fields.len() < 4 {
+            continue;
+        }
+
+        // `%gd` 形如 `HEAD@{3}`；取不出数字时按行号兜底（顺序即索引）
+        let (reference, index) = match fields[1].split_once("@{") {
+            Some((reference, rest)) => (
+                reference.to_owned(),
+                rest.trim_end_matches('}')
+                    .trim()
+                    .parse::<usize>()
+                    .unwrap_or(position),
+            ),
+            None => (fields[1].to_owned(), position),
+        };
+        let subject = fields[2];
+        let (action, message) = match subject.split_once(": ") {
+            Some((action, message)) => (action.to_owned(), message.to_owned()),
+            None => (subject.to_owned(), String::new()),
+        };
+
+        out.push(ReflogEntry {
+            index,
+            oid: fields[0].to_owned(),
+            reference,
+            action,
+            message,
+            created_at: fields[3].trim().parse::<i64>().ok(),
+        });
+    }
+    out
+}
+
+/// 空字符串转 `None`（git 用空字段表示"没有"）。
+fn empty_to_none(value: &str) -> Option<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_owned())
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn name_status_reads_one_path_for_plain_changes() {
+        let input = b"M\0b.txt\0A\0new.txt\0";
+
+        let parsed = parse_name_status_z(input);
+
+        assert_eq!(parsed.len(), 2);
+        assert_eq!(parsed[0].0, DiffChangeKind::Modified);
+        assert_eq!(parsed[0].1.to_string(), "b.txt");
+        assert_eq!(parsed[0].2, None);
+        assert_eq!(parsed[1].0, DiffChangeKind::Added);
+        assert_eq!(parsed[1].1.to_string(), "new.txt");
+    }
+
+    #[test]
+    fn name_status_reads_two_paths_for_renames_and_copies() {
+        let input = b"R081\0a.txt\0renamed.txt\0C100\0src.txt\0copy.txt\0";
+
+        let parsed = parse_name_status_z(input);
+
+        assert_eq!(parsed.len(), 2);
+        assert_eq!(parsed[0].0, DiffChangeKind::Renamed);
+        assert_eq!(
+            parsed[0].2.as_ref().map(|path| path.to_string()),
+            Some("a.txt".to_owned())
+        );
+        assert_eq!(parsed[0].1.to_string(), "renamed.txt");
+        assert_eq!(parsed[1].0, DiffChangeKind::Copied);
+    }
+
+    #[test]
+    fn truncated_name_status_record_does_not_panic() {
+        assert!(parse_name_status_z(b"R081\0a.txt\0").is_empty());
+        assert!(parse_name_status_z(b"").is_empty());
+    }
+
+    #[test]
+    fn branches_distinguish_local_from_remote_and_read_tracking() {
+        let input = "refs/heads/main\u{1f}main\u{1f}aaa\u{1f}origin/main\u{1f}[ahead 1, behind 2]\u{1f}*\nrefs/remotes/origin/main\u{1f}origin/main\u{1f}aaa\u{1f}\u{1f}\u{1f} \n".as_bytes();
+
+        let branches = parse_branches(input);
+
+        assert_eq!(branches.len(), 2);
+        assert!(branches[0].is_head);
+        assert!(!branches[0].is_remote);
+        assert_eq!(branches[0].ahead, Some(1));
+        assert_eq!(branches[0].behind, Some(2));
+        assert!(branches[0].has_live_upstream());
+        assert!(branches[1].is_remote);
+        assert_eq!(branches[1].upstream, None);
+    }
+
+    #[test]
+    fn gone_upstream_is_flagged() {
+        let input =
+            "refs/heads/main\u{1f}main\u{1f}aaa\u{1f}origin/main\u{1f}[gone]\u{1f}*\n".as_bytes();
+
+        let branches = parse_branches(input);
+
+        assert!(branches[0].upstream_gone);
+        assert!(!branches[0].has_live_upstream());
+        assert_eq!(branches[0].ahead, None);
+    }
+
+    #[test]
+    fn tags_distinguish_annotated_from_lightweight() {
+        let input = "v1.0.0\u{1f}tagobj\u{1f}tag\u{1f}commitoid\u{1f}1704164645\u{1f}release\nlight\u{1f}commitoid\u{1f}commit\u{1f}\u{1f}1704164645\u{1f}light subject\n".as_bytes();
+
+        let tags = parse_tags(input);
+
+        assert_eq!(tags.len(), 2);
+        assert!(tags[0].annotated);
+        assert_eq!(tags[0].commit.as_deref(), Some("commitoid"));
+        assert_eq!(tags[0].message.as_deref(), Some("release"));
+        assert!(!tags[1].annotated);
+        // 轻量标签直接指向提交：commit 与 target 相同，而不是 None
+        assert_eq!(tags[1].commit.as_deref(), Some("commitoid"));
+        assert_eq!(tags[1].message, None);
+    }
+
+    #[test]
+    fn remotes_pair_fetch_and_push_urls() {
+        let text = "origin\thttps://example.com/r.git (fetch)\norigin\thttps://example.com/r.git (push)\nupstream\tgit@example.com:org/r.git (fetch)\nupstream\tgit@example.com:org/r.git (push)\n";
+
+        let remotes = parse_remotes(text);
+
+        assert_eq!(remotes.len(), 2);
+        assert_eq!(remotes[0].name, "origin");
+        assert_eq!(remotes[0].kind, RemoteKind::Https);
+        assert_eq!(remotes[0].push_url, None, "push 与 fetch 相同就不单独记");
+        assert_eq!(remotes[1].kind, RemoteKind::Ssh);
+    }
+
+    #[test]
+    fn a_distinct_push_url_is_kept() {
+        let text = "origin\thttps://example.com/r.git (fetch)\norigin\thttps://push.example.com/r.git (push)\n";
+
+        let remotes = parse_remotes(text);
+
+        assert_eq!(
+            remotes[0].push_url.as_deref(),
+            Some("https://push.example.com/r.git")
+        );
+        assert_eq!(
+            remotes[0].effective_push_url(),
+            "https://push.example.com/r.git"
+        );
+    }
+
+    #[test]
+    fn stash_entries_read_their_index_and_base_commit() {
+        let input = "stash@{1}\u{1f}oid1\u{1f}base other\u{1f}1704164645\u{1f}WIP on main: 1a2b3c4 subject\n".as_bytes();
+
+        let entries = parse_stash_list(input);
+
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].index, 1);
+        assert_eq!(entries[0].base_oid.as_deref(), Some("base"));
+        assert!(!entries[0].includes_untracked);
+        assert_eq!(entries[0].reference(), "stash@{1}");
+    }
+
+    #[test]
+    fn stash_with_three_parents_includes_untracked_files() {
+        let input = "stash@{0}\u{1f}oid\u{1f}base second third\u{1f}1\u{1f}WIP\n".as_bytes();
+
+        let entries = parse_stash_list(input);
+
+        assert!(entries[0].includes_untracked);
+        assert_eq!(entries[0].base_oid.as_deref(), Some("base"));
+    }
+
+    #[test]
+    fn reflog_splits_action_from_message() {
+        let input = "oid0\u{1f}HEAD@{0}\u{1f}commit: initial commit\u{1f}1704164645\noid1\u{1f}HEAD@{1}\u{1f}checkout: moving from main to dev\u{1f}1704164600\n".as_bytes();
+
+        let entries = parse_reflog(input);
+
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].index, 0);
+        assert_eq!(entries[0].reference, "HEAD");
+        assert_eq!(entries[0].action, "commit");
+        assert_eq!(entries[0].message, "initial commit");
+        assert_eq!(entries[0].selector(), "HEAD@{0}");
+        assert_eq!(entries[1].action, "checkout");
+    }
+
+    #[test]
+    fn reflog_entry_without_a_colon_keeps_the_whole_subject_as_the_action() {
+        let input = "oid\u{1f}HEAD@{0}\u{1f}reset\u{1f}1704164645\n".as_bytes();
+
+        let entries = parse_reflog(input);
+
+        assert_eq!(entries[0].action, "reset");
+        assert_eq!(entries[0].message, "");
+    }
+
+    #[test]
+    fn stash_index_parser_handles_arbitrary_indices() {
+        assert_eq!(parse_stash_index("stash@{12}"), Some(12));
+        assert_eq!(parse_stash_index("stash@{0}"), Some(0));
+        assert_eq!(parse_stash_index("nonsense"), None);
+    }
+
+    #[test]
+    fn malformed_ref_lines_are_skipped_instead_of_panicking() {
+        assert!(parse_branches("too\u{1f}few\n".as_bytes()).is_empty());
+        assert!(parse_tags(b"only-one\n").is_empty());
+        assert!(parse_stash_list("a\u{1f}b\n".as_bytes()).is_empty());
+        assert!(parse_reflog("a\u{1f}b\n".as_bytes()).is_empty());
+    }
+}
