@@ -15,7 +15,7 @@
 | 5 | 空态 / 错误态 / 加载态 | ✅ 通过 | 错误态：浏览器无 IPC 时设置页与日志页呈现统一错误态且重试稳定（states 第 7/8 例）；加载态：`LogViewer.test.tsx` 的 pending→Skeleton 断言；空态：仪表盘"后台任务"空态由单测覆盖（E2E 下 IPC 缺失直接进错误态，属预期） |
 | 6 | 键盘可达 | ✅ 通过 | `keyboard: skip link first, Ctrl+K focuses search, Esc closes the switcher menu`：首 Tab 落在"跳到主内容"；Ctrl+K 聚焦搜索；Esc 关菜单且焦点归还触发按钮 |
 | 7 | `window.__errs` 为空 | ✅ 通过 | `uncaught error collection stays empty after all interactions (DoD gate)`：跨 3 个页面 + 错误态 + 重试 + 菜单操作后断言 `window.__errs === []`（钩子实现在 `src/main.tsx`，捕获未捕获异常与未处理拒绝，保留最近 50 条） |
-| 8 | 跨引擎（WebView2 / WKWebView / WebKitGTK） | ❌ 无法验证 | M0 无三平台桌面运行时；矩阵只在 tag 触发（ADR-002）。E2E 目前跑在 Chromium 内核（Edge），DOM 级断言与 WebView 品牌无关；桌面运行时的跨引擎验证列为 M1（E2E 进 CI + tauri-driver） |
+| 8 | 跨引擎（WebView2 / WKWebView / WebKitGTK） | ⏸ 延后（ADR-005） | 维护者决定：三平台验证降级为按需触发（首次对外预发布或怀疑平台缺陷时）。E2E 目前跑在 Chromium 内核（Edge），DOM 级断言与 WebView 品牌无关；桌面运行时的跨引擎验证随首个矩阵触发执行 |
 
 ## 过程发现与处置（首跑 5 失败 → 修复后 11 通过）
 

@@ -294,6 +294,7 @@ error TS2307: Cannot find module '@/features/logs/LogViewerDialog' or its corres
 | 包 | 版本 | 说明 |
 | --- | --- | --- |
 | typescript | **6.0.3** | 7.x 暂不被 typescript-eslint 支持，见 `docs/adr/ADR-001-typescript-version.md` |
+| CI 触发策略 | 两阶段 | 三平台矩阵只在 tag/手动触发，见 `docs/adr/ADR-002` 与 `ADR-005`（平台验证按需） |
 | vite | 8.3.0 | rolldown 内核 |
 | @vitejs/plugin-react | 6.1.1 | |
 | react / react-dom | 19.3.0 | |
@@ -395,7 +396,7 @@ where link.exe
 | M0 / T0.9 规范文档五件套 | ✅ ARCHITECTURE / API（含事件表）/ CODING_STYLE / CONTRIBUTING / README + PR 与 Issue 模板 + `pnpm check:docs` |
 | M0 / T0.11 打包配置与产物命名 | ✅ bundle 完善（wix 语言/NSIS perUser+forgedesk:// 钩子）+ 归一化命名脚本 + SHA256SUMS + Linux 冒烟（tag 构建触发） |
 | M0 / T0.12 合规检查 | ✅ `pnpm compliance`（名称/免责声明/图标/许可审计/AI 依赖）+ compliance.yml + LICENSE-AUDIT.md |
-| M0 / OPS-6 + OPS-7 收口验收 | ✅ `docs/acceptance/M0.md`（三态结论）+ `M0-interaction.md`（E2E 11/11 通过）；待人工：tag 触发三平台矩阵、图标/布局盲测 |
+| M0 / OPS-6 + OPS-7 收口验收 | ✅ `docs/acceptance/M0.md`（三态结论）+ `M0-interaction.md`（E2E 11/11 通过）；三平台验证与盲测按维护者决定延后（ADR-005） |
 | 审批 | ✅ T0.4 主界面布局已确认（红线 R3）；⏳ T0.9 的 AGENTS.md 与 README 免责声明待确认 |
 
 补充说明（T0.4 顺带落地的两项前置能力，后续任务直接复用）：
