@@ -29,14 +29,22 @@
 
 pub mod debug;
 pub mod error;
+pub mod jobs;
 pub mod logs;
+pub mod repository;
 pub mod settings;
 pub mod state;
 pub mod system;
 
 pub use debug::{debug_panic, debug_throw_error};
 pub use error::{to_app_error, Fallible};
+pub use jobs::{job_cancel, TauriJobReporter};
 pub use logs::{logs_open, logs_tail};
+pub use repository::{
+    repo_clone, repo_close, repo_discover, repo_forget, repo_init, repo_open, repo_recent_list,
+    AuditFindingDto, BranchLabelDto, CloneRequest, InitRequest, JobIdDto, OpenedRepositoryDto,
+    RecentRepositoryDto, RepoAuditDto, RepositoryDto, WorktreeDto,
+};
 pub use settings::{settings_all, settings_get, settings_set};
 pub use state::AppState;
 pub use system::{app_version, AppVersion};

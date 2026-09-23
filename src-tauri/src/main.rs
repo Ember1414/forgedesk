@@ -12,11 +12,14 @@ use std::sync::{Arc, Mutex};
 
 use forgedesk_commands::AppState;
 use forgedesk_diagnostics::SanitizingMakeWriter;
+use forgedesk_jobs::JobRunner;
 use forgedesk_platform::session::{detect_previous_session, start_session, SessionMarker};
 use forgedesk_platform::{install_panic_hook, non_blocking_writer, LogFlushGuard, LogPolicy};
+use forgedesk_services::repository::OpenRepoRegistry;
+use forgedesk_services::GitEngines;
 use forgedesk_storage::{migrate, Database};
 use tauri::{Manager, RunEvent};
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::EnvFilter;
@@ -88,9 +91,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 "应用已启动"
             );
 
+            // 两个 Git 引擎：读走 libgit2、写走系统 git CLI。
+            // 创建失败只可能来自 CLI 引擎（它要起一条驱动异步执行器的线程）；
+            // 一个连 git 都起不来的环境，后面每个用例都会失败，因此这里直接
+            // 让启动失败并把原因写进日志，而不是让用户在每次操作时各撞一次墙。
+            let engines = GitEngines::new().map_err(|error| {
+                error!(
+                    code = error.code.as_str(),
+                    message = %error.message,
+                    detail = error.detail.as_deref().unwrap_or_default(),
+                    "创建 Git 引擎失败"
+                );
+                error.to_string()
+            })?;
+
             app.manage(AppState {
                 database: Arc::new(database),
                 log_dir,
+                engines: Arc::new(engines),
+                jobs: Arc::new(JobRunner::new()),
+                open_repos: Arc::new(OpenRepoRegistry::new()),
             });
             app.manage(RuntimeHandles {
                 _log_guard: guard,
@@ -111,6 +131,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         forgedesk_commands::settings_all,
         forgedesk_commands::logs_open,
         forgedesk_commands::logs_tail,
+        forgedesk_commands::repo_discover,
+        forgedesk_commands::repo_open,
+        forgedesk_commands::repo_clone,
+        forgedesk_commands::repo_init,
+        forgedesk_commands::repo_recent_list,
+        forgedesk_commands::repo_forget,
+        forgedesk_commands::repo_close,
+        forgedesk_commands::job_cancel,
         forgedesk_commands::debug_throw_error,
         forgedesk_commands::debug_panic,
     ]);
@@ -123,12 +151,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         forgedesk_commands::settings_all,
         forgedesk_commands::logs_open,
         forgedesk_commands::logs_tail,
+        forgedesk_commands::repo_discover,
+        forgedesk_commands::repo_open,
+        forgedesk_commands::repo_clone,
+        forgedesk_commands::repo_init,
+        forgedesk_commands::repo_recent_list,
+        forgedesk_commands::repo_forget,
+        forgedesk_commands::repo_close,
+        forgedesk_commands::job_cancel,
     ]);
 
     let app = builder.build(tauri::generate_context!())?;
 
     app.run(|handle, event| {
         if let RunEvent::Exit = event {
+            // 退出前先把长任务停掉：克隆可能正跑着，直接退出会留下半个仓库，
+            // 而"半个仓库"比"没有仓库"更难解释（用户下次打开会看到目录非空）。
+            if let Some(state) = handle.try_state::<AppState>() {
+                state.jobs.registry().cancel_all();
+                state.open_repos.close_all();
+            }
+
             // 正常退出：删除会话标记。留在这里而不是 Drop 里，是因为
             // "正常退出"必须在代码里可见——否则将来有人加了 `std::process::exit`
             // 或提前返回，会话标记会一直残留，用户每次启动都会看到"上次异常退出"。

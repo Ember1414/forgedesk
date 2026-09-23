@@ -13,6 +13,8 @@ authors.workspace = true
 [dependencies]
 forgedesk-domain.workspace = true
 forgedesk-diagnostics.workspace = true
+forgedesk-git-engine.workspace = true
+forgedesk-jobs.workspace = true
 forgedesk-platform.workspace = true
 forgedesk-services.workspace = true
 forgedesk-storage.workspace = true
@@ -21,6 +23,7 @@ serde.workspace = true
 serde_json.workspace = true
 tauri.workspace = true
 thiserror.workspace = true
+time.workspace = true
 tracing.workspace = true
 
 [lints]

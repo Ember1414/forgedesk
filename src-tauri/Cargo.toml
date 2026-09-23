@@ -21,7 +21,9 @@ tracing-subscriber.workspace = true
 forgedesk-domain.workspace = true
 forgedesk-diagnostics.workspace = true
 forgedesk-commands.workspace = true
+forgedesk-jobs.workspace = true
 forgedesk-platform.workspace = true
+forgedesk-services.workspace = true
 forgedesk-storage.workspace = true
 
 [lints]

@@ -867,7 +867,9 @@ dependencies = [
  "forgedesk-commands",
  "forgedesk-diagnostics",
  "forgedesk-domain",
+ "forgedesk-jobs",
  "forgedesk-platform",
+ "forgedesk-services",
  "forgedesk-storage",
  "serde",
  "serde_json",
@@ -884,6 +886,8 @@ dependencies = [
  "anyhow",
  "forgedesk-diagnostics",
  "forgedesk-domain",
+ "forgedesk-git-engine",
+ "forgedesk-jobs",
  "forgedesk-platform",
  "forgedesk-services",
  "forgedesk-storage",
@@ -891,6 +895,7 @@ dependencies = [
  "serde_json",
  "tauri",
  "thiserror 2.0.20",
+ "time",
  "tracing",
 ]
 

@@ -81,7 +81,8 @@
   "actions": {
     "refresh": "Refresh state",
     "copyCommand": "Copy equivalent command",
-    "viewLogs": "View related logs"
+    "viewLogs": "View related logs",
+    "initRepo": "Initialise a repository here"
   },
   "actionDone": "Done: {{command}}",
   "actionFailed": "That fix action failed; see the new notification."
