@@ -1,0 +1,35 @@
+name: 提问 / 求助
+description: 使用或开发上的疑问（不是 Bug，也不是功能建议）
+title: '[question] '
+labels: ['question']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        提问前建议先看这几处，很多问题已经有答案：
+
+        - [`docs/DEV-ENV.md`](https://github.com/Ember1414/forgedesk/blob/main/docs/DEV-ENV.md)：本地环境与**已踩过的坑**
+        - [`docs/ARCHITECTURE.md`](https://github.com/Ember1414/forgedesk/blob/main/docs/ARCHITECTURE.md)：分层与数据流
+        - [`CONTRIBUTING.md`](https://github.com/Ember1414/forgedesk/blob/main/CONTRIBUTING.md)：命令与贡献流程
+  - type: textarea
+    id: question
+    attributes:
+      label: 你的问题
+      description: 请具体说明你想达成的目标，而不只是"怎么做 X"。
+    validations:
+      required: true
+  - type: textarea
+    id: tried
+    attributes:
+      label: 你已经试过什么
+      description: 命令、文档、搜索结果，以及结果如何。
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: 环境信息（可选）
+      description: 操作系统、Rust/Node 版本、以及相关命令的完整输出。
+      render: text
+    validations:
+      required: false

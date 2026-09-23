@@ -1,10 +1,12 @@
 #!/usr/bin/env node
 /**
- * 校验 .github/workflows 下的工作流文件。
+ * 校验 .github 下的配置 YAML：workflows 的完整校验 + Issue 模板的语法校验。
  *
  * 为什么需要它：工作流里的错误（YAML 语法、缺 timeout、权限过宽）通常要到
  * 推送之后才在 GitHub 上暴露，一次失败就白烧配额；而 CI 的免费额度在私有阶段
  * 是稀缺资源。把这些问题变成**本地可判定**的检查，是"配额保护"的一部分。
+ * Issue 模板虽然不跑 CI，但语法错误会让 GitHub 拒绝渲染表单（提交者看到的是报错页），
+ * 因此至少要做语法校验。
  *
  * 检查分级：
  *   ERROR —— 直接失败（YAML 非法、缺必需字段、job 缺 timeout-minutes）
@@ -125,6 +127,36 @@ for (const fileName of files) {
 
 console.log(`已校验 ${files.length} 个工作流文件：${files.join(', ')}`);
 console.log('');
+
+// Issue 模板：语法错误会让 GitHub 直接拒绝渲染表单，且本地无感，所以一并校验。
+const issueTemplateDir = join(repoRoot, '.github', 'ISSUE_TEMPLATE');
+let issueTemplates = 0;
+if (existsSync(issueTemplateDir)) {
+  for (const fileName of readdirSync(issueTemplateDir)) {
+    if (!fileName.endsWith('.yml') && !fileName.endsWith('.yaml')) {
+      continue;
+    }
+    const label = `.github/ISSUE_TEMPLATE/${fileName}`;
+    try {
+      const doc = parse(readFileSync(join(issueTemplateDir, fileName), 'utf8'));
+      // GitHub 要求表单有 name / description / body 三件套；缺了表单会显示为空白
+      if (typeof doc?.name !== 'string' || typeof doc?.description !== 'string') {
+        errors.push(`${label}: 缺少 name 或 description 字段`);
+      }
+      if (!Array.isArray(doc?.body)) {
+        errors.push(`${label}: 缺少 body 列表`);
+      }
+      issueTemplates += 1;
+    } catch (error) {
+      errors.push(`${label}: YAML 解析失败 —— ${error.message}`);
+    }
+  }
+}
+
+if (issueTemplates > 0) {
+  console.log(`已校验 ${issueTemplates} 个 Issue 模板的语法与必需字段`);
+  console.log('');
+}
 
 for (const warning of warnings) {
   console.log(`WARN  ${warning}`);

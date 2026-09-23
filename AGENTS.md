@@ -32,7 +32,8 @@ ForgeDesk 是一个**开源、跨平台、可自由分发的 Git/GitHub 图形�
 ## 3. 每次任务的固定动作
 
 ```text
-① 读：AGENTS.md（本文件）+ docs/PLAN.md 对应章节 + docs/ARCHITECTURE.md + docs/API.md（若存在）
+① 读：AGENTS.md（本文件）+ docs/PLAN.md 对应章节 + docs/ARCHITECTURE.md + docs/API.md
+       + docs/CODING_STYLE.md（改代码前必读）
 ② 计划：先给出 3–8 步执行计划与"假设"清单（若需求含糊，做最小合理假设并标注，不要停下来等）
 ③ 实现：小步提交，Conventional Commits（feat/fix/chore/docs/test/refactor）
 ④ 自检：运行下方"质量门禁"全部命令，必须全绿
@@ -44,9 +45,15 @@ ForgeDesk 是一个**开源、跨平台、可自由分发的 Git/GitHub 图形�
 ## 4. 质量门禁（每次提交前必须全部通过）
 
 ```bash
-pnpm lint                 # 前端 lint
+pnpm lint                 # 前端 lint（含架构护栏）
+pnpm i18n:lint            # 禁止硬编码用户可见文案
 pnpm typecheck            # TS 类型检查
 pnpm test                 # Vitest
+pnpm format:check         # Prettier（含行尾统一）
+pnpm check:contrast       # 设计 token 的 WCAG AA 对比度
+pnpm check:workflows      # .github/workflows/*.yml
+pnpm check:repo           # 仓库一致性：workspace 成员存在且已被 git 跟踪
+pnpm check:docs           # 文档内部链接与锚点有效
 cargo fmt --all -- --check
 cargo clippy --all-targets --all-features -- -D warnings
 cargo test --workspace --all-features
@@ -58,6 +65,7 @@ cargo test --workspace --all-features
 - 新增的 Rust 领域逻辑**必须**有单测；新增核心前端组件**必须**有 Vitest 测试。
 - 覆盖率底线：Rust 整体 ≥ 60%、`domain` crate ≥ 85%、前端关键模块 ≥ 70%。
 - 前端 E2E 必须断言 `window.__errs` 为空（未捕获错误集合）。
+- 改动文档后运行 `pnpm check:docs`：文档里的相对链接与锚点必须有效（外部链接不做网络校验）。
 
 ---
 

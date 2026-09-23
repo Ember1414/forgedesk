@@ -1,0 +1,52 @@
+name: 功能建议
+description: 提出一个新功能或改进建议
+title: '[feature] '
+labels: ['enhancement']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        提交前请先看一眼 [`docs/PLAN.md`](https://github.com/Ember1414/forgedesk/blob/main/docs/PLAN.md)：
+        功能是否已在路线图里（若已存在，请直接在其对应 issue 下补充你的场景）。
+
+        另外请注意项目红线：**不会加入任何 AI 推理功能**（R1），
+        **不会使用付费服务**（R5）。涉及这两点的建议无法采纳。
+  - type: textarea
+    id: problem
+    attributes:
+      label: 你遇到的真实场景
+      description: 描述"什么时候、做什么事、卡在哪里"，比直接给方案更有价值。
+      placeholder: 我在 rebase 一个有很多冲突的分支时，……
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 你期望的解决方式
+      description: 界面上的行为、操作步骤。如果涉及破坏性操作，请说明你期望的安全网。
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 你试过的替代方案（可选）
+      description: 例如现用的命令行做法、其它工具的体验（请不要贴竞品截图用于设计复制）。
+    validations:
+      required: false
+  - type: dropdown
+    id: value
+    attributes:
+      label: 这个功能对你的重要程度
+      options:
+        - 阻塞我使用（没有它我做不了日常工作）
+        - 明显提效（每周都会用到）
+        - 锦上添花
+    validations:
+      required: true
+  - type: checkboxes
+    id: contribute
+    attributes:
+      label: 参与意愿
+      options:
+        - label: 我愿意尝试自己实现（可先讨论方案）
+        - label: 我可以提供测试仓库/复现环境

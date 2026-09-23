@@ -246,6 +246,20 @@ tracing 事件 → 格式化器（可读 / JSON）→ 非阻塞写入 → Saniti
 2. 单行豁免（如 `src/main.tsx` 的引导期致命错误）：标记与该行同级写在同一行；
 3. 新页面不要图省事整文件豁免——`i18n:lint` 的价值就在于把"以后再做 i18n"挡在门外。
 
+### 陷阱 15：文档锚点要按 GitHub 的算法写，凭直觉写会错
+
+**现象**：`[设置命令](docs/API.md#settings_get--settings_set--settings_all)` 看起来没问题，
+但 `pnpm check:docs` 报"锚点不存在"；或者反过来，自己算出一个"更合理"的锚点却点不过去。
+
+**成因**：GitHub 的锚点规则是把标题转小写、去掉标点后，**把每个空白字符各自替换成一个连字符**
+（不合并连续空白）。`### settings_get / settings_set / settings_all` 里的斜杠被去掉后留下两个空格，
+锚点因此是 `#settings_get--settings_set--settings_all`（两个连字符），而不是凭直觉的单连字符。
+
+**约定**：
+1. 给标题写锚点时不要手算，改标题后记得同步引用处，用 `pnpm check:docs` 兜底；
+2. `check:docs` 只校验**仓库内**的相对链接与锚点（外部链接不做网络校验，
+   原因是 CI 需要确定性、且私有仓库的链接外部不可见），写文档时别依赖"链接能点"来判断正确性。
+
 ---
 
 ## 3. 已固化的工具链版本
@@ -291,6 +305,7 @@ pnpm tauri build --debug --no-bundle   # 只出可执行文件，不打包安装
 pnpm check:contrast         # 设计 token 的 WCAG AA 对比度
 pnpm check:workflows        # 校验 .github/workflows/*.yml
 pnpm check:repo             # 仓库一致性：workspace 成员存在、未被 .gitignore 忽略、已被 git 跟踪
+pnpm check:docs             # 文档内部链接与锚点有效（不访问网络）
 pnpm i18n:lint              # 扫描未走 i18n key 的用户可见中文（T0.6 起纳入 CI）
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
@@ -347,8 +362,9 @@ where link.exe
 | M0 / T0.6 错误模型 + i18n + 错误展示 | ✅ 错误分类/脱敏（Rust 单测）+ `normalizeError`/ErrorToast + `pnpm i18n:lint` 门禁 |
 | M0 / T0.7 SQLite + 迁移 + 设置持久化 | ✅ 7 张表 + 版本化迁移（含备份/回滚）+ 设置读写命令 + 界面密度落库 |
 | M0 / T0.8 日志与日志查看 | ✅ 文件日志（JSON+脱敏）+ 按天/10MB 轮转 + panic 留档 + 会话标记 + `logs_open`/`logs_tail` |
-| M0 / T0.9、T0.11、T0.12 | 未开始 |
-| 审批 | ✅ T0.4 主界面布局已确认（红线 R3） |
+| M0 / T0.9 规范文档五件套 | ✅ ARCHITECTURE / API（含事件表）/ CODING_STYLE / CONTRIBUTING / README + PR 与 Issue 模板 + `pnpm check:docs` |
+| M0 / T0.11、T0.12 | 未开始 |
+| 审批 | ✅ T0.4 主界面布局已确认（红线 R3）；⏳ T0.9 的 AGENTS.md 与 README 免责声明待确认 |
 
 补充说明（T0.4 顺带落地的两项前置能力，后续任务直接复用）：
 

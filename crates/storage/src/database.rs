@@ -71,11 +71,10 @@ pub fn storage_error(context: &str, error: &rusqlite::Error) -> AppError {
 /// 把文件系统错误转换为 [`AppError`]。
 ///
 /// 数据目录不可写、备份复制失败都属于这一族：用户能自救（改权限、清磁盘），
-/// 因此同样归到 `STORAGE` 并给出可执行的建议。
+/// 因此同样归到 `STORAGE`；具体建议由前端按错误码走 i18n（见 CODING_STYLE 的错误文案规则：
+/// 后端只给英文开发者描述与**数据**，不写面向用户的建议性散文）。
 pub fn io_error(context: &str, error: &std::io::Error) -> AppError {
-    AppError::new(ErrorCode::Storage, context)
-        .with_detail(error.to_string())
-        .with_hint("请确认数据目录可写、磁盘空间充足")
+    AppError::new(ErrorCode::Storage, context).with_detail(error.to_string())
 }
 
 /// 统一的连接初始化（见模块头说明：这些设置都是连接级的）。
@@ -114,7 +113,7 @@ impl Database {
 
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).map_err(|error| {
-                AppError::new(ErrorCode::Storage, "创建数据目录失败")
+                AppError::new(ErrorCode::Storage, "could not create the data directory")
                     .with_detail(format!("{}: {error}", parent.display()))
             })?;
         }

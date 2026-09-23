@@ -30,7 +30,7 @@ interface AppError {
   code: ErrorCode;          // 稳定错误码（见下表），前端据此做 i18n
   message: string;          // 开发者可读描述（英文），不作为用户可见标题
   detail?: string;          // 原始细节，**已脱敏**（红线 R8）
-  hint?: string;            // 后端给的针对性建议（缺省时前端用错误码的兜底建议）
+  hint?: string;            // 只放**数据**（路径/命令/URL），不写建议性散文（见 CODING_STYLE §2.1）
   actions: FixAction[];     // 可点击的修复动作
   retryable: boolean;       // 是否建议重试
 }
@@ -226,7 +226,37 @@ Toast → 动作按钮）是基础设施，它坏掉时不会有任何业务功�
 
 ---
 
-## 3. 新增命令的检查清单
+## 3. 事件登记表
+
+前端通过 `listen('<event>')` 订阅（封装在 `src/lib/ipc/`，组件不直接 import `@tauri-apps/api/event`）。
+
+**命名约定**：`<域>:<动作>`，全小写、冒号分隔、用连字符连接多词（`git:state-changed`）。
+域与命令的 `<domain>` 保持一致，便于按域检索。
+
+| 事件 | 载荷 | 用途 | 首个落地任务 | 状态 |
+| --- | --- | --- | --- | --- |
+| `job:progress` | `{ jobId, phase, current, total, message? }` | 长任务进度（>500ms 的操作必须走 `JobRunner`） | T1.3 / M1 | ⬜ 未实现 |
+| `job:done` | `{ jobId, result }` | 长任务成功结束 | T1.3 / M1 | ⬜ 未实现 |
+| `job:failed` | `{ jobId, error: AppError }` | 长任务失败结束（错误形状同 §1.1） | T1.3 / M1 | ⬜ 未实现 |
+| `repo:changed` | `{ repoId, paths: string[] }` | 文件监听触发刷新 | T1.10 / M1 | ⬜ 未实现 |
+| `git:state-changed` | `{ repoId, opState }` | 仓库正处于 rebase/merge/cherry-pick 中途 | T2.x / M2 | ⬜ 未实现 |
+| `term:output` | `{ termId, bytes }` | 终端输出流 | T5.x / M5 | ⬜ 未实现 |
+| `auth:expired` | `{ accountId }` | 令牌失效，提示重新登录 | T4.x / M4 | ⬜ 未实现 |
+| `update:available` | `{ version, notes }` | 发现新版本 | T7.3 / M7 | ⬜ 未实现 |
+
+**事件与命令的边界**：
+
+- 命令用于"前端发起、需要结果"的调用；事件用于"后端主动告知、可能多次发生"的推送。
+- 事件**不携带用户可见文案**（`message?` 字段只放阶段标识或数据），文案仍由前端按 key 渲染。
+- 事件载荷必须可序列化且**已脱敏**；进度事件不得包含文件内容或凭据。
+- 事件必须在注册的同时考虑**退订**（组件卸载时 `unlisten`），否则泄漏到全局监听器集合里。
+
+> 落地顺序说明：M0 阶段没有任何事件（当前只有命令），
+> 上面这张表是 M1 起的契约；每落地一个就在 `状态` 列改为 ✅ 并补上对应实现位置。
+
+---
+
+## 4. 新增命令的检查清单
 
 1. 命令定义在 `crates/commands/src/<domain>.rs`（**不要**定义在 `lib.rs`，见该文件顶部说明），
    并由 `lib.rs` 重导出；

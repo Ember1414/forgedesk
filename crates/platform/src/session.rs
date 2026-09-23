@@ -65,8 +65,11 @@ impl SessionMarker {
             Ok(()) => Ok(()),
             // 已经不存在（例如被外部清理）视同成功
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-            Err(error) => Err(AppError::new(ErrorCode::Storage, "删除会话标记失败")
-                .with_detail(format!("{}: {error}", self.path.display()))),
+            Err(error) => Err(AppError::new(
+                ErrorCode::Storage,
+                "could not remove the session marker",
+            )
+            .with_detail(format!("{}: {error}", self.path.display()))),
         }
     }
 }
@@ -83,7 +86,7 @@ fn now_millis() -> i64 {
 pub fn start_session(directory: impl AsRef<Path>, version: &str) -> AppResult<SessionMarker> {
     let directory = directory.as_ref();
     std::fs::create_dir_all(directory).map_err(|error| {
-        AppError::new(ErrorCode::Storage, "创建日志目录失败")
+        AppError::new(ErrorCode::Storage, "could not create the log directory")
             .with_detail(format!("{}: {error}", directory.display()))
     })?;
 
@@ -95,11 +98,12 @@ pub fn start_session(directory: impl AsRef<Path>, version: &str) -> AppResult<Se
     };
 
     let payload = serde_json::to_string_pretty(&info).map_err(|error| {
-        AppError::new(ErrorCode::Storage, "序列化会话信息失败").with_detail(error.to_string())
+        AppError::new(ErrorCode::Storage, "could not serialize the session info")
+            .with_detail(error.to_string())
     })?;
 
     std::fs::write(&path, payload).map_err(|error| {
-        AppError::new(ErrorCode::Storage, "写入会话标记失败")
+        AppError::new(ErrorCode::Storage, "could not write the session marker")
             .with_detail(format!("{}: {error}", path.display()))
     })?;
 

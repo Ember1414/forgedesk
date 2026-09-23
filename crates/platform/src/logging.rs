@@ -137,9 +137,10 @@ impl RotatingWriter {
         let policy = policy.validate()?;
         let directory = directory.as_ref().to_path_buf();
         std::fs::create_dir_all(&directory).map_err(|error| {
-            AppError::new(ErrorCode::Storage, "创建日志目录失败")
+            // 建议性文案由前端按错误码走 i18n；这里只给具体路径（数据）
+            AppError::new(ErrorCode::Storage, "could not create the log directory")
                 .with_detail(format!("{}: {error}", directory.display()))
-                .with_hint("请确认应用数据目录可写、磁盘空间充足")
+                .with_hint(directory.display().to_string())
         })?;
 
         let now = OffsetDateTime::now_utc();
@@ -153,8 +154,9 @@ impl RotatingWriter {
             .append(true)
             .open(&current_path)
             .map_err(|error| {
-                AppError::new(ErrorCode::Storage, "打开日志文件失败")
+                AppError::new(ErrorCode::Storage, "could not open the log file")
                     .with_detail(format!("{}: {error}", current_path.display()))
+                    .with_hint(current_path.display().to_string())
             })?;
 
         let written_bytes = file.metadata().map(|meta| meta.len()).unwrap_or(0);
@@ -179,11 +181,12 @@ impl RotatingWriter {
 
         // 先 flush 再重命名：否则缓冲里的最后几行会落到新文件里，时间线上说不通
         self.file.flush().map_err(|error| {
-            AppError::new(ErrorCode::Storage, "刷新日志文件失败").with_detail(error.to_string())
+            AppError::new(ErrorCode::Storage, "could not flush the log file")
+                .with_detail(error.to_string())
         })?;
 
         std::fs::rename(self.directory.join(CURRENT_LOG_FILE), &target).map_err(|error| {
-            AppError::new(ErrorCode::Storage, "轮转日志文件失败").with_detail(format!(
+            AppError::new(ErrorCode::Storage, "could not rotate the log file").with_detail(format!(
                 "{} -> {}: {error}",
                 CURRENT_LOG_FILE,
                 target.display()
@@ -195,7 +198,7 @@ impl RotatingWriter {
             .append(true)
             .open(self.directory.join(CURRENT_LOG_FILE))
             .map_err(|error| {
-                AppError::new(ErrorCode::Storage, "重新打开日志文件失败")
+                AppError::new(ErrorCode::Storage, "could not reopen the log file")
                     .with_detail(error.to_string())
             })?;
 
@@ -394,7 +397,7 @@ pub fn tail(directory: &Path, limit: usize) -> AppResult<Vec<LogLine>> {
             continue;
         }
         let content = read_tail_bytes(&path, TAIL_READ_BYTES).map_err(|error| {
-            AppError::new(ErrorCode::Storage, "读取日志文件失败")
+            AppError::new(ErrorCode::Storage, "could not read the log file")
                 .with_detail(format!("{}: {error}", path.display()))
         })?;
 

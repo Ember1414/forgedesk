@@ -169,9 +169,11 @@ fn backup_database(database: &Database, path: &Path, version: i64) -> AppResult<
     let backup_path = backup_path_for(path, version);
     std::fs::copy(path, &backup_path).map_err(|error| {
         // 备份失败必须**中止迁移**：不能在没有退路的情况下改用户的数据
-        AppError::new(ErrorCode::Storage, "迁移前备份失败，已中止迁移")
-            .with_detail(format!("{}: {error}", path.display()))
-            .with_hint("请确认数据目录可写、磁盘空间充足")
+        AppError::new(
+            ErrorCode::Storage,
+            "backup before migration failed; migration aborted",
+        )
+        .with_detail(format!("{}: {error}", path.display()))
     })?;
 
     prune_backups(path)?;

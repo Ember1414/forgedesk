@@ -1,0 +1,64 @@
+name: RFC（设计提案）
+description: 需要先讨论设计再动手的较大改动（新架构、新依赖、接口变更、跨模块重构）
+title: '[RFC] '
+labels: ['rfc']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        什么算"较大改动"：引入新依赖或替换现有选型、改变分层或契约、
+        修改 `docs/PLAN.md` 的范围定义、影响多个里程碑的工作。
+
+        这类改动**先讨论、后实现**，避免写完才发现方向不对。
+        定稿后会被记录为 ADR（`docs/adr/`），格式参考已有的 ADR-001 ~ ADR-004。
+  - type: input
+    id: summary
+    attributes:
+      label: 一句话摘要
+      placeholder: 用 libgit2 替换系统 git CLI 的 read 路径
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: 背景与问题
+      description: 现状是什么、痛点在哪里、为什么现在必须处理。
+    validations:
+      required: true
+  - type: textarea
+    id: decision
+    attributes:
+      label: 提议的决策
+      description: 具体要做什么。请写到"另一个工程师照此可以实现"的程度。
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 备选方案与取舍
+      description: 至少写一个被否掉的方案及否掉的理由。
+    validations:
+      required: true
+  - type: textarea
+    id: consequences
+    attributes:
+      label: 后果与影响面
+      description: |
+        请逐项说明：
+        - 对分层与契约的影响（是否需要改 AGENTS.md / ARCHITECTURE.md / API.md）
+        - 新依赖及其许可证、体积、维护活跃度（红线：GPL/AGPL 不可接受）
+        - 对三平台的影响（Windows/macOS/Linux 是否有差异）
+        - 迁移与回滚方式
+    validations:
+      required: true
+  - type: checkboxes
+    id: redlines
+    attributes:
+      label: 红线确认
+      options:
+        - label: 不涉及 AI 推理能力（R1）
+          required: true
+        - label: 不需要付费服务或付费账号（R5）
+          required: true
+        - label: 不使用受限商标或竞品素材（R2/R3）
+          required: true

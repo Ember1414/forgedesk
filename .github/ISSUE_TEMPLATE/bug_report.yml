@@ -1,0 +1,95 @@
+name: Bug 报告
+description: 报告一个可复现的问题（不是安全漏洞）
+title: '[bug] '
+labels: ['bug']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈！请先确认这是**应用本身**的问题，而不是本机 Git 配置问题
+        （可以试试在终端里执行同样的操作对比）。
+
+        ⚠️ **不要把令牌、密码、私钥粘贴进 issue。** 日志在写出前已自动脱敏，
+        但请仍然扫一眼再提交。
+
+        ⚠️ 安全漏洞请**不要**在这里提交，改用仓库的私密漏洞报告（Security → Report a vulnerability）。
+  - type: input
+    id: version
+    attributes:
+      label: ForgeDesk 版本
+      description: 在"设置 → 高级"或关于页可以看到（例如 0.0.1）。
+      placeholder: '0.0.1'
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: 平台
+      options:
+        - Windows 11
+        - Windows 10
+        - macOS (Apple Silicon)
+        - macOS (Intel)
+        - Linux (X11)
+        - Linux (Wayland)
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: 安装方式
+      options:
+        - 从源码运行（pnpm tauri dev）
+        - 便携版
+        - 安装包 / 包管理器
+    validations:
+      required: true
+  - type: input
+    id: git-version
+    attributes:
+      label: 系统 Git 版本
+      description: 命令 `git --version` 的输出。
+      placeholder: 'git version 2.45.0'
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      description: 请写清"从哪个界面开始、点了什么、输入了什么"。
+      placeholder: |
+        1. 打开仓库 …
+        2. 点击 …
+        3. 看到 …
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望行为
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际行为
+      description: 如果有报错提示，请把提示标题与"详情"一起贴上来（已脱敏）。
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: 相关日志（可选）
+      description: |
+        出错提示上的"查看相关日志"可以直接复制；也可以"设置 → 高级 → 打开日志目录"。
+        粘贴前请自行确认没有敏感信息。
+      render: text
+    validations:
+      required: false
+  - type: textarea
+    id: extra
+    attributes:
+      label: 其它信息（可选）
+      description: 截图、录屏、仓库结构特点（子模块、大文件、LFS 等）。
+    validations:
+      required: false

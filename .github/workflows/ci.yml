@@ -125,6 +125,11 @@ jobs:
       - name: Repository consistency (workspace members tracked)
         run: pnpm check:repo
 
+      # 文档里的相对链接与锚点必须有效：文档是新人唯一的入口，
+      # 断链比没有文档更糟——它会让人以为"东西不存在"。
+      - name: Documentation links
+        run: pnpm check:docs
+
       - name: Rust format
         run: cargo fmt --all -- --check
 
