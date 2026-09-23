@@ -325,6 +325,8 @@ pnpm build                  # tsc --noEmit && vite build
 pnpm typecheck              # tsc --noEmit
 pnpm lint                   # eslint .
 pnpm test                   # vitest run --passWithNoTests
+pnpm test:e2e               # Playwright 交互级验收（用系统 Edge，无需下载浏览器）
+pnpm test:coverage          # Vitest + V8 覆盖率
 pnpm tauri dev              # 需要 Rust + MSVC 工具链
 pnpm tauri build --debug --no-bundle   # 只出可执行文件，不打包安装器（避免下载 WiX/NSIS）
 
@@ -393,6 +395,7 @@ where link.exe
 | M0 / T0.9 规范文档五件套 | ✅ ARCHITECTURE / API（含事件表）/ CODING_STYLE / CONTRIBUTING / README + PR 与 Issue 模板 + `pnpm check:docs` |
 | M0 / T0.11 打包配置与产物命名 | ✅ bundle 完善（wix 语言/NSIS perUser+forgedesk:// 钩子）+ 归一化命名脚本 + SHA256SUMS + Linux 冒烟（tag 构建触发） |
 | M0 / T0.12 合规检查 | ✅ `pnpm compliance`（名称/免责声明/图标/许可审计/AI 依赖）+ compliance.yml + LICENSE-AUDIT.md |
+| M0 / OPS-6 + OPS-7 收口验收 | ✅ `docs/acceptance/M0.md`（三态结论）+ `M0-interaction.md`（E2E 11/11 通过）；待人工：tag 触发三平台矩阵、图标/布局盲测 |
 | 审批 | ✅ T0.4 主界面布局已确认（红线 R3）；⏳ T0.9 的 AGENTS.md 与 README 免责声明待确认 |
 
 补充说明（T0.4 顺带落地的两项前置能力，后续任务直接复用）：

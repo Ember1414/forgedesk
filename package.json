@@ -27,6 +27,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run --passWithNoTests",
     "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage --passWithNoTests",
+    "test:e2e": "playwright test",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "check:contrast": "node scripts/design/check-contrast.mjs",

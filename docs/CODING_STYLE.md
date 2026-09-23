@@ -164,6 +164,7 @@ export function Foo({ ... }: FooProps) { // 具名导出，不用 default
 | 断言优先用 `getByRole` + 可访问名称与可见文本，避免断言 class 或内部状态（`aria-current`、`disabled` 等语义属性属于例外） | 约定 |
 | 不 mock 被测组件内部的子组件；只 mock IPC/网络边界（`@/lib/ipc`、`fetch`） | 约定 |
 | 涉及 store 的断言：每个用例前复位（`initialXxxState`），并在 `afterEach` 先 `cleanup()` 再复位，避免 act 之外的更新噪音 | 约定 |
+| Playwright（E2E，`e2e/`）与 Vitest 的分工：E2E 只做 jsdom 做不到的事（真实布局命中测试、真实浏览器可访问名、跨页面状态），断言以浏览器为准；用例名用英文句子（与 Rust 同风格） | 约定 |
 
 ---
 
