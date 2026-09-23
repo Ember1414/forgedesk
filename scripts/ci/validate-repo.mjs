@@ -2,21 +2,29 @@
 /**
  * 校验「仓库自身的一致性」——主要针对那些在本地永远正常、只在 CI 上炸掉的问题。
  *
- * 为什么需要它（真实事故）：.gitignore 里为了拦截密钥目录，写了一条"任意层级的
- * credentials 目录"通配规则（星号星号斜杠 credentials 斜杠星号星号），
- * 这条通配同时命中了源码目录 `crates/credentials/`，于是该 crate 从未被提交。
- * 本地开发一切正常（文件就在磁盘上），CI 一 checkout 就少了这个目录，
- * cargo 立刻失败，报错却指向别处：
- *   failed to load manifest for workspace member `.../src-tauri`
- * （因为 src-tauri → commands → services → credentials 这条依赖链断在了末端，
- *   cargo 只会报它正在加载的那个成员）。
+ * 为什么需要它（两起真实事故，同根）：
  *
- * 结论：凡是「本地有 / 仓库里没有」的目录，都会变成这类难以定位的失败。
- * 因此本脚本把「workspace 成员必须存在于磁盘、必须被 git 跟踪、必须不被 .gitignore 忽略」
- * 变成一条本地可判定的检查，在推送前就把问题挡住（私有阶段 CI 配额很贵）。
+ *   事故一：.gitignore 里为了拦截密钥目录，写了一条"任意层级的 credentials 目录"
+ *   通配规则。它同时命中了源码目录 `crates/credentials/`，于是该 crate 从未被提交。
+ *   本地开发一切正常（文件就在磁盘上），CI 一 checkout 就少了这个目录，
+ *   cargo 立刻失败，报错却指向别处：
+ *     failed to load manifest for workspace member `.../src-tauri`
+ *   （因为 src-tauri → commands → services → credentials 这条依赖链断在了末端，
+ *     cargo 只会报它正在加载的那个成员）。
+ *
+ *   事故二：未锚定的 `logs/` 规则命中了前端源码目录 `src/features/logs/`，
+ *   三个日志查看组件从未提交。本地 typecheck 全绿，CI 直接报
+ *     TS2307: Cannot find module '@/features/logs/LogViewerDialog'
+ *   —— 和事故一完全是同一类失败：本地有、仓库里没有。
+ *
+ * 结论：凡是「本地有 / 仓库里没有」的文件或目录，都会变成这类难以定位的失败。
+ * 因此本脚本做两件事：
+ *   1. workspace 成员必须存在于磁盘、必须被 git 跟踪、必须不被 .gitignore 忽略；
+ *   2. **源码树（src/ crates/ scripts/ docs/ .github/）内不允许存在任何被忽略的文件** ——
+ *      这一条把"任何 .gitignore 规则吞掉源码"都变成推送前的错误，不再依赖记住某个具体目录名。
  *
  * 检查分级：
- *   ERROR —— 退出码 1（缺失目录、被忽略、未被跟踪、成员清单与磁盘不一致）
+ *   ERROR —— 退出码 1（缺失目录、被忽略、未被跟踪、成员清单与磁盘不一致、源码树被忽略）
  *
  * 用法：node scripts/ci/validate-repo.mjs
  */
@@ -189,6 +197,65 @@ if (existsSync(cratesDir)) {
   }
 }
 
+// ---------------------------------------------------------------- 检查源码树内是否有被忽略的文件
+
+/**
+ * 受保护的源码树（顶层目录）。
+ *
+ * 判断依据：这些目录里的文件**只可能属于仓库内容**；运行时输出（dist、target、
+ * coverage、日志）要么不会出现在这里，要么本来就该锚定到仓库根。
+ * 出现在这份清单之外的被忽略文件（node_modules、target…）是正常情况。
+ */
+const PROTECTED_SOURCE_ROOTS = ['src', 'crates', 'scripts', 'docs', '.github'];
+
+/**
+ * 列出受保护源码树内「被 .gitignore 忽略且未被跟踪」的文件。
+ *
+ * 两个实现细节都有真实教训：
+ *
+ * 1. **把 pathspec 限定在受保护目录内**（`-- src crates …`）：
+ *    不限定的话 git 会列出全部 node_modules/target（MB 级），
+ *    一旦超过 execFileSync 默认 1MB 缓冲就抛 ENOBUFS——而异常被 tryGit 静默吞掉后
+ *    本检查会**返回空数组并报"通过"**，恰好在该生效的时候失效。
+ *    限定 pathspec 后输出只有几十行，既快又稳。
+ * 2. **失败必须响亮**：这里故意不用 tryGit（它吞异常返回 undefined）。
+ *    一致性门禁绝不能 fail-open——git 挂了就该让脚本失败，而不是装作没问题。
+ */
+function listIgnoredFiles() {
+  const output = execFileSync(
+    'git',
+    [
+      'ls-files',
+      '--others',
+      '--ignored',
+      '--exclude-standard',
+      '-z',
+      '--',
+      ...PROTECTED_SOURCE_ROOTS,
+    ],
+    {
+      cwd: repoRoot,
+      encoding: 'utf8',
+      maxBuffer: 64 * 1024 * 1024,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    },
+  );
+  // -z 用 NUL 分隔，文件名不可能包含 NUL，因此按 NUL 切分是安全的
+  return output.split('\0').filter(Boolean);
+}
+
+const ignoredInSourceTrees = listIgnoredFiles().filter((path) =>
+  PROTECTED_SOURCE_ROOTS.includes(path.split('/')[0]),
+);
+
+for (const path of ignoredInSourceTrees) {
+  errors.push(
+    `源码树内的文件被 .gitignore 忽略，它永远不会进入仓库（本地却存在，CI 会因缺少它而失败）：${path}` +
+      ` —— 命中规则：${ignoredByRule(path)}。` +
+      `修复方式：把该规则锚定到仓库根（加前导 /），或为该目录添加例外（!规则）。`,
+  );
+}
+
 // ---------------------------------------------------------------- 输出
 
 for (const error of errors) {
@@ -203,5 +270,6 @@ if (errors.length > 0) {
 
 const memberCount = members?.length ?? 0;
 console.log(
-  `仓库一致性校验通过：${memberCount} 个 workspace 成员全部存在、未被 .gitignore 忽略、已被 git 跟踪。`,
+  `仓库一致性校验通过：${memberCount} 个 workspace 成员全部存在、未被 .gitignore 忽略、已被 git 跟踪；` +
+    `源码树（${PROTECTED_SOURCE_ROOTS.join(' ')}）内没有被忽略的文件。`,
 );

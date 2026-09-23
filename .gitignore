@@ -1,13 +1,17 @@
 # ---------- Node / 前端 ----------
+# 注意：构建/测试输出类目录规则一律**锚定到仓库根**（前导 /）。
+# 未锚定的规则会命中任意层级的同名目录——已因此发生过两起"源码目录被吞、
+# CI 找不到模块/manifest"的事故（详见本文件下方与 docs/DEV-ENV.md 陷阱 8/16）。
+# 约定：新增忽略规则时先问一句"这个目录是否只可能出现在仓库根"；是，就锚定。
 node_modules/
-dist/
-dist-ssr/
-.vite/
+/dist/
+/dist-ssr/
+/.vite/
 *.local
 .eslintcache
-coverage/
-playwright-report/
-test-results/
+/coverage/
+/playwright-report/
+/test-results/
 
 # ---------- Rust / Tauri ----------
 target/
@@ -53,7 +57,7 @@ src-tauri/gen/
 **/credentials/**
 !crates/credentials/
 !crates/credentials/**
-portable-data/
+/portable-data/
 
 # ---------- 编辑器 / 系统 ----------
 .vscode/*
@@ -66,8 +70,12 @@ Thumbs.db
 desktop.ini
 
 # ---------- 日志与临时文件 ----------
+# 第二起同根事故（2026-09）：未锚定的 `logs/` 命中了前端源码目录 `src/features/logs/`，
+# 三个日志查看组件从未提交，本地一切正常、CI typecheck 报 TS2307 找不到模块。
+# 因此：运行时输出目录全部锚定到根；scripts/ci/validate-repo.mjs 现在会断言
+# 源码树（src/ crates/ scripts/ docs/ .github/）内不存在任何被忽略的文件。
 *.log
-logs/
-tmp/
-temp/
-.cache/
+/logs/
+/tmp/
+/temp/
+/.cache/

@@ -260,6 +260,33 @@ tracing 事件 → 格式化器（可读 / JSON）→ 非阻塞写入 → Saniti
 2. `check:docs` 只校验**仓库内**的相对链接与锚点（外部链接不做网络校验，
    原因是 CI 需要确定性、且私有仓库的链接外部不可见），写文档时别依赖"链接能点"来判断正确性。
 
+### 陷阱 16：`.gitignore` 的目录规则不锚定到根 → 源码目录再次被吞（第二起同根事故）
+
+**现象**：本地 `pnpm typecheck` 全绿，CI 报
+
+```text
+error TS2307: Cannot find module '@/features/logs/LogViewerDialog' or its corresponding type declarations.
+```
+
+**成因**：`.gitignore` 里有一条未锚定的 `logs/`（拦截运行时日志目录）。
+未锚定的目录规则会命中**任意层级**的同名目录，于是前端源码目录 `src/features/logs/`
+整体被忽略，三个组件从未提交。本地文件都在所以一切正常，CI checkout 后就是缺文件。
+与陷阱 8（`crates/credentials` 被 `**/credentials/**` 命中）完全同根——只是这次
+受害者不是 Cargo 成员，`check:repo` 的 workspace 成员检查拦不住它。
+
+**约定**：
+1. `.gitignore` 里"运行时输出"类目录规则（dist、coverage、logs、tmp、test-results…）
+   一律**锚定到仓库根**（前导 `/`）；新增规则时先问"这个目录是否只可能出现在仓库根"；
+2. 新增忽略规则后运行 `pnpm check:repo`——它现在断言**源码树
+   （`src/ crates/ scripts/ docs/ .github/`）内不存在任何被忽略的文件**，
+   不再依赖"记住某个具体目录名"；
+3. 门禁实现上的两条教训（改 `validate-repo.mjs` 时注意）：
+   - 用 `git ls-files --others --ignored --exclude-standard` 时必须**限定 pathspec**
+     （`-- src crates …`），否则全量输出（node_modules/target，MB 级）会撑爆
+     `execFileSync` 默认 1MB 缓冲抛 ENOBUFS；
+   - 异常**不能静默吞掉返回空数组**——那会让门禁在最该生效时 fail-open。
+     一致性门禁失败时必须让脚本响亮地退出非零。
+
 ---
 
 ## 3. 已固化的工具链版本
