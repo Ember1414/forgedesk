@@ -226,8 +226,12 @@ function checkIcons() {
 // ---------------------------------------------------------- 4. 依赖许可检查
 
 function rustPackages() {
+  // 刻意**不带** --no-deps：那个开关让 metadata 只返回 workspace 成员，
+  // 过滤掉 forgedesk-* 之后 Rust 侧只剩 1 个包——约 400 个传递依赖完全没被审计，
+  // GPL 检查形同虚设（OPS-6 收口期间发现的真实缺陷）。
+  // --locked 保证只解析锁文件内的版本；compliance.yml 的 runner 首次会拉取索引（有网络）。
   const metadata = JSON.parse(
-    execFileSync(cargoCommand(), ['metadata', '--locked', '--no-deps', '--format-version', '1'], {
+    execFileSync(cargoCommand(), ['metadata', '--locked', '--format-version', '1'], {
       cwd: repoRoot,
       encoding: 'utf8',
       maxBuffer: 64 * 1024 * 1024,
@@ -256,11 +260,27 @@ function cargoCommand() {
   }
 }
 
+/**
+ * 平台专属二进制包（npm optionalDependencies 的产物）：@img/sharp-win32-x64、
+ * @esbuild/linux-x64、@rollup/rollup-darwin-arm64 这一类。
+ *
+ * 为什么必须从审计里剔除：它们随所在平台变化，而审计文件要与已提交版本逐字节比对——
+ * 不剔除的话，Windows 上生成的审计在 Linux CI 上永远"已过期"（真实事故，OPS-6 收口当周）。
+ * 这样做的合理性：二进制包与父包（sharp / esbuild / rollup）**同版本发布**，
+ * 许可审计以父包为准即可覆盖；其中 sharp 的 libvips 预编译库为 LGPL-3.0，
+ * 随应用分发的合规处理在 M7/M8 的 NOTICE 工作中落实（不依赖本审计文件）。
+ */
+const PLATFORM_PACKAGE_PATTERN =
+  /(^@[^/]+\/[^/]*|(?:^|\/))[^/]*\b(win32|linux|darwin|android|freebsd|sunos)-(x64|arm64|ia32|armv7|arm|universal|x86|msvc|gnu|musl)/i;
+
 function nodePackages() {
   const byLicense = runJson(pnpmCommand(), ['licenses', 'list', '--json']);
   const packages = [];
   for (const [license, entries] of Object.entries(byLicense)) {
     for (const entry of entries) {
+      if (PLATFORM_PACKAGE_PATTERN.test(entry.name)) {
+        continue;
+      }
       packages.push({ name: entry.name, version: entry.versions?.[0] ?? '', license });
     }
   }
@@ -297,8 +317,9 @@ function renderAudit(rust, node, rustViolations, nodeViolations) {
   return [
     '# 许可证审计（自动生成，请勿手改）',
     '',
-    `> 由 \`pnpm compliance\` 生成于 ${new Date().toISOString().slice(0, 10)}；`,
-    '> 与仓库内版本不一致时 CI 会失败。重新生成：`pnpm compliance`。',
+    '> 由 `pnpm compliance` 生成；与仓库内版本不一致时 CI 会失败。重新生成：`pnpm compliance`。',
+    '> 内容刻意**不含日期与平台专属二进制包**（@img/sharp-*、@esbuild/* 等，与父包同版本，',
+    '> 以父包审计为准）——否则本文件会随生成平台与日期漂移，Linux CI 永远对不上（真实教训）。',
     '',
     `## 汇总（Rust 依赖 ${rust.length} 个，npm 依赖 ${node.length} 个）`,
     '',
