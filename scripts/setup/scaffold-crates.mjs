@@ -46,7 +46,8 @@ const CRATES = [
     dir: 'storage',
     name: 'forgedesk-storage',
     doc: '本地存储层：SQLite 仓储、迁移与查询。',
-    deps: ['serde', 'thiserror', 'tracing'],
+    // rusqlite：本地 SQLite（bundled，避免依赖系统库）；serde_json：设置值以 JSON 字符串存储
+    deps: ['rusqlite', 'serde', 'serde_json', 'thiserror', 'tracing'],
     internal: ['forgedesk-domain'],
   },
   {
@@ -116,7 +117,12 @@ const CRATES = [
     // anyhow：统一错误转换层的输入类型（把 anyhow/thiserror 错误映射为 AppError）
     // tauri：命令宏与运行时
     deps: ['anyhow', 'serde', 'serde_json', 'tauri', 'thiserror', 'tracing'],
-    internal: ['forgedesk-domain', 'forgedesk-diagnostics', 'forgedesk-services'],
+    internal: [
+      'forgedesk-domain',
+      'forgedesk-diagnostics',
+      'forgedesk-services',
+      'forgedesk-storage',
+    ],
   },
   {
     dir: 'plugin-host',

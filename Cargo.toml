@@ -65,6 +65,13 @@ time = { version = "0.3", features = ["serde", "formatting", "parsing", "macros"
 secrecy = "0.10"
 parking_lot = "0.12"
 
+# ---- 本地存储 ----
+# bundled：把 SQLite 源码一起编译进产物。为什么不用系统库：
+# 三平台（Windows/macOS/Linux 各发行版）自带的 SQLite 版本与编译选项差异很大，
+# "在开发机上能跑、在用户机上打开数据库失败"是这类项目最难排查的问题之一；
+# 代价是首次编译慢一点（此后走缓存）。
+rusqlite = { version = "0.40", features = ["bundled"] }
+
 # ---- Tauri ----
 # 版本策略：跟随 2.x 最新补丁（Tauri 2 在 2.x 内保持向后兼容）
 tauri = { version = "2", features = [] }

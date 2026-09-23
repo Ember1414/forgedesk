@@ -51,6 +51,10 @@
     "title": "Restore verification failed",
     "hint": "The restored state does not match the snapshot. Review the details and bring the repository back to a safe state."
   },
+  "STORAGE": {
+    "title": "Local data could not be read or written",
+    "hint": "Make sure the data directory is writable and there is free disk space, then retry. Restarting the app may help."
+  },
   "KEYRING_UNAVAILABLE": {
     "title": "System credential store unavailable",
     "hint": "Make sure the OS credential service is running (Secret Service on Linux), or use another authentication method."

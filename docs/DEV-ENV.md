@@ -173,7 +173,33 @@ failed to load manifest for workspace member `/home/runner/work/forgedesk/forged
    属于上游噪音；我们自己的组件若出现同类警告必须修（通常是"挂载状态下改 store"，
    见 `src/app/shell/AppShell.test.tsx` 的 afterEach）。
 
-### 陷阱 10：`i18n:lint` 的豁免只能写在"文件头部"或"命中行"
+### 陷阱 10：SQLite 的 `NULL` 在唯一约束里互不相等
+
+**现象**：`settings` 表里 `repo_id` 为 `NULL` 的全局设置可以插入任意多行；
+`INSERT OR REPLACE` 也覆盖不掉，表现为"改了设置但读出来还是旧值"。
+
+**成因**：SQL 标准里 `NULL != NULL`，而 SQLite 的 `PRIMARY KEY` / `UNIQUE` 沿用这一点，
+因此 `PRIMARY KEY (scope, repo_id, key)` 对 `repo_id IS NULL` **完全失效**。
+
+**约定**：迁移里额外建了一个唯一索引把 `NULL` 折叠成具体值：
+
+```sql
+CREATE UNIQUE INDEX idx_settings_unique ON settings(scope, COALESCE(repo_id, -1), key);
+```
+
+`crates/storage/src/migrations.rs` 的 `global_scope_settings_are_unique` 测试锁住了这个行为。
+新增任何"可空的唯一键"表时，都要照此处理，否则会得到一张能塞重复行的表。
+
+### 陷阱 11：迁移前必须先 `wal_checkpoint`
+
+**现象**：迁移前备份了 `.db` 文件，恢复时发现少了最近几次操作。
+
+**成因**：WAL 模式下最近的写入还在 `-wal` 文件里，直接 `copy` 主文件拿到的是一份旧快照。
+
+**约定**：备份前调用 `Database::checkpoint()`（`PRAGMA wal_checkpoint(TRUNCATE)`），
+由 `crates/storage/src/migrations.rs` 的 `backup_database` 统一处理，不要在别处手写备份。
+
+### 陷阱 12：`i18n:lint` 的豁免只能写在"文件头部"或"命中行"
 
 **现象**：明明加了 `// i18n-ignore-file`，`pnpm i18n:lint` 仍报该文件。
 
@@ -285,7 +311,9 @@ where link.exe
 | M0 / T0.4 应用外壳与路由 | ✅ 20 条路由可跳转；外壳交互测试 13 项 + 路由表 23 项 |
 | M0 / T0.5 基础组件库 | ✅ 29 个组件（Radix 原语）+ 85 项组件测试；展示页 `/__dev__/components` |
 | M0 / T0.6 错误模型 + i18n + 错误展示 | ✅ 错误分类/脱敏（Rust 单测）+ `normalizeError`/ErrorToast + `pnpm i18n:lint` 门禁 |
-| M0 / T0.7–T0.9、T0.11、T0.12 | 未开始 |
+| M0 / T0.7 SQLite + 迁移 + 设置持久化 | ✅ 7 张表 + 版本化迁移（含备份/回滚）+ 设置读写命令 + 界面密度落库 |
+| M0 / T0.8–T0.9、T0.11、T0.12 | 未开始 |
+| 审批 | ✅ T0.4 主界面布局已确认（红线 R3） |
 
 补充说明（T0.4 顺带落地的两项前置能力，后续任务直接复用）：
 

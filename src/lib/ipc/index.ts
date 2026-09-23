@@ -49,6 +49,58 @@ export function appVersion(): Promise<AppVersion> {
   return invokeCommand<AppVersion>('app_version');
 }
 
+/** 设置的归属范围。 */
+export type SettingsScope = 'global' | 'repo';
+
+/**
+ * 读取一个设置项（不存在返回 `null`）。
+ *
+ * 仓库级设置必须提供 `repoId`：后端会拒绝"repo 范围但没有 repoId"的调用，
+ * 而不是静默降级成全局——那会让某个仓库的设置悄悄写到所有仓库上。
+ */
+export function settingsGet(
+  scope: SettingsScope,
+  key: string,
+  repoId?: number,
+): Promise<string | null> {
+  return invokeCommand<string | null>('settings_get', {
+    scope,
+    key,
+    ...(repoId === undefined ? {} : { repoId }),
+  });
+}
+
+/**
+ * 写入一个设置项。
+ *
+ * `value` 必须是 **JSON 字符串**（调用方序列化，后端只校验形状）。
+ * 这样存储层不必理解每个设置项的类型，新增设置项不需要改后端。
+ */
+export function settingsSet(
+  scope: SettingsScope,
+  key: string,
+  value: string,
+  repoId?: number,
+): Promise<void> {
+  return invokeCommand<void>('settings_set', {
+    scope,
+    key,
+    value,
+    ...(repoId === undefined ? {} : { repoId }),
+  });
+}
+
+/** 读取某个范围下的全部设置（启动时一次性拉取，避免逐个 key 往返）。 */
+export function settingsAll(
+  scope: SettingsScope,
+  repoId?: number,
+): Promise<Record<string, string>> {
+  return invokeCommand<Record<string, string>>('settings_all', {
+    scope,
+    ...(repoId === undefined ? {} : { repoId }),
+  });
+}
+
 /**
  * 触发一个受控失败的演示错误（仅开发构建注册该命令）。
  *

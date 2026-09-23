@@ -159,6 +159,20 @@
     }
   },
   "settings": {
+    "general": {
+      "densityLabel": "界面密度",
+      "densityHint": "紧凑模式会收紧列表与页面的留白，适合小屏幕，或想在一屏里看到更多内容时使用。",
+      "density": {
+        "comfortable": "舒适",
+        "compact": "紧凑"
+      },
+      "storageTitle": "本地数据",
+      "storageHint": "设置与仓库记录保存在应用数据目录的 SQLite 数据库中，关闭应用后依然保留。",
+      "themeNote": "主题保存在浏览器本地存储里，因为首帧渲染前必须同步可读；放进数据库会导致启动瞬间的明暗闪烁。",
+      "loadFailed": "读取设置失败",
+      "loadFailedHint": "本地数据库可能无法访问，可以重试；若持续失败请查看日志。",
+      "retry": "重试"
+    },
     "appearance": {
       "themeLabel": "主题",
       "themeHint": "切换立即生效并记住选择；跟随系统会随系统外观自动变化。",

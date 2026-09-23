@@ -48,7 +48,7 @@ interface FixAction {
 
 `PATH_NOT_REPO`、`GIT_CONFLICT`、`AUTH_REQUIRED`、`AUTH_EXPIRED`、`PERMISSION_DENIED`、
 `NOT_FOUND`、`VALIDATION`、`NETWORK`、`RATE_LIMITED`、`PATCH_APPLY_FAILED`、`PLAN_STALE`、
-`HOOK_REJECTED`、`RESTORE_VERIFY_FAILED`、`KEYRING_UNAVAILABLE`、`PTY_UNSUPPORTED`、
+`HOOK_REJECTED`、`RESTORE_VERIFY_FAILED`、`KEYRING_UNAVAILABLE`、`STORAGE`、`PTY_UNSUPPORTED`、
 `UNSUPPORTED_BY_ENGINE`、`INTERNAL`
 
 **转换入口**：命令层不得自行拼装错误，一律经 `forgedesk_commands::error::to_app_error`——
@@ -62,6 +62,9 @@ interface FixAction {
 | 命令 | 能力等级 | 里程碑 | 说明 |
 | --- | --- | --- | --- |
 | [`app_version`](#app_version) | ReadOnly | T0.1 | 应用版本与构建信息 |
+| [`settings_get`](#settings_get--settings_set--settings_all) | ReadOnly | T0.7 | 读取单个设置项 |
+| [`settings_set`](#settings_get--settings_set--settings_all) | Mutating | T0.7 | 写入（覆盖）设置项 |
+| [`settings_all`](#settings_get--settings_set--settings_all) | ReadOnly | T0.7 | 读取某个范围的全部设置 |
 | [`debug_throw_error`](#debug_throw_error) | ReadOnly | T0.6 | 触发受控失败，用于验证错误链路（**仅开发构建注册**） |
 
 ---
@@ -87,6 +90,48 @@ interface AppVersion {
 - **错误**：正常路径不产生错误（失败即 `INTERNAL`）
 - **前端封装**：`src/lib/ipc/index.ts` 的 `appVersion()`
 - **调用点**：`src/features/system/VersionBadge.tsx`
+
+---
+
+### settings_get / settings_set / settings_all
+
+本地设置读写。存储在应用数据目录的 SQLite `settings` 表中（见 `crates/storage`）。
+
+**共同参数**
+
+| 参数 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `scope` | `"global"` \| `"repo"` | 是 | 设置归属范围 |
+| `repoId` | `number` | scope=repo 时必填 | 仓库级设置对应的仓库 id；**缺失即报错**，不静默降级为全局 |
+
+**值的契约**：`value` 一律是 **JSON 字符串**（由调用方序列化）。存储层不理解具体类型，
+因此新增设置项不需要改后端、不需要迁移。`settings_set` 会校验 JSON 形状，
+非法值返回 `VALIDATION`——在入口拦住比将来读取时 `JSON.parse` 抛错更容易定位。
+
+**全局设置的唯一性**：`repo_id` 为 `NULL`，而 SQLite 中 `NULL` 在唯一约束里互不相等，
+因此唯一性由迁移里的 `COALESCE(repo_id, -1)` 索引保证（详见 `0001_init.sql` 的注释）。
+
+#### settings_get
+
+- **能力等级**：`ReadOnly`
+- **返回**：`string | null`（不存在返回 `null`，不是错误）
+- **错误**：`VALIDATION`（scope 非法 / repo 缺 repoId）、`STORAGE`
+
+#### settings_set
+
+- **能力等级**：`Mutating`（只写本地配置，不涉及仓库状态，因此**不需要**快照）
+- **返回**：`null`
+- **错误**：`VALIDATION`（scope 非法 / key 为空 / value 不是合法 JSON）、`STORAGE`
+
+#### settings_all
+
+- **能力等级**：`ReadOnly`
+- **返回**：`Record<string, string>`（key → JSON 字符串；键序稳定，便于对比与排查）
+- **错误**：`VALIDATION`、`STORAGE`
+- **用途**：应用启动时一次性拉取，避免逐个 key 往返
+
+**前端封装**：`settingsGet` / `settingsSet` / `settingsAll`（`src/lib/ipc/index.ts`）
+**调用点**：`src/stores/settingsStore.ts`（`load` / `setJson`）、`src/features/settings/GeneralSettingsPage.tsx`
 
 ---
 

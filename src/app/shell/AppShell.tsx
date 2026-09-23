@@ -43,7 +43,12 @@ export function AppShell() {
 
       <div className="flex min-h-0 flex-1">
         <SideNav collapsed={collapsed} autoCollapsed={autoCollapsed} />
-        <main id="main-content" tabIndex={-1} className="min-w-0 flex-1 overflow-auto p-4">
+        {/* 内边距用密度变量（见 src/styles/index.css）：设置页里切换"界面密度"会立刻生效 */}
+        <main
+          id="main-content"
+          tabIndex={-1}
+          className="min-w-0 flex-1 overflow-auto p-[var(--fd-content-pad)]"
+        >
           <Outlet />
         </main>
       </div>

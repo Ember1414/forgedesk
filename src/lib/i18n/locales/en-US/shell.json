@@ -159,6 +159,20 @@
     }
   },
   "settings": {
+    "general": {
+      "densityLabel": "Interface density",
+      "densityHint": "Compact tightens list and page padding - useful on small screens or to fit more on one screen.",
+      "density": {
+        "comfortable": "Comfortable",
+        "compact": "Compact"
+      },
+      "storageTitle": "Local data",
+      "storageHint": "Settings and repository records live in a SQLite database in the app data directory and survive restarts.",
+      "themeNote": "The theme is kept in browser local storage because it must be readable synchronously before the first paint; storing it in the database would cause a flash on startup.",
+      "loadFailed": "Could not read settings",
+      "loadFailedHint": "The local database may be unreachable. Retry, and if it keeps failing check the logs.",
+      "retry": "Retry"
+    },
     "appearance": {
       "themeLabel": "Theme",
       "themeHint": "Applies immediately and is remembered; System follows the OS appearance.",

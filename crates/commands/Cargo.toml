@@ -14,6 +14,7 @@ authors.workspace = true
 forgedesk-domain.workspace = true
 forgedesk-diagnostics.workspace = true
 forgedesk-services.workspace = true
+forgedesk-storage.workspace = true
 anyhow.workspace = true
 serde.workspace = true
 serde_json.workspace = true

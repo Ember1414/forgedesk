@@ -9,6 +9,7 @@ import { queryClient } from '@/app/queryClient';
 import { applyThemeMode, watchSystemTheme } from '@/app/theme';
 import { Toaster } from '@/ui/components/toast';
 import { TooltipProvider } from '@/ui/components/tooltip';
+import { useSettingsStore } from '@/stores/settingsStore';
 import { useUiStore } from '@/stores/uiStore';
 
 /**
@@ -39,6 +40,12 @@ function SystemThemeSync() {
 
 export function App() {
   const { t } = useTranslation('common');
+
+  useEffect(() => {
+    // 启动时拉一次设置：界面密度这类"用起来就该已经生效"的项必须在首屏就应用，
+    // 而不是等用户进设置页才生效。失败会被 store 记录，由设置页负责展示。
+    void useSettingsStore.getState().load();
+  }, []);
 
   return (
     <QueryClientProvider client={queryClient}>

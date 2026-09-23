@@ -46,6 +46,12 @@ pub enum ErrorCode {
     RestoreVerifyFailed,
     /// 系统凭据库不可用（例如 Linux 上缺少 Secret Service）。
     KeyringUnavailable,
+    /// 本地数据存储失败（SQLite 打开、迁移、读写）。
+    ///
+    /// 为什么单独一个码：本地存储失败是**用户可自救**的一类问题
+    /// （磁盘满、数据目录只读、数据库文件被别的进程占用），
+    /// 给一句"检查磁盘空间与数据目录权限"比笼统的"内部错误"有用得多。
+    Storage,
     /// 当前平台不支持伪终端（PTY）。
     PtyUnsupported,
     /// 当前 Git 引擎不支持该操作。
@@ -71,6 +77,7 @@ impl ErrorCode {
         Self::HookRejected,
         Self::RestoreVerifyFailed,
         Self::KeyringUnavailable,
+        Self::Storage,
         Self::PtyUnsupported,
         Self::UnsupportedByEngine,
         Self::Internal,
@@ -93,6 +100,7 @@ impl ErrorCode {
             Self::HookRejected => "HOOK_REJECTED",
             Self::RestoreVerifyFailed => "RESTORE_VERIFY_FAILED",
             Self::KeyringUnavailable => "KEYRING_UNAVAILABLE",
+            Self::Storage => "STORAGE",
             Self::PtyUnsupported => "PTY_UNSUPPORTED",
             Self::UnsupportedByEngine => "UNSUPPORTED_BY_ENGINE",
             Self::Internal => "INTERNAL",
@@ -133,6 +141,7 @@ impl ErrorCode {
             Self::HookRejected => "a Git hook rejected the operation",
             Self::RestoreVerifyFailed => "the restored state failed verification",
             Self::KeyringUnavailable => "the system credential store is unavailable",
+            Self::Storage => "local data storage failed",
             Self::PtyUnsupported => "pseudo-terminal is not supported on this platform",
             Self::UnsupportedByEngine => "the current Git engine does not support this operation",
             Self::Internal => "an internal error occurred",

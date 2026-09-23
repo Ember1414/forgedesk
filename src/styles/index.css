@@ -33,6 +33,19 @@
   * {
     scrollbar-color: var(--fd-line-strong) transparent;
   }
+
+  /* 界面密度：由 settingsStore 写入 <html data-density>。
+   * 用变量而不是逐处改类名，好处是"密度"只影响留白相关的几个量，
+   * 不会把组件的其它样式卷进来。 */
+  :root {
+    --fd-content-pad: 16px;
+    --fd-row-pad: 6px;
+  }
+
+  [data-density='compact'] {
+    --fd-content-pad: 10px;
+    --fd-row-pad: 2px;
+  }
 }
 
 @layer utilities {
