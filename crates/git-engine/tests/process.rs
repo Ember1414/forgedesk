@@ -363,7 +363,11 @@ async fn cancellation_kills_the_child_and_reports_an_error() {
     let elapsed = started.elapsed();
 
     let error = result.expect_err("取消必须返回 Err");
-    assert_eq!(error.code, ErrorCode::Internal);
+    assert_eq!(
+        error.code,
+        ErrorCode::Cancelled,
+        "取消是用户主动的、预期内的结果，不应报成 INTERNAL"
+    );
     assert!(
         error.message.contains("cancelled"),
         "错误信息应说明取消，实际: {}",

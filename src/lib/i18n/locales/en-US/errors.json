@@ -67,6 +67,10 @@
     "title": "The current engine does not support this operation",
     "hint": "This feature needs the system git CLI. Make sure git is installed and callable."
   },
+  "CANCELLED": {
+    "title": "Operation cancelled",
+    "hint": "It was stopped at your request and the repository was left untouched. You can start again any time."
+  },
   "INTERNAL": {
     "title": "Internal error",
     "hint": "This is unexpected. Expand the details and include them in your bug report."

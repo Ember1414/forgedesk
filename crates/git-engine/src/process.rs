@@ -573,7 +573,7 @@ fn timeout_error(program: &Path, args: &[String], duration: Duration) -> AppErro
 /// 被取消。
 fn cancelled_error(program: &Path, args: &[String], duration: Duration) -> AppError {
     AppError::new(
-        ErrorCode::Internal,
+        ErrorCode::Cancelled,
         "git command was cancelled before it finished",
     )
     .with_detail(sanitize_log(&format!(

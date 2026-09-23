@@ -56,6 +56,12 @@ pub enum ErrorCode {
     PtyUnsupported,
     /// 当前 Git 引擎不支持该操作。
     UnsupportedByEngine,
+    /// 操作被用户取消（或随应用退出中止）。
+    ///
+    /// 为什么不是 `Internal`：取消是**用户主动的、预期内的**结果，
+    /// 界面应当安静地显示"已取消"，而不是弹一个"内部错误"的红色提示。
+    /// 把两者混在一起会让用户以为自己点坏了什么。
+    Cancelled,
     /// 未归类的内部错误。
     Internal,
 }
@@ -80,6 +86,7 @@ impl ErrorCode {
         Self::Storage,
         Self::PtyUnsupported,
         Self::UnsupportedByEngine,
+        Self::Cancelled,
         Self::Internal,
     ];
 
@@ -103,6 +110,7 @@ impl ErrorCode {
             Self::Storage => "STORAGE",
             Self::PtyUnsupported => "PTY_UNSUPPORTED",
             Self::UnsupportedByEngine => "UNSUPPORTED_BY_ENGINE",
+            Self::Cancelled => "CANCELLED",
             Self::Internal => "INTERNAL",
         }
     }
@@ -144,6 +152,7 @@ impl ErrorCode {
             Self::Storage => "local data storage failed",
             Self::PtyUnsupported => "pseudo-terminal is not supported on this platform",
             Self::UnsupportedByEngine => "the current Git engine does not support this operation",
+            Self::Cancelled => "the operation was cancelled",
             Self::Internal => "an internal error occurred",
         }
     }

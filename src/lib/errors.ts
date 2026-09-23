@@ -47,6 +47,7 @@ export const ERROR_CODES = [
   'STORAGE',
   'PTY_UNSUPPORTED',
   'UNSUPPORTED_BY_ENGINE',
+  'CANCELLED',
   'INTERNAL',
 ] as const;
 
