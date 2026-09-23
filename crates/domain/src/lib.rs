@@ -19,5 +19,6 @@
 #![forbid(unsafe_code)]
 
 pub mod error;
+pub mod git;
 
 pub use error::{AppError, AppResult, ErrorCode, FixAction};
