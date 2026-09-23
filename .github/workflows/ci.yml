@@ -17,6 +17,14 @@ name: CI
 #     1. 删除 build job 上的 `if: github.event_name != 'pull_request'`
 #     2. 启用 e2e 与 nightly 工作流
 #     3. 把所有 `uses:` 固定到 commit SHA
+#
+# 【Action 版本约束】GitHub 已于 2026-09-23 移除 Node 20（见
+#   https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/ ）。
+#   工作流中所有 JavaScript 类 action 必须使用运行在 Node 24 上的版本：
+#     actions/checkout@v7、actions/setup-node@v7、actions/upload-artifact@v7、
+#     pnpm/action-setup@v6（Swatinem/rust-cache@v2 当前已是最新；
+#     dtolnay/rust-toolchain 是复合 action，不涉及 Node 运行时）。
+#   升级 action 主版本时请一并核对输入参数是否有破坏性变更。
 # ===========================================================================
 
 on:
@@ -45,17 +53,17 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version: 24
           cache: pnpm
 
       - name: Setup Rust
@@ -123,15 +131,15 @@ jobs:
     timeout-minutes: 45
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version: 24
           cache: pnpm
 
       - name: Setup Rust
@@ -163,7 +171,7 @@ jobs:
         run: pnpm tauri build --debug --no-bundle
 
       - name: Upload executable
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: forgedesk-${{ matrix.platform }}-debug
           # 各平台可执行文件路径不同，缺失的一方由 if-no-files-found 容忍
