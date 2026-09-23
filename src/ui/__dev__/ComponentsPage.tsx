@@ -83,6 +83,7 @@ import { Tip } from '@/ui/components/tooltip';
 import { VirtualList } from '@/ui/components/virtual-list';
 import { debugPanic, debugThrowError, isTauriRuntime } from '@/lib/ipc';
 import { useAppError } from '@/lib/errors';
+import { RepositoryLifecyclePanel } from '@/ui/__dev__/RepositoryLifecyclePanel';
 import { openLogViewer } from '@/stores/logViewerStore';
 import { pushToast } from '@/stores/toastStore';
 import { useUiStore } from '@/stores/uiStore';
@@ -706,6 +707,13 @@ export function ComponentsPage() {
             <span className="font-mono">session.lock</span> 直接关掉应用，
             下次启动会在日志里看到"上次会话未正常退出"（M7 会据此提供恢复引导）。
           </p>
+        </Section>
+
+        <Section
+          title="仓库生命周期（T1.3）"
+          description="repo_discover / open / init / clone / recent_list / close / forget，以及 job:progress / done / failed 三条任务事件"
+        >
+          <RepositoryLifecyclePanel />
         </Section>
 
         <Section title="布局" description="SplitPane（拖拽或方向键调整）与 Resizable">
