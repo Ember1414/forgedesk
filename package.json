@@ -1,0 +1,80 @@
+{
+  "name": "forgedesk",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "description": "ForgeDesk — A Git client for everyone",
+  "license": "Apache-2.0",
+  "author": "ForgeDesk contributors",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Ember1414/forgedesk.git"
+  },
+  "homepage": "https://github.com/Ember1414/forgedesk#readme",
+  "bugs": {
+    "url": "https://github.com/Ember1414/forgedesk/issues"
+  },
+  "engines": {
+    "node": ">=20.19"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests",
+    "test:watch": "vitest",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "check:contrast": "node scripts/design/check-contrast.mjs",
+    "check:workflows": "node scripts/ci/validate-workflows.mjs",
+    "setup:cargo-mirror": "node scripts/setup/cargo-mirror.mjs",
+    "//pages": "使用 npx 而非 pnpm dlx：pnpm 在遇到需要构建的依赖（esbuild/workerd）时会弹出交互式选择框，且 dlx 的隔离环境不读取项目的 pnpm 配置，脚本化场景下会直接卡住。",
+    "pages:preview": "npx --yes wrangler@4 pages dev site",
+    "pages:deploy": "npx --yes wrangler@4 pages deploy site --project-name=forgedesk",
+    "pages:create": "npx --yes wrangler@4 pages project create forgedesk --production-branch=main",
+    "tauri": "tauri"
+  },
+  "packageManager": "pnpm@11.7.0",
+  "dependencies": {
+    "@tanstack/react-query": "^5.103.2",
+    "@tauri-apps/api": "^2.11.1",
+    "clsx": "^2.1.1",
+    "i18next": "^26.4.2",
+    "lucide-react": "^1.47.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "react-i18next": "^17.0.15",
+    "react-router-dom": "^7.18.4",
+    "tailwind-merge": "^3.7.0",
+    "zod": "^4.6.5",
+    "zustand": "^5.0.15"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.63.0",
+    "@tailwindcss/vite": "^4.3.3",
+    "@tauri-apps/cli": "^2.11.5",
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.3",
+    "@types/node": "^26.6.2",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.1",
+    "@vitest/coverage-v8": "^5.0.1",
+    "eslint": "^10.11.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.12.0",
+    "jsdom": "^30.1.1",
+    "prettier": "^3.9.8",
+    "sharp": "^0.35.4",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.70.1",
+    "vite": "^8.3.0",
+    "vitest": "^5.0.1",
+    "yaml": "^2.9.1"
+  }
+}

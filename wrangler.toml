@@ -1,0 +1,25 @@
+# ============================================================
+# Cloudflare Pages 配置（见 docs/adr/ADR-003-cloudflare-instead-of-github-pages.md）
+#
+# 部署方式：Direct Upload —— 由 GitHub Actions 用 wrangler 直传构建产物，
+#           不使用 Cloudflare 的 Git 自动构建（避免把私有仓库授权给第三方 App）。
+#
+# 本地一次性创建项目：
+#   pnpm dlx wrangler login                       # 浏览器授权（人类执行一次）
+#   pnpm dlx wrangler pages project create forgedesk --production-branch=main
+#
+# 本地预览与手动部署：
+#   pnpm pages:preview
+#   pnpm pages:deploy
+#
+# CI 需要两个 GitHub Secret（由人类在仓库设置中添加）：
+#   CLOUDFLARE_API_TOKEN   —— 权限仅需 Cloudflare Pages: Edit，且限定到本账号
+#   CLOUDFLARE_ACCOUNT_ID
+# ============================================================
+
+name = "forgedesk"
+
+# Pages 的静态资源目录。当前是验证链路用的占位页，T7.9 会替换为正式站点。
+pages_build_output_dir = "site"
+
+compatibility_date = "2026-09-23"

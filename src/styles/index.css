@@ -1,0 +1,51 @@
+@import 'tailwindcss';
+@import '../ui/tokens.css';
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    margin: 0;
+    font-family: var(--fd-font-sans);
+    background-color: var(--fd-canvas);
+    color: var(--fd-fg);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* 统一的可见焦点环：不依赖颜色单独传达（同时有 2px 轮廓 + 偏移） */
+  :focus-visible {
+    outline: 2px solid var(--fd-brand);
+    outline-offset: 2px;
+    border-radius: var(--radius-xs);
+  }
+
+  ::selection {
+    background-color: var(--fd-brand-subtle);
+    color: var(--fd-fg);
+  }
+
+  /* 滚动条跟随主题，避免暗色下出现刺眼亮条 */
+  * {
+    scrollbar-color: var(--fd-line-strong) transparent;
+  }
+}
+
+@layer utilities {
+  /* 组件过渡统一使用 token 时长 */
+  .fd-transition {
+    transition-property: color, background-color, border-color, box-shadow, opacity, transform;
+    transition-duration: var(--fd-duration-base);
+    transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .fd-transition {
+      transition-duration: 1ms;
+    }
+  }
+}

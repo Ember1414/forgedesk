@@ -1,0 +1,23 @@
+# 本文件由 scripts/setup/scaffold-crates.mjs 生成。
+# 修改结构请改生成器后重新执行，避免手工编辑与生成结果不一致。
+
+[package]
+name = "forgedesk-jobs"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+forgedesk-domain.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+uuid.workspace = true
+
+[lints]
+workspace = true

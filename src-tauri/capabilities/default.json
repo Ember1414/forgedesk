@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "ForgeDesk 默认能力集。M0 阶段只需要核心能力：自定义命令与基础窗口事件。后续按里程碑逐项添加（文件对话框、剪贴板、通知、更新器等），每次新增都必须在此显式声明，禁止使用过宽的权限集合。",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}

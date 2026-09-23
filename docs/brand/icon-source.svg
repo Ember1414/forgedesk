@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ForgeDesk 应用图标 — 矢量源文件（唯一真源）
+  ============================================================
+  设计概念：抽象"锻炉 / 砧台"造型 + 上方飞溅的火花。
+    · 底座 + 腰身 + 砧面 三级几何体 → 表达"锻造"（Forge）
+    · 三枚大小递减的菱形火花 → 表达"加工 / 成形"的动作感
+  全部由基础几何图形（圆角矩形、菱形）构成，纯原创。
+
+  合规声明（AGENTS.md 红线 R2）：
+    · 未使用 Git / GitHub / Tauri 官方 Logo 或其任何变体
+    · 未使用 Octocat 及任何动物形象
+    · 未使用"分支连线 / 节点圆点"等与 Git 图形语言直接对应的元素
+    · 图标整体为原创设计
+
+  画布规格：1024x1024，透明背景，圆角方块占 80%（留出 macOS 图标网格间距）
+
+  修改方式：编辑本文件 → 运行 `node scripts/brand/render-icon.mjs`
+            → 运行 `pnpm tauri icon docs/brand/icon-1024.png` 生成各平台图标
+-->
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-label="ForgeDesk">
+  <defs>
+    <linearGradient id="fd-plate" x1="102" y1="102" x2="922" y2="922" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#4F46E5" />
+      <stop offset="0.55" stop-color="#5B3FE0" />
+      <stop offset="1" stop-color="#7C3AED" />
+    </linearGradient>
+
+    <!-- 顶部柔和高光，让方块更有体积感；不影响小尺寸下的识别度 -->
+    <linearGradient id="fd-sheen" x1="512" y1="102" x2="512" y2="520" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.18" />
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0" />
+    </linearGradient>
+  </defs>
+
+  <!-- 底板 -->
+  <rect x="102" y="102" width="820" height="820" rx="186" fill="url(#fd-plate)" />
+  <rect x="102" y="102" width="820" height="820" rx="186" fill="url(#fd-sheen)" />
+
+  <!-- 标志主体（纯白，保证在深色底上清晰） -->
+  <g fill="#FFFFFF">
+    <!-- 火花：三枚菱形，中间最大 -->
+    <path d="M512 198 L560 262 L512 326 L464 262 Z" />
+    <path d="M400 306 L424 340 L400 374 L376 340 Z" />
+    <path d="M624 306 L648 340 L624 374 L600 340 Z" />
+
+    <!-- 砧面（最宽） -->
+    <rect x="256" y="512" width="512" height="104" rx="30" />
+    <!-- 腰身（收窄） -->
+    <rect x="432" y="616" width="160" height="120" rx="16" />
+    <!-- 底座（再次展开） -->
+    <rect x="320" y="736" width="384" height="88" rx="26" />
+  </g>
+</svg>

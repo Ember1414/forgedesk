@@ -1,0 +1,15 @@
+node_modules
+dist
+coverage
+playwright-report
+test-results
+# Rust workspace 的 target 目录在仓库根（workspace 根即仓库根）
+target
+src-tauri/gen
+pnpm-lock.yaml
+Cargo.lock
+.cargo
+
+# 计划书与规范文档为手工排版（含大量表格与代码块），不参与自动格式化
+docs
+AGENTS.md

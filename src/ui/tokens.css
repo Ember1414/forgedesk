@@ -1,0 +1,154 @@
+/* ============================================================
+ * ForgeDesk 设计 tokens（M0 / T0.3）
+ *
+ * 约定：
+ *  1. 所有颜色以 --fd-* 语义变量定义，通过 @theme inline 暴露为 Tailwind 工具类。
+ *  2. 组件内**禁止**硬编码颜色（十六进制/rgb/oklch 一律不允许），
+ *     一律使用语义类：bg-canvas / bg-surface / text-fg / text-fg-muted / border-line ...
+ *  3. "跟随系统" 由运行时解析为 light | dark 后写入 <html data-theme>，
+ *     CSS 只处理 light / dark 两种确定状态（避免暗色值重复两遍）。
+ *  4. 对比度由 scripts/design/check-contrast.mjs 在 CI 中自动校验（WCAG AA）。
+ * ============================================================ */
+
+/* ---------- 亮色（默认） ---------- */
+:root {
+  color-scheme: light;
+
+  /* 背景层 */
+  --fd-canvas: #f7f8fa;
+  --fd-surface: #ffffff;
+  --fd-surface-raised: #ffffff;
+  --fd-surface-sunken: #eef0f4;
+
+  /* 描边 */
+  --fd-line: #e3e6eb;
+  --fd-line-strong: #c8cdd6;
+
+  /* 文字 */
+  --fd-fg: #14161a;
+  --fd-fg-muted: #565d6b;
+  --fd-fg-subtle: #6b7280;
+  --fd-fg-inverted: #ffffff;
+
+  /* 品牌与强调 */
+  --fd-brand: #4f46e5;
+  --fd-brand-hover: #4338ca;
+  --fd-brand-fg: #ffffff;
+  --fd-brand-subtle: #eef0fe;
+  --fd-spark: #c2410c;
+
+  /* 语义状态 */
+  --fd-success: #157f3d;
+  --fd-warning: #9a6206;
+  --fd-danger: #c2261e;
+  --fd-info: #1d65c1;
+
+  /* 动效 */
+  --fd-duration-fast: 120ms;
+  --fd-duration-base: 200ms;
+  --fd-duration-slow: 320ms;
+
+  /* 字体 */
+  --fd-font-sans:
+    ui-sans-serif, system-ui, -apple-system, 'Segoe UI', 'Microsoft YaHei', 'PingFang SC',
+    'Noto Sans SC', 'Hiragino Sans GB', sans-serif;
+  --fd-font-mono:
+    ui-monospace, 'Cascadia Code', 'JetBrains Mono', 'SFMono-Regular', Consolas, 'Courier New',
+    monospace;
+}
+
+/* ---------- 暗色 ---------- */
+[data-theme='dark'] {
+  color-scheme: dark;
+
+  --fd-canvas: #0f1115;
+  --fd-surface: #171a20;
+  --fd-surface-raised: #1d212a;
+  --fd-surface-sunken: #0b0d11;
+
+  --fd-line: #2a2f38;
+  --fd-line-strong: #3d434f;
+
+  --fd-fg: #eceef2;
+  --fd-fg-muted: #a6adba;
+  --fd-fg-subtle: #8c93a1;
+  --fd-fg-inverted: #14161a;
+
+  --fd-brand: #8b93f8;
+  --fd-brand-hover: #a5abfa;
+  --fd-brand-fg: #14161a;
+  --fd-brand-subtle: #1e2130;
+  --fd-spark: #fb923c;
+
+  --fd-success: #56d98a;
+  --fd-warning: #f0c04a;
+  --fd-danger: #f58b84;
+  --fd-info: #74a9f0;
+}
+
+/* ============================================================
+ * 暴露为 Tailwind 工具类
+ * inline 关键字确保工具类输出 var(--fd-*) 引用而非快照值，
+ * 这样切换 data-theme 时所有工具类立即跟随变化。
+ * ============================================================ */
+@theme inline {
+  /* 颜色 */
+  --color-canvas: var(--fd-canvas);
+  --color-surface: var(--fd-surface);
+  --color-surface-raised: var(--fd-surface-raised);
+  --color-surface-sunken: var(--fd-surface-sunken);
+
+  --color-line: var(--fd-line);
+  --color-line-strong: var(--fd-line-strong);
+
+  --color-fg: var(--fd-fg);
+  --color-fg-muted: var(--fd-fg-muted);
+  --color-fg-subtle: var(--fd-fg-subtle);
+  --color-fg-inverted: var(--fd-fg-inverted);
+
+  --color-brand: var(--fd-brand);
+  --color-brand-hover: var(--fd-brand-hover);
+  --color-brand-fg: var(--fd-brand-fg);
+  --color-brand-subtle: var(--fd-brand-subtle);
+  --color-spark: var(--fd-spark);
+
+  --color-success: var(--fd-success);
+  --color-warning: var(--fd-warning);
+  --color-danger: var(--fd-danger);
+  --color-info: var(--fd-info);
+
+  /* 字体 */
+  --font-sans: var(--fd-font-sans);
+  --font-mono: var(--fd-font-mono);
+
+  /* 字号阶（12 / 13 / 14 / 16 / 20 / 24 / 32） */
+  --text-12: 12px;
+  --text-12--line-height: 16px;
+  --text-13: 13px;
+  --text-13--line-height: 18px;
+  --text-14: 14px;
+  --text-14--line-height: 20px;
+  --text-16: 16px;
+  --text-16--line-height: 24px;
+  --text-20: 20px;
+  --text-20--line-height: 28px;
+  --text-24: 24px;
+  --text-24--line-height: 32px;
+  --text-32: 32px;
+  --text-32--line-height: 40px;
+
+  /* 圆角阶（4 / 6 / 8 / 12 / 16） */
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+
+  /* 阴影（3 级） */
+  --shadow-sm: 0 1px 2px 0 rgb(15 17 21 / 0.06);
+  --shadow-md: 0 4px 12px -2px rgb(15 17 21 / 0.1), 0 2px 4px -2px rgb(15 17 21 / 0.06);
+  --shadow-lg: 0 16px 32px -8px rgb(15 17 21 / 0.18), 0 4px 8px -4px rgb(15 17 21 / 0.08);
+}
+
+/* 间距：沿用 Tailwind 默认 4px 基准刻度，已覆盖 4/8/12/16/24/32
+ * （p-1=4px, p-2=8px, p-3=12px, p-4=16px, p-6=24px, p-8=32px），不重复定义以免覆盖默认语义。 */

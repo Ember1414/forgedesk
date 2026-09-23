@@ -1,0 +1,174 @@
+name: CI
+
+# ===========================================================================
+# 两阶段 CI 策略
+# 决策记录：docs/adr/ADR-002-private-first-two-phase-ci.md
+#
+# 【私有阶段（当前）】目标是把免费配额花在最值钱的地方。
+#   GitHub Free 的私有仓库额度为 2000 分钟/月，且 macOS runner 按 10x、
+#   Windows runner 按 2x 计费。因此：
+#     · pull_request      → 只跑 Linux 质量门禁（1x），约 6-8 分钟
+#     · push to main      → 质量门禁 + 三平台构建
+#     · workflow_dispatch → 手动触发
+#     · 不启用夜间任务，PR 不跑三平台矩阵
+#
+# 【公开阶段（转公开后）】公共仓库的 Actions 额度不受上述限制。
+#   需要执行的改动（清单见 docs/OPEN-SOURCE-READINESS.md）：
+#     1. 删除 build job 上的 `if: github.event_name != 'pull_request'`
+#     2. 启用 e2e 与 nightly 工作流
+#     3. 把所有 `uses:` 固定到 commit SHA
+# ===========================================================================
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# 同一分支的旧运行会被取消，避免浪费配额
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# 最小权限：CI 只需要读仓库内容
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  quality:
+    name: quality
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache Rust artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: quality
+
+      # src-tauri 依赖 WebKitGTK / GTK / libsecret，clippy 覆盖整个 workspace 时需要
+      - name: Install Linux system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libssl-dev \
+            libsecret-1-dev
+
+      - name: Install JS dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Frontend lint
+        run: pnpm lint
+
+      - name: Frontend typecheck
+        run: pnpm typecheck
+
+      - name: Frontend unit tests
+        run: pnpm test
+
+      - name: Design token contrast (WCAG AA)
+        run: pnpm check:contrast
+
+      - name: Workflow YAML validation
+        run: pnpm check:workflows
+
+      - name: Rust format
+        run: cargo fmt --all -- --check
+
+      - name: Rust clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Rust tests
+        run: cargo test --workspace
+
+  build:
+    name: build (${{ matrix.platform }})
+    needs: quality
+    # 私有阶段：PR 不跑三平台矩阵（macOS 10x / Windows 2x 计费，会快速耗尽配额）
+    if: github.event_name != 'pull_request'
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - ubuntu-22.04
+          - windows-latest
+          - macos-14
+    runs-on: ${{ matrix.platform }}
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: build-${{ matrix.platform }}
+
+      - name: Install Linux system dependencies
+        if: startsWith(matrix.platform, 'ubuntu')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libssl-dev \
+            libsecret-1-dev
+
+      - name: Install JS dependencies
+        run: pnpm install --frozen-lockfile
+
+      # 私有阶段只验证"能构建出可执行文件"，不生成安装包：
+      #   安装包打包需要下载 WiX / NSIS，由打 tag 时的 release 工作流负责（T0.11 / T7.3）
+      - name: Build application (debug, no bundle)
+        run: pnpm tauri build --debug --no-bundle
+
+      - name: Upload executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: forgedesk-${{ matrix.platform }}-debug
+          # 各平台可执行文件路径不同，缺失的一方由 if-no-files-found 容忍
+          path: |
+            target/debug/forgedesk
+            target/debug/forgedesk.exe
+          if-no-files-found: warn
+          retention-days: 7

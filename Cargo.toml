@@ -1,0 +1,106 @@
+# ============================================================
+# ForgeDesk Rust workspace
+#
+# 分层约定（详见 AGENTS.md §6 与 docs/ARCHITECTURE.md）：
+#   依赖方向永远是「外层 → 内层」：
+#     commands (Tauri IPC)  →  services (用例编排)  →  domain (纯逻辑)
+#                                                  →  infra crates (git-engine / storage / ...)
+#
+#   domain 是纯逻辑层，**禁止**依赖任何 IO crate（git2 / rusqlite / reqwest / std::process 等）。
+#   这条约束由 crates/domain/tests/no_io_deps.rs 中的自动化断言保护。
+# ============================================================
+
+[workspace]
+resolver = "2"
+members = [
+  "src-tauri",
+  "crates/domain",
+  "crates/git-engine",
+  "crates/storage",
+  "crates/provider",
+  "crates/snapshot",
+  "crates/diagnostics",
+  "crates/credentials",
+  "crates/jobs",
+  "crates/platform",
+  "crates/services",
+  "crates/commands",
+  "crates/plugin-host",
+]
+
+[workspace.package]
+version = "0.0.1"
+edition = "2021"
+rust-version = "1.85"
+license = "Apache-2.0"
+repository = "https://github.com/Ember1414/forgedesk"
+authors = ["ForgeDesk contributors"]
+
+[workspace.dependencies]
+# ---- 内部 crate ----
+forgedesk-domain = { path = "crates/domain" }
+forgedesk-git-engine = { path = "crates/git-engine" }
+forgedesk-storage = { path = "crates/storage" }
+forgedesk-provider = { path = "crates/provider" }
+forgedesk-snapshot = { path = "crates/snapshot" }
+forgedesk-diagnostics = { path = "crates/diagnostics" }
+forgedesk-credentials = { path = "crates/credentials" }
+forgedesk-jobs = { path = "crates/jobs" }
+forgedesk-platform = { path = "crates/platform" }
+forgedesk-services = { path = "crates/services" }
+forgedesk-commands = { path = "crates/commands" }
+forgedesk-plugin-host = { path = "crates/plugin-host" }
+
+# ---- 通用依赖 ----
+thiserror = "2"
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "time"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "fs", "sync", "time", "io-util"] }
+tokio-util = { version = "0.7", features = ["rt"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+time = { version = "0.3", features = ["serde", "formatting", "parsing", "macros"] }
+secrecy = "0.10"
+parking_lot = "0.12"
+
+# ---- Tauri ----
+# 版本策略：跟随 2.x 最新补丁（Tauri 2 在 2.x 内保持向后兼容）
+tauri = { version = "2", features = [] }
+tauri-build = "2"
+
+[workspace.lints.rust]
+unsafe_code = "deny"
+missing_docs = "warn"
+unused_must_use = "deny"
+
+[workspace.lints.clippy]
+# 生产代码中禁止 panic 式写法；测试文件在各自 crate 内通过 #[allow] 局部放开
+unwrap_used = "warn"
+expect_used = "warn"
+panic = "warn"
+todo = "warn"
+dbg_macro = "warn"
+print_stdout = "warn"
+print_stderr = "warn"
+# lint 组必须显式指定更低的 priority，否则会与上面的单条 lint 同级冲突
+# （clippy::lint_groups_priority）。-1 表示"被上面的单条 lint 覆盖"。
+correctness = { level = "deny", priority = -1 }
+suspicious = { level = "deny", priority = -1 }
+
+[profile.dev]
+# 开发期优化依赖项：显著提升 git2 / rusqlite 等重型依赖的运行性能
+opt-level = 0
+debug = true
+incremental = true
+
+[profile.dev.package."*"]
+opt-level = 2
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true

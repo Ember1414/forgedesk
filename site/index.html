@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      name="description"
+      content="ForgeDesk — an open-source, cross-platform desktop workbench for Git and GitHub workflows."
+    />
+    <title>ForgeDesk — A Git client for everyone</title>
+    <link rel="icon" href="/favicon.png" />
+    <style>
+      /*
+       * 占位站点（M0）。刻意做成零依赖单文件：不需要构建步骤，
+       * 让 Cloudflare 部署链路可以先跑通并被验证。
+       * T7.9 会把它替换为正式的团队站点（VitePress / Astro）。
+       */
+      :root {
+        --brand: #4f46e5;
+        --brand-2: #7c3aed;
+        --fg: #14161a;
+        --fg-muted: #565d6b;
+        --canvas: #f7f8fa;
+        --surface: #ffffff;
+        --line: #e3e6eb;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --fg: #eceef2;
+          --fg-muted: #a6adba;
+          --canvas: #0f1115;
+          --surface: #171a20;
+          --line: #2a2f38;
+        }
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        padding: 32px 20px;
+        font-family:
+          ui-sans-serif,
+          system-ui,
+          -apple-system,
+          'Segoe UI',
+          'Microsoft YaHei',
+          'PingFang SC',
+          'Noto Sans SC',
+          sans-serif;
+        background: var(--canvas);
+        color: var(--fg);
+        line-height: 1.6;
+      }
+      main {
+        max-width: 640px;
+        width: 100%;
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        padding: 40px 32px;
+      }
+      .icon {
+        width: 72px;
+        height: 72px;
+        border-radius: 18px;
+        background: linear-gradient(135deg, var(--brand) 0%, var(--brand-2) 100%);
+        display: grid;
+        place-items: center;
+      }
+      h1 {
+        margin: 24px 0 4px;
+        font-size: 32px;
+        line-height: 1.25;
+        letter-spacing: -0.02em;
+      }
+      .tagline {
+        margin: 0;
+        color: var(--fg-muted);
+        font-size: 16px;
+      }
+      .status {
+        display: inline-block;
+        margin-top: 20px;
+        padding: 4px 10px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        font-size: 12px;
+        color: var(--fg-muted);
+      }
+      ul {
+        margin: 24px 0 0;
+        padding-left: 20px;
+        color: var(--fg-muted);
+        font-size: 14px;
+      }
+      li + li {
+        margin-top: 6px;
+      }
+      footer {
+        margin-top: 28px;
+        padding-top: 20px;
+        border-top: 1px solid var(--line);
+        font-size: 12px;
+        color: var(--fg-muted);
+      }
+      a {
+        color: var(--brand);
+      }
+      @media (prefers-color-scheme: dark) {
+        a {
+          color: #8b93f8;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="icon" aria-hidden="true">
+        <!-- 与 docs/brand/icon-source.svg 同源的简化标志（砧台 + 火花），仅用于占位页 -->
+        <svg width="44" height="44" viewBox="0 0 1024 1024" fill="#ffffff">
+          <path d="M512 198 L560 262 L512 326 L464 262 Z" />
+          <path d="M400 306 L424 340 L400 374 L376 340 Z" />
+          <path d="M624 306 L648 340 L624 374 L600 340 Z" />
+          <rect x="256" y="512" width="512" height="104" rx="30" />
+          <rect x="432" y="616" width="160" height="120" rx="16" />
+          <rect x="320" y="736" width="384" height="88" rx="26" />
+        </svg>
+      </div>
+
+      <h1>ForgeDesk</h1>
+      <p class="tagline">A Git client for everyone · 看得见的 Git，不只是命令行。</p>
+      <span class="status">开发中 · 尚无可用版本</span>
+
+      <ul>
+        <li>开源、跨平台（Windows / macOS / Linux）的 Git 与 GitHub 桌面工作台</li>
+        <li>把终端里易错的 Git 操作变成可视化界面、向导与可交互图表</li>
+        <li>破坏性操作自动打快照，随时一键回滚</li>
+        <li>不含任何 AI 功能；本地 Git 操作完全离线可用</li>
+      </ul>
+
+      <footer>
+        <p>本页为部署链路验证用的占位页，正式站点见 T7.9。</p>
+        <p>
+          ForgeDesk is an independent project. It is not affiliated with, endorsed by, or sponsored
+          by the Git project, the Software Freedom Conservancy, GitHub, Inc., or the Tauri project.
+        </p>
+      </footer>
+    </main>
+  </body>
+</html>

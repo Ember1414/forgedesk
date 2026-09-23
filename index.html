@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light dark" />
+    <title>ForgeDesk</title>
+    <script>
+      /*
+       * 首屏主题解析：在样式生效前把 "system" 解析为确定的 light|dark，
+       * 避免暗色用户看到亮色闪烁。T0.5 会把这套逻辑抽成正式的 theme 模块。
+       * 读取失败时保持 data-theme="light" 默认值，绝不抛出。
+       */
+      (function () {
+        try {
+          var pref = window.localStorage.getItem('forgedesk.theme');
+          var resolved;
+          if (pref === 'light' || pref === 'dark') {
+            resolved = pref;
+          } else {
+            resolved = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+          }
+          document.documentElement.setAttribute('data-theme', resolved);
+        } catch (_e) {
+          /* 保持默认 */
+        }
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

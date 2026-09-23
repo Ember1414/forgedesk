@@ -1,0 +1,66 @@
+# ---------- Node / 前端 ----------
+node_modules/
+dist/
+dist-ssr/
+.vite/
+*.local
+.eslintcache
+coverage/
+playwright-report/
+test-results/
+
+# ---------- Rust / Tauri ----------
+target/
+**/target/
+src-tauri/gen/
+*.rs.bk
+
+# ---------- 构建产物与本地数据 ----------
+/release/
+/artifacts/
+
+# ---------- 本地环境相关（故意不提交）----------
+# Cargo 镜像源属于「本机网络环境」的配置，不是项目配置。
+# 提交它会让 GitHub 上的 CI runner 也去访问国内镜像，反而变慢甚至失败。
+# 需要时用 scripts/setup/cargo-mirror.mjs 在本地生成。
+/.cargo/config.toml
+/.toolchain-install.log
+/.rust-toolchain.log
+/.msvc-install.log
+/.cargo-check.log
+/.cargo-clippy.log
+/.cargo-test.log
+/.tauri-build.log
+/.app-run.log
+/.preview.log
+
+# ---------- 环境与凭据（严禁提交）----------
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.key.gpg
+*.pfx
+*.p12
+*.jks
+**/secrets/**
+**/credentials/**
+portable-data/
+
+# ---------- 编辑器 / 系统 ----------
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json.example
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---------- 日志与临时文件 ----------
+*.log
+logs/
+tmp/
+temp/
+.cache/
