@@ -450,14 +450,262 @@ impl PushOutcome {
     }
 }
 
+/// 初始化仓库的参数。
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct InitSpec {
+    /// 初始分支名。`None` = 跟随用户的 `init.defaultBranch` 配置。
+    ///
+    /// 显式传 `-b` 会覆盖用户配置，因此默认不传——本产品的立场是"复刻用户在终端里的行为"。
+    pub initial_branch: Option<String>,
+    /// 是否创建裸仓库。
+    pub bare: bool,
+}
+
+impl InitSpec {
+    /// 默认初始化。
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// 指定初始分支。
+    #[must_use]
+    pub fn with_initial_branch(mut self, branch: impl Into<String>) -> Self {
+        self.initial_branch = Some(branch.into());
+        self
+    }
+}
+
+/// 克隆参数。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CloneSpec {
+    /// 远端 URL。
+    pub url: String,
+    /// 克隆到哪个本地目录。
+    pub into: std::path::PathBuf,
+    /// 浅克隆深度（`--depth`）。`None` = 完整克隆。
+    pub depth: Option<u32>,
+    /// 只克隆某个分支（`--branch`）。
+    pub branch: Option<String>,
+    /// 是否克隆为裸仓库。
+    pub bare: bool,
+    /// 是否递归初始化子模块（`--recurse-submodules`）。
+    pub recurse_submodules: bool,
+}
+
+impl CloneSpec {
+    /// 完整克隆到指定目录。
+    pub fn new(url: impl Into<String>, into: impl Into<std::path::PathBuf>) -> Self {
+        Self {
+            url: url.into(),
+            into: into.into(),
+            depth: None,
+            branch: None,
+            bare: false,
+            recurse_submodules: false,
+        }
+    }
+
+    /// 浅克隆。
+    #[must_use]
+    pub fn with_depth(mut self, depth: u32) -> Self {
+        self.depth = Some(depth);
+        self
+    }
+
+    /// 只克隆某个分支。
+    #[must_use]
+    pub fn with_branch(mut self, branch: impl Into<String>) -> Self {
+        self.branch = Some(branch.into());
+        self
+    }
+
+    /// 递归初始化子模块。
+    #[must_use]
+    pub fn with_submodules(mut self, recurse: bool) -> Self {
+        self.recurse_submodules = recurse;
+        self
+    }
+}
+
+/// 切换分支 / 提交的参数。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CheckoutSpec {
+    /// 目标分支名或提交 oid。
+    pub target: String,
+    /// 是否强制切换（`--force`）。**会丢弃工作区改动**（Dangerous）。
+    pub force: bool,
+    /// 是否强制进入游离 HEAD（`--detach`）。
+    pub detach: bool,
+    /// 同时创建新分支（`-b`）。
+    pub create_branch: Option<String>,
+}
+
+impl CheckoutSpec {
+    /// 切换到某个分支或提交。
+    pub fn new(target: impl Into<String>) -> Self {
+        Self {
+            target: target.into(),
+            force: false,
+            detach: false,
+            create_branch: None,
+        }
+    }
+
+    /// 是否会把工作区改动丢掉。
+    pub fn is_destructive(&self) -> bool {
+        self.force
+    }
+}
+
+/// stash 子操作。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StashAction {
+    /// 储藏当前改动。
+    Push,
+    /// 应用某个 stash 但保留它（`apply`）。
+    Apply {
+        /// `stash@{n}` 里的 n。
+        index: usize,
+    },
+    /// 应用并删除某个 stash（`pop`）。
+    Pop {
+        /// `stash@{n}` 里的 n。
+        index: usize,
+    },
+    /// 删除某个 stash（`drop`）。**不可逆**（Dangerous）。
+    Drop {
+        /// `stash@{n}` 里的 n。
+        index: usize,
+    },
+}
+
+impl StashAction {
+    /// 该动作是否会丢失数据。
+    pub const fn is_destructive(&self) -> bool {
+        matches!(self, Self::Drop { .. })
+    }
+}
+
+/// stash 操作的参数。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StashSpec {
+    /// 要执行的子操作。
+    pub action: StashAction,
+    /// 描述信息（仅 `Push` 使用）。
+    pub message: Option<String>,
+    /// 是否把未跟踪文件一起储藏（`-u`）。
+    pub include_untracked: bool,
+    /// 是否保留索引（`--keep-index`）。
+    pub keep_index: bool,
+}
+
+impl StashSpec {
+    /// 储藏当前改动。
+    pub fn push(message: Option<String>) -> Self {
+        Self {
+            action: StashAction::Push,
+            message,
+            include_untracked: false,
+            keep_index: false,
+        }
+    }
+
+    /// 应用某个 stash。
+    pub fn pop(index: usize) -> Self {
+        Self {
+            action: StashAction::Pop { index },
+            message: None,
+            include_untracked: false,
+            keep_index: false,
+        }
+    }
+}
+
+/// 一条 reflog 记录。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReflogEntry {
+    /// `HEAD@{n}` 里的 n（从 0 开始，0 是最新）。
+    pub index: usize,
+    /// 该记录指向的提交 oid。
+    pub oid: String,
+    /// 引用短名（如 `HEAD`、`refs/heads/main`）。
+    pub reference: String,
+    /// 动作（`commit`、`checkout`、`reset`、`rebase`…）。
+    pub action: String,
+    /// 动作描述（reflog 消息的正文）。
+    pub message: String,
+    /// 时间（Unix 秒）。
+    pub created_at: Option<i64>,
+}
+
+impl ReflogEntry {
+    /// `HEAD@{n}` 形式的选择器。
+    pub fn selector(&self) -> String {
+        format!("{}@{{{}}}", self.reference, self.index)
+    }
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
     use super::{
-        CommitSpec, FetchOutcome, MergeKind, MergeOutcome, PullOutcome, PullStrategy, PushOutcome,
-        ReorderAction, ResetMode, ResetSpec, StageSpec,
+        CheckoutSpec, CommitSpec, FetchOutcome, InitSpec, MergeKind, MergeOutcome, PullOutcome,
+        PullStrategy, PushOutcome, ReflogEntry, ReorderAction, ResetMode, ResetSpec, StageSpec,
+        StashAction, StashSpec,
     };
     use crate::git::refs::{RefUpdate, RefUpdateKind};
+
+    #[test]
+    fn init_does_not_override_the_users_default_branch_by_default() {
+        assert_eq!(InitSpec::new().initial_branch, None);
+        assert_eq!(
+            InitSpec::new()
+                .with_initial_branch("trunk")
+                .initial_branch
+                .as_deref(),
+            Some("trunk")
+        );
+    }
+
+    #[test]
+    fn only_forced_checkout_is_destructive() {
+        assert!(!CheckoutSpec::new("main").is_destructive());
+        assert!(CheckoutSpec {
+            force: true,
+            ..CheckoutSpec::new("main")
+        }
+        .is_destructive());
+    }
+
+    #[test]
+    fn only_stash_drop_is_destructive() {
+        assert!(!StashAction::Push.is_destructive());
+        assert!(!StashAction::Apply { index: 0 }.is_destructive());
+        assert!(!StashAction::Pop { index: 0 }.is_destructive());
+        assert!(StashAction::Drop { index: 0 }.is_destructive());
+    }
+
+    #[test]
+    fn stash_pop_uses_pop_rather_than_push() {
+        let spec = StashSpec::pop(2);
+
+        assert_eq!(spec.action, StashAction::Pop { index: 2 });
+        assert_eq!(spec.message, None);
+    }
+
+    #[test]
+    fn reflog_selector_is_the_at_brace_form() {
+        let entry = ReflogEntry {
+            index: 0,
+            oid: "abc".to_owned(),
+            reference: "HEAD".to_owned(),
+            action: "commit".to_owned(),
+            message: "commit: initial".to_owned(),
+            created_at: Some(1_704_164_645),
+        };
+
+        assert_eq!(entry.selector(), "HEAD@{0}");
+    }
 
     #[test]
     fn only_hard_reset_is_destructive() {

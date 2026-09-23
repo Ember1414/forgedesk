@@ -49,9 +49,10 @@ pub use query::{LogQuery, Page};
 pub use refs::{Branch, RefUpdate, RefUpdateKind, Remote, RemoteKind, Tag};
 pub use repository::{BranchLabel, RepoId, RepositoryInfo};
 pub use spec::{
-    CommitSpec, FetchOutcome, FetchSpec, MergeKind, MergeOutcome, MergeSpec, PullOutcome, PullSpec,
-    PullStrategy, PushOutcome, PushRejection, PushSpec, ReorderAction, ReorderSpec, ReorderStep,
-    ResetMode, ResetSpec, StageSpec,
+    CheckoutSpec, CloneSpec, CommitSpec, FetchOutcome, FetchSpec, InitSpec, MergeKind,
+    MergeOutcome, MergeSpec, PullOutcome, PullSpec, PullStrategy, PushOutcome, PushRejection,
+    PushSpec, ReflogEntry, ReorderAction, ReorderSpec, ReorderStep, ResetMode, ResetSpec,
+    StageSpec, StashAction, StashSpec,
 };
 pub use stash::StashEntry;
 pub use status::{
