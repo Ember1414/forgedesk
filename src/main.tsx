@@ -13,7 +13,8 @@ applyThemeMode(readThemeMode());
 
 const container = document.getElementById('root');
 if (!container) {
-  throw new Error('未找到根容器 #root，index.html 可能被修改。');
+  // 启动引导期的致命错误：此时 React 与 i18n 都还没初始化，只能抛给开发者看。
+  throw new Error('未找到根容器 #root，index.html 可能被修改。'); // i18n-ignore 引导期错误，仅开发者可见
 }
 
 createRoot(container).render(

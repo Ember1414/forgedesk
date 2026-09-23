@@ -48,3 +48,14 @@ export function invokeCommand<TResult>(
 export function appVersion(): Promise<AppVersion> {
   return invokeCommand<AppVersion>('app_version');
 }
+
+/**
+ * 触发一个受控失败的演示错误（仅开发构建注册该命令）。
+ *
+ * 用途：验证"后端分类 → 脱敏 → IPC → 前端 i18n → Toast → 动作按钮"整条链路。
+ * 它是基础设施的自检入口：链路坏掉时不会有任何业务功能报错，
+ * 只会在真正出错那天集体失效，所以需要能随时主动触发。
+ */
+export function debugThrowError(code: string): Promise<void> {
+  return invokeCommand<void>('debug_throw_error', { code });
+}

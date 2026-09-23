@@ -102,6 +102,11 @@ jobs:
       - name: Frontend lint
         run: pnpm lint
 
+      # 硬编码文案不会让任何测试变红，但会在做中英完整覆盖时集中爆雷，
+      # 因此从 M0 起就作为门禁（AGENTS.md §6「文案全 i18n」）
+      - name: i18n hard-coded copy check
+        run: pnpm i18n:lint
+
       - name: Frontend typecheck
         run: pnpm typecheck
 

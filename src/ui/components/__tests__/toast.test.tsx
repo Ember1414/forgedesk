@@ -90,13 +90,39 @@ describe('Toaster', () => {
     });
   });
 
-  it('动作按钮可执行回调', async () => {
-    const onAction = vi.fn();
-    pushToast({ tone: 'danger', title: '推送被拒绝', duration: 0, actionLabel: '重试', onAction });
+  it('动作按钮可执行前端回调', async () => {
+    const onClick = vi.fn();
+    pushToast({
+      tone: 'danger',
+      title: '推送被拒绝',
+      duration: 0,
+      actions: [{ id: 'retry', label: '重试', onClick }],
+    });
     render(<Toaster closeLabel="关闭提示" />);
 
     fireEvent.click(await screen.findByRole('button', { name: '重试' }));
-    expect(onAction).toHaveBeenCalledTimes(1);
+    expect(onClick).toHaveBeenCalledTimes(1);
+  });
+
+  it('命令型动作经 IPC 执行，成功后给出反馈', async () => {
+    // invokeCommand 在 jsdom 里没有 Tauri 宿主，会抛错；
+    // 这里只断言"点击不会静默"——真实链路由桌面宿主下的手工验收覆盖。
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    pushToast({
+      tone: 'danger',
+      title: '状态已过期',
+      duration: 0,
+      actions: [{ id: 'refresh', label: '刷新状态', command: 'app_version' }],
+    });
+    render(<Toaster closeLabel="关闭提示" />);
+
+    fireEvent.click(await screen.findByRole('button', { name: '刷新状态' }));
+
+    // 失败时应产生新的错误提示（而不是毫无反应）
+    await waitFor(() => {
+      expect(useToastStore.getState().toasts.length).toBeGreaterThan(1);
+    });
+    error.mockRestore();
   });
 
   it('无提示时不渲染任何内容', () => {

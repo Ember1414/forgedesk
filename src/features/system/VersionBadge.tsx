@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 
 import { appVersion, isTauriRuntime } from '@/lib/ipc';
 import { cn } from '@/lib/utils';
@@ -13,8 +14,12 @@ import { cn } from '@/lib/utils';
  *
  * 在普通浏览器（`pnpm dev` 未套壳 Tauri）中运行时，会明确提示 IPC 不可用，
  * 而不是抛错或显示空白。
+ *
+ * 文案全部走 i18n（T0.6 起）：本组件会出现在设置页的"高级"里，
+ * 是用户可见界面，不能有硬编码中文。
  */
 export function VersionBadge() {
+  const { t } = useTranslation('shell');
   const inTauri = isTauriRuntime();
 
   const { data, isPending, isError } = useQuery({
@@ -45,7 +50,7 @@ export function VersionBadge() {
       role="status"
       aria-live="polite"
     >
-      <span className="font-medium">运行时</span>
+      <span className="font-medium">{t('runtime.label')}</span>
 
       {state === 'ready' && data !== undefined ? (
         <>
@@ -56,20 +61,18 @@ export function VersionBadge() {
             <span className="text-fg-subtle"> · </span>
             {data.profile}
           </span>
-          <span className="font-mono text-fg-subtle" title="构建时的 git 提交号">
+          <span className="font-mono text-fg-subtle" title={t('runtime.commitTitle')}>
             {data.gitSha}
           </span>
-          <span className="text-success">✓ IPC 通路正常</span>
+          <span className="text-success">{t('runtime.ipcOk')}</span>
         </>
       ) : null}
 
-      {state === 'loading' ? <span>正在读取版本信息…</span> : null}
+      {state === 'loading' ? <span>{t('runtime.loading')}</span> : null}
 
-      {state === 'error' ? <span>✕ 读取版本信息失败（IPC 返回错误，请查看日志）</span> : null}
+      {state === 'error' ? <span>{t('runtime.error')}</span> : null}
 
-      {state === 'browser' ? (
-        <span>浏览器预览模式：Tauri IPC 不可用，版本信息需要桌面宿主</span>
-      ) : null}
+      {state === 'browser' ? <span>{t('runtime.browserOnly')}</span> : null}
     </div>
   );
 }

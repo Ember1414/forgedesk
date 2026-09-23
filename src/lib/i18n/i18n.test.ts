@@ -7,8 +7,10 @@ import i18n, {
   resolveActiveLanguage,
 } from '@/lib/i18n';
 import enUsCommon from '@/lib/i18n/locales/en-US/common.json';
+import enUsErrors from '@/lib/i18n/locales/en-US/errors.json';
 import enUsShell from '@/lib/i18n/locales/en-US/shell.json';
 import zhCnCommon from '@/lib/i18n/locales/zh-CN/common.json';
+import zhCnErrors from '@/lib/i18n/locales/zh-CN/errors.json';
 import zhCnShell from '@/lib/i18n/locales/zh-CN/shell.json';
 
 /**
@@ -27,8 +29,8 @@ type Bundle = Record<string, unknown>;
  * 而不是运行时可能已被回退逻辑掩盖的结果。
  */
 const BUNDLES = {
-  'zh-CN': { common: zhCnCommon, shell: zhCnShell },
-  'en-US': { common: enUsCommon, shell: enUsShell },
+  'zh-CN': { common: zhCnCommon, shell: zhCnShell, errors: zhCnErrors },
+  'en-US': { common: enUsCommon, shell: enUsShell, errors: enUsErrors },
 } satisfies Record<(typeof SUPPORTED_LANGUAGES)[number], Record<Namespace, Bundle>>;
 
 /** 把嵌套的文案对象拍平成 `a.b.c` 形式的 key 列表。 */

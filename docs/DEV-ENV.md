@@ -173,6 +173,19 @@ failed to load manifest for workspace member `/home/runner/work/forgedesk/forged
    属于上游噪音；我们自己的组件若出现同类警告必须修（通常是"挂载状态下改 store"，
    见 `src/app/shell/AppShell.test.tsx` 的 afterEach）。
 
+### 陷阱 10：`i18n:lint` 的豁免只能写在"文件头部"或"命中行"
+
+**现象**：明明加了 `// i18n-ignore-file`，`pnpm i18n:lint` 仍报该文件。
+
+**成因**：检查脚本只读文件**前 6 行**判断整文件豁免（避免有人把标记塞到某个中间片段里
+"局部豁免整个文件"）；而行级豁免 `// i18n-ignore` 必须与命中内容在**同一行**。
+
+**约定**：
+1. 整文件豁免（开发专用页面，如 `src/ui/__dev__/ComponentsPage.tsx`）：
+   标记放文件第一行，并写明理由；
+2. 单行豁免（如 `src/main.tsx` 的引导期致命错误）：标记与该行同级写在同一行；
+3. 新页面不要图省事整文件豁免——`i18n:lint` 的价值就在于把"以后再做 i18n"挡在门外。
+
 ---
 
 ## 3. 已固化的工具链版本
@@ -218,6 +231,7 @@ pnpm tauri build --debug --no-bundle   # 只出可执行文件，不打包安装
 pnpm check:contrast         # 设计 token 的 WCAG AA 对比度
 pnpm check:workflows        # 校验 .github/workflows/*.yml
 pnpm check:repo             # 仓库一致性：workspace 成员存在、未被 .gitignore 忽略、已被 git 跟踪
+pnpm i18n:lint              # 扫描未走 i18n key 的用户可见中文（T0.6 起纳入 CI）
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
@@ -269,8 +283,9 @@ where link.exe
 | M0 / T0.3 设计 token + 预览页 + 原创图标 | ✅ 34 项对比度通过；17 个图标文件 |
 | M0 / T0.10 CI 两阶段工作流 + 校验器 | ✅ 本地校验通过 |
 | M0 / T0.4 应用外壳与路由 | ✅ 20 条路由可跳转；外壳交互测试 13 项 + 路由表 23 项 |
-| M0 / T0.5 基础组件库 | ✅ 30 个组件（Radix 原语）+ 79 项组件测试；展示页 `/__dev__/components` |
-| M0 / T0.6–T0.9、T0.11、T0.12 | 未开始 |
+| M0 / T0.5 基础组件库 | ✅ 29 个组件（Radix 原语）+ 85 项组件测试；展示页 `/__dev__/components` |
+| M0 / T0.6 错误模型 + i18n + 错误展示 | ✅ 错误分类/脱敏（Rust 单测）+ `normalizeError`/ErrorToast + `pnpm i18n:lint` 门禁 |
+| M0 / T0.7–T0.9、T0.11、T0.12 | 未开始 |
 
 补充说明（T0.4 顺带落地的两项前置能力，后续任务直接复用）：
 

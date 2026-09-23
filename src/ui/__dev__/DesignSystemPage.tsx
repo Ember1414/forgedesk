@@ -1,3 +1,6 @@
+// i18n-ignore-file
+// 本文件是开发专用页面（路由只在 dev 构建注册），文案面向开发者，
+// 因此整文件豁免 i18n:lint；正式界面一律走 i18n key。
 import { useState } from 'react';
 import type { ReactNode } from 'react';
 

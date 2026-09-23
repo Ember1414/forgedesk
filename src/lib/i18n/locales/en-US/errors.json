@@ -1,0 +1,79 @@
+{
+  "PATH_NOT_REPO": {
+    "title": "This is not a Git repository",
+    "hint": "Check the path, or initialise a repository in this directory first."
+  },
+  "GIT_CONFLICT": {
+    "title": "There are unresolved conflicts",
+    "hint": "Resolve them on the Conflicts screen and continue, or abort to return to the previous state."
+  },
+  "AUTH_REQUIRED": {
+    "title": "Sign-in required",
+    "hint": "Connect your hosting account in Settings, or configure an access token for this remote."
+  },
+  "AUTH_EXPIRED": {
+    "title": "Credential is no longer valid",
+    "hint": "The token may have expired or been revoked. Sign in again and retry."
+  },
+  "PERMISSION_DENIED": {
+    "title": "Permission denied",
+    "hint": "The current account or system user may not perform this action. Check token scopes or file permissions."
+  },
+  "NOT_FOUND": {
+    "title": "Target not found",
+    "hint": "It may have been deleted or renamed. Refresh the list and try again."
+  },
+  "VALIDATION": {
+    "title": "Invalid input",
+    "hint": "Check what you entered (for example, a branch name cannot contain spaces)."
+  },
+  "NETWORK": {
+    "title": "Network request failed",
+    "hint": "Check your connection or proxy settings and retry; offline you can still work on local changes."
+  },
+  "RATE_LIMITED": {
+    "title": "Host rate limit reached",
+    "hint": "Try again later, or reduce how many requests run at once."
+  },
+  "PATCH_APPLY_FAILED": {
+    "title": "Patch could not be applied",
+    "hint": "The file may have changed. Refresh the state and select the lines to stage again."
+  },
+  "PLAN_STALE": {
+    "title": "The plan is stale",
+    "hint": "The repository changed after this plan was built. Refresh and confirm the operation again."
+  },
+  "HOOK_REJECTED": {
+    "title": "Rejected by a Git hook",
+    "hint": "Read the hook output (often a commit-message check or a failing test), fix it and commit again."
+  },
+  "RESTORE_VERIFY_FAILED": {
+    "title": "Restore verification failed",
+    "hint": "The restored state does not match the snapshot. Review the details and bring the repository back to a safe state."
+  },
+  "KEYRING_UNAVAILABLE": {
+    "title": "System credential store unavailable",
+    "hint": "Make sure the OS credential service is running (Secret Service on Linux), or use another authentication method."
+  },
+  "PTY_UNSUPPORTED": {
+    "title": "Built-in terminal is not supported on this platform",
+    "hint": "Run commands in your system terminal against this repository; everything else still works."
+  },
+  "UNSUPPORTED_BY_ENGINE": {
+    "title": "The current engine does not support this operation",
+    "hint": "This feature needs the system git CLI. Make sure git is installed and callable."
+  },
+  "INTERNAL": {
+    "title": "Internal error",
+    "hint": "This is unexpected. Expand the details and include them in your bug report."
+  },
+  "unknownTitle": "Something unexpected happened",
+  "unknownHint": "Expand the details for the raw message and include it in your bug report.",
+  "details": "Details",
+  "actions": {
+    "refresh": "Refresh state",
+    "copyCommand": "Copy equivalent command"
+  },
+  "actionDone": "Done: {{command}}",
+  "actionFailed": "That fix action failed; see the new notification."
+}

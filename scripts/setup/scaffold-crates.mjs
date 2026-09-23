@@ -31,7 +31,9 @@ const CRATES = [
     dir: 'domain',
     name: 'forgedesk-domain',
     doc: '纯领域逻辑层：领域模型、状态机、错误类型。禁止任何 IO 依赖。',
-    deps: ['serde', 'thiserror', 'time', 'uuid'],
+    // serde_json 是纯数据处理（序列化错误与 DTO），不属于 IO，domain 允许使用；
+    // 这条与 crates/domain/tests/layering.rs 的期望集合必须一致。
+    deps: ['serde', 'serde_json', 'thiserror', 'time', 'uuid'],
   },
   {
     dir: 'git-engine',
@@ -65,7 +67,8 @@ const CRATES = [
     dir: 'diagnostics',
     name: 'forgedesk-diagnostics',
     doc: '错误诊断引擎：把 git/网络的原始错误映射为人话原因与可执行的修复动作。',
-    deps: ['serde', 'thiserror'],
+    // tracing / tracing-subscriber：脱敏层要挂在日志格式化层上（T0.6）
+    deps: ['serde', 'thiserror', 'tracing', 'tracing-subscriber'],
     internal: ['forgedesk-domain'],
   },
   {
@@ -110,8 +113,10 @@ const CRATES = [
     dir: 'commands',
     name: 'forgedesk-commands',
     doc: 'Tauri IPC 命令层：参数校验、能力等级校验、审计与 DTO 转换。',
-    deps: ['serde', 'serde_json', 'thiserror', 'tracing'],
-    internal: ['forgedesk-domain', 'forgedesk-services'],
+    // anyhow：统一错误转换层的输入类型（把 anyhow/thiserror 错误映射为 AppError）
+    // tauri：命令宏与运行时
+    deps: ['anyhow', 'serde', 'serde_json', 'tauri', 'thiserror', 'tracing'],
+    internal: ['forgedesk-domain', 'forgedesk-diagnostics', 'forgedesk-services'],
   },
   {
     dir: 'plugin-host',

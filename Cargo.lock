@@ -851,6 +851,7 @@ name = "forgedesk"
 version = "0.0.1"
 dependencies = [
  "forgedesk-commands",
+ "forgedesk-diagnostics",
  "forgedesk-domain",
  "serde",
  "serde_json",
@@ -864,6 +865,8 @@ dependencies = [
 name = "forgedesk-commands"
 version = "0.0.1"
 dependencies = [
+ "anyhow",
+ "forgedesk-diagnostics",
  "forgedesk-domain",
  "forgedesk-services",
  "serde",
@@ -890,6 +893,8 @@ dependencies = [
  "forgedesk-domain",
  "serde",
  "thiserror 2.0.20",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

@@ -72,6 +72,14 @@
     "description": "No screen matches this address; the link may be outdated or mistyped.",
     "back": "Back to dashboard"
   },
+  "runtime": {
+    "label": "Runtime",
+    "commitTitle": "Git commit the build came from",
+    "ipcOk": "✓ IPC channel is working",
+    "loading": "Reading version information…",
+    "error": "✕ Could not read version information (IPC returned an error; check the logs)",
+    "browserOnly": "Browser preview: Tauri IPC is unavailable, version info needs the desktop host"
+  },
   "tabs": {
     "repo": "Repository sections",
     "github": "Code hosting sections",

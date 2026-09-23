@@ -72,6 +72,14 @@
     "description": "该地址没有对应的界面，可能是链接已失效或输入有误。",
     "back": "返回仪表盘"
   },
+  "runtime": {
+    "label": "运行时",
+    "commitTitle": "构建时的 git 提交号",
+    "ipcOk": "✓ IPC 通路正常",
+    "loading": "正在读取版本信息…",
+    "error": "✕ 读取版本信息失败（IPC 返回错误，请查看日志）",
+    "browserOnly": "浏览器预览模式：Tauri IPC 不可用，版本信息需要桌面宿主"
+  },
   "tabs": {
     "repo": "仓库内页面",
     "github": "代码托管页面",

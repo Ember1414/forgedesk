@@ -1,0 +1,79 @@
+{
+  "PATH_NOT_REPO": {
+    "title": "这里不是 Git 仓库",
+    "hint": "确认路径是否正确，或先在这个目录里初始化一个仓库。"
+  },
+  "GIT_CONFLICT": {
+    "title": "存在未解决的冲突",
+    "hint": "到「冲突」页逐个解决后继续本次操作，或中止本次操作回到之前的状态。"
+  },
+  "AUTH_REQUIRED": {
+    "title": "需要登录",
+    "hint": "在设置里连接代码托管账号，或为该远端配置访问令牌。"
+  },
+  "AUTH_EXPIRED": {
+    "title": "凭据已失效",
+    "hint": "令牌可能已过期或被撤销，请重新登录后再试。"
+  },
+  "PERMISSION_DENIED": {
+    "title": "权限不足",
+    "hint": "当前账号或系统用户没有执行该操作的权限，请检查令牌作用域或文件权限。"
+  },
+  "NOT_FOUND": {
+    "title": "找不到目标",
+    "hint": "目标可能已被删除或重命名，请刷新列表后重试。"
+  },
+  "VALIDATION": {
+    "title": "输入不合法",
+    "hint": "请检查填写的内容（例如分支名不能包含空格）。"
+  },
+  "NETWORK": {
+    "title": "网络请求失败",
+    "hint": "检查网络或代理设置后重试；离线时可以先处理本地改动。"
+  },
+  "RATE_LIMITED": {
+    "title": "触发了平台限流",
+    "hint": "稍后再试，或减少同一时间的请求操作。"
+  },
+  "PATCH_APPLY_FAILED": {
+    "title": "补丁无法应用",
+    "hint": "文件内容可能已变化，刷新状态后重新选择要暂存的行。"
+  },
+  "PLAN_STALE": {
+    "title": "状态已过期",
+    "hint": "仓库在计划生成后被改动过，请刷新后重新确认这次操作。"
+  },
+  "HOOK_REJECTED": {
+    "title": "被 Git 钩子拒绝",
+    "hint": "查看钩子输出的原因（常见于提交信息校验或测试未通过），修正后重新提交。"
+  },
+  "RESTORE_VERIFY_FAILED": {
+    "title": "回滚校验未通过",
+    "hint": "回滚后的状态与快照不一致，请查看详情并将仓库恢复到安全状态后再试。"
+  },
+  "KEYRING_UNAVAILABLE": {
+    "title": "系统凭据库不可用",
+    "hint": "请确认系统凭据服务可用（Linux 上需要 Secret Service），或改用其他认证方式。"
+  },
+  "PTY_UNSUPPORTED": {
+    "title": "当前平台不支持内置终端",
+    "hint": "可以在系统终端里对当前仓库执行命令，其余功能不受影响。"
+  },
+  "UNSUPPORTED_BY_ENGINE": {
+    "title": "当前引擎不支持该操作",
+    "hint": "该功能需要系统 git 命令；请确认系统已安装 git 并可直接调用。"
+  },
+  "INTERNAL": {
+    "title": "内部错误",
+    "hint": "这是未预期的问题，请展开详情并把内容附在问题反馈里。"
+  },
+  "unknownTitle": "发生了未预期的错误",
+  "unknownHint": "请展开详情查看原始信息，并把内容附在问题反馈里。",
+  "details": "详情",
+  "actions": {
+    "refresh": "刷新状态",
+    "copyCommand": "复制等价命令"
+  },
+  "actionDone": "已执行：{{command}}",
+  "actionFailed": "该修复动作执行失败，请查看新的提示。"
+}

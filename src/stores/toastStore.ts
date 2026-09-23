@@ -6,35 +6,53 @@
  * 就得让"离得最近的那个 Provider"来承担，跨路由的消息会丢；
  * 放在模块级 store 后，任何地方 `pushToast(...)` 都能到达同一个出口。
  *
- * 与 T0.6 的关系：错误统一模型落地后，`ErrorToast` 会复用本 store，
- * 但**不**复用文案——错误文案来自 AppError 的 i18n key，见 docs/PLAN.md §5.5。
+ * 与错误模型的关系：错误提示走同一条队列，但额外携带 `detail`（折叠展示的原始信息）
+ * 与 `actions`（可点击的修复入口）——它们由 `useAppError()` 从 AppError 映射而来
+ * （见 src/lib/errors.ts）。
  */
 import { create } from 'zustand';
 
 export const TOAST_TONES = ['info', 'success', 'warning', 'danger'] as const;
 export type ToastTone = (typeof TOAST_TONES)[number];
 
+/**
+ * 提示上的可执行动作。
+ *
+ * 两种执行方式二选一：
+ * - `onClick`：纯前端动作（如"复制到剪贴板""跳到冲突页"）；
+ * - `command`：后端命令（如"刷新状态"），由 Toaster 统一经 src/lib/ipc 调用，
+ *   失败时自动转成新的错误提示。
+ */
+export interface ToastAction {
+  readonly id: string;
+  readonly label: string;
+  readonly onClick?: () => void;
+  readonly command?: string;
+  readonly args?: Record<string, unknown>;
+}
+
 export interface ToastRecord {
   readonly id: string;
   readonly tone: ToastTone;
   /** 标题（必填）：一句话说清楚发生了什么。 */
   readonly title: string;
-  /** 补充说明（如错误提示里的"可能原因"）。 */
+  /** 补充说明（错误提示里通常是"可能的原因 / 下一步建议"）。 */
   readonly description?: string;
-  /** 自动消失时间（ms）；0 表示需要用户手动关闭（用于错误等必须被看到的提示）。 */
+  /** 原始详情（已脱敏）。默认折叠——技术细节不该淹没普通用户。 */
+  readonly detail?: string;
+  /** 可点击的修复动作。 */
+  readonly actions?: readonly ToastAction[];
+  /** 自动消失时间（ms）；0 表示需要用户手动关闭（错误提示一律用 0）。 */
   readonly duration: number;
-  /** 可选动作（如"重试""查看日志"）。 */
-  readonly actionLabel?: string;
-  readonly onAction?: () => void;
 }
 
 export interface ToastInput {
   readonly tone?: ToastTone;
   readonly title: string;
   readonly description?: string;
+  readonly detail?: string;
+  readonly actions?: readonly ToastAction[];
   readonly duration?: number;
-  readonly actionLabel?: string;
-  readonly onAction?: () => void;
 }
 
 /**
@@ -71,9 +89,9 @@ export const useToastStore = create<ToastStoreState>()((set) => ({
       title: input.title,
       // exactOptionalPropertyTypes 下不能显式赋 undefined，故按存在性展开
       ...(input.description === undefined ? {} : { description: input.description }),
+      ...(input.detail === undefined ? {} : { detail: input.detail }),
+      ...(input.actions === undefined ? {} : { actions: input.actions }),
       duration: input.duration ?? DEFAULT_DURATION,
-      ...(input.actionLabel === undefined ? {} : { actionLabel: input.actionLabel }),
-      ...(input.onAction === undefined ? {} : { onAction: input.onAction }),
     };
 
     set((state) => ({

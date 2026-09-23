@@ -1,3 +1,7 @@
+// i18n-ignore-file
+// 本文件是开发专用页面（路由只在 dev 构建注册），文案面向开发者，
+// 因此整文件豁免 i18n:lint；正式界面一律走 i18n key。
+// 注意：该标记必须出现在文件前 6 行内（检查脚本只扫文件头部，避免被误用于某个中间片段）。
 import { useState } from 'react';
 import type { ReactNode } from 'react';
 
@@ -77,6 +81,8 @@ import { Textarea } from '@/ui/components/textarea';
 import { ToggleGroup } from '@/ui/components/toggle-group';
 import { Tip } from '@/ui/components/tooltip';
 import { VirtualList } from '@/ui/components/virtual-list';
+import { debugThrowError, isTauriRuntime } from '@/lib/ipc';
+import { useAppError } from '@/lib/errors';
 import { pushToast } from '@/stores/toastStore';
 import { useUiStore } from '@/stores/uiStore';
 
@@ -127,9 +133,20 @@ const DEMO_ROWS: readonly DemoRow[] = Array.from({ length: 500 }, (_, index) => 
   size: (index % 40) + 1,
 }));
 
+/** 错误链路演示用的代表性错误码（覆盖认证 / 网络 / 仓库状态 / 校验几类）。 */
+const DEMO_ERROR_CODES = [
+  'PATH_NOT_REPO',
+  'GIT_CONFLICT',
+  'AUTH_REQUIRED',
+  'NETWORK',
+  'RATE_LIMITED',
+  'VALIDATION',
+] as const;
+
 export function ComponentsPage() {
   const themeMode = useUiStore((state) => state.themeMode);
   const setThemeMode = useUiStore((state) => state.setThemeMode);
+  const { show } = useAppError();
   const [sort, setSort] = useState<'asc' | 'desc'>('asc');
   const [checkboxState, setCheckboxState] = useState<boolean | 'indeterminate'>('indeterminate');
   const [sliderValue, setSliderValue] = useState<number[]>([3]);
@@ -533,15 +550,21 @@ export function ComponentsPage() {
                   tone: 'danger',
                   title: '推送被拒绝',
                   description: '远端有新的提交，请先拉取。',
+                  detail: 'remote: rejected\nstatus: non-fast-forward',
                   duration: 0,
-                  actionLabel: '重试',
-                  onAction: () => {
-                    pushToast({ tone: 'info', title: '正在重试…' });
-                  },
+                  actions: [
+                    {
+                      id: 'retry',
+                      label: '重试',
+                      onClick: () => {
+                        pushToast({ tone: 'info', title: '正在重试…' });
+                      },
+                    },
+                  ],
                 });
               }}
             >
-              错误提示（含动作）
+              错误提示（含详情与动作）
             </Button>
           </Row>
 
@@ -609,6 +632,45 @@ export function ComponentsPage() {
               }}
             />
           </div>
+        </Section>
+
+        <Section
+          title="错误链路（AppError）"
+          description="触发真实的后端错误：分类 → 脱敏 → IPC → i18n → Toast（含可折叠详情与可点击动作）"
+        >
+          <Row>
+            {DEMO_ERROR_CODES.map((code) => (
+              <Button
+                key={code}
+                variant="secondary"
+                onClick={() => {
+                  if (isTauriRuntime()) {
+                    // 真实链路：命令返回 AppError，前端归一化后展示
+                    void debugThrowError(code).catch(show);
+                    return;
+                  }
+                  // 浏览器预览（无 Tauri 宿主）：本地构造同形状的错误，
+                  // 这样在没有桌面宿主时也能审视"标题/建议/详情/动作"的排版
+                  show({
+                    code,
+                    message: 'browser preview',
+                    detail:
+                      'remote: https://alice:ghp_DEMO0000000000000000000000000000@example.com rejected\n(浏览器预览模式：详情由后端脱敏，这里仅示意)',
+                    retryable: false,
+                    actions: [
+                      { id: 'demo.refresh', labelKey: 'actions.refresh', command: 'app_version' },
+                    ],
+                  });
+                }}
+              >
+                {code}
+              </Button>
+            ))}
+          </Row>
+          <p className="text-12 text-fg-subtle">
+            说明：详情里的假令牌应显示为 <span className="font-mono">ghp_«redacted»</span>
+            ，若能看到完整令牌说明脱敏层失效（红线 R8）。
+          </p>
         </Section>
 
         <Section title="布局" description="SplitPane（拖拽或方向键调整）与 Resizable">

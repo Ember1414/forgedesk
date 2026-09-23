@@ -19,8 +19,10 @@ import type { Resource } from 'i18next';
 import { initReactI18next } from 'react-i18next';
 
 import enUsCommon from './locales/en-US/common.json';
+import enUsErrors from './locales/en-US/errors.json';
 import enUsShell from './locales/en-US/shell.json';
 import zhCnCommon from './locales/zh-CN/common.json';
+import zhCnErrors from './locales/zh-CN/errors.json';
 import zhCnShell from './locales/zh-CN/shell.json';
 
 /** 首发语言（PLAN PF-03：中英双语）。 */
@@ -29,14 +31,23 @@ export type AppLanguage = (typeof SUPPORTED_LANGUAGES)[number];
 
 export const FALLBACK_LANGUAGE: AppLanguage = 'en-US';
 export const DEFAULT_NAMESPACE = 'common';
-export const NAMESPACES = ['common', 'shell'] as const;
+
+/**
+ * 命名空间按功能域划分（PLAN §M6.2）。
+ *
+ * M0 有三个：`common`（通用词）、`shell`（应用外壳）、`errors`（错误码文案）。
+ * `errors` 的 key 是**后端错误码**，与 `forgedesk_domain::ErrorCode` 一一对应，
+ * 由 src/lib/errors.test.ts 断言"每个错误码都有标题与建议"，
+ * 避免后端新增错误码后前端显示裸 key。
+ */
+export const NAMESPACES = ['common', 'shell', 'errors'] as const;
 
 /** 语言持久化用的存储键。 */
 export const LANGUAGE_STORAGE_KEY = 'forgedesk.language';
 
 export const resources: Resource = {
-  'zh-CN': { common: zhCnCommon, shell: zhCnShell },
-  'en-US': { common: enUsCommon, shell: enUsShell },
+  'zh-CN': { common: zhCnCommon, shell: zhCnShell, errors: zhCnErrors },
+  'en-US': { common: enUsCommon, shell: enUsShell, errors: enUsErrors },
 };
 
 function isSupportedLanguage(value: string): value is AppLanguage {
