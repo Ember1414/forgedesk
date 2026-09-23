@@ -545,6 +545,46 @@ fn opening_a_subdirectory_lands_on_the_repository_root() {
 }
 
 #[test]
+fn a_repository_with_submodules_can_be_opened() {
+    // 子模块仓库是 M1 验收点名要验证的一类：`.gitmodules` 与 gitlink 条目
+    // 不该影响"打开仓库"这一步（它只做只读探测，不初始化子模块）
+    let fixture = Fixture::new();
+    let sub_source = TempDir::new("sub-src");
+    init_repo(sub_source.path());
+    write(sub_source.path(), "lib.txt", b"lib\n");
+    commit_all(sub_source.path(), "lib");
+
+    let dir = TempDir::new("open-submodule");
+    init_repo(dir.path());
+    write(dir.path(), "app.txt", b"app\n");
+    commit_all(dir.path(), "app");
+    // 新版本 git 默认禁止 file:// 子模块（CVE 相关），显式放开
+    git_ok(
+        dir.path(),
+        &[
+            "-c",
+            "protocol.file.allow=always",
+            "submodule",
+            "add",
+            sub_source.path().to_str().unwrap(),
+            "vendor/sub",
+        ],
+    );
+    commit_all(dir.path(), "add submodule");
+
+    let service = fixture.service();
+    let opened = service.open(dir.path()).expect("打开子模块仓库失败");
+
+    assert!(opened.info.workdir.as_deref() == Some(dir.path()));
+    assert_eq!(opened.info.default_branch.as_deref(), Some("main"));
+    assert!(opened.audit.is_clean(), "子模块仓库本身不该有审计发现");
+    assert!(
+        dir.path().join("vendor/sub/lib.txt").exists(),
+        "子模块内容应已检出（说明我们确实是在一个完整的子模块仓库上操作）"
+    );
+}
+
+#[test]
 fn a_bare_repository_can_be_opened_and_is_named_without_the_git_suffix() {
     let fixture = Fixture::new();
     let parent = TempDir::new("open-bare");
