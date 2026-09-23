@@ -1,21 +1,41 @@
-import { QueryClientProvider } from '@tanstack/react-query';
+import { useEffect } from 'react';
 
+import { QueryClientProvider } from '@tanstack/react-query';
+import { RouterProvider } from 'react-router-dom';
+
+import { router } from '@/app/routes';
 import { queryClient } from '@/app/queryClient';
-import { DesignSystemPage } from '@/ui/__dev__/DesignSystemPage';
+import { applyThemeMode, watchSystemTheme } from '@/app/theme';
+import { useUiStore } from '@/stores/uiStore';
 
 /**
- * 应用根组件（M0 阶段临时实现）。
+ * 应用根组件。
  *
- * T0.3 阶段渲染设计系统预览页，用于可视化验收 token 体系与 IPC 通路。
- * T0.4 会替换为完整外壳（顶部栏 / 侧栏导航 / 主内容区 / 状态栏）+ 路由，
- * 届时设计系统页会迁移到仅开发环境可用的路由（如 `/__dev__/design`）。
- *
- * 注意：`QueryClientProvider` 从 M0 起就挂在根部，后续所有页面都依赖它。
+ * 结构：QueryClientProvider（服务端状态）→ SystemThemeSync（跟随系统外观）→ RouterProvider。
+ * 注意 QueryClientProvider 必须在路由之外：所有页面都会用到查询，
+ * 挂在路由内部会导致切换页面时缓存被重建。
  */
+function SystemThemeSync() {
+  const themeMode = useUiStore((state) => state.themeMode);
+
+  useEffect(() => {
+    if (themeMode !== 'system') {
+      return undefined;
+    }
+    // 只在"跟随系统"时订阅：用户显式选定 light/dark 后系统变化不应该覆盖用户选择
+    return watchSystemTheme(() => {
+      applyThemeMode('system');
+    });
+  }, [themeMode]);
+
+  return null;
+}
+
 export function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <DesignSystemPage />
+      <SystemThemeSync />
+      <RouterProvider router={router} />
     </QueryClientProvider>
   );
 }

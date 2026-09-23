@@ -1,0 +1,101 @@
+import { useTranslation } from 'react-i18next';
+import { NavLink, Outlet, useParams } from 'react-router-dom';
+
+import { DETAIL_PANEL_POSITIONS, useUiStore } from '@/stores/uiStore';
+import type { DetailPanelPosition } from '@/stores/uiStore';
+import { findRecentRepo } from '@/features/repo/recentRepos';
+import { SegmentedControl } from '@/ui/SegmentedControl';
+import { cn } from '@/lib/utils';
+
+/**
+ * 仓库级页面的公共外壳：仓库标题 + 仓库内标签导航 + 详情面板 + 子路由出口。
+ *
+ * 设计决策（原创）：
+ *   把仓库内的五个页面（工作区/历史/分支/冲突/终端）做成**同一层的标签**，
+ *   而不是侧栏的五个平级项——它们共享同一个仓库上下文，标签形态能明确表达
+ *   "我在同一个仓库里换视角"，而侧栏表达的是"换一个完全不同的区域"。
+ *
+ * 详情面板位置由 uiStore 控制（右侧 / 底部 / 隐藏），
+ * 让"看变更的同时能看 diff""终端要占满宽度"这类不同工作方式可以各取所需。
+ */
+const REPO_TABS = [
+  { segment: 'status', labelKey: 'items.status' },
+  { segment: 'history', labelKey: 'items.history' },
+  { segment: 'branches', labelKey: 'items.branches' },
+  { segment: 'conflict', labelKey: 'items.conflict' },
+  { segment: 'terminal', labelKey: 'items.terminal' },
+] as const;
+
+export function RepoLayout() {
+  const { t } = useTranslation('shell');
+  const { repoId } = useParams();
+  const detailPanel = useUiStore((state) => state.detailPanel);
+  const setDetailPanel = useUiStore((state) => state.setDetailPanel);
+
+  const repo = findRecentRepo(repoId ?? null);
+
+  return (
+    <section className="flex h-full flex-col gap-3">
+      <header className="flex flex-wrap items-end justify-between gap-3">
+        <div className="flex min-w-0 flex-col gap-1.5">
+          <div className="flex flex-wrap items-baseline gap-2">
+            <h1 className="text-20 font-semibold tracking-tight">{repo?.name ?? repoId}</h1>
+            <span className="truncate font-mono text-12 text-fg-subtle">{repo?.path ?? ''}</span>
+          </div>
+          <nav aria-label={t('tabs.repo')} className="flex flex-wrap gap-1">
+            {REPO_TABS.map((tab) => (
+              <NavLink
+                key={tab.segment}
+                to={tab.segment}
+                className={({ isActive }) =>
+                  cn(
+                    'fd-transition rounded-md px-2.5 py-1 text-13',
+                    isActive
+                      ? 'bg-brand-subtle font-medium text-brand'
+                      : 'text-fg-muted hover:bg-surface-sunken hover:text-fg',
+                  )
+                }
+              >
+                {t(tab.labelKey)}
+              </NavLink>
+            ))}
+          </nav>
+        </div>
+
+        <SegmentedControl<DetailPanelPosition>
+          label={t('panel.label')}
+          value={detailPanel}
+          options={DETAIL_PANEL_POSITIONS.map((position) => ({
+            value: position,
+            label: t(`panel.${position}`),
+          }))}
+          onChange={setDetailPanel}
+        />
+      </header>
+
+      <div
+        className={cn(
+          'flex min-h-0 flex-1',
+          detailPanel === 'bottom' ? 'flex-col gap-3' : 'flex-row gap-3',
+        )}
+      >
+        <div className="min-h-0 min-w-0 flex-1 overflow-auto">
+          <Outlet />
+        </div>
+
+        {detailPanel !== 'hidden' ? (
+          <aside
+            aria-label={t('panel.title')}
+            className={cn(
+              'shrink-0 rounded-lg border border-line bg-surface p-3',
+              detailPanel === 'right' ? 'w-72' : 'h-28',
+            )}
+          >
+            <h2 className="text-13 font-medium">{t('panel.title')}</h2>
+            <p className="mt-1 text-12 text-fg-subtle">{t('panel.placeholder')}</p>
+          </aside>
+        ) : null}
+      </div>
+    </section>
+  );
+}

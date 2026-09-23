@@ -1,0 +1,161 @@
+{
+  "titleBar": {
+    "repoSwitcher": {
+      "label": "当前仓库",
+      "none": "未打开仓库",
+      "menuLabel": "选择仓库",
+      "empty": "还没有最近打开的仓库",
+      "placeholderNote": "占位示例数据：真实的最近仓库列表在 T0.7 接入本地存储后替换"
+    },
+    "search": {
+      "label": "全局搜索",
+      "placeholder": "搜索仓库、提交、命令…",
+      "shortcut": "Ctrl K",
+      "hint": "命令面板与全局搜索将在 M4 实现"
+    },
+    "account": {
+      "label": "账号",
+      "signedOut": "未登录"
+    },
+    "update": {
+      "label": "更新状态",
+      "latest": "已是最新版本"
+    }
+  },
+  "nav": {
+    "ariaLabel": "主导航",
+    "skipToContent": "跳到主内容",
+    "collapse": "折叠侧栏",
+    "expand": "展开侧栏",
+    "narrowHint": "窗口较窄，侧栏已自动折叠为图标模式",
+    "requiresRepo": "请先选择一个仓库",
+    "sections": {
+      "repository": "仓库",
+      "integrations": "集成",
+      "application": "应用"
+    }
+  },
+  "items": {
+    "dashboard": "仪表盘",
+    "status": "工作区",
+    "history": "历史",
+    "branches": "分支",
+    "conflict": "冲突",
+    "terminal": "终端",
+    "github": "代码托管",
+    "plugins": "插件",
+    "settings": "设置"
+  },
+  "statusBar": {
+    "ariaLabel": "状态栏",
+    "repo": "仓库",
+    "branch": "分支",
+    "noRepo": "未打开仓库",
+    "branchUnknown": "—",
+    "idle": "空闲",
+    "jobs": "后台任务"
+  },
+  "panel": {
+    "title": "详情",
+    "label": "详情面板位置",
+    "right": "右侧",
+    "bottom": "底部",
+    "hidden": "隐藏",
+    "placeholder": "选中内容后，详细信息会显示在这里。"
+  },
+  "placeholder": {
+    "planned": "计划任务",
+    "note": "M0 只提供外壳与导航骨架，功能在后续里程碑实现。"
+  },
+  "notFound": {
+    "title": "页面不存在",
+    "description": "该地址没有对应的界面，可能是链接已失效或输入有误。",
+    "back": "返回仪表盘"
+  },
+  "tabs": {
+    "repo": "仓库内页面",
+    "github": "代码托管页面",
+    "settings": "设置分类"
+  },
+  "dashboard": {
+    "jobsTitle": "后台任务",
+    "jobsEmpty": "当前没有运行中的任务",
+    "recentTitle": "最近打开的仓库",
+    "recentHint": "示例数据：真实列表在 T0.7 接入本地存储后替换",
+    "openRepo": "打开"
+  },
+  "pages": {
+    "dashboard": {
+      "title": "仪表盘",
+      "description": "最近打开的仓库、后台任务与常用入口。"
+    },
+    "repoStatus": {
+      "title": "工作区",
+      "description": "已暂存、未暂存与未跟踪的变更列表，支持行级与区块级暂存。"
+    },
+    "repoHistory": {
+      "title": "历史",
+      "description": "提交图谱与提交详情，支持筛选与两两对照。"
+    },
+    "repoBranches": {
+      "title": "分支",
+      "description": "本地与远程分支的树状视图、合并状态与追踪关系。"
+    },
+    "repoConflict": {
+      "title": "冲突",
+      "description": "冲突文件的多栏合并视图与逐块解决流程。"
+    },
+    "repoTerminal": {
+      "title": "终端",
+      "description": "内置终端，直接对当前仓库执行命令。"
+    },
+    "githubRepos": {
+      "title": "远程仓库",
+      "description": "已连接账号下的仓库列表与本地克隆状态。"
+    },
+    "githubPullRequests": {
+      "title": "拉取请求",
+      "description": "PR 列表、评审状态与检查结果。"
+    },
+    "githubIssues": {
+      "title": "议题",
+      "description": "Issue 列表、标签与负责人。"
+    },
+    "githubActions": {
+      "title": "流水线",
+      "description": "工作流运行记录与日志。"
+    },
+    "plugins": {
+      "title": "插件",
+      "description": "已安装插件、权限说明与沙箱状态。"
+    },
+    "settingsGeneral": {
+      "title": "通用",
+      "description": "启动行为、默认路径与界面密度。"
+    },
+    "settingsAppearance": {
+      "title": "外观",
+      "description": "主题与语言。"
+    },
+    "settingsGit": {
+      "title": "Git",
+      "description": "提交身份、行尾处理与安全快照策略。"
+    },
+    "settingsGithub": {
+      "title": "代码托管账号",
+      "description": "账号连接方式与令牌存储位置。"
+    },
+    "settingsAdvanced": {
+      "title": "高级",
+      "description": "日志、诊断与数据目录。"
+    }
+  },
+  "settings": {
+    "appearance": {
+      "themeLabel": "主题",
+      "themeHint": "切换立即生效并记住选择；跟随系统会随系统外观自动变化。",
+      "languageLabel": "语言",
+      "languageHint": "切换后界面文案立即更新（M0 已覆盖外壳与骨架页面）。"
+    }
+  }
+}

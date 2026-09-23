@@ -1,18 +1,26 @@
 import { useState } from 'react';
 import type { ReactNode } from 'react';
 
+import { useTranslation } from 'react-i18next';
+
+import { THEME_MODES } from '@/app/theme';
+import type { ThemeMode } from '@/app/theme';
 import { VersionBadge } from '@/features/system/VersionBadge';
 import { cn } from '@/lib/utils';
+import { SegmentedControl } from '@/ui/SegmentedControl';
+import { useUiStore } from '@/stores/uiStore';
 
 /**
- * 设计系统预览页（开发用）。
+ * 设计系统预览页（开发专用，路由 /__dev__/design 只在 dev 构建注册）。
  *
  * 作用：把所有 token 以**实际渲染效果 + 运行时解析值**的形式展示出来，
  * 这样调色或改字号时能立刻看到影响，而不是靠读 CSS 猜。
  * 页面上不写任何硬编码色值，全部通过语义工具类呈现（见 src/ui/tokens.css 的约定）。
+ *
+ * 主题来源：T0.4 起统一走 uiStore（此前本页自行读写 localStorage，
+ * 与设置页会出现两个真相源）。页面自身的说明文案是开发者文案、
+ * 且页面不进入生产构建，因此不走 i18n；T6.7 的 i18n:lint 需要把它列入白名单。
  */
-
-type ThemeMode = 'light' | 'dark';
 
 interface TokenRow {
   readonly token: string;
@@ -101,19 +109,6 @@ function readTokenValues(): Record<string, string> {
   return values;
 }
 
-function applyTheme(next: ThemeMode): void {
-  document.documentElement.setAttribute('data-theme', next);
-  try {
-    window.localStorage.setItem('forgedesk.theme', next);
-  } catch {
-    /* localStorage 不可用时忽略：仅影响下次启动的初始主题 */
-  }
-}
-
-function currentTheme(): ThemeMode {
-  return document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
-}
-
 function Section({
   title,
   description,
@@ -177,12 +172,14 @@ function TokenGrid({
 }
 
 export function DesignSystemPage() {
-  const [theme, setTheme] = useState<ThemeMode>(() => currentTheme());
+  const { t } = useTranslation('common');
+  const themeMode = useUiStore((state) => state.themeMode);
+  const setThemeMode = useUiStore((state) => state.setThemeMode);
   const [values, setValues] = useState<Record<string, string>>(() => readTokenValues());
 
-  function changeTheme(next: ThemeMode): void {
-    applyTheme(next);
-    setTheme(next);
+  function changeThemeMode(next: ThemeMode): void {
+    // setThemeMode 同步写入 <html data-theme>，因此紧接着就能读到解析后的 token 值
+    setThemeMode(next);
     setValues(readTokenValues());
   }
 
@@ -197,30 +194,13 @@ export function DesignSystemPage() {
               对比度由 <span className="font-mono">scripts/design/check-contrast.mjs</span> 校验
             </p>
           </div>
-          <div
-            className="flex items-center gap-1 rounded-md border border-line bg-surface p-1"
-            role="group"
-            aria-label="主题切换"
-          >
-            {(['light', 'dark'] as const).map((mode) => (
-              <button
-                key={mode}
-                type="button"
-                aria-pressed={theme === mode}
-                onClick={() => {
-                  changeTheme(mode);
-                }}
-                className={cn(
-                  'fd-transition rounded-sm px-3 py-1.5 text-13 font-medium',
-                  theme === mode
-                    ? 'bg-brand text-brand-fg'
-                    : 'text-fg-muted hover:bg-surface-sunken hover:text-fg',
-                )}
-              >
-                {mode === 'light' ? '亮色' : '暗色'}
-              </button>
-            ))}
-          </div>
+          <SegmentedControl<ThemeMode>
+            label="主题切换"
+            value={themeMode}
+            options={THEME_MODES.map((mode) => ({ value: mode, label: t(`theme.${mode}`) }))}
+            onChange={changeThemeMode}
+            className="p-1"
+          />
         </header>
 
         <Section title="背景与描边" description="表层层级：canvas → surface → surface-raised">

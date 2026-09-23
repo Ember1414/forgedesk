@@ -1,0 +1,161 @@
+{
+  "titleBar": {
+    "repoSwitcher": {
+      "label": "Current repository",
+      "none": "No repository open",
+      "menuLabel": "Choose a repository",
+      "empty": "No recently opened repository",
+      "placeholderNote": "Placeholder data: the real recent-repository list arrives with local storage in T0.7"
+    },
+    "search": {
+      "label": "Global search",
+      "placeholder": "Search repositories, commits, commands…",
+      "shortcut": "Ctrl K",
+      "hint": "The command palette and global search arrive in M4"
+    },
+    "account": {
+      "label": "Account",
+      "signedOut": "Not signed in"
+    },
+    "update": {
+      "label": "Update status",
+      "latest": "Up to date"
+    }
+  },
+  "nav": {
+    "ariaLabel": "Main navigation",
+    "skipToContent": "Skip to main content",
+    "collapse": "Collapse sidebar",
+    "expand": "Expand sidebar",
+    "narrowHint": "The window is narrow, so the sidebar collapsed to icon mode",
+    "requiresRepo": "Open a repository first",
+    "sections": {
+      "repository": "Repository",
+      "integrations": "Integrations",
+      "application": "Application"
+    }
+  },
+  "items": {
+    "dashboard": "Dashboard",
+    "status": "Working tree",
+    "history": "History",
+    "branches": "Branches",
+    "conflict": "Conflicts",
+    "terminal": "Terminal",
+    "github": "Code hosting",
+    "plugins": "Plugins",
+    "settings": "Settings"
+  },
+  "statusBar": {
+    "ariaLabel": "Status bar",
+    "repo": "Repository",
+    "branch": "Branch",
+    "noRepo": "No repository open",
+    "branchUnknown": "—",
+    "idle": "Idle",
+    "jobs": "Background jobs"
+  },
+  "panel": {
+    "title": "Details",
+    "label": "Detail panel position",
+    "right": "Right",
+    "bottom": "Bottom",
+    "hidden": "Hidden",
+    "placeholder": "Select something and its details will appear here."
+  },
+  "placeholder": {
+    "planned": "Planned in",
+    "note": "M0 ships the shell and the navigation skeleton only; features land in later milestones."
+  },
+  "notFound": {
+    "title": "Page not found",
+    "description": "No screen matches this address; the link may be outdated or mistyped.",
+    "back": "Back to dashboard"
+  },
+  "tabs": {
+    "repo": "Repository sections",
+    "github": "Code hosting sections",
+    "settings": "Settings categories"
+  },
+  "dashboard": {
+    "jobsTitle": "Background jobs",
+    "jobsEmpty": "No job is running right now",
+    "recentTitle": "Recently opened repositories",
+    "recentHint": "Sample data: the real list arrives with local storage in T0.7",
+    "openRepo": "Open"
+  },
+  "pages": {
+    "dashboard": {
+      "title": "Dashboard",
+      "description": "Recently opened repositories, background jobs and shortcuts."
+    },
+    "repoStatus": {
+      "title": "Working tree",
+      "description": "Staged, unstaged and untracked changes, with line- and hunk-level staging."
+    },
+    "repoHistory": {
+      "title": "History",
+      "description": "Commit graph and commit details, with filtering and side-by-side comparison."
+    },
+    "repoBranches": {
+      "title": "Branches",
+      "description": "Local and remote branches as a tree, with merge and tracking state."
+    },
+    "repoConflict": {
+      "title": "Conflicts",
+      "description": "Multi-pane merge view for conflicted files with hunk-by-hunk resolution."
+    },
+    "repoTerminal": {
+      "title": "Terminal",
+      "description": "Built-in terminal that runs commands against the current repository."
+    },
+    "githubRepos": {
+      "title": "Repositories",
+      "description": "Repositories of the connected account and their local clone state."
+    },
+    "githubPullRequests": {
+      "title": "Pull requests",
+      "description": "Pull request list, review state and check results."
+    },
+    "githubIssues": {
+      "title": "Issues",
+      "description": "Issue list, labels and assignees."
+    },
+    "githubActions": {
+      "title": "Pipelines",
+      "description": "Workflow runs and their logs."
+    },
+    "plugins": {
+      "title": "Plugins",
+      "description": "Installed plugins, their permissions and sandbox state."
+    },
+    "settingsGeneral": {
+      "title": "General",
+      "description": "Startup behaviour, default paths and interface density."
+    },
+    "settingsAppearance": {
+      "title": "Appearance",
+      "description": "Theme and language."
+    },
+    "settingsGit": {
+      "title": "Git",
+      "description": "Commit identity, line endings and safety-snapshot policy."
+    },
+    "settingsGithub": {
+      "title": "Hosting account",
+      "description": "How the account is connected and where the token lives."
+    },
+    "settingsAdvanced": {
+      "title": "Advanced",
+      "description": "Logs, diagnostics and data directory."
+    }
+  },
+  "settings": {
+    "appearance": {
+      "themeLabel": "Theme",
+      "themeHint": "Applies immediately and is remembered; System follows the OS appearance.",
+      "languageLabel": "Language",
+      "languageHint": "Text updates immediately (M0 already covers the shell and skeleton pages)."
+    }
+  }
+}
