@@ -1,0 +1,23 @@
+{
+  "$comment": [
+    "已知的官方 Logo 哈希黑名单（T0.12）。",
+    "维护方式：从各项目的官方品牌页取得原始 Logo 文件，计算 SHA256 后追加进 knownSha256。",
+    "当前列表为空是**有意的诚实状态**：在能够离线验证来源之前，不往里填从",
+    "非官方渠道拿到的哈希（那样反而制造虚假的安全感）。",
+    "空列表时本检查退化为主要依赖：文件名黑名单 + 图标源文件必须为纯矢量 + 尺寸健全性。",
+    "GitHub / Octocat / Git / Tauri 的品牌资源官方入口：",
+    "  https://github.com/logos",
+    "  https://git-scm.com/downloads/logos",
+    "  https://tauri.app/brand/"
+  ],
+  "knownSha256": [],
+  "forbiddenFilenameTokens": [
+    "github",
+    "octocat",
+    "gitlab",
+    "gitea",
+    "bitbucket",
+    "git-logo",
+    "tauri-logo"
+  ]
+}

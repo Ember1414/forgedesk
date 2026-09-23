@@ -1,0 +1,68 @@
+name: Compliance
+
+# ===========================================================================
+# 合规检查（M0 / T0.12）：自动化能判定的红线部分。
+#   · 名称（R4）/ 免责声明 / 图标哈希（R2）/ 依赖许可（AGENTS §8）/ AI 依赖（R1）
+#   · 竞品视觉（R3）无法自动判定，输出人工评审提醒（.github/COMPETITOR-REVIEW.md）
+#
+# 触发策略（配额考量，见 ADR-002）：
+#   · pull_request → 每个都跑（合规失败不该等到 main）
+#   · push main    → 仅当合规相关文件变化时跑（路径过滤，避免白烧配额）
+#   · 每周一定期全量跑一次（捕获"依赖悄悄升级带来 GPL"这类漂移）
+# Linux 单平台、纯 Node + 两次元数据查询，约 2-3 分钟。
+# ===========================================================================
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+    paths:
+      - 'README.md'
+      - 'docs/PRIVACY.md'
+      - 'docs/LICENSE-AUDIT.md'
+      - 'src-tauri/tauri.conf.json'
+      - 'src-tauri/icons/**'
+      - 'docs/brand/**'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'scripts/compliance/**'
+      - '.github/COMPETITOR-REVIEW.md'
+      - '.github/workflows/compliance.yml'
+  schedule:
+    # 每周一 03:07 UTC：依赖升级带来的许可证漂移需要定期全量复核
+    - cron: '7 3 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  compliance:
+    name: compliance
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+
+      # cargo metadata（许可审计的 Rust 侧数据源）只需要工具链，不需要系统 GUI 库
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      # pnpm licenses list 与 AI 依赖扫描需要依赖清单就位
+      - name: Install JS dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run compliance checks
+        run: pnpm compliance

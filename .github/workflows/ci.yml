@@ -200,12 +200,55 @@ jobs:
       - name: Install JS dependencies
         run: pnpm install --frozen-lockfile
 
-      # 私有阶段只验证"能构建出可执行文件"，不生成安装包：
-      #   安装包打包需要下载 WiX / NSIS，由打 tag 时的 release 工作流负责（T0.11 / T7.3）
+      # ------------------------------------------------------------------
+      # 构建分两条路径（T0.11）：
+      #   tag 构建   → release + 全量打包（安装包、归一化命名、SHA256SUMS、冒烟）
+      #   其余构建   → debug + no-bundle（只验证"能出可执行文件"，不下载 WiX/NSIS）
+      # ------------------------------------------------------------------
+      - name: Build application (release, with bundles)
+        if: startsWith(github.ref, 'refs/tags/')
+        run: pnpm tauri build
+
       - name: Build application (debug, no bundle)
+        if: "!startsWith(github.ref, 'refs/tags/')"
         run: pnpm tauri build --debug --no-bundle
 
+      # 安装包三件事：统一命名（包管理器清单依赖稳定文件名）、生成校验和、
+      # 上传 artifact。GPG 签名与三平台 SHA256SUMS 合并在 M7/T7.3 的 release 工作流做。
+      - name: Normalize bundle names and generate SHA256SUMS
+        if: startsWith(github.ref, 'refs/tags/')
+        run: node scripts/ci/rename-bundles.mjs --out bundles --sha256 --arch ${{ runner.arch == 'X64' && 'x64' || 'arm64' }}
+
+      # Linux 冒烟（无显示器也能跑的真实验证，不是摆样子）：
+      #   AppImage → 可执行位 + --appimage-extract 能解出自带运行时（不启动 GUI）
+      #   deb      → 包结构与内容完整（dpkg-deb 不需要 root，也不真正安装）
+      # rpm 按任务定义不在冒烟范围（ubuntu runner 上验证 rpm 需要额外装 rpm 工具链）。
+      - name: Smoke test bundles (linux)
+        if: startsWith(github.ref, 'refs/tags/') && startsWith(matrix.platform, 'ubuntu')
+        run: |
+          set -euo pipefail
+          APPIMAGE=$(ls bundles/*.AppImage)
+          test -x "$APPIMAGE"
+          "$APPIMAGE" --appimage-extract >/dev/null
+          test -d squashfs-root/usr/bin
+          rm -rf squashfs-root
+          DEB=$(ls bundles/*.deb)
+          dpkg-deb --info "$DEB" >/dev/null
+          dpkg-deb --contents "$DEB" | grep -q 'usr/bin/forgedesk'
+          echo "bundle smoke test passed"
+
+      - name: Upload bundles
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: actions/upload-artifact@v7
+        with:
+          name: forgedesk-bundles-${{ matrix.platform }}
+          path: bundles/*
+          # tag 构建拿不到安装包就是事故，必须让整个 job 变红
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Upload executable
+        if: "!startsWith(github.ref, 'refs/tags/')"
         uses: actions/upload-artifact@v7
         with:
           name: forgedesk-${{ matrix.platform }}-debug

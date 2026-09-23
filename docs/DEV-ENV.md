@@ -333,6 +333,7 @@ pnpm check:contrast         # 设计 token 的 WCAG AA 对比度
 pnpm check:workflows        # 校验 .github/workflows/*.yml
 pnpm check:repo             # 仓库一致性：workspace 成员存在、未被 .gitignore 忽略、已被 git 跟踪
 pnpm check:docs             # 文档内部链接与锚点有效（不访问网络）
+pnpm compliance             # 合规红线：名称/免责声明/图标/依赖许可/AI 依赖（T0.12）
 pnpm i18n:lint              # 扫描未走 i18n key 的用户可见中文（T0.6 起纳入 CI）
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
@@ -390,7 +391,8 @@ where link.exe
 | M0 / T0.7 SQLite + 迁移 + 设置持久化 | ✅ 7 张表 + 版本化迁移（含备份/回滚）+ 设置读写命令 + 界面密度落库 |
 | M0 / T0.8 日志与日志查看 | ✅ 文件日志（JSON+脱敏）+ 按天/10MB 轮转 + panic 留档 + 会话标记 + `logs_open`/`logs_tail` |
 | M0 / T0.9 规范文档五件套 | ✅ ARCHITECTURE / API（含事件表）/ CODING_STYLE / CONTRIBUTING / README + PR 与 Issue 模板 + `pnpm check:docs` |
-| M0 / T0.11、T0.12 | 未开始 |
+| M0 / T0.11 打包配置与产物命名 | ✅ bundle 完善（wix 语言/NSIS perUser+forgedesk:// 钩子）+ 归一化命名脚本 + SHA256SUMS + Linux 冒烟（tag 构建触发） |
+| M0 / T0.12 合规检查 | ✅ `pnpm compliance`（名称/免责声明/图标/许可审计/AI 依赖）+ compliance.yml + LICENSE-AUDIT.md |
 | 审批 | ✅ T0.4 主界面布局已确认（红线 R3）；⏳ T0.9 的 AGENTS.md 与 README 免责声明待确认 |
 
 补充说明（T0.4 顺带落地的两项前置能力，后续任务直接复用）：

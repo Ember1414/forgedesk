@@ -39,7 +39,7 @@
     ],
     "category": "DeveloperTool",
     "shortDescription": "ForgeDesk — A Git client",
-    "longDescription": "ForgeDesk is an open-source, cross-platform desktop workbench for Git and GitHub workflows. It turns complex terminal operations into visual interfaces, wizards and interactive graphs.",
+    "longDescription": "ForgeDesk 是一个开源、跨平台的 Git 桌面工作台：把复杂的 Git 与 GitHub 终端操作变成可视化界面、向导与可交互图表。破坏性操作一律先预览计划并自动快照，可随时回滚；凭据只存系统钥匙串，日志与错误详情在写出前统一脱敏；所有数据保存在本地，无遥测、无 AI 推理功能。",
     "copyright": "ForgeDesk contributors",
     "licenseFile": "../LICENSE",
     "linux": {
@@ -51,8 +51,12 @@
       "minimumSystemVersion": "10.15"
     },
     "windows": {
+      "wix": {
+        "language": ["en-US", "zh-CN"]
+      },
       "nsis": {
-        "installMode": "currentUser"
+        "installMode": "currentUser",
+        "installerHooks": "./windows/installer-hooks.nsh"
       }
     }
   }
