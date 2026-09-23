@@ -396,3 +396,27 @@ async fn missing_executable_reports_a_spawn_error() {
         error.message
     );
 }
+
+#[tokio::test]
+async fn a_missing_working_directory_is_reported_as_not_found() {
+    // 仓库可以在两次调用之间被删除/移动。此时 `Command::spawn` 的报错是
+    // 平台相关的（Windows 上读起来像"git 没装"），因此我们在启动前先判断。
+    let missing = std::env::temp_dir().join("forgedesk-process-cwd-gone-xyz");
+    let _ = std::fs::remove_dir_all(&missing);
+    let process = GitProcess::new();
+
+    let error = process
+        .run(&args(&["--version"]), GitRunOpts::new(&missing))
+        .await
+        .expect_err("工作目录不存在时必须返回 Err");
+
+    assert_eq!(
+        error.code,
+        ErrorCode::NotFound,
+        "应是用户可自救的「路径不存在」，而不是内部错误"
+    );
+    assert_eq!(
+        error.hint.as_deref(),
+        Some(missing.to_string_lossy().as_ref())
+    );
+}

@@ -258,6 +258,14 @@ impl GitProcess {
     /// 只有三种情况返回 `Err`：进程**无法启动**、**超时**、**被取消**。
     /// 非零退出码属于正常结果，通过 [`GitOutput::exit_code`] 返回。
     pub async fn run(&self, args: &[String], opts: GitRunOpts) -> AppResult<GitOutput> {
+        // 工作目录不存在时 `Command::spawn` 给的是**平台相关且指向错误对象**的
+        // 报错（Windows 上是"系统找不到指定的文件"，读起来像是 git 没装）。
+        // 仓库可以在两次调用之间被删除/移动，因此这是真实的边界条件，
+        // 提前判断能把"打开一个已被删除的仓库"变成一句可操作的诊断。
+        if !opts.cwd.exists() {
+            return Err(missing_cwd_error(&opts.cwd));
+        }
+
         let mut command = Command::new(&self.program);
         command
             .args(args)
@@ -568,6 +576,16 @@ fn timeout_error(program: &Path, args: &[String], duration: Duration) -> AppErro
     )
     .with_detail(sanitize_log(&args.join(" ")))
     .with_hint(program.display().to_string())
+}
+
+/// 工作目录不存在。
+///
+/// 用 [`ErrorCode::NotFound`] 而不是 `Internal`：这是一个**用户可理解、可自救**的
+/// 情况（仓库被删了/移动了/盘符没挂上），而不是未预期的内部故障。
+fn missing_cwd_error(cwd: &Path) -> AppError {
+    AppError::new(ErrorCode::NotFound, "the working directory does not exist")
+        .with_hint(cwd.to_string_lossy().into_owned())
+        .with_retryable(false)
 }
 
 /// 被取消。

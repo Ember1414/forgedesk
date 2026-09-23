@@ -67,6 +67,14 @@ interface FixAction {
 | [`settings_all`](#settings_get--settings_set--settings_all) | ReadOnly | T0.7 | 读取某个范围的全部设置 |
 | [`logs_open`](#logs_open) | ReadOnly | T0.8 | 在系统文件管理器中打开日志目录 |
 | [`logs_tail`](#logs_tail) | ReadOnly | T0.8 | 读取末尾若干行日志（已脱敏） |
+| [`repo_discover`](#repo_discover) | ReadOnly | T1.3 | 从任意目录向上发现仓库 |
+| [`repo_open`](#repo_open) | ReadOnly | T1.3 | 打开仓库：审计 + 版本检查 + 登记 |
+| [`repo_clone`](#repo_clone) | Network | T1.3 | 克隆仓库（长任务，返回 jobId） |
+| [`repo_init`](#repo_init) | Mutating | T1.3 | 初始化仓库（可生成 .gitignore / LICENSE） |
+| [`repo_recent_list`](#repo_recent_list) | ReadOnly | T1.3 | 最近打开的仓库 |
+| [`repo_forget`](#repo_forget) | Mutating | T1.3 | 从最近列表移除（不删磁盘文件） |
+| [`repo_close`](#repo_close) | ReadOnly | T1.3 | 关闭仓库（结束会话内的"已打开"状态） |
+| [`job_cancel`](#job_cancel) | ReadOnly | T1.3 | 取消一个正在运行的长任务 |
 | [`debug_throw_error`](#debug_throw_error) | ReadOnly | T0.6 | 触发受控失败，用于验证错误链路（**仅开发构建注册**） |
 | [`debug_panic`](#debug_panic) | ReadOnly | T0.8 | 触发真实 panic，用于验证崩溃留档（**仅开发构建注册**） |
 
@@ -182,6 +190,229 @@ interface LogLine {
 
 ---
 
+### repo_discover
+
+从任意目录向上查找仓库（含裸仓库）。**不写库、不审计**。
+
+- **能力等级**：`ReadOnly`
+- **参数**：
+
+| 参数 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `path` | `string` | 是 | 任意目录；可在仓库的子目录里。前后空白会被裁掉，空值与含 NUL 的值返回 `VALIDATION` |
+
+- **返回**：`Repository`
+
+```ts
+interface Repository {
+  workdir: string | null;        // 裸仓库为 null
+  gitDir: string;
+  isBare: boolean;
+  isEmpty: boolean;              // 还没有任何提交
+  head: string | null;           // HEAD 的分支短名；游离 HEAD / 空仓库为 null
+  detached: boolean;
+  upstream: string | null;
+  defaultBranch: string | null;  // origin/HEAD 优先，其次当前分支
+  isShallow: boolean;            // 浅克隆：历史不完整，历史视图需降级提示
+  isLfs: boolean;                // 提示性字段，不参与数据完整性判断
+  worktrees: readonly Worktree[]; // 主工作区在首位
+  branchLabel:                 // 由后端判定，前端不自行拼
+    | { kind: 'unborn' }
+    | { kind: 'detached' }
+    | { kind: 'named'; name: string };
+}
+
+interface Worktree {
+  path: string;
+  head: string | null;
+  branch: string | null;
+  detached: boolean;
+  isBare: boolean;
+  locked: boolean;
+  prunable: boolean;
+}
+```
+
+- **错误**：`PATH_NOT_REPO`（附一个 `repo_init` 动作与路径 `hint`）、`VALIDATION`
+- **用途**：用户拖入子目录时先告诉界面"它属于哪个仓库、当前分支是什么"，
+  再由界面决定是否真的打开
+- **前端封装**：`repoDiscover(path)`；调用点：`src/ui/__dev__/RepositoryLifecyclePanel.tsx`
+
+---
+
+### repo_open
+
+打开仓库：发现 → 仓库配置审计 → git 版本检查 → 登记到最近列表。
+
+- **能力等级**：`ReadOnly`（只读仓库、只写本地登记表；不改仓库状态，因此不需要快照）
+- **参数**：同 `repo_discover`
+- **返回**：`OpenedRepository`
+
+```ts
+interface OpenedRepository {
+  recordId: number;              // repositories 表主键；后续所有 repoId 参数都用它
+  repository: Repository;
+  audit: RepoAudit;
+  gitVersion: string | null;     // 如 "2.54.0.windows.1"
+  gitVersionSupported: boolean;  // 与最低版本 2.30 比较；版本未知时为 true
+  needsGitUpgrade: boolean;
+}
+
+interface RepoAudit {
+  findings: readonly AuditFinding[];
+  hasDanger: boolean;            // 存在"会被 git 当命令执行"的配置
+  maxSeverity: 'info' | 'warning' | 'danger' | null;
+}
+
+interface AuditFinding {
+  id: string;      // fsmonitor | ssh_command | filter_clean | filter_smudge
+                   // | filter_process | shell_alias | pager | editor | hooks_path
+  severity: 'info' | 'warning' | 'danger';
+  key: string;     // 命中的配置键，便于用户去 git config 里定位
+  value: string;   // 命中的配置值（**已脱敏**，红线 R8）
+  scope: string;   // local | worktree
+}
+```
+
+- **错误**：`PATH_NOT_REPO`（附 `repo_init` 动作）、`VALIDATION`、`STORAGE`
+- **三条约定**：
+  1. **审计与版本检查不阻塞打开**：读不到 `.git/config` 时返回空报告而不是失败
+     （否则用户会以为仓库坏了）；
+  2. **只审计仓库级范围**（`local` / `worktree`）：`global` / `system` 是用户自己
+     机器上的选择，报成警告只会训练用户忽略警告；
+  3. **打开过程不执行任何 hook、不刷新索引**：只跑 `rev-parse` / `symbolic-ref` /
+     `worktree list` / `config --list` / `--version`，全部是只读查询
+     （由 `tests/repository_lifecycle.rs` 断言"打开后 `.git/index` 仍不存在"）。
+- **前端封装**：`repoOpen(path)`；调用点：`src/ui/__dev__/RepositoryLifecyclePanel.tsx`
+
+---
+
+### repo_clone
+
+克隆仓库（**长任务**）。
+
+- **能力等级**：`Network`（访问远端并写本地磁盘）
+- **参数**：`spec: CloneRequest`
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `url` | `string` | 是 | HTTPS / SSH / `file://`；含空白或控制字符返回 `VALIDATION` |
+| `into` | `string` | 是 | 目标目录；**已存在且非空时提前返回 `VALIDATION`**（不等传输结束） |
+| `depth` | `number` | 否 | `--depth`；`0` 返回 `VALIDATION` |
+| `branch` | `string` | 否 | `--branch`；按 `check-ref-format` 的关键规则校验 |
+| `bare` | `boolean` | 否 | `--bare` |
+| `recurseSubmodules` | `boolean` | 否 | `--recurse-submodules` |
+| `singleBranch` | `boolean` | 否 | `--single-branch`（只取单个分支的引用） |
+
+- **返回**：`{ jobId: string }`（立即返回，不等克隆完成）
+- **进度与结果**：`job:progress` / `job:done`（`result` 是 `OpenedRepository`）/
+  `job:failed`（`error` 是 `AppError`）；可经 `job_cancel` 取消
+- **错误**：`VALIDATION`、`NETWORK`、`AUTH_REQUIRED`、`AUTH_EXPIRED`、
+  `PERMISSION_DENIED`、`CANCELLED`
+- **前端封装**：`repoClone(spec)`；调用点：`src/ui/__dev__/RepositoryLifecyclePanel.tsx`
+
+---
+
+### repo_init
+
+初始化仓库，并按需生成 `.gitignore` / `LICENSE`。
+
+- **能力等级**：`Mutating`（在磁盘上创建仓库并写文件；**不创建提交**，
+  因此没有可回滚的既有状态，不需要快照）
+- **参数**：`spec: InitRequest`
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `path` | `string` | 是 | 目标目录（不存在时创建） |
+| `initialBranch` | `string` | 否 | `init -b`；缺省跟随用户的 `init.defaultBranch` |
+| `bare` | `boolean` | 否 | 创建裸仓库 |
+| `gitignore` | `string` | 否 | `rust` / `node` / `python` / `go` / `java`；未知值返回 `VALIDATION` 并列出支持项 |
+| `license` | `string` | 否 | `MIT` / `Apache-2.0` / `BSD-3-Clause`；未知值同上 |
+| `licenseHolder` | `string` | 否 | 版权持有者；会被清理成单行，缺省写 `<copyright holder>` |
+| `licenseYear` | `number` | 否 | 版权年份；缺省取当前年份 |
+
+- **返回**：`OpenedRepository`
+- **错误**：`VALIDATION`、`STORAGE`、`INTERNAL`
+- **三条约定**：
+  1. **只生成文件，不替用户做决定**：不推荐许可证、不改 `Cargo.toml` / `package.json`
+     里的许可声明；
+  2. **只写新文件**：已存在的 `.gitignore` / `LICENSE` 一律不动（覆盖属于数据丢失）；
+  3. **裸仓库 + 模板 → `VALIDATION`**：裸仓库没有工作区，静默跳过会让用户以为文件生成了。
+- **前端封装**：`repoInit(spec)`；调用点：`src/ui/__dev__/RepositoryLifecyclePanel.tsx`
+
+---
+
+### repo_recent_list
+
+最近打开的仓库（按 `last_opened_at` 倒序，最近在前）。
+
+- **能力等级**：`ReadOnly`
+- **参数**：
+
+| 参数 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `limit` | `number` | 否 | 条数；缺省 50，被夹在 `1..=200` |
+
+- **返回**：`RecentRepository[]`
+
+```ts
+interface RecentRepository {
+  id: number;                     // repositories 表主键
+  path: string;                   // 规范化后的路径（已解析符号链接、去掉 Windows \\?\ 前缀）
+  name: string;                   // 展示名；裸仓库去掉 .git 后缀
+  defaultBranch: string | null;
+  lastOpenedAt: number | null;    // Unix 毫秒
+  createdAt: number;              // Unix 毫秒
+  isOpen: boolean;                // 当前会话中是否已打开
+}
+```
+
+- **错误**：`STORAGE`
+- **前端封装**：`repoRecentList(limit?)`；调用点：`src/ui/__dev__/RepositoryLifecyclePanel.tsx`
+
+---
+
+### repo_forget
+
+从最近列表移除一个仓库（**只删记录，不碰磁盘上的仓库**）。
+
+- **能力等级**：`Mutating`（改本地登记表）
+- **参数**：`repoId: number`
+- **返回**：`null`
+- **错误**：`NOT_FOUND`（id 不在列表里）、`STORAGE`
+- **前端封装**：`repoForget(repoId)`
+
+---
+
+### repo_close
+
+关闭一个已打开的仓库（结束会话内的"已打开"状态）。
+
+- **能力等级**：`ReadOnly`（不改数据库、不碰仓库，只改本进程内的会话状态）
+- **参数**：`repoId: number`
+- **返回**：`null`
+- **错误**：`NOT_FOUND`
+- **语义**：与 `repo_forget` 的区别是**记录仍在列表里**，只是不再标记为已打开。
+  重复关闭是幂等的。"哪些仓库正开着"是后端的事实（T1.10 起决定监听哪些目录），
+  因此不放在前端 store 里。
+- **前端封装**：`repoClose(repoId)`
+
+---
+
+### job_cancel
+
+请求取消一个正在运行的长任务。
+
+- **能力等级**：`ReadOnly`（只改本进程内的任务状态，不碰仓库、不碰网络）
+- **参数**：`jobId: string`
+- **返回**：`boolean` —— 它此前是否在运行。未知或已结束的 id 返回 `false`
+  而**不是**报错：界面据此显示"任务已结束"，比一个错误提示更有用。
+- **取消的可见结果**：任务以 `job:failed` 结束，`error.code` 为 `CANCELLED`
+  （不是 `INTERNAL`——取消是用户主动的、预期内的结果）。
+- **前端封装**：`cancelJob(jobId)`
+
+---
+
 ### debug_throw_error
 
 触发一个受控失败的演示错误。存在的理由：错误链路（后端分类 → 脱敏 → IPC → 前端 i18n →
@@ -235,14 +466,26 @@ Toast → 动作按钮）是基础设施，它坏掉时不会有任何业务功�
 
 | 事件 | 载荷 | 用途 | 首个落地任务 | 状态 |
 | --- | --- | --- | --- | --- |
-| `job:progress` | `{ jobId, phase, current, total, message? }` | 长任务进度（>500ms 的操作必须走 `JobRunner`） | T1.3 / M1 | ⬜ 未实现 |
-| `job:done` | `{ jobId, result }` | 长任务成功结束 | T1.3 / M1 | ⬜ 未实现 |
-| `job:failed` | `{ jobId, error: AppError }` | 长任务失败结束（错误形状同 §1.1） | T1.3 / M1 | ⬜ 未实现 |
+| `job:progress` | `{ jobId, phase, current, total, message? }` | 长任务进度（>500ms 的操作必须走 `JobRunner`） | T1.3 / M1 | ✅ `crates/commands/src/jobs.rs` |
+| `job:done` | `{ jobId, result }` | 长任务成功结束 | T1.3 / M1 | ✅ `crates/commands/src/jobs.rs` |
+| `job:failed` | `{ jobId, error: AppError }` | 长任务失败结束（错误形状同 §1.1） | T1.3 / M1 | ✅ `crates/commands/src/jobs.rs` |
 | `repo:changed` | `{ repoId, paths: string[] }` | 文件监听触发刷新 | T1.10 / M1 | ⬜ 未实现 |
 | `git:state-changed` | `{ repoId, opState }` | 仓库正处于 rebase/merge/cherry-pick 中途 | T2.x / M2 | ⬜ 未实现 |
 | `term:output` | `{ termId, bytes }` | 终端输出流 | T5.x / M5 | ⬜ 未实现 |
 | `auth:expired` | `{ accountId }` | 令牌失效，提示重新登录 | T4.x / M4 | ⬜ 未实现 |
 | `update:available` | `{ version, notes }` | 发现新版本 | T7.3 / M7 | ⬜ 未实现 |
+
+**`job:*` 的实现约定**（T1.3 起）：
+
+- 事件名与载荷形状由 `crates/commands/src/jobs.rs` 的 `TauriJobReporter` 决定，
+  `forgedesk-jobs` 本身不依赖 Tauri（它只定义 `JobReporter` 出口）；
+- `phase` 是**稳定短名**（`counting` / `compressing` / `receiving` / `resolving` /
+  `writing` / `ref-update` / `other`），界面按它选 i18n 文案；
+- `message` 是 git 的原始进度行，**已在 `ProgressSink` 入口脱敏**（红线 R8）——
+  远端可以在 `remote:` 行里回显带凭据的 URL；
+- 终态事件由 `JobRunner` 统一投递，任务体不得自己投递
+  （否则会出现"任务体报成功、注册表还留着"这类不一致）；
+- 取消的任务以 `job:failed` 结束，`error.code` 为 `CANCELLED`。
 
 **事件与命令的边界**：
 
