@@ -24,6 +24,11 @@
   --fd-line: #e3e6eb;
   --fd-line-strong: #c8cdd6;
 
+  /* 遮罩（弹层后面的压暗层）：两套主题都用暗色半透明，
+     否则暗色主题下"压暗"会变成"提亮"，弹层的层级感会反过来。
+     这是唯一不参与 WCAG 色对校验的颜色（它不承载文字）。 */
+  --fd-scrim: rgb(15 17 21 / 0.45);
+
   /* 文字 */
   --fd-fg: #14161a;
   --fd-fg-muted: #565d6b;
@@ -69,6 +74,9 @@
   --fd-line: #2a2f38;
   --fd-line-strong: #3d434f;
 
+  /* 遮罩：暗色下稍微更重一点，抵消背景本身已经很暗带来的层级压缩 */
+  --fd-scrim: rgb(5 6 9 / 0.6);
+
   --fd-fg: #eceef2;
   --fd-fg-muted: #a6adba;
   --fd-fg-subtle: #8c93a1;
@@ -100,6 +108,7 @@
 
   --color-line: var(--fd-line);
   --color-line-strong: var(--fd-line-strong);
+  --color-scrim: var(--fd-scrim);
 
   --color-fg: var(--fd-fg);
   --color-fg-muted: var(--fd-fg-muted);

@@ -1,9 +1,10 @@
 import { useTranslation } from 'react-i18next';
 
 import { THEME_MODES } from '@/app/theme';
+import type { ThemeMode } from '@/app/theme';
 import { SUPPORTED_LANGUAGES, changeLanguage, resolveActiveLanguage } from '@/lib/i18n';
 import type { AppLanguage } from '@/lib/i18n';
-import { SegmentedControl } from '@/ui/SegmentedControl';
+import { ToggleGroup } from '@/ui/components/toggle-group';
 import { useUiStore } from '@/stores/uiStore';
 
 /**
@@ -38,14 +39,16 @@ export function AppearanceSettingsPage() {
             <span className="text-14 font-medium">{t('settings.appearance.themeLabel')}</span>
             <span className="text-12 text-fg-subtle">{t('settings.appearance.themeHint')}</span>
           </div>
-          <SegmentedControl
+          <ToggleGroup
             label={t('settings.appearance.themeLabel')}
             value={themeMode}
             options={THEME_MODES.map((mode) => ({
               value: mode,
               label: t(`common:theme.${mode}`),
             }))}
-            onChange={setThemeMode}
+            onValueChange={(next) => {
+              setThemeMode(next as ThemeMode);
+            }}
           />
         </div>
 
@@ -54,15 +57,15 @@ export function AppearanceSettingsPage() {
             <span className="text-14 font-medium">{t('settings.appearance.languageLabel')}</span>
             <span className="text-12 text-fg-subtle">{t('settings.appearance.languageHint')}</span>
           </div>
-          <SegmentedControl<AppLanguage>
+          <ToggleGroup
             label={t('settings.appearance.languageLabel')}
             value={activeLanguage}
             options={SUPPORTED_LANGUAGES.map((language) => ({
               value: language,
               label: t(`common:language.${language}`),
             }))}
-            onChange={(language) => {
-              void changeLanguage(language);
+            onValueChange={(next) => {
+              void changeLanguage(next as AppLanguage);
             }}
           />
         </div>

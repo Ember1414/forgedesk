@@ -37,11 +37,15 @@ import { GeneralSettingsPage } from '@/features/settings/GeneralSettingsPage';
 import { GitSettingsPage } from '@/features/settings/GitSettingsPage';
 import { GitHubSettingsPage } from '@/features/settings/GitHubSettingsPage';
 import { SettingsLayout } from '@/features/settings/SettingsLayout';
+import { ComponentsPage } from '@/ui/__dev__/ComponentsPage';
 import { DesignSystemPage } from '@/ui/__dev__/DesignSystemPage';
 
-/** 开发专用路由（生产构建不包含设计系统预览页）。 */
+/** 开发专用路由（生产构建不包含这两个预览页）。 */
 const devRoutes: RouteObject[] = import.meta.env.DEV
-  ? [{ path: '__dev__/design', element: <DesignSystemPage /> }]
+  ? [
+      { path: '__dev__/design', element: <DesignSystemPage /> },
+      { path: '__dev__/components', element: <ComponentsPage /> },
+    ]
   : [];
 
 export const appRoutes: RouteObject[] = [

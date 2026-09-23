@@ -16,5 +16,9 @@
   "state": {
     "empty": "Nothing here yet",
     "loading": "Loading…"
+  },
+  "actions": {
+    "dismiss": "Dismiss notification",
+    "close": "Close"
   }
 }

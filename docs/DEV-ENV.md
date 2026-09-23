@@ -153,6 +153,26 @@ failed to load manifest for workspace member `/home/runner/work/forgedesk/forged
 3. 看到 "failed to load manifest for workspace member X" 时，先怀疑**依赖链末端**缺少目录，
    用 `git ls-tree -r --name-only HEAD -- crates` 对比 `Get-ChildItem crates` 的差集。
 
+### 陷阱 9：Radix 原语在测试里"点不动"，多数是触发时机问题而非实现有 bug
+
+**现象**：`fireEvent.click` 打不开 DropdownMenu / 不激活 Tabs，
+报错通常是 "Unable to find role=menu / 断言 aria-selected 仍为 false"。
+
+**成因**（都是 Radix 刻意对齐浏览器原生行为）：
+- 菜单/选择器在 **pointerdown** 打开（这样"按住拖选"不会误开菜单）；
+- Tabs 在 **mousedown** 激活（与原生标签页一致）；
+- Switch/Checkbox/RadioGroup 点击的是 Root 元素，要用 `role="switch" | "checkbox" | "radio"` 定位；
+- ToggleGroup 的单选项是 **radio 语义**（radiogroup + radio），不是 button；
+- 菜单的可访问名称来自**触发按钮**（Radix 把 aria-labelledby 指向它），传 `aria-label` 会被覆盖。
+
+**约定**：
+1. 测试里用 `fireEvent.pointerDown(el, { pointerId: 1, pointerType: 'mouse', button: 0 })` + `fireEvent.click(el)` 打开菜单；
+2. jsdom 缺失的浏览器 API（ResizeObserver、Pointer Capture、scrollIntoView、PointerEvent）
+   已在 `src/test/setup.ts` 统一补齐，**不要**在单个测试文件里各补一次；
+3. Radix 内部组件的少量 "not wrapped in act" 警告来自其自带的 presence/定时器逻辑，
+   属于上游噪音；我们自己的组件若出现同类警告必须修（通常是"挂载状态下改 store"，
+   见 `src/app/shell/AppShell.test.tsx` 的 afterEach）。
+
 ---
 
 ## 3. 已固化的工具链版本
@@ -177,6 +197,8 @@ failed to load manifest for workspace member `/home/runner/work/forgedesk/forged
 | @tauri-apps/cli / api | 2.11.5 / 2.11.1 | |
 | sharp | 0.35.4 | 图标栅格化 |
 | yaml | 2.9.1 | 校验 CI 工作流（后续诊断规则也会用到） |
+| @radix-ui/react-* | 1.x / 2.x | 无样式无障碍原语（MIT）。T0.5 引入 15 个包：dialog / alert-dialog / select / checkbox / radio-group / switch / slider / tabs / toggle-group / tooltip / popover / dropdown-menu / context-menu / toast / slot |
+| class-variance-authority | 0.7.1 | 组件变体声明（MIT，shadcn/ui 生态标准做法） |
 
 ---
 
@@ -247,7 +269,8 @@ where link.exe
 | M0 / T0.3 设计 token + 预览页 + 原创图标 | ✅ 34 项对比度通过；17 个图标文件 |
 | M0 / T0.10 CI 两阶段工作流 + 校验器 | ✅ 本地校验通过 |
 | M0 / T0.4 应用外壳与路由 | ✅ 20 条路由可跳转；外壳交互测试 13 项 + 路由表 23 项 |
-| M0 / T0.5–T0.9、T0.11、T0.12 | 未开始 |
+| M0 / T0.5 基础组件库 | ✅ 30 个组件（Radix 原语）+ 79 项组件测试；展示页 `/__dev__/components` |
+| M0 / T0.6–T0.9、T0.11、T0.12 | 未开始 |
 
 补充说明（T0.4 顺带落地的两项前置能力，后续任务直接复用）：
 
@@ -257,3 +280,13 @@ where link.exe
 - **主题统一走 `src/app/theme.ts` + uiStore**。入口在渲染前写入 `<html data-theme>`（避免暗色闪白），
   `system` 模式会在运行时解析并订阅系统外观变化。
   注意：不要再在组件里自行读写 `forgedesk.theme` 这个 key（T0.3 的预览页曾这么干，已收敛）。
+
+组件库使用约定（T0.5 之后新页面一律照此写）：
+
+- 一律从 `@/ui/components/*` 取组件，**不要**为了"就一个小按钮"自己写一份；
+  曾经的 T0.4 临时 `SegmentedControl` 就是这样留下的，T0.5 已收敛为 `ToggleGroup`。
+- 颜色只用语义类（`bg-surface` / `border-danger` / `text-fg-muted`…），禁止十六进制色值与固定 px 字号；
+  新增语义色请加到 `src/ui/tokens.css`（并考虑是否纳入对比度校验）。
+- 组件**不产生**用户可见文案：标题、`aria-label`、关闭按钮名称都由调用方用 i18n 文案传入
+  （例如 `DialogContent` 的 `closeLabel` 是必填项）。
+- 破坏性操作的确认框用 `AlertDialog`，`impact`（影响说明）是必填项——这是红线 R7 在 UI 层的闸门。

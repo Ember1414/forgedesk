@@ -1,19 +1,25 @@
 import { useEffect } from 'react';
 
 import { QueryClientProvider } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import { RouterProvider } from 'react-router-dom';
 
 import { router } from '@/app/routes';
 import { queryClient } from '@/app/queryClient';
 import { applyThemeMode, watchSystemTheme } from '@/app/theme';
+import { Toaster } from '@/ui/components/toast';
+import { TooltipProvider } from '@/ui/components/tooltip';
 import { useUiStore } from '@/stores/uiStore';
 
 /**
  * 应用根组件。
  *
- * 结构：QueryClientProvider（服务端状态）→ SystemThemeSync（跟随系统外观）→ RouterProvider。
- * 注意 QueryClientProvider 必须在路由之外：所有页面都会用到查询，
- * 挂在路由内部会导致切换页面时缓存被重建。
+ * 层级（自上而下，每一层的职责不同）：
+ *   QueryClientProvider —— 服务端状态缓存，必须在路由之外，否则切页会重建缓存；
+ *   TooltipProvider     —— Radix 用它统一管理提示的延迟与全局行为；
+ *   SystemThemeSync     —— 跟随系统外观时的运行时同步；
+ *   RouterProvider      —— 页面；
+ *   Toaster             —— 全局提示出口，放最后以便浮在最上层。
  */
 function SystemThemeSync() {
   const themeMode = useUiStore((state) => state.themeMode);
@@ -32,10 +38,15 @@ function SystemThemeSync() {
 }
 
 export function App() {
+  const { t } = useTranslation('common');
+
   return (
     <QueryClientProvider client={queryClient}>
-      <SystemThemeSync />
-      <RouterProvider router={router} />
+      <TooltipProvider delayDuration={300}>
+        <SystemThemeSync />
+        <RouterProvider router={router} />
+        <Toaster closeLabel={t('actions.dismiss')} />
+      </TooltipProvider>
     </QueryClientProvider>
   );
 }

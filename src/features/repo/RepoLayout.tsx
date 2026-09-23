@@ -4,7 +4,7 @@ import { NavLink, Outlet, useParams } from 'react-router-dom';
 import { DETAIL_PANEL_POSITIONS, useUiStore } from '@/stores/uiStore';
 import type { DetailPanelPosition } from '@/stores/uiStore';
 import { findRecentRepo } from '@/features/repo/recentRepos';
-import { SegmentedControl } from '@/ui/SegmentedControl';
+import { ToggleGroup } from '@/ui/components/toggle-group';
 import { cn } from '@/lib/utils';
 
 /**
@@ -62,14 +62,17 @@ export function RepoLayout() {
           </nav>
         </div>
 
-        <SegmentedControl<DetailPanelPosition>
+        <ToggleGroup
           label={t('panel.label')}
           value={detailPanel}
           options={DETAIL_PANEL_POSITIONS.map((position) => ({
             value: position,
             label: t(`panel.${position}`),
           }))}
-          onChange={setDetailPanel}
+          onValueChange={(next) => {
+            // 选项值来自 DETAIL_PANEL_POSITIONS，这里的收窄是编译期保证的
+            setDetailPanel(next as DetailPanelPosition);
+          }}
         />
       </header>
 

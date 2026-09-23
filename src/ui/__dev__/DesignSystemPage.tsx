@@ -7,7 +7,7 @@ import { THEME_MODES } from '@/app/theme';
 import type { ThemeMode } from '@/app/theme';
 import { VersionBadge } from '@/features/system/VersionBadge';
 import { cn } from '@/lib/utils';
-import { SegmentedControl } from '@/ui/SegmentedControl';
+import { ToggleGroup } from '@/ui/components/toggle-group';
 import { useUiStore } from '@/stores/uiStore';
 
 /**
@@ -194,11 +194,13 @@ export function DesignSystemPage() {
               对比度由 <span className="font-mono">scripts/design/check-contrast.mjs</span> 校验
             </p>
           </div>
-          <SegmentedControl<ThemeMode>
+          <ToggleGroup
             label="主题切换"
             value={themeMode}
             options={THEME_MODES.map((mode) => ({ value: mode, label: t(`theme.${mode}`) }))}
-            onChange={changeThemeMode}
+            onValueChange={(next) => {
+              changeThemeMode(next as ThemeMode);
+            }}
             className="p-1"
           />
         </header>

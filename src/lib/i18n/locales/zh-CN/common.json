@@ -16,5 +16,9 @@
   "state": {
     "empty": "暂无内容",
     "loading": "加载中…"
+  },
+  "actions": {
+    "dismiss": "关闭提示",
+    "close": "关闭"
   }
 }

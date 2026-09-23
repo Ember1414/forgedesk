@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { initialUiState, useUiStore } from '@/stores/uiStore';
@@ -24,6 +24,19 @@ afterEach(() => {
   cleanup();
   useUiStore.setState(initialUiState);
 });
+
+/**
+ * 打开仓库切换菜单。
+ *
+ * 必须显式派发 pointerdown：Radix 的菜单在**鼠标按下**时打开
+ * （这样"按住拖动"不会误开菜单），只派发 click 在 jsdom 里不会触发。
+ */
+function openRepoSwitcher(): HTMLElement {
+  const trigger = screen.getByRole('button', { name: /当前仓库/ });
+  fireEvent.pointerDown(trigger, { pointerId: 1, pointerType: 'mouse', button: 0 });
+  fireEvent.click(trigger);
+  return trigger;
+}
 
 describe('外壳结构', () => {
   it('渲染主导航、主内容区与状态栏', () => {
@@ -70,8 +83,8 @@ describe('导航可用性', () => {
   it('选择仓库后仓库级条目变为可用链接，并跳转到工作区', async () => {
     renderApp('/');
 
-    fireEvent.click(screen.getByRole('button', { name: '当前仓库' }));
-    const menu = screen.getByRole('menu', { name: '选择仓库' });
+    openRepoSwitcher();
+    const menu = screen.getByRole('menu');
     fireEvent.click(within(menu).getByRole('menuitem', { name: /forgedesk/ }));
 
     expect(useUiStore.getState().currentRepoId).toBe('example-forgedesk');
@@ -88,24 +101,27 @@ describe('导航可用性', () => {
 describe('仓库切换器', () => {
   it('展开与收起', () => {
     renderApp('/');
-    const trigger = screen.getByRole('button', { name: '当前仓库' });
+    const trigger = screen.getByRole('button', { name: /当前仓库/ });
     expect(trigger).toHaveAttribute('aria-expanded', 'false');
 
-    fireEvent.click(trigger);
+    openRepoSwitcher();
     expect(trigger).toHaveAttribute('aria-expanded', 'true');
-    expect(screen.getByRole('menu', { name: '选择仓库' })).toBeInTheDocument();
+    expect(screen.getByRole('menu')).toBeInTheDocument();
   });
 
-  it('Esc 关闭菜单并把焦点还给触发按钮', () => {
+  it('Esc 关闭菜单并把焦点还给触发按钮', async () => {
     renderApp('/');
-    const trigger = screen.getByRole('button', { name: '当前仓库' });
-    fireEvent.click(trigger);
-    expect(screen.getByRole('menu', { name: '选择仓库' })).toBeInTheDocument();
+    const trigger = openRepoSwitcher();
+    const menu = screen.getByRole('menu');
 
-    fireEvent.keyDown(trigger, { key: 'Escape' });
+    // Esc 由菜单内部处理（焦点在菜单里），焦点归还由 Radix 负责
+    fireEvent.keyDown(menu, { key: 'Escape' });
 
-    expect(screen.queryByRole('menu', { name: '选择仓库' })).not.toBeInTheDocument();
-    expect(trigger).toHaveFocus();
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+    // 焦点归还发生在关闭动画之后（异步），必须等待而不是立即断言
+    await waitFor(() => {
+      expect(trigger).toHaveFocus();
+    });
   });
 });
 
@@ -161,11 +177,12 @@ describe('详情面板位置', () => {
     const panel = () => screen.queryByRole('complementary', { name: '详情' });
     expect(panel()).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: '底部' }));
+    // ToggleGroup 的单选项是 radio 语义（radigroup + radio），不是 button
+    fireEvent.click(screen.getByRole('radio', { name: '底部' }));
     expect(useUiStore.getState().detailPanel).toBe('bottom');
     expect(panel()).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: '隐藏' }));
+    fireEvent.click(screen.getByRole('radio', { name: '隐藏' }));
     expect(useUiStore.getState().detailPanel).toBe('hidden');
     expect(panel()).not.toBeInTheDocument();
   });
