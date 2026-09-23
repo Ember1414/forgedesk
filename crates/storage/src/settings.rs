@@ -285,6 +285,41 @@ mod tests {
         );
     }
 
+    /// T0.7 验收项："重启应用后设置保持"。
+    ///
+    /// 用"关闭连接 → 重新打开同一个文件 → 再迁移一次（幂等）→ 读回值"来模拟重启：
+    /// 这是能在测试里复现的最接近真实的路径，比手工点界面更可靠，
+    /// 也顺带覆盖了"第二次启动时迁移不重复执行"。
+    #[test]
+    fn settings_survive_a_restart() {
+        let path = crate::database::test_support::temp_db_path("restart");
+
+        {
+            let database = Database::open(&path).expect("首次打开失败");
+            migrate(&database).expect("首次迁移失败");
+            SettingsRepository::new(&database)
+                .set(&Scope::Global, "ui.density", "\"compact\"")
+                .expect("写入失败");
+        } // 连接在此关闭，等价于退出应用
+
+        {
+            let database = Database::open(&path).expect("重新打开失败");
+            let report = migrate(&database).expect("二次迁移失败");
+            assert!(report.applied.is_empty(), "重启不应重复执行迁移");
+
+            let value = SettingsRepository::new(&database)
+                .get(&Scope::Global, "ui.density")
+                .expect("读取失败");
+            assert_eq!(
+                value.as_deref(),
+                Some("\"compact\""),
+                "重启后设置必须仍然存在"
+            );
+        }
+
+        crate::database::test_support::cleanup_db(&path);
+    }
+
     #[test]
     fn empty_key_is_rejected() {
         let database = repository();
