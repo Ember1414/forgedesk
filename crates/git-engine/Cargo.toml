@@ -22,5 +22,18 @@ tracing.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true
 
+# libgit2 绑定：读路径用它（无进程开销，可高频调用），见 docs/PLAN.md §5.6。
+#
+# 为什么关掉默认特性：git2 默认启用 ssh/https 传输，会连带引入 OpenSSL——
+# 而本引擎只做**本地读**（网络操作一律走系统 git CLI，为的是复用用户的
+# SSH/凭据/代理配置）。少一个传输层就是少一份 C 依赖与攻击面。
+# `vendored-libgit2` 是必需的：Windows 上没有 pkg-config，系统库找不到，
+# 必须把 libgit2 源码一起编译（需要 cmake，见 docs/DEV-ENV.md §1）。
+#
+# 许可：`git2` 是 MIT/Apache-2.0；`libgit2` 本体是 GPL-2.0 **WITH linking exception**，
+# 这是 AGENTS.md §8 明确允许的唯一 GPL 例外，`pnpm compliance` 的
+# LINKING_EXCEPTIONS 已登记（libgit2 / libgit2-sys / git2）。
+git2 = { version = "0.20", default-features = false, features = ["vendored-libgit2"] }
+
 [lints]
 workspace = true

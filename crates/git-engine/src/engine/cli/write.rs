@@ -340,26 +340,12 @@ fn unmerged_paths(
 
 /// 当前 HEAD 的 oid；空仓库返回 `None`。
 fn head_oid(engine: &CliGitEngine, repo: &RepoId) -> AppResult<Option<String>> {
-    rev_parse(engine, repo, "HEAD")
+    read::head_oid(engine, repo)
 }
 
 /// 解析一个引用为 oid；无法解析时返回 `None`。
 fn rev_parse(engine: &CliGitEngine, repo: &RepoId, revision: &str) -> AppResult<Option<String>> {
-    let output = engine.run_at(
-        repo.root(),
-        GitInvocation::new(vec![
-            "rev-parse".to_owned(),
-            "--verify".to_owned(),
-            "--quiet".to_owned(),
-            revision.to_owned(),
-        ]),
-        RunKind::Read,
-    )?;
-    if !output.success() {
-        return Ok(None);
-    }
-    let oid = output.stdout_lossy().trim().to_owned();
-    Ok(if oid.is_empty() { None } else { Some(oid) })
+    read::rev_parse(engine, repo, revision)
 }
 
 /// 解析 git 在 stderr 上打印的引用更新行。

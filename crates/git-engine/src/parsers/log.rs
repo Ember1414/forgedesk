@@ -33,6 +33,17 @@ use forgedesk_domain::git::{Commit, Signature, SignatureStatus};
 pub const LOG_FORMAT: &str =
     "%H%x1f%P%x1f%an%x1f%ae%x1f%at%x1f%cn%x1f%ce%x1f%ct%x1f%D%x1f%G?%x1f%s%x1e";
 
+/// `git show` 的机器可读格式串：在 [`LOG_FORMAT`] 的字段之后追加正文。
+///
+/// 为什么要单独写全而不是在运行时拼 `LOG_FORMAT`：拼接需要对 `%x1e` 做字符串手术，
+/// 而格式串一旦拼错，表现是"字段整体错位"（不会报错）。写全了还能被
+/// [`format_string_declares_exactly_the_fields_the_parser_expects`] 这类断言锁住。
+pub const SHOW_FORMAT: &str =
+    "%H%x1f%P%x1f%an%x1f%ae%x1f%at%x1f%cn%x1f%ce%x1f%ct%x1f%D%x1f%G?%x1f%s%x1f%b%x1e";
+
+/// [`SHOW_FORMAT`] 声明的字段个数（比 [`FIELD_COUNT`] 多一个 `%b`）。
+const SHOW_FIELD_COUNT: usize = FIELD_COUNT + 1;
+
 /// 字段分隔符 `%x1f`。
 const FIELD_SEPARATOR: u8 = 0x1f;
 /// 记录分隔符 `%x1e`。
@@ -47,6 +58,38 @@ pub fn parse_log_format(input: &[u8]) -> Vec<Commit> {
     input
         .split(|byte| *byte == RECORD_SEPARATOR)
         .filter_map(parse_record)
+        .collect()
+}
+
+/// 解析 `git show --no-patch --format=<SHOW_FORMAT>` 的输出。
+///
+/// 与 [`parse_log_format`] 的唯一差别：多一个 `%b` 字段被填进 [`Commit::body`]。
+pub fn parse_show_format(input: &[u8]) -> Vec<Commit> {
+    input
+        .split(|byte| *byte == RECORD_SEPARATOR)
+        .filter_map(|record| {
+            let record = super::common::trim_record_separators(record);
+            if record.is_empty() {
+                return None;
+            }
+
+            let fields: Vec<&[u8]> = record.split(|byte| *byte == FIELD_SEPARATOR).collect();
+            if fields.len() != SHOW_FIELD_COUNT {
+                tracing::debug!(
+                    fields = fields.len(),
+                    expected = SHOW_FIELD_COUNT,
+                    "git show 记录字段数不符，已跳过；请检查 SHOW_FORMAT 与解析器是否同步"
+                );
+                return None;
+            }
+
+            let mut commit = commit_from_fields(&fields[..FIELD_COUNT])?;
+            let body = String::from_utf8_lossy(fields[FIELD_COUNT])
+                .trim()
+                .to_owned();
+            commit.body = if body.is_empty() { None } else { Some(body) };
+            Some(commit)
+        })
         .collect()
 }
 
@@ -67,6 +110,15 @@ fn parse_record(record: &[u8]) -> Option<Commit> {
         return None;
     }
 
+    commit_from_fields(&fields)
+}
+
+/// 从已切分好的字段构造提交（`log` 与 `show` 共用，避免两处各写一遍字段顺序）。
+fn commit_from_fields(fields: &[&[u8]]) -> Option<Commit> {
+    if fields.len() != FIELD_COUNT {
+        return None;
+    }
+
     let oid = lossy(fields[0]);
     if oid.is_empty() {
         return None;
@@ -82,7 +134,7 @@ fn parse_record(record: &[u8]) -> Option<Commit> {
             SignatureStatus::from_byte(*byte)
         }),
         subject: lossy(fields[10]),
-        // 列表页不带正文（`LOG_FORMAT` 不含 `%b`），单条查询由 show() 填充
+        // 列表页不带正文（`LOG_FORMAT` 不含 `%b`）；`show` 会覆盖它
         body: None,
     })
 }

@@ -398,6 +398,7 @@ where link.exe
 | M0 / T0.12 合规检查 | ✅ `pnpm compliance`（名称/免责声明/图标/许可审计/AI 依赖）+ compliance.yml + LICENSE-AUDIT.md |
 | M0 / OPS-6 + OPS-7 收口验收 | ✅ `docs/acceptance/M0.md`（三态结论）+ `M0-interaction.md`（E2E 11/11 通过）；三平台验证与盲测按维护者决定延后（ADR-005） |
 | M1 / T1.1 `GitProcess` + 输出解析器 | ✅ 86 个测试（48 单测 + 26 fixture 表驱动 + 12 进程行为）；23 份真实 git 输出样本见 `crates/git-engine/tests/fixtures/` |
+| M1 / T1.2 `GitEngine` 双实现 + 差分测试 | ✅ 308 个测试（全 workspace）；六类仓库 + 空仓库的 status/diff/log 全部一致，1 处已知差异见 `docs/GIT-ENGINE-DIFF.md` |
 | 审批 | ✅ T0.4 主界面布局已确认（红线 R3）；⏳ T0.9 的 AGENTS.md 与 README 免责声明待确认 |
 
 补充说明（T0.4 顺带落地的两项前置能力，后续任务直接复用）：

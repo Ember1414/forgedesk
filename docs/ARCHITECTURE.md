@@ -53,7 +53,7 @@ graph TD
 | `crates/domain` | 纯逻辑：领域模型、状态机、错误类型与错误码分类 | 所有 Rust crate | ✅ 错误模型与 `ErrorCode::classify`（618 行） |
 | `crates/commands` | Tauri 命令定义、DTO 转换、能力等级校验 | `src-tauri` | ✅ 命令层骨架与 6 个命令（476 行） |
 | `crates/services` | 用例编排（打开仓库、提交、pull…） | `commands`、`plugin-host` | ⬜ 骨架（M1 起） |
-| `crates/git-engine` | `GitEngine` trait + CLI 实现 + libgit2 实现 | `services`、`snapshot`、`commands` | ✅ `GitProcess` 安全执行器 + 4 个输出解析器（T1.1，86 个测试）；trait 与双实现见 T1.2 |
+| `crates/git-engine` | `GitEngine` trait + CLI 实现 + libgit2 实现 | `services`、`snapshot`、`commands` | ✅ `GitProcess` 执行器 + 4 个解析器（T1.1）+ `GitEngine` 双实现与差分测试（T1.2，308 个测试） |
 | `crates/provider` | `HostProvider` trait + GitHub/GitLab/Gitea 实现 | `services`、`commands` | ⬜ 骨架（M4） |
 | `crates/snapshot` | 快照创建/列表/回滚/校验 | `services`、`commands` | ⬜ 骨架（M3） |
 | `crates/diagnostics` | 日志脱敏、stderr 解析、错误码映射、修复建议 | `commands`、`platform`、`git-engine`、`src-tauri` | ✅ 脱敏写入层（592 行）；规则引擎 M5 |

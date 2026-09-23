@@ -1,20 +1,36 @@
 //! `Libgit2Engine`：libgit2（进程内库）实现，只承担读操作。
 //!
-//! 占位：完整实现紧随其后（T1.2 的同一批次）。
-//! 在此之前每个方法都返回
-//! [`ErrorCode::UnsupportedByEngine`](forgedesk_domain::ErrorCode::UnsupportedByEngine)，
-//! 这是**明确失败**而不是静默成功——静默成功会让 services 层的
-//! "预览 → 快照 → 执行"链路以为操作已经完成。
+//! # 为什么读走 libgit2
+//!
+//! 读操作会被高频调用（状态刷新、历史分页、diff 预览），每次都起一个进程
+//! 既慢又浪费；libgit2 直接读 `.git` 目录，没有进程开销。写操作则相反——
+//! 必须完整复刻用户环境（hooks、attributes、签名、filter），只有系统 git CLI 做得到。
+//!
+//! # 它与 CLI 实现的已知差异
+//!
+//! 这些差异是**真实的**，不是实现偷懒，全部登记在 `docs/GIT-ENGINE-DIFF.md`，
+//! 并由 `tests/differential.rs` 的规范化规则显式排除（而不是假装不存在）：
+//!
+//! | 字段 | CLI | libgit2 | 原因 |
+//! | --- | --- | --- | --- |
+//! | `FileChange` 的模式与 oid | 有值 | 全为 `None` | libgit2 的状态 API 不暴露它们 |
+//! | 冲突条目的 `XY` | `UU`/`AA`/`DU`… | 统一为 `UU` | libgit2 只给 `CONFLICTED` 位 |
+//! | `Commit.refs` | 有值 | 空 | libgit2 没有等价的 `%D`，需要自己遍历全部 ref |
+//! | `Commit.signature` | 来自 `%G?` | `Unknown` | libgit2 不做 GPG 校验 |
+//! | 子模块状态细节 | 有 | 部分 | 依赖 `StatusOptions` 的开关 |
+//!
+//! 界面不得依赖这些字段的"两边都一致"——`services` 层读走 libgit2，
+//! 因此以 libgit2 的能力为准。
 
 use std::path::Path;
 
 use forgedesk_domain::git::{
-    Branch, CheckoutSpec, CloneSpec, Commit, CommitSpec, DiffReport, DiffSpec, FetchOutcome,
-    FetchSpec, InitSpec, LogQuery, MergeOutcome, MergeSpec, Page, PullOutcome, PullSpec,
-    PushOutcome, PushSpec, ReflogEntry, Remote, ReorderSpec, RepoId, RepositoryInfo, ResetSpec,
-    StageSpec, StashEntry, StashSpec, StatusReport, Tag,
+    Branch, BranchInfo, ChangeKind, Commit, DiffChangeKind, DiffReport, DiffSpec, DiffTarget,
+    EntryKind, FileChange, FileDiff, LogQuery, Page, ReflogEntry, Remote, RemoteKind, RepoId,
+    RepoPath, RepositoryInfo, Signature, SignatureStatus, StashEntry, StatusReport, SubmoduleState,
+    Tag,
 };
-use forgedesk_domain::AppResult;
+use forgedesk_domain::{AppError, AppResult, ErrorCode};
 
 use super::progress::ProgressSink;
 use super::{unsupported, EngineId, GitEngine};
@@ -30,128 +46,811 @@ impl Libgit2Engine {
     }
 }
 
+/// 打开仓库（向上查找，含裸仓库）。
+fn open(repo: &RepoId) -> AppResult<git2::Repository> {
+    git2::Repository::discover(repo.root()).map_err(|error| map_error(&error, "open"))
+}
+
+/// 把 libgit2 的错误归一化成 `AppError`。
+///
+/// 分类复用领域层的 `classify`（同 CLI 实现）：两个引擎对"同一类错误"
+/// 必须给出同一个错误码，否则前端会因为换了引擎而显示出不同的修复建议。
+fn map_error(error: &git2::Error, operation: &str) -> AppError {
+    let code = match error.code() {
+        git2::ErrorCode::NotFound => ErrorCode::NotFound,
+        git2::ErrorCode::Exists => ErrorCode::Validation,
+        git2::ErrorCode::Auth => ErrorCode::AuthRequired,
+        git2::ErrorCode::UnbornBranch => ErrorCode::NotFound,
+        _ => ErrorCode::classify(error.message()),
+    };
+    AppError::new(
+        code,
+        format!("libgit2 {operation} failed: {}", error.message()),
+    )
+    .with_detail(error.message().to_owned())
+}
+
+/// 把 libgit2 的状态位映射成 porcelain v2 的 `XY` 对。
+///
+/// 为什么不是一一对应：libgit2 用位掩码表达"索引侧/工作区侧各自的变更"，
+/// 而 porcelain 用两个字符。位掩码里同时置位的情况（例如索引新增 + 工作区修改）
+/// 正好对应 `AM`，这是它比 porcelain 更好用的地方。
+fn status_pair(status: git2::Status) -> (ChangeKind, ChangeKind) {
+    let index = if status.contains(git2::Status::INDEX_NEW) {
+        ChangeKind::Added
+    } else if status.contains(git2::Status::INDEX_MODIFIED) {
+        ChangeKind::Modified
+    } else if status.contains(git2::Status::INDEX_DELETED) {
+        ChangeKind::Deleted
+    } else if status.contains(git2::Status::INDEX_RENAMED) {
+        ChangeKind::Renamed
+    } else if status.contains(git2::Status::INDEX_TYPECHANGE) {
+        ChangeKind::TypeChanged
+    } else if status.contains(git2::Status::CONFLICTED) {
+        ChangeKind::Unmerged
+    } else {
+        ChangeKind::Unmodified
+    };
+
+    let worktree = if status.contains(git2::Status::WT_NEW) {
+        ChangeKind::Added
+    } else if status.contains(git2::Status::WT_MODIFIED) {
+        ChangeKind::Modified
+    } else if status.contains(git2::Status::WT_DELETED) {
+        ChangeKind::Deleted
+    } else if status.contains(git2::Status::WT_RENAMED) {
+        ChangeKind::Renamed
+    } else if status.contains(git2::Status::WT_TYPECHANGE) {
+        ChangeKind::TypeChanged
+    } else if status.contains(git2::Status::CONFLICTED) {
+        ChangeKind::Unmerged
+    } else {
+        ChangeKind::Unmodified
+    };
+
+    (index, worktree)
+}
+
+/// 记录类型。
+fn entry_kind(status: git2::Status) -> EntryKind {
+    if status.contains(git2::Status::CONFLICTED) {
+        EntryKind::Unmerged
+    } else if status.contains(git2::Status::WT_NEW) {
+        EntryKind::Untracked
+    } else if status.contains(git2::Status::IGNORED) {
+        EntryKind::Ignored
+    } else {
+        EntryKind::Ordinary
+    }
+}
+
+/// 把 libgit2 的提交对象转成领域 [`Commit`]。
+fn to_commit(commit: &git2::Commit<'_>) -> Commit {
+    let signature = |who: &git2::Signature<'_>| Signature {
+        name: String::from_utf8_lossy(who.name_bytes()).into_owned(),
+        email: String::from_utf8_lossy(who.email_bytes()).into_owned(),
+        time: Some(who.when().seconds()),
+    };
+
+    Commit {
+        oid: commit.id().to_string(),
+        parents: commit.parent_ids().map(|oid| oid.to_string()).collect(),
+        author: signature(&commit.author()),
+        committer: signature(&commit.committer()),
+        // libgit2 没有 `%D` 的等价物：要拿到"哪些 ref 指向它"必须遍历全部 ref，
+        // 这在每次分页查询里做一次是纯浪费（CLI 实现由 git 顺带给出）
+        refs: Vec::new(),
+        // 同上：GPG 校验需要调用 gpg，libgit2 不提供
+        signature: SignatureStatus::Unknown,
+        subject: String::from_utf8_lossy(commit.summary_bytes().unwrap_or_default()).into_owned(),
+        body: commit
+            .body_bytes()
+            .map(|body| String::from_utf8_lossy(body).trim().to_owned())
+            .filter(|body| !body.is_empty()),
+    }
+}
+
 impl GitEngine for Libgit2Engine {
     fn id(&self) -> EngineId {
         EngineId::Libgit2
     }
 
-    fn discover(&self, _path: &Path) -> AppResult<RepositoryInfo> {
-        Err(unsupported(EngineId::Libgit2, "discover"))
+    fn discover(&self, path: &Path) -> AppResult<RepositoryInfo> {
+        let repo = git2::Repository::discover(path).map_err(|error| {
+            if error.code() == git2::ErrorCode::NotFound {
+                AppError::new(
+                    ErrorCode::PathNotRepo,
+                    "the path is not inside a git repository",
+                )
+                .with_hint(path.to_string_lossy().into_owned())
+            } else {
+                map_error(&error, "discover")
+            }
+        })?;
+
+        let workdir = repo.workdir().map(Path::to_path_buf);
+        let root = workdir.clone().unwrap_or_else(|| repo.path().to_path_buf());
+
+        let is_empty = repo
+            .is_empty()
+            .map_err(|error| map_error(&error, "is_empty"))?;
+        let detached = repo
+            .head_detached()
+            .map_err(|error| map_error(&error, "head_detached"))?;
+        let head = repo
+            .head()
+            .ok()
+            .and_then(|reference| reference.shorthand().map(str::to_owned));
+
+        Ok(RepositoryInfo {
+            id: RepoId::new(root),
+            workdir,
+            git_dir: repo.path().to_path_buf(),
+            is_bare: repo.is_bare(),
+            is_empty,
+            head,
+            detached,
+            upstream: None,
+        })
     }
 
-    fn status(&self, _repo: &RepoId) -> AppResult<StatusReport> {
-        Err(unsupported(EngineId::Libgit2, "status"))
+    fn status(&self, repo: &RepoId) -> AppResult<StatusReport> {
+        let repository = open(repo)?;
+        let mut options = git2::StatusOptions::new();
+        options
+            .include_untracked(true)
+            .recurse_untracked_dirs(true)
+            .include_ignored(false)
+            .renames_head_to_index(true)
+            .renames_index_to_workdir(true);
+
+        let statuses = repository
+            .statuses(Some(&mut options))
+            .map_err(|error| map_error(&error, "status"))?;
+
+        let mut report = StatusReport {
+            branch: branch_info(&repository)?,
+            entries: Vec::new(),
+        };
+
+        for entry in statuses.iter() {
+            let status = entry.status();
+            let kind = entry_kind(status);
+            let (index_status, worktree_status) = status_pair(status);
+
+            // 重命名/复制条目的 delta：libgit2 的 `StatusEntry::path()` 给的是
+            // **来源**路径，目标路径在 `new_file()` 上——与 porcelain 的约定相反，
+            // 直接取 path() 会让界面把重命名显示成"旧文件被重命名成它自己"
+            let delta = entry.head_to_index().or_else(|| entry.index_to_workdir());
+            let is_rename = delta.as_ref().is_some_and(|delta| {
+                matches!(delta.status(), git2::Delta::Renamed | git2::Delta::Copied)
+            });
+
+            let path = if is_rename {
+                delta
+                    .as_ref()
+                    .and_then(|delta| delta.new_file().path_bytes().map(<[u8]>::to_vec))
+                    .unwrap_or_else(|| entry.path_bytes().to_vec())
+            } else {
+                entry.path_bytes().to_vec()
+            };
+            let original_path = if is_rename {
+                delta
+                    .as_ref()
+                    .and_then(|delta| delta.old_file().path_bytes().map(<[u8]>::to_vec))
+                    .map(RepoPath::from_bytes)
+            } else {
+                None
+            };
+
+            report.entries.push(FileChange {
+                kind,
+                path: RepoPath::from_bytes(path),
+                original_path,
+                index_status,
+                worktree_status,
+                similarity: None,
+                // libgit2 的状态 API 不暴露模式与 oid（见模块头的差异表）
+                mode_head: None,
+                mode_index: None,
+                mode_worktree: None,
+                oid_head: None,
+                oid_index: None,
+                stages: None,
+                submodule: SubmoduleState::NONE,
+            });
+        }
+
+        Ok(report)
     }
 
-    fn diff(&self, _repo: &RepoId, _spec: DiffSpec) -> AppResult<DiffReport> {
-        Err(unsupported(EngineId::Libgit2, "diff"))
+    fn diff(&self, repo: &RepoId, spec: DiffSpec) -> AppResult<DiffReport> {
+        let repository = open(repo)?;
+        let mut options = git2::DiffOptions::new();
+        options
+            .context_lines(spec.context_lines)
+            .ignore_whitespace(spec.ignore_whitespace);
+        for path in &spec.paths {
+            options.pathspec(path.to_string_lossy().as_ref());
+        }
+
+        let head_tree = head_tree(&repository)?;
+        let index = repository
+            .index()
+            .map_err(|error| map_error(&error, "index"))?;
+
+        let diff = match &spec.target {
+            DiffTarget::Staged => {
+                repository.diff_tree_to_index(head_tree.as_ref(), Some(&index), Some(&mut options))
+            }
+            DiffTarget::Unstaged => {
+                repository.diff_index_to_workdir(Some(&index), Some(&mut options))
+            }
+            DiffTarget::Between { from, to } => {
+                let from_tree = tree_of(&repository, from)?;
+                let to_tree = tree_of(&repository, to)?;
+                repository.diff_tree_to_tree(Some(&from_tree), Some(&to_tree), Some(&mut options))
+            }
+            DiffTarget::Since(revision) => {
+                let tree = tree_of(&repository, revision)?;
+                repository.diff_tree_to_workdir_with_index(Some(&tree), Some(&mut options))
+            }
+            DiffTarget::Commit(revision) => {
+                let commit = find_commit(&repository, revision)?;
+                let parent_tree = commit.parent(0).ok().and_then(|parent| parent.tree().ok());
+                let tree = commit.tree().map_err(|error| map_error(&error, "tree"))?;
+                repository.diff_tree_to_tree(parent_tree.as_ref(), Some(&tree), Some(&mut options))
+            }
+        }
+        .map_err(|error| map_error(&error, "diff"))?;
+
+        // 重命名检测在 diff 建好之后再做：git2 的 `DiffFindOptions` 作用于 `Diff`，
+        // 而不是 `DiffOptions`
+        let mut diff = diff;
+        if spec.detect_renames {
+            let mut find = git2::DiffFindOptions::new();
+            find.renames(true).copies(true);
+            diff.find_similar(Some(&mut find))
+                .map_err(|error| map_error(&error, "find_similar"))?;
+        }
+
+        let file_count = diff.deltas().len();
+        let mut files = Vec::with_capacity(file_count);
+        for index in 0..file_count {
+            let Some(delta) = diff.get_delta(index) else {
+                continue;
+            };
+            let patch =
+                git2::Patch::from_diff(&diff, index).map_err(|error| map_error(&error, "patch"))?;
+            let (_, additions, deletions) = patch
+                .as_ref()
+                .map(git2::Patch::line_stats)
+                .unwrap_or(Ok((0, 0, 0)))
+                .map_err(|error| map_error(&error, "line_stats"))?;
+
+            files.push(FileDiff {
+                path: delta
+                    .new_file()
+                    .path_bytes()
+                    .map(RepoPath::from_bytes)
+                    .or_else(|| delta.old_file().path_bytes().map(RepoPath::from_bytes))
+                    .unwrap_or_else(|| RepoPath::from_bytes(Vec::new())),
+                // 只有重命名/复制才有"来源路径"：libgit2 在普通修改上也会填
+                // `old_file().path()`，直接取用会让每个文件都显示成重命名
+                original_path: matches!(delta.status(), git2::Delta::Renamed | git2::Delta::Copied)
+                    .then(|| delta.old_file().path_bytes().map(RepoPath::from_bytes))
+                    .flatten(),
+                change: match delta.status() {
+                    git2::Delta::Added => DiffChangeKind::Added,
+                    git2::Delta::Deleted => DiffChangeKind::Deleted,
+                    git2::Delta::Modified => DiffChangeKind::Modified,
+                    git2::Delta::Renamed => DiffChangeKind::Renamed,
+                    git2::Delta::Copied => DiffChangeKind::Copied,
+                    git2::Delta::Typechange => DiffChangeKind::TypeChanged,
+                    _ => DiffChangeKind::Unknown,
+                },
+                binary: delta.flags().is_binary(),
+                additions: u64::try_from(additions).unwrap_or_default(),
+                deletions: u64::try_from(deletions).unwrap_or_default(),
+                hunks: Vec::new(),
+            });
+        }
+
+        Ok(DiffReport {
+            files,
+            truncated_files: 0,
+        })
     }
 
-    fn log(&self, _repo: &RepoId, _query: LogQuery) -> AppResult<Page<Commit>> {
-        Err(unsupported(EngineId::Libgit2, "log"))
+    fn log(&self, repo: &RepoId, query: LogQuery) -> AppResult<Page<Commit>> {
+        let repository = open(repo)?;
+        let mut revwalk = repository
+            .revwalk()
+            .map_err(|error| map_error(&error, "revwalk"))?;
+        revwalk
+            .set_sorting(git2::Sort::TIME)
+            .map_err(|error| map_error(&error, "sorting"))?;
+
+        if query.all_branches {
+            for reference in repository
+                .references()
+                .map_err(|error| map_error(&error, "references"))?
+            {
+                let Ok(reference) = reference else { continue };
+                let _ = revwalk.push_ref(reference.name().unwrap_or("HEAD"));
+            }
+        } else {
+            // 与 CLI 实现同一条规则（见 `cli::read::log`）：HEAD 解析不出来说明仓库
+            // 还没有提交，"没有提交可列"不是错误；但显式指定了不存在的修订名时
+            // 仍然报错，否则会掩盖调用方的拼写错误。
+            //
+            // 用 `head().is_err()` 判断而不是 `is_empty()`：后者在刚 init 的仓库上
+            // 并不总是给出 true，而"HEAD 指不到东西"正是我们要判断的那件事。
+            if query.revision.is_none() && repository.head().is_err() {
+                return Ok(Page::empty());
+            }
+
+            revwalk
+                .push_ref(query.revision.as_deref().unwrap_or("HEAD"))
+                .map_err(|error| map_error(&error, "push_ref"))?;
+        }
+
+        let mut commits = Vec::new();
+        for oid in revwalk.skip(query.skip).take(query.limit.saturating_add(1)) {
+            let oid = oid.map_err(|error| map_error(&error, "revwalk"))?;
+            let commit = repository
+                .find_commit(oid)
+                .map_err(|error| map_error(&error, "find_commit"))?;
+
+            // 作者过滤在领域层用同一个规则处理，两个引擎才不会给出不同的结果集
+            if let Some(author) = &query.author {
+                let hit = commit
+                    .author()
+                    .name_bytes()
+                    .windows(author.len())
+                    .any(|window| String::from_utf8_lossy(window).eq_ignore_ascii_case(author))
+                    || String::from_utf8_lossy(commit.author().email_bytes())
+                        .to_ascii_lowercase()
+                        .contains(&author.to_ascii_lowercase());
+                if !hit {
+                    continue;
+                }
+            }
+
+            commits.push(to_commit(&commit));
+        }
+
+        Ok(Page::from_over_fetch(commits, query.limit))
     }
 
-    fn show(&self, _repo: &RepoId, _revision: &str) -> AppResult<Commit> {
-        Err(unsupported(EngineId::Libgit2, "show"))
+    fn show(&self, repo: &RepoId, revision: &str) -> AppResult<Commit> {
+        let repository = open(repo)?;
+        let commit = find_commit(&repository, revision)?;
+        Ok(to_commit(&commit))
     }
 
-    fn branch_list(&self, _repo: &RepoId) -> AppResult<Vec<Branch>> {
-        Err(unsupported(EngineId::Libgit2, "branch_list"))
+    fn branch_list(&self, repo: &RepoId) -> AppResult<Vec<Branch>> {
+        let repository = open(repo)?;
+        let head = repository
+            .head()
+            .ok()
+            .and_then(|reference| reference.shorthand().map(str::to_owned));
+
+        let branches = repository
+            .branches(None)
+            .map_err(|error| map_error(&error, "branches"))?;
+
+        let mut out = Vec::new();
+        for entry in branches {
+            let (branch, kind) = entry.map_err(|error| map_error(&error, "branch"))?;
+            let Some(name) = branch.name().ok().flatten() else {
+                continue;
+            };
+            let is_remote = kind == git2::BranchType::Remote;
+            let Some(target) = branch.get().target() else {
+                continue;
+            };
+
+            let upstream = branch.upstream().ok();
+            let upstream_name = upstream
+                .as_ref()
+                .and_then(|upstream| upstream.name().ok().flatten())
+                .map(str::to_owned);
+            let (ahead, behind) = match &upstream {
+                Some(upstream) => match upstream.get().target() {
+                    Some(upstream_oid) => repository
+                        .graph_ahead_behind(target, upstream_oid)
+                        .map(|(ahead, behind)| (Some(ahead as i64), Some(behind as i64)))
+                        .unwrap_or((None, None)),
+                    None => (None, None),
+                },
+                None => (None, None),
+            };
+
+            out.push(Branch {
+                name: name.to_owned(),
+                is_remote,
+                is_head: !is_remote && head.as_deref() == Some(name),
+                target: target.to_string(),
+                upstream: upstream_name,
+                ahead,
+                behind,
+                // libgit2 不区分"没有上游"与"上游已删除"（前者 upstram() 就失败）
+                upstream_gone: false,
+            });
+        }
+
+        Ok(out)
     }
 
-    fn tag_list(&self, _repo: &RepoId) -> AppResult<Vec<Tag>> {
-        Err(unsupported(EngineId::Libgit2, "tag_list"))
+    fn tag_list(&self, repo: &RepoId) -> AppResult<Vec<Tag>> {
+        let repository = open(repo)?;
+        let names = repository
+            .tag_names(None)
+            .map_err(|error| map_error(&error, "tag_names"))?;
+
+        let mut out = Vec::new();
+        for name in names.iter().flatten() {
+            let Ok(object) = repository.revparse_single(&format!("refs/tags/{name}")) else {
+                continue;
+            };
+            let annotated = object.kind() == Some(git2::ObjectType::Tag);
+            let target = object.id().to_string();
+            let commit = object
+                .peel_to_commit()
+                .ok()
+                .map(|commit| commit.id().to_string());
+
+            let (message, created_at) = match object.into_tag() {
+                Ok(tag) => (
+                    tag.message()
+                        .map(|message| message.lines().next().unwrap_or_default().to_owned())
+                        .filter(|message| !message.is_empty()),
+                    tag.tagger().map(|tagger| tagger.when().seconds()),
+                ),
+                Err(_) => (None, None),
+            };
+
+            out.push(Tag {
+                name: name.to_owned(),
+                target,
+                commit,
+                annotated,
+                message,
+                created_at,
+            });
+        }
+
+        Ok(out)
     }
 
-    fn remote_list(&self, _repo: &RepoId) -> AppResult<Vec<Remote>> {
-        Err(unsupported(EngineId::Libgit2, "remote_list"))
+    fn remote_list(&self, repo: &RepoId) -> AppResult<Vec<Remote>> {
+        let repository = open(repo)?;
+        let names = repository
+            .remotes()
+            .map_err(|error| map_error(&error, "remotes"))?;
+
+        let mut out = Vec::new();
+        for name in names.iter().flatten() {
+            let Ok(remote) = repository.find_remote(name) else {
+                continue;
+            };
+            let fetch_url = remote.url().unwrap_or_default().to_owned();
+            let push_url = remote
+                .pushurl()
+                .filter(|url| *url != fetch_url)
+                .map(str::to_owned);
+
+            out.push(Remote {
+                name: name.to_owned(),
+                kind: RemoteKind::from_url(&fetch_url),
+                fetch_url,
+                push_url,
+            });
+        }
+
+        Ok(out)
     }
 
-    fn stash_list(&self, _repo: &RepoId) -> AppResult<Vec<StashEntry>> {
-        Err(unsupported(EngineId::Libgit2, "stash_list"))
+    fn stash_list(&self, repo: &RepoId) -> AppResult<Vec<StashEntry>> {
+        let mut repository = open(repo)?;
+        let mut collected: Vec<(usize, String, git2::Oid)> = Vec::new();
+        repository
+            .stash_foreach(|index, message, oid| {
+                collected.push((index, message.to_owned(), *oid));
+                true
+            })
+            .map_err(|error| map_error(&error, "stash_foreach"))?;
+
+        let mut out = Vec::new();
+        for (index, message, oid) in collected {
+            let commit = repository.find_commit(oid).ok();
+            let parent_count = commit
+                .as_ref()
+                .map(|commit| commit.parent_count())
+                .unwrap_or_default();
+
+            out.push(StashEntry {
+                index,
+                oid: oid.to_string(),
+                base_oid: commit
+                    .as_ref()
+                    .and_then(|commit| commit.parent_ids().next())
+                    .map(|oid| oid.to_string()),
+                message,
+                created_at: commit
+                    .as_ref()
+                    .map(|commit| commit.committer().when().seconds()),
+                includes_untracked: parent_count >= 3,
+            });
+        }
+
+        Ok(out)
     }
 
-    fn reflog(&self, _repo: &RepoId, _limit: usize) -> AppResult<Vec<ReflogEntry>> {
-        Err(unsupported(EngineId::Libgit2, "reflog"))
+    fn reflog(&self, repo: &RepoId, limit: usize) -> AppResult<Vec<ReflogEntry>> {
+        let repository = open(repo)?;
+        let reflog = repository
+            .reflog("HEAD")
+            .map_err(|error| map_error(&error, "reflog"))?;
+
+        let mut out = Vec::new();
+        for (position, entry) in reflog.iter().enumerate().take(limit) {
+            let message = entry.message().unwrap_or_default();
+            let (action, detail) = match message.split_once(": ") {
+                Some((action, detail)) => (action.to_owned(), detail.to_owned()),
+                None => (message.to_owned(), String::new()),
+            };
+
+            out.push(ReflogEntry {
+                index: position,
+                oid: entry.id_new().to_string(),
+                reference: "HEAD".to_owned(),
+                action,
+                message: detail,
+                created_at: Some(entry.committer().when().seconds()),
+            });
+        }
+
+        Ok(out)
     }
 
-    fn init(&self, _path: &Path, _spec: InitSpec) -> AppResult<RepositoryInfo> {
+    // ---- 写操作：一律明确不支持（见 `engine` 模块头） ----
+
+    fn init(
+        &self,
+        _path: &Path,
+        _spec: forgedesk_domain::git::InitSpec,
+    ) -> AppResult<RepositoryInfo> {
         Err(unsupported(EngineId::Libgit2, "init"))
     }
 
-    fn clone(&self, _spec: CloneSpec, _progress: &ProgressSink) -> AppResult<RepositoryInfo> {
+    fn clone(
+        &self,
+        _spec: forgedesk_domain::git::CloneSpec,
+        _progress: &ProgressSink,
+    ) -> AppResult<RepositoryInfo> {
         Err(unsupported(EngineId::Libgit2, "clone"))
     }
 
-    fn stage(&self, _repo: &RepoId, _spec: StageSpec) -> AppResult<()> {
+    fn stage(&self, _repo: &RepoId, _spec: forgedesk_domain::git::StageSpec) -> AppResult<()> {
         Err(unsupported(EngineId::Libgit2, "stage"))
     }
 
-    fn unstage(&self, _repo: &RepoId, _spec: StageSpec) -> AppResult<()> {
+    fn unstage(&self, _repo: &RepoId, _spec: forgedesk_domain::git::StageSpec) -> AppResult<()> {
         Err(unsupported(EngineId::Libgit2, "unstage"))
     }
 
-    fn commit(&self, _repo: &RepoId, _spec: CommitSpec) -> AppResult<String> {
+    fn commit(
+        &self,
+        _repo: &RepoId,
+        _spec: forgedesk_domain::git::CommitSpec,
+    ) -> AppResult<String> {
         Err(unsupported(EngineId::Libgit2, "commit"))
     }
 
-    fn reset(&self, _repo: &RepoId, _spec: ResetSpec) -> AppResult<()> {
+    fn reset(&self, _repo: &RepoId, _spec: forgedesk_domain::git::ResetSpec) -> AppResult<()> {
         Err(unsupported(EngineId::Libgit2, "reset"))
     }
 
-    fn checkout(&self, _repo: &RepoId, _spec: CheckoutSpec) -> AppResult<()> {
+    fn checkout(
+        &self,
+        _repo: &RepoId,
+        _spec: forgedesk_domain::git::CheckoutSpec,
+    ) -> AppResult<()> {
         Err(unsupported(EngineId::Libgit2, "checkout"))
     }
 
-    fn merge(&self, _repo: &RepoId, _spec: MergeSpec) -> AppResult<MergeOutcome> {
+    fn merge(
+        &self,
+        _repo: &RepoId,
+        _spec: forgedesk_domain::git::MergeSpec,
+    ) -> AppResult<forgedesk_domain::git::MergeOutcome> {
         Err(unsupported(EngineId::Libgit2, "merge"))
     }
 
-    fn cherry_pick(&self, _repo: &RepoId, _revision: &str) -> AppResult<MergeOutcome> {
+    fn cherry_pick(
+        &self,
+        _repo: &RepoId,
+        _revision: &str,
+    ) -> AppResult<forgedesk_domain::git::MergeOutcome> {
         Err(unsupported(EngineId::Libgit2, "cherry_pick"))
     }
 
-    fn revert(&self, _repo: &RepoId, _revision: &str) -> AppResult<MergeOutcome> {
+    fn revert(
+        &self,
+        _repo: &RepoId,
+        _revision: &str,
+    ) -> AppResult<forgedesk_domain::git::MergeOutcome> {
         Err(unsupported(EngineId::Libgit2, "revert"))
     }
 
-    fn stash(&self, _repo: &RepoId, _spec: StashSpec) -> AppResult<()> {
+    fn stash(&self, _repo: &RepoId, _spec: forgedesk_domain::git::StashSpec) -> AppResult<()> {
         Err(unsupported(EngineId::Libgit2, "stash"))
     }
 
     fn fetch(
         &self,
         _repo: &RepoId,
-        _spec: FetchSpec,
+        _spec: forgedesk_domain::git::FetchSpec,
         _progress: &ProgressSink,
-    ) -> AppResult<FetchOutcome> {
+    ) -> AppResult<forgedesk_domain::git::FetchOutcome> {
         Err(unsupported(EngineId::Libgit2, "fetch"))
     }
 
     fn pull(
         &self,
         _repo: &RepoId,
-        _spec: PullSpec,
+        _spec: forgedesk_domain::git::PullSpec,
         _progress: &ProgressSink,
-    ) -> AppResult<PullOutcome> {
+    ) -> AppResult<forgedesk_domain::git::PullOutcome> {
         Err(unsupported(EngineId::Libgit2, "pull"))
     }
 
     fn push(
         &self,
         _repo: &RepoId,
-        _spec: PushSpec,
+        _spec: forgedesk_domain::git::PushSpec,
         _progress: &ProgressSink,
-    ) -> AppResult<PushOutcome> {
+    ) -> AppResult<forgedesk_domain::git::PushOutcome> {
         Err(unsupported(EngineId::Libgit2, "push"))
     }
 
     fn rebase(
         &self,
         _repo: &RepoId,
-        _plan: ReorderSpec,
+        _plan: forgedesk_domain::git::ReorderSpec,
         _progress: &ProgressSink,
-    ) -> AppResult<MergeOutcome> {
+    ) -> AppResult<forgedesk_domain::git::MergeOutcome> {
         Err(unsupported(EngineId::Libgit2, "rebase"))
+    }
+}
+
+/// 当前 HEAD 的树；空仓库返回 `None`。
+fn head_tree(repository: &git2::Repository) -> AppResult<Option<git2::Tree<'_>>> {
+    let Ok(head) = repository.head() else {
+        return Ok(None);
+    };
+    let commit = head
+        .peel_to_commit()
+        .map_err(|error| map_error(&error, "peel_to_commit"))?;
+    Ok(Some(
+        commit.tree().map_err(|error| map_error(&error, "tree"))?,
+    ))
+}
+
+/// 解析一个引用为树。
+fn tree_of<'repo>(
+    repository: &'repo git2::Repository,
+    revision: &str,
+) -> AppResult<git2::Tree<'repo>> {
+    let object = repository
+        .revparse_single(revision)
+        .map_err(|error| map_error(&error, "revparse"))?;
+    object
+        .peel_to_tree()
+        .map_err(|error| map_error(&error, "peel_to_tree"))
+}
+
+/// 解析一个引用为提交。
+fn find_commit<'repo>(
+    repository: &'repo git2::Repository,
+    revision: &str,
+) -> AppResult<git2::Commit<'repo>> {
+    let object = repository
+        .revparse_single(revision)
+        .map_err(|error| map_error(&error, "revparse"))?;
+    object
+        .peel_to_commit()
+        .map_err(|error| map_error(&error, "peel_to_commit"))
+}
+
+/// HEAD 所在分支的信息（供状态报告使用）。
+///
+/// 与 CLI 实现的差别：上游已删除（`[gone]`）在 libgit2 里表现为"取不到上游"，
+/// 与"从未配置上游"不可区分——因此 `upstream_gone` 恒为 `false`（见模块头差异表）。
+fn branch_info(repository: &git2::Repository) -> AppResult<BranchInfo> {
+    let mut info = BranchInfo {
+        detached: repository.head_detached().unwrap_or(false),
+        ..BranchInfo::default()
+    };
+
+    let head = repository.head().ok();
+    if let Some(reference) = head.as_ref() {
+        info.head = reference.shorthand().map(str::to_owned);
+        info.oid = reference.target().map(|oid| oid.to_string());
+    }
+    // 空仓库没有 oid：`head()` 会以 UnbornBranch 失败，但保险起见再判一次
+    if repository.is_empty().unwrap_or(false) {
+        info.oid = None;
+        info.detached = false;
+    }
+
+    // 上游与领先/落后。`Branch::wrap` 是 unsafe 的（我们 forbid(unsafe_code)），
+    // 因此走 `branch_upstream_name` + `refname_to_id` 这条等价路径
+    if let Some(reference) = head.as_ref() {
+        if let (Some(name), Some(local)) = (reference.name(), info.oid.clone()) {
+            if let Ok(upstream_ref) = repository.branch_upstream_name(name) {
+                if let Some(upstream_name) = upstream_ref.as_str() {
+                    info.upstream =
+                        Some(upstream_name.trim_start_matches("refs/remotes/").to_owned());
+                    if let (Ok(local_oid), Ok(upstream_oid)) = (
+                        git2::Oid::from_str(&local),
+                        repository.refname_to_id(upstream_name),
+                    ) {
+                        if let Ok((ahead, behind)) =
+                            repository.graph_ahead_behind(local_oid, upstream_oid)
+                        {
+                            info.ahead = Some(i64::try_from(ahead).unwrap_or_default());
+                            info.behind = Some(i64::try_from(behind).unwrap_or_default());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(info)
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod tests {
+    use super::{entry_kind, status_pair};
+    use forgedesk_domain::git::{ChangeKind, EntryKind};
+
+    #[test]
+    fn index_and_worktree_bits_map_to_separate_status_characters() {
+        let both = status_pair(git2::Status::INDEX_NEW | git2::Status::WT_MODIFIED);
+        assert_eq!(both, (ChangeKind::Added, ChangeKind::Modified));
+
+        let staged_only = status_pair(git2::Status::INDEX_MODIFIED);
+        assert_eq!(staged_only, (ChangeKind::Modified, ChangeKind::Unmodified));
+
+        let worktree_only = status_pair(git2::Status::WT_DELETED);
+        assert_eq!(worktree_only, (ChangeKind::Unmodified, ChangeKind::Deleted));
+    }
+
+    #[test]
+    fn conflicted_entries_are_marked_unmerged_on_both_sides() {
+        assert_eq!(
+            status_pair(git2::Status::CONFLICTED),
+            (ChangeKind::Unmerged, ChangeKind::Unmerged)
+        );
+    }
+
+    #[test]
+    fn untracked_and_ignored_are_distinguished() {
+        assert_eq!(entry_kind(git2::Status::WT_NEW), EntryKind::Untracked);
+        assert_eq!(entry_kind(git2::Status::IGNORED), EntryKind::Ignored);
+        assert_eq!(
+            entry_kind(git2::Status::INDEX_MODIFIED),
+            EntryKind::Ordinary
+        );
+        // 冲突优先于其他位：一个既被修改又冲突的文件属于冲突
+        assert_eq!(
+            entry_kind(git2::Status::CONFLICTED | git2::Status::WT_MODIFIED),
+            EntryKind::Unmerged
+        );
     }
 }

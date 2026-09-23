@@ -21,6 +21,6 @@ pub mod ls_files;
 pub mod status;
 
 pub use diff::parse_diff_numstat;
-pub use log::{parse_log_format, LOG_FORMAT};
+pub use log::{parse_log_format, parse_show_format, LOG_FORMAT, SHOW_FORMAT};
 pub use ls_files::parse_ls_files_stage;
 pub use status::parse_status_porcelain_v2;

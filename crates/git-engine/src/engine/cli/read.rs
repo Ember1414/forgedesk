@@ -16,7 +16,10 @@ use forgedesk_domain::{AppError, AppResult, ErrorCode};
 
 use super::args::{self, GitInvocation};
 use super::CliGitEngine;
-use crate::parsers::{parse_diff_numstat, parse_log_format, parse_status_porcelain_v2, LOG_FORMAT};
+use crate::parsers::{
+    parse_diff_numstat, parse_log_format, parse_show_format, parse_status_porcelain_v2, LOG_FORMAT,
+    SHOW_FORMAT,
+};
 use crate::process::GitOutput;
 
 /// 字段分隔符（US），与 T1.1 的 `LOG_FORMAT` 保持一致。
@@ -281,6 +284,15 @@ pub(super) fn log(
     repo: &RepoId,
     query: &LogQuery,
 ) -> AppResult<Page<Commit>> {
+    // 空仓库（HEAD 尚未诞生）下 `git log` 会以非零退出结束，但"没有提交可列"
+    // 不是错误——打开一个刚 init 的仓库不该弹错误框。
+    // 只对默认的 HEAD 查询做这个判断：显式传了不存在的修订名时，
+    // 静默返回空列表会掩盖调用方的拼写错误。
+    if query.revision.is_none() && !query.all_branches && rev_parse(engine, repo, "HEAD")?.is_none()
+    {
+        return Ok(Page::empty());
+    }
+
     let output = run(engine, repo, args::log_args(query, LOG_FORMAT)?)?;
     let commits = parse_log_format(&output.stdout);
     Ok(Page::from_over_fetch(commits, query.limit))
@@ -288,60 +300,24 @@ pub(super) fn log(
 
 /// 单条提交（含正文）。
 ///
-/// 用与列表相同的格式再加 `%b`：两个格式串不同会让"从列表点进详情"时
-/// 同一提交出现两种字段内容，很难排查。`body` 是唯一的差异，且是追加字段。
+/// 用 [`SHOW_FORMAT`]（在列表字段之后追加 `%b`）：两个格式串共享同一套字段顺序，
+/// 因此"从列表点进详情"不会出现同一提交有两种字段内容。
 pub(super) fn show(engine: &CliGitEngine, repo: &RepoId, revision: &str) -> AppResult<Commit> {
-    let format = format!("{LOG_FORMAT}\u{1f}%b");
     let output = run(
         engine,
         repo,
-        GitInvocation::new(args::show_args(revision, &format)),
+        GitInvocation::new(args::show_args(revision, SHOW_FORMAT)),
     )?;
-    let commits = parse_log_format_with_body(&output.stdout);
-    commits.into_iter().next().ok_or_else(|| {
-        AppError::new(
-            ErrorCode::NotFound,
-            format!("revision `{revision}` produced no commit"),
-        )
-        .with_hint(revision.to_owned())
-    })
-}
-
-/// 解析带 `%b` 的提交记录（`show` 用）。
-fn parse_log_format_with_body(input: &[u8]) -> Vec<Commit> {
-    // 复用列表解析器再补正文：`%b` 是最后一个字段，
-    // 因此"按字段数切分"的校验会失败，这里先把 `%b` 摘掉再交给它。
-    let mut out = Vec::new();
-    for record in input.split(|byte| *byte == 0x1e) {
-        let record = record
-            .strip_suffix(b"\n")
-            .or_else(|| record.strip_suffix(b"\0"))
-            .unwrap_or(record);
-        let trimmed = match record.first() {
-            Some(b'\n') => &record[1..],
-            _ => record,
-        };
-        if trimmed.is_empty() {
-            continue;
-        }
-
-        // 从**最后一个**字段分隔符处切开：正文里可能含分隔符的极端情况
-        // 也不影响前面字段的切分
-        let Some(separator) = trimmed.iter().rposition(|byte| *byte == 0x1f) else {
-            continue;
-        };
-        let (head, body) = trimmed.split_at(separator);
-        let mut commits = parse_log_format(head);
-        if let Some(commit) = commits.pop() {
-            let body_bytes = &body[1..];
-            let body = String::from_utf8_lossy(body_bytes).trim().to_owned();
-            out.push(Commit {
-                body: if body.is_empty() { None } else { Some(body) },
-                ..commit
-            });
-        }
-    }
-    out
+    parse_show_format(&output.stdout)
+        .into_iter()
+        .next()
+        .ok_or_else(|| {
+            AppError::new(
+                ErrorCode::NotFound,
+                format!("revision `{revision}` produced no commit"),
+            )
+            .with_hint(revision.to_owned())
+        })
 }
 
 // ---------------------------------------------------------------- refs
@@ -620,6 +596,37 @@ fn empty_to_none(value: &str) -> Option<String> {
     } else {
         Some(trimmed.to_owned())
     }
+}
+
+/// 解析一个引用为 oid；无法解析时返回 `None`。
+///
+/// 放在 `read` 里而不是 `write`：它是纯读原语，写操作（`commit` 取新 HEAD、
+/// `merge` 取结果 oid）只是复用者。
+pub(super) fn rev_parse(
+    engine: &CliGitEngine,
+    repo: &RepoId,
+    revision: &str,
+) -> AppResult<Option<String>> {
+    let output = engine.run_at(
+        repo.root(),
+        GitInvocation::new(vec![
+            "rev-parse".to_owned(),
+            "--verify".to_owned(),
+            "--quiet".to_owned(),
+            revision.to_owned(),
+        ]),
+        super::RunKind::Read,
+    )?;
+    if !output.success() {
+        return Ok(None);
+    }
+    let oid = output.stdout_lossy().trim().to_owned();
+    Ok(if oid.is_empty() { None } else { Some(oid) })
+}
+
+/// 当前 HEAD 的 oid；空仓库返回 `None`。
+pub(super) fn head_oid(engine: &CliGitEngine, repo: &RepoId) -> AppResult<Option<String>> {
+    rev_parse(engine, repo, "HEAD")
 }
 
 #[cfg(test)]
