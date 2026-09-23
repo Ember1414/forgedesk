@@ -114,6 +114,12 @@ jobs:
       - name: Workflow YAML validation
         run: pnpm check:workflows
 
+      # 本地有、仓库里没有的目录（例如被 .gitignore 误伤的源码目录）会让 cargo
+      # 在 CI 上以"failed to load manifest for workspace member"失败，报错位置还指不到根因。
+      # 这条检查把它变成推送前就能发现的错误。
+      - name: Repository consistency (workspace members tracked)
+        run: pnpm check:repo
+
       - name: Rust format
         run: cargo fmt --all -- --check
 

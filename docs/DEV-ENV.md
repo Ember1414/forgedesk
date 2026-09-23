@@ -133,6 +133,26 @@ Caused by: Error: Cannot find package 'esbuild'
 **约定**：新增文件后运行 `cargo fmt --all`（Rust）与 `pnpm format`（前端/脚本/YAML）。
 两者分别按 `rustfmt.toml` 的 `newline_style = "Unix"` 与 `prettier.config.mjs` 的 `endOfLine: 'lf'` 统一。
 
+### 陷阱 8：`.gitignore` 的通配误伤源码目录 → CI 报错指不到根因
+
+**现象**：本地 `cargo clippy/test` 全绿，CI 却失败，报错是
+
+```text
+failed to load manifest for workspace member `/home/runner/work/forgedesk/forgedesk/src-tauri`
+```
+
+**成因**：报错的 `src-tauri` 只是 cargo 正在加载的那个成员，真正的断点在依赖链末端。
+典型事故：`.gitignore` 用「任意层级的 credentials 目录」通配对密钥目录做拦截，
+这条通配同时命中了源码目录 `crates/credentials/`，于是该 crate 从未进入仓库；
+本地磁盘上有文件（所以本地一切正常），CI checkout 后却少了这个目录。
+
+**约定**：
+1. 在 `.gitignore` 里用目录名通配拦截密钥时，必须紧跟 `!crates/<name>/` 与 `!crates/<name>/**` 例外；
+2. 新增 crate 后运行 `node scripts/setup/scaffold-crates.mjs`，再执行 `pnpm check:repo`
+   （断言所有 workspace 成员存在、未被忽略、已被 git 跟踪）；
+3. 看到 "failed to load manifest for workspace member X" 时，先怀疑**依赖链末端**缺少目录，
+   用 `git ls-tree -r --name-only HEAD -- crates` 对比 `Get-ChildItem crates` 的差集。
+
 ---
 
 ## 3. 已固化的工具链版本
@@ -175,6 +195,7 @@ pnpm tauri build --debug --no-bundle   # 只出可执行文件，不打包安装
 # ---- 质量门禁（CI 会跑，本地也应跑）----
 pnpm check:contrast         # 设计 token 的 WCAG AA 对比度
 pnpm check:workflows        # 校验 .github/workflows/*.yml
+pnpm check:repo             # 仓库一致性：workspace 成员存在、未被 .gitignore 忽略、已被 git 跟踪
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace

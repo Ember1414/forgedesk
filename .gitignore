@@ -44,8 +44,15 @@ src-tauri/gen/
 *.pfx
 *.p12
 *.jks
+# 注意：这两条通配会命中任何名为 secrets/ 或 credentials/ 的目录，
+# 包括**源码目录**。`crates/credentials` 就是被这两条误伤过的真实事故：
+# 它没有被提交，导致 CI 上 cargo 找不到 workspace 成员而直接失败
+# （报错形如 "failed to load manifest for workspace member .../src-tauri"）。
+# 因此下面紧跟例外规则，且 scripts/ci/validate-repo.mjs 会做自动化断言。
 **/secrets/**
 **/credentials/**
+!crates/credentials/
+!crates/credentials/**
 portable-data/
 
 # ---------- 编辑器 / 系统 ----------
