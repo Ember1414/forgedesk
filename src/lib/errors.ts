@@ -193,6 +193,8 @@ export function useAppError() {
         title: t(errorTitleKey(error.code)),
         // 后端给了针对性建议就优先用，否则用错误码的兜底建议
         description: error.hint ?? t(errorHintKey(error.code)),
+        // 记下发生时间：日志查看器据此高亮"错误发生时间附近的行"
+        occurredAt: Date.now(),
         // 错误提示不自动消失：一闪而过的错误等于没提示
         duration: 0,
         // detail 与 actions 交给 Toaster 渲染（可折叠 + 可点击）

@@ -199,7 +199,41 @@ CREATE UNIQUE INDEX idx_settings_unique ON settings(scope, COALESCE(repo_id, -1)
 **约定**：备份前调用 `Database::checkpoint()`（`PRAGMA wal_checkpoint(TRUNCATE)`），
 由 `crates/storage/src/migrations.rs` 的 `backup_database` 统一处理，不要在别处手写备份。
 
-### 陷阱 12：`i18n:lint` 的豁免只能写在"文件头部"或"命中行"
+### 陷阱 12：日志脱敏必须在**写入层**，不能包在事件格式化层
+
+**现象**：想给文件日志用 JSON 格式，于是把脱敏器（`FormatEvent` 实现）套在
+`tracing_subscriber::fmt::format::Json` 外面，编译报
+`the trait bound Format<Json>: Default is not satisfied`，
+或 `Json: FormatEvent<_, JsonFields> is not satisfied`。
+
+**成因**：tracing-subscriber 里 `Json` 只是给 `Format` 用的类型标记，真正实现
+`FormatEvent` 的是 `Format<Json, T>`，而它**没有 `Default`**（只有 `Format<Full, _>` 有）。
+也就是说第三方格式化器无法被"包一层再交给 `event_format`"。
+
+**约定**：脱敏做成 `Write` 层（`forgedesk_diagnostics::SanitizingMakeWriter`），
+放在最靠近落盘的位置：
+
+```text
+tracing 事件 → 格式化器（可读 / JSON）→ 非阻塞写入 → SanitizingMakeWriter（按行脱敏）→ 文件
+```
+
+好处不止是能兼容 JSON：它按**整行**脱敏，因此"秘密被拆成两次 write"也能抹掉，
+而这在按事件脱敏时是看不见的。
+
+### 陷阱 13：JSON 日志里的键是带引号的，键值对脱敏规则会整体失效
+
+**现象**：文件日志里出现 `{"password":"hunter2"}`，密码没有被抹掉。
+
+**成因**：脱敏规则原来要求"键后面紧跟 `=` 或 `:`"，而 JSON 是 `"password":"hunter2"`
+——键后面先出现的是**收尾引号**，于是整条规则一条都没匹配上。
+值得注意的是：单元测试（针对文本模式）当时是全绿的，问题只在**端到端断言整条日志**时才暴露。
+
+**约定**：
+1. 键后允许"空白 + 一个收尾引号 + 空白"再出现分隔符（见 `crates/diagnostics/src/sanitize.rs`）；
+2. 新增脱敏规则时，必须在 `sanitizing_writer` 里补一条**端到端**断言
+   （真实订阅者 + 真实格式 + 断言输出文本），只测纯函数不足以发现这类"格式差异"问题。
+
+### 陷阱 14：`i18n:lint` 的豁免只能写在"文件头部"或"命中行"
 
 **现象**：明明加了 `// i18n-ignore-file`，`pnpm i18n:lint` 仍报该文件。
 
@@ -312,7 +346,8 @@ where link.exe
 | M0 / T0.5 基础组件库 | ✅ 29 个组件（Radix 原语）+ 85 项组件测试；展示页 `/__dev__/components` |
 | M0 / T0.6 错误模型 + i18n + 错误展示 | ✅ 错误分类/脱敏（Rust 单测）+ `normalizeError`/ErrorToast + `pnpm i18n:lint` 门禁 |
 | M0 / T0.7 SQLite + 迁移 + 设置持久化 | ✅ 7 张表 + 版本化迁移（含备份/回滚）+ 设置读写命令 + 界面密度落库 |
-| M0 / T0.8–T0.9、T0.11、T0.12 | 未开始 |
+| M0 / T0.8 日志与日志查看 | ✅ 文件日志（JSON+脱敏）+ 按天/10MB 轮转 + panic 留档 + 会话标记 + `logs_open`/`logs_tail` |
+| M0 / T0.9、T0.11、T0.12 | 未开始 |
 | 审批 | ✅ T0.4 主界面布局已确认（红线 R3） |
 
 补充说明（T0.4 顺带落地的两项前置能力，后续任务直接复用）：

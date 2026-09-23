@@ -151,14 +151,16 @@ fn redact_after_keys(input: &str) -> String {
     while let Some((key_start, key_len)) = find_first_key(&lowercase, search_from) {
         let after_key = key_start + key_len;
 
-        // 键之后允许有空白，但必须紧接 `=` 或 `:`，否则只是普通词汇里的巧合子串
-        let mut separator_index = after_key;
-        while let Some(ch) = input[separator_index..].chars().next() {
-            if ch.is_whitespace() {
-                separator_index += ch.len_utf8();
-            } else {
-                break;
-            }
+        // 键之后必须（允许空白与一个收尾引号）紧接 `=` 或 `:`，
+        // 否则只是普通词汇里的巧合子串。
+        //
+        // 关键细节：JSON 日志里的键是**带引号**的（`"password":"hunter2"`），
+        // 所以键后面会先出现一个引号再出现冒号。早期版本漏掉这一点，
+        // 结果我们自己的文件日志（JSON）里的密码字段完全没有被脱敏——
+        // 这正是"端到端断言整条日志"才能发现、而单测某条规则发现不了的问题。
+        let mut separator_index = skip_whitespace(input, after_key);
+        if let Some(quote @ ('"' | '\'')) = input[separator_index..].chars().next() {
+            separator_index = skip_whitespace(input, separator_index + quote.len_utf8());
         }
         let separator = input[separator_index..].chars().next();
         if !matches!(separator, Some('=' | ':')) {
@@ -166,14 +168,8 @@ fn redact_after_keys(input: &str) -> String {
             continue;
         }
 
-        let mut value_start = separator_index + separator.map_or(0, char::len_utf8);
-        while let Some(ch) = input[value_start..].chars().next() {
-            if ch.is_whitespace() {
-                value_start += ch.len_utf8();
-            } else {
-                break;
-            }
-        }
+        let value_start =
+            skip_whitespace(input, separator_index + separator.map_or(0, char::len_utf8));
 
         // 值可能被引号包裹（`password='hunter2'`）。引号本身保留，
         // 只抹掉里面的内容：既让日志结构可读，也避免把引号一起删掉后无法判断原文边界。
@@ -231,6 +227,19 @@ fn find_first_key(lowercase: &str, from: usize) -> Option<(usize, usize)> {
                 .map(|relative| (from + relative, key.len()))
         })
         .min_by_key(|(start, _)| *start)
+}
+
+/// 跳过空白，返回第一个非空白字符的字节位置。
+fn skip_whitespace(input: &str, from: usize) -> usize {
+    let mut index = from;
+    while let Some(ch) = input[index..].chars().next() {
+        if ch.is_whitespace() {
+            index += ch.len_utf8();
+        } else {
+            break;
+        }
+    }
+    index
 }
 
 /// 从 `start` 起扫描一个值，返回值的结束位置。
@@ -375,6 +384,51 @@ mod tests {
         let output = sanitize_log("提交信息：修复中文 token=秘密值 的问题");
         assert!(output.contains("提交信息"), "中文被破坏：{output}");
         assert!(!output.contains("秘密值"));
+    }
+
+    /// JSON 日志（我们自己的文件格式）里的字段必须被脱敏。
+    ///
+    /// 这是 T0.8 的回归测试：早期实现要求键后紧跟分隔符，
+    /// 而 JSON 里键是带引号的（`"password":"hunter2"`），于是密码字段整体漏过。
+    #[test]
+    fn redacts_json_style_key_value_pairs() {
+        let cases = [
+            (r#"{"password":"hunter2"}"#, "hunter2"),
+            (r#"{"token": "glpat-ABCDEFG"}"#, "glpat-ABCDEFG"),
+            (
+                r#"{"api_key":"AKIAIOSFODNN7EXAMPLE"}"#,
+                "AKIAIOSFODNN7EXAMPLE",
+            ),
+            (r#"{"client_secret":"s3cr3t-value"}"#, "s3cr3t-value"),
+            (r#"{'password':'single-quoted'}"#, "single-quoted"),
+        ];
+
+        for (input, secret) in cases {
+            let output = sanitize_log(input);
+            assert!(
+                !output.contains(secret),
+                "JSON 字段未脱敏：{input} -> {output}"
+            );
+            assert!(output.contains(REDACTED), "应出现占位符：{output}");
+            // 引号与结构必须保留，否则日志不再是合法 JSON
+            assert!(
+                output.contains('"') || output.contains('\''),
+                "结构被破坏：{output}"
+            );
+        }
+    }
+
+    /// 键与分隔符之间有空白的写法同样要覆盖（JSON 格式化器与手工日志都可能这么写）。
+    #[test]
+    fn redacts_keys_separated_by_whitespace() {
+        for (input, secret) in [
+            (r#"{"password" : "hunter2"}"#, "hunter2"),
+            ("password = hunter2", "hunter2"),
+            ("password\t:\thunter2", "hunter2"),
+        ] {
+            let output = sanitize_log(input);
+            assert!(!output.contains(secret), "未脱敏：{input} -> {output}");
+        }
     }
 
     #[test]

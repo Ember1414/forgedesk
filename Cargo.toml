@@ -57,7 +57,11 @@ anyhow = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter", "time"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "time", "json"] }
+# tracing-appender 提供**非阻塞写入**（WorkerGuard 保证退出前 flush）。
+# 注意：它自带的 RollingFileAppender 只支持按时间轮转，不支持"单文件大小上限"，
+# 因此轮转策略由 crates/platform 自己实现（见该 crate 的 logging 模块）。
+tracing-appender = "0.2"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "fs", "sync", "time", "io-util"] }
 tokio-util = { version = "0.7", features = ["rt"] }
 uuid = { version = "1", features = ["v4", "serde"] }

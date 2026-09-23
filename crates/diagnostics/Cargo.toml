@@ -17,5 +17,9 @@ thiserror.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 
+[dev-dependencies]
+# 仅测试使用：断言 JSON 日志行在脱敏后仍是合法 JSON（生产代码不解析 JSON）
+serde_json.workspace = true
+
 [lints]
 workspace = true

@@ -5,9 +5,19 @@ import { useTranslation } from 'react-i18next';
 import { ErrorToastContent } from '@/ui/components/error-toast';
 import { IconButton } from '@/ui/components/icon-button';
 import { useAppError } from '@/lib/errors';
+import { openLogViewer } from '@/stores/logViewerStore';
 import { useToastStore } from '@/stores/toastStore';
 import type { ToastAction, ToastTone } from '@/stores/toastStore';
 import { cn } from '@/lib/utils';
+
+/**
+ * 内置动作的 id：由提示组件自己提供（不是后端给的修复动作）。
+ *
+ * 为什么内置而不是让后端下发：这是**纯界面行为**（打开日志对话框），
+ * 后端没有"打开日志"这个动作的概念；把它塞进 AppError.actions 只会让后端
+ * 关心界面细节。带 `occurredAt` 的错误提示会自动获得这个入口。
+ */
+export const VIEW_LOGS_ACTION_ID = 'viewLogs';
 
 /**
  * 全局提示出口（Toast 队列的渲染端）。
@@ -71,6 +81,16 @@ export function Toaster({ closeLabel }: ToasterProps) {
     <ToastPrimitive.Provider swipeDirection="right">
       {toasts.map((toast) => {
         const Icon = TONE_ICONS[toast.tone];
+        // 带发生时间的提示（错误提示）自动获得"查看相关日志"入口：
+        // 用户看到错误的当下最想知道"刚才发生了什么"，这个入口必须在他眼前，
+        // 而不是让他自己去设置页翻日志。
+        const actions: { id: string; label: string }[] = [
+          ...(toast.occurredAt === undefined
+            ? []
+            : [{ id: VIEW_LOGS_ACTION_ID, label: t('actions.viewLogs') }]),
+          ...(toast.actions ?? []).map((action) => ({ id: action.id, label: action.label })),
+        ];
+
         return (
           <ToastPrimitive.Root
             key={toast.id}
@@ -97,15 +117,12 @@ export function Toaster({ closeLabel }: ToasterProps) {
                   className={cn('mt-0.5 size-4 shrink-0', TONE_ICON_CLASS[toast.tone])}
                 />
               }
-              {...(toast.actions === undefined
-                ? {}
-                : {
-                    actions: toast.actions.map((action) => ({
-                      id: action.id,
-                      label: action.label,
-                    })),
-                  })}
+              actions={actions}
               onAction={(actionId) => {
+                if (actionId === VIEW_LOGS_ACTION_ID) {
+                  openLogViewer({ nearTimestamp: toast.occurredAt ?? null });
+                  return;
+                }
                 const action = toast.actions?.find((candidate) => candidate.id === actionId);
                 if (action === undefined) {
                   return;

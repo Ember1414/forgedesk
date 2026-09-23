@@ -7,6 +7,7 @@ import { RouterProvider } from 'react-router-dom';
 import { router } from '@/app/routes';
 import { queryClient } from '@/app/queryClient';
 import { applyThemeMode, watchSystemTheme } from '@/app/theme';
+import { LogViewerDialog } from '@/features/logs/LogViewerDialog';
 import { Toaster } from '@/ui/components/toast';
 import { TooltipProvider } from '@/ui/components/tooltip';
 import { useSettingsStore } from '@/stores/settingsStore';
@@ -53,6 +54,8 @@ export function App() {
         <SystemThemeSync />
         <RouterProvider router={router} />
         <Toaster closeLabel={t('actions.dismiss')} />
+        {/* 日志查看器挂在根部：错误提示可在任意页面打开它 */}
+        <LogViewerDialog />
       </TooltipProvider>
     </QueryClientProvider>
   );

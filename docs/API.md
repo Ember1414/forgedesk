@@ -65,7 +65,10 @@ interface FixAction {
 | [`settings_get`](#settings_get--settings_set--settings_all) | ReadOnly | T0.7 | 读取单个设置项 |
 | [`settings_set`](#settings_get--settings_set--settings_all) | Mutating | T0.7 | 写入（覆盖）设置项 |
 | [`settings_all`](#settings_get--settings_set--settings_all) | ReadOnly | T0.7 | 读取某个范围的全部设置 |
+| [`logs_open`](#logs_open) | ReadOnly | T0.8 | 在系统文件管理器中打开日志目录 |
+| [`logs_tail`](#logs_tail) | ReadOnly | T0.8 | 读取末尾若干行日志（已脱敏） |
 | [`debug_throw_error`](#debug_throw_error) | ReadOnly | T0.6 | 触发受控失败，用于验证错误链路（**仅开发构建注册**） |
+| [`debug_panic`](#debug_panic) | ReadOnly | T0.8 | 触发真实 panic，用于验证崩溃留档（**仅开发构建注册**） |
 
 ---
 
@@ -135,6 +138,50 @@ interface AppVersion {
 
 ---
 
+### logs_open
+
+在系统文件管理器中打开日志目录。
+
+- **能力等级**：`ReadOnly`（不读写仓库、不修改数据；只是打开一个文件夹）
+- **参数**：无
+- **返回**：`null`
+- **错误**：`NOT_FOUND`（目录不存在）、`INTERNAL`（缺少平台打开命令，例如 Linux 上没有 `xdg-open`）。
+  错误里会带上**日志目录的绝对路径**，用户可以自己打开它——这类失败原因无法从错误码推断，
+  但用户完全可以自助。
+- **前端封装**：`logsOpen()`；调用点：设置 → 高级、日志对话框
+
+---
+
+### logs_tail
+
+读取末尾若干行日志，按时间线顺序（旧 → 新）返回。
+
+- **能力等级**：`ReadOnly`
+- **参数**：
+
+| 参数 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `lines` | `number` | 否 | 需要的行数；缺省 200，被夹在 `1..=2000`（上限用于防止一次 IPC 拉走整个日志文件） |
+
+- **返回**：`LogLine[]`
+
+```ts
+interface LogLine {
+  timestamp: number | null;  // Unix 毫秒；无法解析时为 null
+  level: string | null;      // INFO / WARN / ERROR…
+  target: string | null;     // 产生日志的模块
+  message: string;           // 消息正文
+  raw: string;               // 整行原文（已脱敏），用于粘贴到反馈里
+}
+```
+
+- **错误**：`STORAGE`（日志文件读不到）
+- **脱敏**：返回的每一行都经过 `sanitize_log`。**读取路径同样是出境路径**，
+  不能因为"写入时脱敏过"就放行——文件里可能混入历史版本写入的内容或第三方库的原始输出。
+- **前端封装**：`logsTail(lines?)`；调用点：`src/features/logs/LogViewer.tsx`
+
+---
+
 ### debug_throw_error
 
 触发一个受控失败的演示错误。存在的理由：错误链路（后端分类 → 脱敏 → IPC → 前端 i18n →
@@ -159,6 +206,23 @@ Toast → 动作按钮）是基础设施，它坏掉时不会有任何业务功�
     不进 `message`——避免把用户输入拼进会写入日志/通知的标题级字段。
 - **前端封装**：`src/lib/ipc/index.ts` 的 `debugThrowError(code)`
 - **调用点**：`src/ui/__dev__/ComponentsPage.tsx` 的「错误链路（AppError）」区块（仅开发构建）
+
+---
+
+### debug_panic
+
+触发一次**真实的 panic**（在独立的后台线程里）。
+
+- **能力等级**：`ReadOnly`（不改任何数据；只是让一个后台线程崩掉）
+- **注册范围**：**仅 debug 构建**（同 `debug_throw_error`）。release 使用 `panic = "abort"`，
+  崩溃由 M7/T7.5 的崩溃恢复处理——会话标记与 panic 文件正是为它准备的。
+- **参数**：无
+- **返回**：`null`（命令本身成功返回；崩溃发生在另一个线程）
+- **用途（T0.8 验收）**：
+  1. 后台线程崩溃、界面继续可用（验证隔离）；
+  2. 日志目录出现 `panic-<时间戳>.log`（含消息、线程名、版本与调用栈，**已脱敏**）；
+  3. 不清理 `session.lock` 直接退出应用，下次启动日志里会出现"上次会话未正常退出"。
+- **前端封装**：`debugPanic()`；调用点：`src/ui/__dev__/ComponentsPage.tsx`（开发页面）
 
 ---
 

@@ -158,6 +158,21 @@
       "description": "Logs, diagnostics and data directory."
     }
   },
+  "logs": {
+    "title": "Logs",
+    "description": "Recent application logs (generated locally, never uploaded, sanitized). Copy from here when reporting a problem.",
+    "sanitizedNotice": "Tokens and passwords are stripped before anything is written.",
+    "highlighted": "{{count}} line(s) near this error are highlighted.",
+    "empty": "No logs yet",
+    "emptyHint": "Log entries appear here once the app has been running for a while.",
+    "refresh": "Refresh",
+    "loading": "Reading logs…",
+    "error": "Could not read the logs",
+    "errorHint": "The log file may be unreachable. Retry, or open the log directory directly.",
+    "retry": "Retry",
+    "openDirectory": "Open log directory",
+    "close": "Close"
+  },
   "settings": {
     "general": {
       "densityLabel": "Interface density",
@@ -172,6 +187,11 @@
       "loadFailed": "Could not read settings",
       "loadFailedHint": "The local database may be unreachable. Retry, and if it keeps failing check the logs.",
       "retry": "Retry"
+    },
+    "advanced": {
+      "logsTitle": "Logs",
+      "logsPolicy": "Logs are written to the app data directory, rotate on both a daily and a 10MB threshold, and are kept for 7 days. Tokens and passwords are stripped before writing, and nothing is ever uploaded.",
+      "openLogDirectory": "Open log directory"
     },
     "appearance": {
       "themeLabel": "Theme",

@@ -101,6 +101,35 @@ export function settingsAll(
   });
 }
 
+/** 一行日志（后端已脱敏；结构化字段用于界面高亮与筛选）。 */
+export interface LogLine {
+  /** 时间戳（Unix 毫秒）；无法解析时为 null。 */
+  timestamp: number | null;
+  /** 级别（INFO / WARN / ERROR…）。 */
+  level: string | null;
+  /** 产生日志的模块。 */
+  target: string | null;
+  /** 消息正文。 */
+  message: string;
+  /** 整行原文（已脱敏），用于"贴到反馈里"。 */
+  raw: string;
+}
+
+/** 在系统文件管理器中打开日志目录。 */
+export function logsOpen(): Promise<void> {
+  return invokeCommand<void>('logs_open');
+}
+
+/**
+ * 读取末尾若干行日志（时间线顺序：旧 → 新）。
+ *
+ * `lines` 缺省 200，后端会夹在 1..=2000 之间——上限存在的意义是避免一次 IPC
+ * 把整个日志文件拉进前端。
+ */
+export function logsTail(lines?: number): Promise<LogLine[]> {
+  return invokeCommand<LogLine[]>('logs_tail', lines === undefined ? {} : { lines });
+}
+
 /**
  * 触发一个受控失败的演示错误（仅开发构建注册该命令）。
  *
@@ -110,4 +139,14 @@ export function settingsAll(
  */
 export function debugThrowError(code: string): Promise<void> {
   return invokeCommand<void>('debug_throw_error', { code });
+}
+
+/**
+ * 触发一次真实 panic（仅开发构建注册）。
+ *
+ * 用途：验证 panic hook（生成 panic 日志）、会话标记（下次启动判定异常退出）
+ * 与"主流程不崩溃"（panic 发生在后台线程，界面继续可用）。
+ */
+export function debugPanic(): Promise<void> {
+  return invokeCommand<void>('debug_panic');
 }

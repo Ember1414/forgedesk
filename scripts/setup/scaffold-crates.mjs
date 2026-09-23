@@ -67,9 +67,12 @@ const CRATES = [
   {
     dir: 'diagnostics',
     name: 'forgedesk-diagnostics',
-    doc: '错误诊断引擎：把 git/网络的原始错误映射为人话原因与可执行的修复动作。',
-    // tracing / tracing-subscriber：脱敏层要挂在日志格式化层上（T0.6）
+    doc: '错误诊断引擎：把 git 与网络的原始错误映射为人话原因与可执行的修复动作。',
+    // tracing / tracing-subscriber：脱敏层挂在日志格式化层上（T0.6），
+    // 文件日志用 JSON 渲染器所以需要 json feature（见根 Cargo.toml）
     deps: ['serde', 'thiserror', 'tracing', 'tracing-subscriber'],
+    // 仅测试：断言脱敏后的 JSON 日志行仍然合法
+    devDeps: ['serde_json'],
     internal: ['forgedesk-domain'],
   },
   {
@@ -89,9 +92,20 @@ const CRATES = [
   {
     dir: 'platform',
     name: 'forgedesk-platform',
-    doc: '平台适配层：凭据库、shell 解析、路径规范化、文件监听、系统通知、系统集成。',
-    deps: ['serde', 'thiserror', 'tracing', 'tokio'],
-    internal: ['forgedesk-domain'],
+    doc: '平台适配层：凭据库、shell 解析、路径规范化、日志文件、文件监听、系统通知、系统集成。',
+    // tracing-subscriber / tracing-appender / time：日志落盘、轮转与末尾读取（T0.8）
+    // forgedesk-diagnostics：所有出境的日志与日志行必须脱敏（红线 R8）
+    deps: [
+      'serde',
+      'serde_json',
+      'thiserror',
+      'time',
+      'tracing',
+      'tracing-appender',
+      'tracing-subscriber',
+      'tokio',
+    ],
+    internal: ['forgedesk-diagnostics', 'forgedesk-domain'],
   },
   {
     dir: 'services',
@@ -120,6 +134,7 @@ const CRATES = [
     internal: [
       'forgedesk-domain',
       'forgedesk-diagnostics',
+      'forgedesk-platform',
       'forgedesk-services',
       'forgedesk-storage',
     ],
@@ -169,6 +184,14 @@ function cargoToml(crate) {
   }
   for (const dep of crate.deps ?? []) {
     lines.push(`${dep}.workspace = true`);
+  }
+  if ((crate.devDeps ?? []).length > 0) {
+    lines.push('');
+    lines.push('[dev-dependencies]');
+    lines.push('# 仅测试使用，不进入生产依赖图');
+    for (const dep of crate.devDeps) {
+      lines.push(`${dep}.workspace = true`);
+    }
   }
   lines.push('');
   lines.push('[lints]');

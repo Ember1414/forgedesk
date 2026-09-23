@@ -1,7 +1,7 @@
 //! Tauri IPC 命令层。
 //!
 //! 归属里程碑：M0 / T0.2（建立最小 IPC 通路）、T0.6（统一错误转换层）、
-//! T0.7（设置读写）、后续里程碑持续扩充。
+//! T0.7（设置读写）、T0.8（日志查看）、后续里程碑持续扩充。
 //!
 //! # 职责边界
 //!
@@ -13,13 +13,13 @@
 //! 4. 把错误转换为 [`forgedesk_domain::AppError`]（统一走 [`error::to_app_error`]）。
 //!
 //! 真实的业务编排在 `forgedesk-services`，纯逻辑在 `forgedesk-domain`，
-//! 数据存取在 `forgedesk-storage`。
+//! 数据存取在 `forgedesk-storage`，与操作系统打交道在 `forgedesk-platform`。
 //!
 //! # 三条硬约定
 //!
 //! - **命令必须定义在子模块中**，由本文件重导出。原因是 `#[tauri::command]`
 //!   会生成落在 crate 根的导出宏，若命令函数也在 crate 根会触发 E0255 命名冲突。
-//! - 命令命名：`<domain>_<action>`（例如 `repo_open`、`settings_get`）；
+//! - 命令命名：`<domain>_<action>`（例如 `repo_open`、`settings_get`、`logs_tail`）；
 //!   返回值一律 `AppResult<T>`；每个新增命令都必须在 `docs/API.md` 中登记
 //!   （能力等级、参数、返回、错误码）。
 //! - 错误一律经 [`error::to_app_error`] 转换：分类在领域层、脱敏在 diagnostics，
@@ -29,10 +29,14 @@
 
 pub mod debug;
 pub mod error;
+pub mod logs;
 pub mod settings;
+pub mod state;
 pub mod system;
 
-pub use debug::debug_throw_error;
+pub use debug::{debug_panic, debug_throw_error};
 pub use error::{to_app_error, Fallible};
-pub use settings::{settings_all, settings_get, settings_set, AppState};
+pub use logs::{logs_open, logs_tail};
+pub use settings::{settings_all, settings_get, settings_set};
+pub use state::AppState;
 pub use system::{app_version, AppVersion};

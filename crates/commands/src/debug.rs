@@ -46,6 +46,30 @@ pub fn debug_throw_error(code: String) -> AppResult<()> {
         )))
 }
 
+/// 触发一次真实的 panic（用于 T0.8 的手工验收与将来的崩溃恢复测试）。
+///
+/// 能力等级：`ReadOnly`（不改任何数据；它只是让一个后台线程崩掉）。
+///
+/// **为什么在独立线程里 panic**：同步命令默认在 Tauri 的主线程上执行，
+/// 在主线程 panic 会连带界面一起消失，无法验证"仅该操作失败"。
+/// 在独立线程里 panic 更接近真实场景（耗时操作都在后台线程），
+/// 也让我们能确认 panic hook 与主流程的隔离确实生效。
+///
+/// release 构建使用 `panic = "abort"`（见根 Cargo.toml），因此这个命令只在开发构建注册；
+/// 崩溃留在 release 下的表现由 M7/T7.5 的崩溃恢复处理——那正是会话标记与 panic 文件的用途。
+#[tauri::command]
+// 这里的 panic 是**功能本身**，不是疏忽：整个命令的存在意义就是制造一次真实崩溃，
+// 以便验证 panic 留档、会话标记与"界面不受影响"。因此显式豁免该 lint，
+// 并把它限制在这一个函数里（workspace 其余代码仍然禁止 panic）。
+#[allow(clippy::panic)]
+pub fn debug_panic() -> AppResult<()> {
+    std::thread::spawn(|| {
+        panic!("ForgeDesk debug panic: 人为触发的崩溃，用于验证日志与崩溃恢复链路（T0.8）");
+    });
+
+    Ok(())
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {

@@ -81,8 +81,9 @@ import { Textarea } from '@/ui/components/textarea';
 import { ToggleGroup } from '@/ui/components/toggle-group';
 import { Tip } from '@/ui/components/tooltip';
 import { VirtualList } from '@/ui/components/virtual-list';
-import { debugThrowError, isTauriRuntime } from '@/lib/ipc';
+import { debugPanic, debugThrowError, isTauriRuntime } from '@/lib/ipc';
 import { useAppError } from '@/lib/errors';
+import { openLogViewer } from '@/stores/logViewerStore';
 import { pushToast } from '@/stores/toastStore';
 import { useUiStore } from '@/stores/uiStore';
 
@@ -670,6 +671,40 @@ export function ComponentsPage() {
           <p className="text-12 text-fg-subtle">
             说明：详情里的假令牌应显示为 <span className="font-mono">ghp_«redacted»</span>
             ，若能看到完整令牌说明脱敏层失效（红线 R8）。
+          </p>
+
+          <Row>
+            <Button
+              variant="danger"
+              onClick={() => {
+                if (!isTauriRuntime()) {
+                  show({
+                    code: 'UNSUPPORTED_BY_ENGINE',
+                    message: 'browser preview',
+                    retryable: false,
+                  });
+                  return;
+                }
+                // 触发真实 panic：验证 panic 日志、会话标记与"界面不受影响"
+                void debugPanic();
+              }}
+            >
+              触发 panic（T0.8 验收）
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => {
+                openLogViewer({ nearTimestamp: Date.now() });
+              }}
+            >
+              打开日志查看器
+            </Button>
+          </Row>
+          <p className="text-12 text-fg-subtle">
+            触发 panic 后：① 后台线程崩溃、界面继续可用；② 日志目录出现
+            <span className="font-mono"> panic-&lt;时间戳&gt;.log</span>； ③ 不清除{' '}
+            <span className="font-mono">session.lock</span> 直接关掉应用，
+            下次启动会在日志里看到"上次会话未正常退出"（M7 会据此提供恢复引导）。
           </p>
         </Section>
 

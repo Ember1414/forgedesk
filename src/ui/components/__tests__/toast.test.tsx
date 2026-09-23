@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { Toaster } from '@/ui/components/toast';
+import { initialLogViewerState, useLogViewerStore } from '@/stores/logViewerStore';
 import { initialToastState, pushToast, useToastStore } from '@/stores/toastStore';
 
 /**
@@ -128,5 +129,40 @@ describe('Toaster', () => {
   it('无提示时不渲染任何内容', () => {
     const { container } = render(<Toaster closeLabel="关闭提示" />);
     expect(container.querySelectorAll('[role="status"]')).toHaveLength(0);
+  });
+
+  describe('查看相关日志（内置动作）', () => {
+    it('带发生时间的错误提示会自动带出"查看相关日志"', async () => {
+      pushToast({
+        tone: 'danger',
+        title: '推送被拒绝',
+        duration: 0,
+        occurredAt: 1_787_000_000_000,
+      });
+      render(<Toaster closeLabel="关闭提示" />);
+
+      expect(await screen.findByRole('button', { name: '查看相关日志' })).toBeInTheDocument();
+    });
+
+    it('不带发生时间的提示没有该入口（避免打开一个没有锚点的日志视图）', async () => {
+      pushToast({ tone: 'info', title: '正在获取更新', duration: 0 });
+      render(<Toaster closeLabel="关闭提示" />);
+
+      await screen.findByText('正在获取更新');
+      expect(screen.queryByRole('button', { name: '查看相关日志' })).not.toBeInTheDocument();
+    });
+
+    it('点击后打开日志查看器，并带上错误发生时间作为高亮锚点', async () => {
+      useLogViewerStore.setState(initialLogViewerState);
+      const occurredAt = 1_787_000_000_000;
+      pushToast({ tone: 'danger', title: '保存失败', duration: 0, occurredAt });
+      render(<Toaster closeLabel="关闭提示" />);
+
+      fireEvent.click(await screen.findByRole('button', { name: '查看相关日志' }));
+
+      expect(useLogViewerStore.getState().open).toBe(true);
+      expect(useLogViewerStore.getState().nearTimestamp).toBe(occurredAt);
+      useLogViewerStore.setState(initialLogViewerState);
+    });
   });
 });

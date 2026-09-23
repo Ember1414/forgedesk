@@ -11,27 +11,12 @@
 //! 因此凡是能被纯函数表达的逻辑都下沉（见 `forgedesk_storage::Scope::parse`）。
 
 use std::collections::BTreeMap;
-use std::sync::Arc;
 
 use forgedesk_domain::{AppError, AppResult, ErrorCode};
-use forgedesk_storage::{Database, Scope, SettingsRepository};
+use forgedesk_storage::{Scope, SettingsRepository};
 use tauri::State;
 
-/// 应用级共享状态。
-///
-/// 由 `src-tauri` 在启动时构建（打开数据库 + 执行迁移）并通过 `manage` 注入；
-/// 命令层只借出只读引用，因此这里用 `Arc` 而不是可变引用——
-/// 数据库自己的并发策略是"单写多读"（见 `forgedesk_storage::Database`）。
-pub struct AppState {
-    /// 数据库句柄。
-    pub database: Arc<Database>,
-}
-
-impl std::fmt::Debug for AppState {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.debug_struct("AppState").finish_non_exhaustive()
-    }
-}
+use crate::state::AppState;
 
 /// 校验设置值是否为合法 JSON。
 ///

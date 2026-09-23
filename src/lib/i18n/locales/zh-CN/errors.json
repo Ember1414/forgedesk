@@ -76,7 +76,8 @@
   "details": "详情",
   "actions": {
     "refresh": "刷新状态",
-    "copyCommand": "复制等价命令"
+    "copyCommand": "复制等价命令",
+    "viewLogs": "查看相关日志"
   },
   "actionDone": "已执行：{{command}}",
   "actionFailed": "该修复动作执行失败，请查看新的提示。"

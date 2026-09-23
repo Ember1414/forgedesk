@@ -42,6 +42,13 @@ export interface ToastRecord {
   readonly detail?: string;
   /** 可点击的修复动作。 */
   readonly actions?: readonly ToastAction[];
+  /**
+   * 该提示的产生时间（Unix 毫秒）。
+   *
+   * 错误提示会带这个值：用户点"查看相关日志"时，日志查看器据此高亮
+   * "错误发生时间附近的行"——没有它就只能在几百行里自己找。
+   */
+  readonly occurredAt?: number;
   /** 自动消失时间（ms）；0 表示需要用户手动关闭（错误提示一律用 0）。 */
   readonly duration: number;
 }
@@ -52,6 +59,7 @@ export interface ToastInput {
   readonly description?: string;
   readonly detail?: string;
   readonly actions?: readonly ToastAction[];
+  readonly occurredAt?: number;
   readonly duration?: number;
 }
 
@@ -91,6 +99,7 @@ export const useToastStore = create<ToastStoreState>()((set) => ({
       ...(input.description === undefined ? {} : { description: input.description }),
       ...(input.detail === undefined ? {} : { detail: input.detail }),
       ...(input.actions === undefined ? {} : { actions: input.actions }),
+      ...(input.occurredAt === undefined ? {} : { occurredAt: input.occurredAt }),
       duration: input.duration ?? DEFAULT_DURATION,
     };
 

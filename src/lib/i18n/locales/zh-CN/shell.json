@@ -158,6 +158,21 @@
       "description": "日志、诊断与数据目录。"
     }
   },
+  "logs": {
+    "title": "日志",
+    "description": "最近的应用日志（本地生成、不上传、已脱敏）。排查问题时可以直接从这里复制。",
+    "sanitizedNotice": "令牌与密码已在写入前抹除。",
+    "highlighted": "已高亮 {{count}} 行与本次错误相关的日志。",
+    "empty": "还没有日志",
+    "emptyHint": "应用运行一段时间后，这里会出现日志记录。",
+    "refresh": "刷新",
+    "loading": "正在读取日志…",
+    "error": "读取日志失败",
+    "errorHint": "日志文件可能无法访问；可以重试，或直接打开日志目录查看。",
+    "retry": "重试",
+    "openDirectory": "打开日志目录",
+    "close": "关闭"
+  },
   "settings": {
     "general": {
       "densityLabel": "界面密度",
@@ -172,6 +187,11 @@
       "loadFailed": "读取设置失败",
       "loadFailedHint": "本地数据库可能无法访问，可以重试；若持续失败请查看日志。",
       "retry": "重试"
+    },
+    "advanced": {
+      "logsTitle": "日志",
+      "logsPolicy": "日志写入应用数据目录，按天与 10MB 双阈值轮转，保留最近 7 天；写入前会抹掉令牌与密码，且不会上传到任何服务器。",
+      "openLogDirectory": "打开日志目录"
     },
     "appearance": {
       "themeLabel": "主题",
