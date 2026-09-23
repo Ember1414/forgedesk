@@ -53,10 +53,10 @@ graph TD
 | `crates/domain` | 纯逻辑：领域模型、状态机、错误类型与错误码分类 | 所有 Rust crate | ✅ 错误模型与 `ErrorCode::classify`（618 行） |
 | `crates/commands` | Tauri 命令定义、DTO 转换、能力等级校验 | `src-tauri` | ✅ 命令层骨架与 6 个命令（476 行） |
 | `crates/services` | 用例编排（打开仓库、提交、pull…） | `commands`、`plugin-host` | ⬜ 骨架（M1 起） |
-| `crates/git-engine` | `GitEngine` trait + CLI 实现 + libgit2 实现 | `services`、`snapshot`、`commands` | ⬜ 骨架（M1） |
+| `crates/git-engine` | `GitEngine` trait + CLI 实现 + libgit2 实现 | `services`、`snapshot`、`commands` | ✅ `GitProcess` 安全执行器 + 4 个输出解析器（T1.1，86 个测试）；trait 与双实现见 T1.2 |
 | `crates/provider` | `HostProvider` trait + GitHub/GitLab/Gitea 实现 | `services`、`commands` | ⬜ 骨架（M4） |
 | `crates/snapshot` | 快照创建/列表/回滚/校验 | `services`、`commands` | ⬜ 骨架（M3） |
-| `crates/diagnostics` | 日志脱敏、stderr 解析、错误码映射、修复建议 | `commands`、`platform`、`src-tauri` | ✅ 脱敏写入层（592 行）；规则引擎 M5 |
+| `crates/diagnostics` | 日志脱敏、stderr 解析、错误码映射、修复建议 | `commands`、`platform`、`git-engine`、`src-tauri` | ✅ 脱敏写入层（592 行）；规则引擎 M5 |
 | `crates/storage` | SQLite 仓储、版本化迁移、设置读写 | `commands`、`services`、`src-tauri` | ✅ 7 张表 + 迁移（1392 行） |
 | `crates/credentials` | keyring 封装、账号模型 | `services`、`commands` | ⬜ 骨架（M4） |
 | `crates/jobs` | 任务注册、进度广播、取消令牌 | `services`、`commands` | ⬜ 骨架（M1） |
@@ -79,6 +79,7 @@ graph TD
 | 前端不得直接访问文件系统或执行命令 | 一律经 `src/lib/ipc/index.ts` | ESLint 架构护栏（禁止 `@tauri-apps/api/*` 出现在该文件之外） |
 | `domain` 不依赖任何 IO crate | 不许出现 `git2`/`rusqlite`/`reqwest`/`std::process` 等 | `crates/domain/tests/` 的依赖断言 + 根 `Cargo.toml` 的 crate 依赖清单 |
 | 依赖只能"由外向内" | `commands → services → domain`，infra 只依赖 `domain` | 代码评审 + `Cargo.toml` 显式依赖（无 `*` 通配） |
+| 唯一的 infra → infra 例外 | `git-engine → diagnostics`：git 的参数与输出都可能带凭据，写日志前必须过 `sanitize_log`（红线 R8）。若各自实现一套脱敏规则，迟早出现"一处漏了"的情况 | 评审；新增同类例外必须在此登记理由 |
 | workspace 成员必须真实存在于仓库 | 防止"本地有、仓库没有"导致的 CI 失败 | `pnpm check:repo` |
 | 能力等级必须声明 | 每个命令标注 `ReadOnly`/`Mutating`/`Network`/`Dangerous` | `docs/API.md` 登记表 + 评审 |
 | 只有一条写入口 | 改仓库状态必须经 `SnapshotManager` + `AuditLog`（红线 R7） | 评审 + 破坏性操作测试矩阵（M3） |
