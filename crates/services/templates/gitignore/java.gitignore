@@ -1,0 +1,20 @@
+# 编译产物
+target/
+build/
+out/
+*.class
+
+# 构建工具
+.gradle/
+!gradle/wrapper/gradle-wrapper.jar
+
+# IDE
+.idea/
+*.iml
+.settings/
+.classpath
+.project
+
+# 编辑器与系统文件
+.DS_Store
+Thumbs.db

@@ -1,0 +1,10 @@
+# 编译产物
+/target/
+**/*.rs.bk
+
+# 覆盖率数据
+*.profraw
+
+# 编辑器与系统文件
+.DS_Store
+Thumbs.db

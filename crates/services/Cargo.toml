@@ -21,6 +21,7 @@ forgedesk-credentials.workspace = true
 forgedesk-jobs.workspace = true
 forgedesk-platform.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 tokio.workspace = true
