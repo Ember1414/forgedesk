@@ -101,6 +101,66 @@ impl CliGitEngine {
         &self.process
     }
 
+    /// 系统 git 的版本（`git --version`）。
+    ///
+    /// 为什么**不放在** `GitEngine` trait 上：libgit2 实现给不出"系统 git 的版本"
+    /// （它自己就是另一套实现），而"用户机器上的 git 太旧"这件事只有 CLI 侧知道。
+    /// 调用方（`services`）持有具体类型，因此不需要为它污染 trait。
+    ///
+    /// 在 `.` 下执行：`--version` 与工作目录无关，而强制要求一个 cwd 只是为了让
+    /// 进程执行器的签名统一。
+    pub fn version(&self) -> AppResult<forgedesk_domain::git::GitVersion> {
+        let invocation = args::GitInvocation::new(vec!["--version".to_owned()]);
+        let output = self.run_checked_at(Path::new("."), invocation, RunKind::Read)?;
+        let stdout = output.stdout_lossy();
+        forgedesk_domain::git::GitVersion::parse(&stdout).ok_or_else(|| {
+            AppError::new(
+                ErrorCode::Internal,
+                "could not parse the git version output",
+            )
+            .with_detail(stdout.trim().to_owned())
+            .with_retryable(false)
+        })
+    }
+
+    /// 读取仓库级配置（`.git/config`，含 `include.path` 展开的内容）。
+    ///
+    /// 用途：打开仓库时的危险项审计（`domain::git::audit`）。三条设计取舍：
+    ///
+    /// - **只读 `--local`**：`global` / `system` 是用户自己机器上的选择，
+    ///   不属于"陌生仓库带来的风险"（见 `ConfigScope` 的说明）；
+    /// - **跟随 `include.path`**（不加 `--no-includes`）：被 include 进来的
+    ///   配置同样会被 git 执行，漏掉它们等于给审计留后门；
+    /// - **值先脱敏再返回**：这些值会展示在界面上、写进日志，而
+    ///   `core.sshCommand` / `filter.*.clean` 里内嵌凭据是常见写法（红线 R8）。
+    ///   脱敏发生在**读入时**，因此审计报告从产生那一刻起就可安全传播。
+    ///
+    /// 读不到配置（不是仓库、`.git/config` 缺失）返回空列表而不是错误：
+    /// 审计问的是"配置里有没有危险项"，没有配置就意味着没有危险项。
+    pub fn repository_config(
+        &self,
+        repo: &RepoId,
+    ) -> AppResult<Vec<forgedesk_domain::git::ConfigEntry>> {
+        let invocation = args::GitInvocation::new(vec![
+            "config".to_owned(),
+            "--local".to_owned(),
+            "--list".to_owned(),
+            "--null".to_owned(),
+        ]);
+        let output = self.run_at(repo.root(), invocation, RunKind::Read)?;
+        if !output.success() {
+            return Ok(Vec::new());
+        }
+
+        Ok(crate::parsers::parse_config_list(&output.stdout)
+            .into_iter()
+            .map(|entry| forgedesk_domain::git::ConfigEntry {
+                value: sanitize_log(&entry.value),
+                ..entry
+            })
+            .collect())
+    }
+
     /// 在指定目录执行一条命令，返回原始结果（不判退出码）。
     pub(crate) fn run_at(
         &self,

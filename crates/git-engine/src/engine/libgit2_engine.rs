@@ -18,9 +18,12 @@
 //! | `Commit.refs` | 有值 | 空 | libgit2 没有等价的 `%D`，需要自己遍历全部 ref |
 //! | `Commit.signature` | 来自 `%G?` | `Unknown` | libgit2 不做 GPG 校验 |
 //! | 子模块状态细节 | 有 | 部分 | 依赖 `StatusOptions` 的开关 |
+//! | `RepositoryInfo.worktrees` | 完整列表 | 只有主工作区 | `Repository::worktrees` 只返回工作区**名称**，没有路径与 HEAD |
 //!
 //! 界面不得依赖这些字段的"两边都一致"——`services` 层读走 libgit2，
-//! 因此以 libgit2 的能力为准。
+//! 因此以 libgit2 的能力为准。**例外**是 `discover`：打开仓库是一次性的、
+//! 用户发起的探测，且与仓库配置审计、git 版本检查同属一个动作，
+//! 因此 `services` 用 CLI 实现做 `discover`（见 `services::repository` 的说明）。
 
 use std::path::Path;
 
@@ -28,7 +31,7 @@ use forgedesk_domain::git::{
     Branch, BranchInfo, ChangeKind, Commit, DiffChangeKind, DiffReport, DiffSpec, DiffTarget,
     EntryKind, FileChange, FileDiff, LogQuery, Page, ReflogEntry, Remote, RemoteKind, RepoId,
     RepoPath, RepositoryInfo, Signature, SignatureStatus, StashEntry, StatusReport, SubmoduleState,
-    Tag,
+    Tag, Worktree,
 };
 use forgedesk_domain::{AppError, AppResult, ErrorCode};
 
@@ -170,6 +173,7 @@ impl GitEngine for Libgit2Engine {
 
         let workdir = repo.workdir().map(Path::to_path_buf);
         let root = workdir.clone().unwrap_or_else(|| repo.path().to_path_buf());
+        let git_dir = repo.path().to_path_buf();
 
         let is_empty = repo
             .is_empty()
@@ -177,16 +181,42 @@ impl GitEngine for Libgit2Engine {
         let detached = repo
             .head_detached()
             .map_err(|error| map_error(&error, "head_detached"))?;
-        let head = repo
+        // 游离 HEAD 时 `head()` 会给一个名为 `HEAD` 的直接引用，
+        // 那不是分支名——与 CLI 实现（`symbolic-ref` 失败即 `None`）保持一致
+        let head = if detached {
+            None
+        } else {
+            repo.head()
+                .ok()
+                .and_then(|reference| reference.shorthand().map(str::to_owned))
+        };
+        let head_oid = repo
             .head()
             .ok()
-            .and_then(|reference| reference.shorthand().map(str::to_owned));
+            .and_then(|reference| reference.target())
+            .map(|oid| oid.to_string());
 
+        let is_bare = repo.is_bare();
         Ok(RepositoryInfo {
+            default_branch: origin_head_branch(&repo).or_else(|| head.clone()),
+            is_shallow: repo.is_shallow(),
+            is_lfs: crate::probe::detect_lfs(&git_dir, workdir.as_deref()),
+            // libgit2 的 `Repository::worktrees` 只给出**名称**（`StringArray`），
+            // 既没有路径也没有 HEAD，因此这里只报主工作区。完整列表由 CLI 侧提供
+            // （见 docs/GIT-ENGINE-DIFF.md 的差异表）。
+            worktrees: vec![Worktree {
+                path: root.clone(),
+                head: head_oid,
+                branch: head.clone(),
+                detached,
+                is_bare,
+                locked: false,
+                prunable: false,
+            }],
             id: RepoId::new(root),
             workdir,
-            git_dir: repo.path().to_path_buf(),
-            is_bare: repo.is_bare(),
+            git_dir,
+            is_bare,
             is_empty,
             head,
             detached,
@@ -724,6 +754,19 @@ impl GitEngine for Libgit2Engine {
     ) -> AppResult<forgedesk_domain::git::MergeOutcome> {
         Err(unsupported(EngineId::Libgit2, "rebase"))
     }
+}
+
+/// 远端默认分支（`refs/remotes/origin/HEAD` 指向的分支短名）。
+///
+/// 与 CLI 实现同一条规则（见 `cli::read::default_branch_of`）：
+/// `origin/HEAD` 比"当前分支"更能代表默认分支。
+fn origin_head_branch(repo: &git2::Repository) -> Option<String> {
+    let reference = repo.find_reference("refs/remotes/origin/HEAD").ok()?;
+    let target = reference.symbolic_target()?;
+    target
+        .strip_prefix("refs/remotes/origin/")
+        .map(str::to_owned)
+        .filter(|branch| !branch.is_empty())
 }
 
 /// 当前 HEAD 的树；空仓库返回 `None`。

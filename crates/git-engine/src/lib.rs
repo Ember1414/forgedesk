@@ -10,6 +10,8 @@
 //! - [`parsers`]：git 机器可读输出的解析器（porcelain v2 / numstat / log / ls-files）。
 //!   它们不做 IO，因此可以用固定样本完整覆盖边界（`tests/fixtures/`）。
 //! - [`engine`]：`GitEngine` trait 与两套实现，以及参数构造、进度解析与同步桥。
+//! - [`probe`]：对 `.git` 目录与工作区的只读文件系统探测（如"是否使用 LFS"），
+//!   用于补上 git 命令行没有便宜问法的那些事实。
 //!
 //! 谁来做哪一半由 `services` 层决定：读走 libgit2（无进程开销、可高频调用），
 //! 写走系统 git CLI（完整复刻用户环境：hooks、attributes、签名、filter）。
@@ -18,6 +20,7 @@
 
 pub mod engine;
 pub mod parsers;
+pub mod probe;
 pub mod process;
 
 /// crate 名称，用于日志与诊断中标识来源。

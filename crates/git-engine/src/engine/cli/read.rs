@@ -11,14 +11,15 @@ use std::path::Path;
 use forgedesk_domain::git::{
     Branch, Commit, DiffChangeKind, DiffReport, DiffSpec, FileDiff, FileStat, LogQuery, Page,
     ReflogEntry, Remote, RemoteKind, RepoId, RepositoryInfo, StashEntry, StatusReport, Tag,
+    Worktree,
 };
 use forgedesk_domain::{AppError, AppResult, ErrorCode};
 
 use super::args::{self, GitInvocation};
 use super::CliGitEngine;
 use crate::parsers::{
-    parse_diff_numstat, parse_log_format, parse_show_format, parse_status_porcelain_v2, LOG_FORMAT,
-    SHOW_FORMAT,
+    parse_diff_numstat, parse_log_format, parse_show_format, parse_status_porcelain_v2,
+    parse_worktree_list, LOG_FORMAT, SHOW_FORMAT,
 };
 use crate::process::GitOutput;
 
@@ -116,16 +117,94 @@ pub(super) fn discover(engine: &CliGitEngine, path: &Path) -> AppResult<Reposito
     // 游离 HEAD 与空仓库都没有分支名，区别在"有没有提交"
     let detached = head.is_none() && has_commits;
 
+    let git_dir = std::path::PathBuf::from(git_dir);
+    // 主工作区的兜底项：`git worktree list` 不可用时至少给出仓库自身
+    let fallback_worktree = Worktree {
+        path: workdir.clone().unwrap_or_else(|| git_dir.clone()),
+        head: None,
+        branch: head.clone(),
+        detached,
+        is_bare,
+        locked: false,
+        prunable: false,
+    };
+
     Ok(RepositoryInfo {
+        default_branch: default_branch_of(engine, &repo, head.as_deref()),
+        is_shallow: is_shallow_repository(engine, &repo),
+        is_lfs: crate::probe::detect_lfs(&git_dir, workdir.as_deref()),
+        worktrees: worktrees_of(engine, &repo, fallback_worktree),
         id: repo,
         workdir,
-        git_dir: std::path::PathBuf::from(git_dir),
+        git_dir,
         is_bare,
         is_empty: !has_commits,
         head,
         detached,
         upstream,
     })
+}
+
+/// 默认分支短名。
+///
+/// 优先 `refs/remotes/origin/HEAD`——它是"远端默认分支"的本地镜像，克隆时由 git
+/// 自动建立，比"当前分支"更能代表默认分支（用户此刻可能正停在某个特性分支上）。
+/// 拿不到时退回当前分支；两者都没有（游离 HEAD 且无 `origin/HEAD`）返回 `None`。
+fn default_branch_of(engine: &CliGitEngine, repo: &RepoId, head: Option<&str>) -> Option<String> {
+    let invocation = GitInvocation::new(vec![
+        "symbolic-ref".to_owned(),
+        "--short".to_owned(),
+        "refs/remotes/origin/HEAD".to_owned(),
+    ]);
+    if let Ok(output) = engine.run_at(repo.root(), invocation, super::RunKind::Read) {
+        if output.success() {
+            let name = output.stdout_lossy().trim().to_owned();
+            // `origin/main` → `main`：界面要的是分支名，不是远程跟踪引用
+            if let Some((_, branch)) = name.split_once('/') {
+                if !branch.is_empty() {
+                    return Some(branch.to_owned());
+                }
+            }
+        }
+    }
+    head.map(str::to_owned)
+}
+
+/// 是否为浅克隆。
+///
+/// `--is-shallow-repository` 在 git < 2.15 上不存在，此时命令以非零退出，
+/// 我们按"不是浅仓库"处理——低版本 git 的提示已经由版本检查单独给出，
+/// 在这里再报一次只会重复。
+fn is_shallow_repository(engine: &CliGitEngine, repo: &RepoId) -> bool {
+    let invocation = GitInvocation::new(vec![
+        "rev-parse".to_owned(),
+        "--is-shallow-repository".to_owned(),
+    ]);
+    engine
+        .run_at(repo.root(), invocation, super::RunKind::Read)
+        .map(|output| output.success() && output.stdout_lossy().trim() == "true")
+        .unwrap_or(false)
+}
+
+/// 工作区列表；命令不可用时退化为只有一个工作区。
+///
+/// 失败**不上报**：工作区列表是附加信息，拿不到它不该让"打开仓库"整体失败
+/// （`fallback` 已经能给出界面需要的最小事实）。
+fn worktrees_of(engine: &CliGitEngine, repo: &RepoId, fallback: Worktree) -> Vec<Worktree> {
+    let invocation = GitInvocation::new(vec![
+        "worktree".to_owned(),
+        "list".to_owned(),
+        "--porcelain".to_owned(),
+    ]);
+    if let Ok(output) = engine.run_at(repo.root(), invocation, super::RunKind::Read) {
+        if output.success() {
+            let worktrees = parse_worktree_list(&output.stdout);
+            if !worktrees.is_empty() {
+                return worktrees;
+            }
+        }
+    }
+    vec![fallback]
 }
 
 /// 当前分支短名；游离 HEAD 或空仓库返回 `None`。

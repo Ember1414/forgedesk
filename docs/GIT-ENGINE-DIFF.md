@@ -1,13 +1,15 @@
 # Git 引擎双实现差异报告
 
 > 本文件由 **M1 / T1.2** 产出，记录 `CliGitEngine`（系统 git CLI）与 `Libgit2Engine`
-> （libgit2）在**同一份仓库**上的语义差异。
+> （libgit2）在**同一份仓库**上的语义差异。**M1 / T1.3** 追加了 `discover` 相关的
+> 能力差异（见 §4）。
 >
 > 它存在的理由：两个引擎同时存在于产品里（读走 libgit2、写走 CLI），
 > 因此"同一份状态经两条路径必须得到同一个结论"。差异不会报错，只会让界面
 > 时而显示 A、时而显示 B——那是用户无法自助排查的一类问题。
 >
-> 配套测试：`crates/git-engine/tests/differential.rs`（10 项通过、1 项 `#[ignore]`）。
+> 配套测试：`crates/git-engine/tests/differential.rs`（10 项通过、1 项 `#[ignore]`）
+> 与 `crates/git-engine/tests/discover.rs`（15 项通过）。
 
 ---
 
@@ -86,9 +88,28 @@
 | `Commit.signature` | `%G?` 的真实结果 | `Unknown` | libgit2 不做 GPG 校验 |
 | `Branch.upstream_gone` | 可判定（`[gone]`） | 恒为 `false` | libgit2 无法区分"没有上游"与"上游已删除" |
 | `Tag.message` | 附注标签有值 | 附注标签有值 | 一致（轻量标签两边都不填：`%(contents:subject)` 给的是提交标题，不是标签信息） |
+| `RepositoryInfo.worktrees`（T1.3） | 完整列表（主 + 关联工作区，含路径 / HEAD / 分支 / locked / prunable） | **只有主工作区** | `git2::Repository::worktrees` 返回的是 `StringArray`（只有工作区**名称**），既没有路径也没有 HEAD，而 `git2` 没有暴露 `git_worktree_lookup` |
 
 **给 `services` 层的约束**：需要上述字段的功能，必须走 CLI 引擎，
 或者由 CLI 引擎补一次查询；不得假设"换个引擎也有这些值"。
+
+### 4.1 `discover` 为什么走 CLI
+
+`RepositoryInfo.worktrees` 的能力缺口（上表最后一行）意味着**用 libgit2 做
+`discover` 会让关联工作区永远不显示**。因此 `services::repository` 的
+`discover` / `open` 走 **CLI 引擎**，理由有三条：
+
+1. 打开仓库是**一次性的、用户发起**的探测，不是高频调用——libgit2"省一次进程"
+   的优势在这里几乎不存在（`status` / `diff` / `log` 仍然走 libgit2）；
+2. 同一次"打开"还要做**仓库配置审计**（`git config --local --list`）与
+   **git 版本检查**（`git --version`），两者都只有 CLI 侧能做，
+   合并成一次 CLI 探测比"libgit2 查一半 + CLI 查一半"更少往返；
+3. `git worktree list --porcelain` 与 `git rev-parse --is-shallow-repository`
+   是 git 的稳定机器可读接口，解析器已有穷举测试（`parsers::worktree`）。
+
+`Libgit2Engine::discover` 仍然实现（trait 要求），并填充它能填的字段
+（`is_shallow` / `is_lfs` / `default_branch` / 主工作区），差异由
+`tests/discover.rs::libgit2_reports_only_the_main_worktree` 钉住。
 
 ---
 
