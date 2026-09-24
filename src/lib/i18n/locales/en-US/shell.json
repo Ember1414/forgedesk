@@ -199,5 +199,63 @@
       "languageLabel": "Language",
       "languageHint": "Text updates immediately (M0 already covers the shell and skeleton pages)."
     }
+  },
+  "workspace": {
+    "listLabel": "Changed files",
+    "refresh": "Refresh",
+    "view": {
+      "label": "View",
+      "tree": "Tree",
+      "flat": "Flat list"
+    },
+    "groups": {
+      "conflicted": "Conflicts",
+      "staged": "Staged",
+      "unstaged": "Unstaged",
+      "untracked": "Untracked"
+    },
+    "toolbar": {
+      "selectAll": "Select all",
+      "clear": "Clear",
+      "stage": "Stage",
+      "unstage": "Unstage",
+      "discard": "Discard",
+      "includeIgnored": "Show ignored files",
+      "includeIgnoredOn": "Hide ignored files"
+    },
+    "actions": {
+      "stage": "Stage",
+      "unstage": "Unstage",
+      "discard": "Discard changes",
+      "openEditor": "Open in editor (available in M5)",
+      "reveal": "Reveal in file manager",
+      "copyPath": "Copy path"
+    },
+    "clean": {
+      "title": "Working tree is clean",
+      "hint": "No uncommitted changes; edit files or pull and they will show up here."
+    },
+    "error": {
+      "title": "Could not read the working tree status",
+      "hint": "The repository may be unreachable. Retry, or reopen the repository."
+    },
+    "operationBanner": "A {{operation}} operation is in progress",
+    "goToConflicts": "Go to conflicts",
+    "discard": {
+      "title": "Discard these changes?",
+      "description": "The following changes will be lost and cannot be restored by this app:",
+      "confirm": "Discard"
+    },
+    "status": {
+      "added": "Added",
+      "modified": "Modified",
+      "deleted": "Deleted",
+      "renamed": "Renamed",
+      "copied": "Copied",
+      "typeChanged": "Type change",
+      "conflict": "Conflict",
+      "untracked": "Untracked",
+      "unknown": "Unknown"
+    }
   }
 }

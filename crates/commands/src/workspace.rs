@@ -282,6 +282,16 @@ pub fn workspace_discard(
     Ok(())
 }
 
+/// 在系统文件管理器中显示文件（打开其所在目录）。能力等级：ReadOnly。
+/// 状态面板行内操作里唯一需要新命令的一项；编辑器打开属于 M5。
+#[tauri::command]
+pub fn workspace_reveal(state: State<'_, AppState>, repo_id: i64, path: String) -> AppResult<()> {
+    let workdir = state.workspace_service().resolve_workdir(repo_id)?;
+    let target = workdir.join(&path);
+    let parent = target.parent().unwrap_or(workdir.as_path());
+    forgedesk_platform::shell::open_in_file_manager(parent)
+}
+
 // ---------------------------------------------------------------- 测试
 
 #[cfg(test)]

@@ -199,5 +199,63 @@
       "languageLabel": "语言",
       "languageHint": "切换后界面文案立即更新（M0 已覆盖外壳与骨架页面）。"
     }
+  },
+  "workspace": {
+    "listLabel": "变更文件列表",
+    "refresh": "刷新",
+    "view": {
+      "label": "视图",
+      "tree": "目录树",
+      "flat": "扁平列表"
+    },
+    "groups": {
+      "conflicted": "冲突",
+      "staged": "已暂存",
+      "unstaged": "未暂存",
+      "untracked": "未跟踪"
+    },
+    "toolbar": {
+      "selectAll": "全选",
+      "clear": "取消全选",
+      "stage": "暂存",
+      "unstage": "取消暂存",
+      "discard": "放弃",
+      "includeIgnored": "显示被忽略文件",
+      "includeIgnoredOn": "隐藏被忽略文件"
+    },
+    "actions": {
+      "stage": "暂存",
+      "unstage": "取消暂存",
+      "discard": "放弃修改",
+      "openEditor": "在编辑器打开（M5 可用）",
+      "reveal": "在文件管理器显示",
+      "copyPath": "复制路径"
+    },
+    "clean": {
+      "title": "工作区是干净的",
+      "hint": "没有未提交的修改；修改文件或拉取后，这里会显示变更。"
+    },
+    "error": {
+      "title": "读取工作区状态失败",
+      "hint": "仓库可能不可访问；可以重试，或重新打开仓库。"
+    },
+    "operationBanner": "仓库正在进行 {{operation}} 操作",
+    "goToConflicts": "前往冲突页",
+    "discard": {
+      "title": "放弃这些修改？",
+      "description": "以下修改将丢失，且无法通过本应用恢复：",
+      "confirm": "放弃"
+    },
+    "status": {
+      "added": "新增",
+      "modified": "修改",
+      "deleted": "删除",
+      "renamed": "重命名",
+      "copied": "复制",
+      "typeChanged": "类型变更",
+      "conflict": "冲突",
+      "untracked": "未跟踪",
+      "unknown": "未知"
+    }
   }
 }

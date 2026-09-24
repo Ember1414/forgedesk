@@ -77,6 +77,11 @@ interface FixAction {
 | [`job_cancel`](#job_cancel) | ReadOnly | T1.3 | 取消一个正在运行的长任务 |
 | [`debug_throw_error`](#debug_throw_error) | ReadOnly | T0.6 | 触发受控失败，用于验证错误链路（**仅开发构建注册**） |
 | [`debug_panic`](#debug_panic) | ReadOnly | T0.8 | 触发真实 panic，用于验证崩溃留档（**仅开发构建注册**） |
+| [`workspace_status`](#workspace_status) | ReadOnly | T1.4 | 读取工作区状态（分组、分支头、操作状态） |
+| [`workspace_stage`](#workspace_stage--workspace_unstage--workspace_discard--workspace_reveal) | Mutating | T1.4 | 暂存路径（成功后发布 repo:changed） |
+| [`workspace_unstage`](#workspace_stage--workspace_unstage--workspace_discard--workspace_reveal) | Mutating | T1.4 | 取消暂存路径 |
+| [`workspace_discard`](#workspace_stage--workspace_unstage--workspace_discard--workspace_reveal) | Mutating | T1.4 | 放弃工作区修改（前端必须先确认；快照 M3 接入） |
+| [`workspace_reveal`](#workspace_stage--workspace_unstage--workspace_discard--workspace_reveal) | ReadOnly | T1.4 | 在系统文件管理器中显示文件 |
 
 ---
 
@@ -459,6 +464,15 @@ Toast → 动作按钮）是基础设施，它坏掉时不会有任何业务功�
 
 ## 3. 事件登记表
 
+（已落地的事件见下表；`repo:changed`于 T1.4 引入。）
+
+| 事件 | 载荷 | 用途 | 任务 | 状态 |
+| --- | --- | --- | --- | --- |
+| [epo:changed](#3-事件登记表) | { repoId: number, paths: string[] } | 仓库数据已变化（操作成功或文件监听触发），状态面板失效重取 | T1.4 | ✅ 已实现 |
+
+### 计划中的事件（未实现）
+
+
 前端通过 `listen('<event>')` 订阅（封装在 `src/lib/ipc/`，组件不直接 import `@tauri-apps/api/event`）。
 
 **命名约定**：`<域>:<动作>`，全小写、冒号分隔、用连字符连接多词（`git:state-changed`）。
@@ -498,6 +512,24 @@ Toast → 动作按钮）是基础设施，它坏掉时不会有任何业务功�
 > 上面这张表是 M1 起的契约；每落地一个就在 `状态` 列改为 ✅ 并补上对应实现位置。
 
 ---
+
+### workspace_status
+
+读取工作区状态（按面板分组预拆分：staged / unstaged / untracked / conflicted / ignored）。
+
+- **能力等级**：ReadOnly
+- **参数**：`repoId: number`（存储层记录 id）、`includeIgnored?: boolean`（默认 false）
+- **返回**：`StatusReportDto`（branch / operation / 五个分组 / ignoredCount）
+- **错误**：`NOT_FOUND`（记录不存在）、`STORAGE`（git 失败）
+- **前端封装**：`workspaceStatus(repoId, includeIgnored?)`
+
+### workspace_stage / workspace_unstage / workspace_discard / workspace_reveal
+
+- **能力等级**：stage / unstage / discard = `Mutating`；reveal = `ReadOnly`
+- **参数**：`repoId`；stage/unstage 传 `paths: string[]`；discard 传 `tracked: string[]` 与 `untracked: string[]`（语义不同：前者 git 可恢复，后者磁盘删除）；reveal 传 `path`
+- **返回**：`null`；成功后发布 `repo:changed` 事件（payload `{ repoId, paths }`）
+- **错误**：`NOT_FOUND`、`VALIDATION`（空 discard）、`GIT_CONFLICT`（冲突路径不可放弃，M3 处理）
+- **前端封装**：`workspaceStage / workspaceUnstage / workspaceDiscard / workspaceReveal`；调用点：`src/features/workspace/WorkspaceStatusPage.tsx`
 
 ## 4. 新增命令的检查清单
 

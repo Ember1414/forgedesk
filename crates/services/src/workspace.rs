@@ -55,7 +55,7 @@ impl WorkspaceService<'_> {
     }
 
     /// 解析记录 id 为工作区路径；记录不存在时返回 `NOT_FOUND`。
-    fn resolve(&self, repo_id: i64) -> AppResult<PathBuf> {
+    pub fn resolve_workdir(&self, repo_id: i64) -> AppResult<PathBuf> {
         let record = self.store.find_by_id(repo_id)?.ok_or(
             AppError::new(ErrorCode::NotFound, "the repository record does not exist")
                 .with_detail(format!("repo_id: {repo_id}")),
@@ -68,7 +68,7 @@ impl WorkspaceService<'_> {
     /// 读路径走 libgit2（无进程开销，状态面板会高频刷新）；
     /// `include_ignored` 的成本说明见 [`StatusQuery`]。
     pub fn status(&self, repo_id: i64, include_ignored: bool) -> AppResult<StatusReport> {
-        let workdir = self.resolve(repo_id)?;
+        let workdir = self.resolve_workdir(repo_id)?;
         let repo = RepoId::new(workdir);
         self.engines
             .read()
@@ -121,7 +121,7 @@ fn mutate<F>(service: &WorkspaceService<'_>, repo_id: i64, operation: F) -> AppR
 where
     F: FnOnce(&RepoId, &GitEngines) -> AppResult<()>,
 {
-    let workdir = service.resolve(repo_id)?;
+    let workdir = service.resolve_workdir(repo_id)?;
     let repo = RepoId::new(workdir);
     operation(&repo, service.engines)
 }
