@@ -3,6 +3,7 @@
 //! 这些是"应用第一次真正操作用户仓库"的测试：
 //! 引擎层的解析测试保证字节级正确，这里的测试保证**用例语义**正确
 //! （分组、计数、暂存往返、放弃后磁盘的真实状态）。
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use std::path::Path;
 
