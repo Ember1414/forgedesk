@@ -27,9 +27,12 @@
 //! 伪造一个指向无关命令的按钮，用户点下去只会得到第二个错误——比没有按钮更糟。
 //! 因此 `detail`（原始输出）与 `hint`（钩子名清单）给全数据，动作由前端实现。
 
-use forgedesk_domain::git::{CommitPlan, PlannedFile, SignMode, Signature, COMMIT_PLAN_TTL_MS};
+use forgedesk_domain::git::{
+    AmendMode, CommitPlan, PlannedFile, SignMode, Signature, COMMIT_PLAN_TTL_MS,
+};
 use forgedesk_domain::{AppError, AppResult, ErrorCode};
-use forgedesk_services::{CommitOutcome, MessageHint, PrepareRequest};
+use forgedesk_git_engine::probe::HookEntry;
+use forgedesk_services::{AmendContext, CommitOutcome, MessageHint, PrepareRequest};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, State};
 
@@ -69,6 +72,13 @@ pub struct PrepareCommitRequest {
     /// 是否 amend 上一个提交。
     #[serde(default)]
     pub amend: bool,
+    /// amend 的语义：`includeStaged`（缺省）/ `messageOnly`。
+    ///
+    /// 缺省取 `includeStaged`（= `git commit --amend` 的默认行为），
+    /// 因为那才是"把改动补进上一个提交"的常见意图；`messageOnly` 需要用户
+    /// 在界面上明确选择。
+    #[serde(default)]
+    pub amend_mode: Option<String>,
     /// 是否追加 `Signed-off-by`。
     #[serde(default)]
     pub sign_off: bool,
@@ -114,10 +124,19 @@ impl PrepareCommitRequest {
             Some(identity) => Some(identity.into_domain()?),
         };
 
+        let amend_mode = match self.amend_mode.as_deref() {
+            None => AmendMode::default(),
+            // 与签名模式同一条纪律：未知取值报错，不静默降级。
+            // "我以为只改了信息、结果并进去三个文件"是不能接受的后果。
+            Some(key) => AmendMode::from_key(key)
+                .ok_or_else(|| validation("unknown amend mode", "amend_mode"))?,
+        };
+
         Ok(PrepareRequest {
             subject: self.message,
             description: self.description,
             amend: self.amend,
+            amend_mode,
             sign_off: self.sign_off,
             no_verify: self.no_verify,
             sign,
@@ -198,6 +217,10 @@ pub struct CommitPlanDto {
     pub no_verify: bool,
     /// 是否 amend。
     pub amend: bool,
+    /// amend 的语义（`includeStaged` / `messageOnly`）。
+    pub amend_mode: String,
+    /// HEAD 是否（可能）已在某个远程跟踪分支上；为真时界面要提示改写历史的后果。
+    pub head_pushed: bool,
     /// 将要执行的钩子名（按 git 的调用顺序）。
     pub hooks: Vec<String>,
     /// 等价的 git 命令（可复制到终端）。
@@ -234,6 +257,8 @@ impl CommitPlanDto {
             sign_off: plan.sign_off,
             no_verify: plan.no_verify,
             amend: plan.amend,
+            amend_mode: plan.amend_mode.key().to_owned(),
+            head_pushed: plan.head_pushed,
             hooks: plan.hooks.clone(),
             equivalent_command: plan.equivalent_command.clone(),
             head_oid: plan.head_oid.clone(),
@@ -298,6 +323,56 @@ impl MessageHintDto {
             recent_messages: hint.recent_messages.clone(),
             template: hint.template.clone(),
             branch_style: hint.branch_style.clone(),
+        }
+    }
+}
+
+/// amend 语境：上一次提交的信息 + 它是否（可能）已在远端（T1.8）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AmendContextDto {
+    /// 上一次提交的首行（空仓库为 `null`）。
+    pub subject: Option<String>,
+    /// 上一次提交的正文。
+    pub body: Option<String>,
+    /// 上一次提交的 oid。
+    pub head_oid: Option<String>,
+    /// 是否**可能**已被推送（依据是本地远程跟踪分支，可能过期）。
+    pub pushed: bool,
+    /// 命中的远程跟踪分支短名（如 `origin/main`）。
+    pub pushed_refs: Vec<String>,
+}
+
+impl AmendContextDto {
+    fn from_domain(context: &AmendContext) -> Self {
+        Self {
+            subject: context.subject.clone(),
+            body: context.body.clone(),
+            head_oid: context.head_oid.clone(),
+            pushed: context.pushed,
+            pushed_refs: context.pushed_refs.clone(),
+        }
+    }
+}
+
+/// 钩子目录里的一项（T1.8 的 hooks 状态查看）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HookEntryDto {
+    /// 钩子名（文件名，如 `pre-commit`）。
+    pub name: String,
+    /// git 是否会执行它（Unix 看执行位，Windows 看是否存在）。
+    pub executable: bool,
+    /// 是否属于提交时会调用的三类之一。
+    pub commit_hook: bool,
+}
+
+impl HookEntryDto {
+    fn from_domain(entry: &HookEntry) -> Self {
+        Self {
+            name: entry.name.clone(),
+            executable: entry.executable,
+            commit_hook: entry.commit_hook,
         }
     }
 }
@@ -372,6 +447,37 @@ pub fn commit_message_hint(state: State<'_, AppState>, repo_id: i64) -> AppResul
         .map(|hint| MessageHintDto::from_domain(&hint))
 }
 
+/// amend 之前需要的上下文。能力等级：`ReadOnly`。
+///
+/// 空仓库返回全 `null`/`false` 而不是错误：那是正常状态，界面据此关掉 amend 开关。
+#[tauri::command]
+pub fn commit_amend_context(
+    state: State<'_, AppState>,
+    repo_id: i64,
+) -> AppResult<AmendContextDto> {
+    if repo_id <= 0 {
+        return Err(validation("repoId must be a positive record id", "repo_id"));
+    }
+
+    state
+        .commit_service()
+        .amend_context(repo_id)
+        .map(|context| AmendContextDto::from_domain(&context))
+}
+
+/// 仓库的钩子清单（仅展示，不编辑）。能力等级：`ReadOnly`。
+#[tauri::command]
+pub fn commit_hooks_list(state: State<'_, AppState>, repo_id: i64) -> AppResult<Vec<HookEntryDto>> {
+    if repo_id <= 0 {
+        return Err(validation("repoId must be a positive record id", "repo_id"));
+    }
+
+    state
+        .commit_service()
+        .hooks(repo_id)
+        .map(|hooks| hooks.iter().map(HookEntryDto::from_domain).collect())
+}
+
 // ---------------------------------------------------------------- 内部
 
 /// 参数校验失败。
@@ -400,7 +506,7 @@ fn is_plausible_email(value: &str) -> bool {
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
     use super::{is_plausible_email, PrepareCommitRequest};
-    use forgedesk_domain::git::SignMode;
+    use forgedesk_domain::git::{AmendMode, SignMode};
     use forgedesk_domain::ErrorCode;
 
     fn request() -> PrepareCommitRequest {
@@ -408,11 +514,44 @@ mod tests {
             message: "feat: something".to_owned(),
             description: None,
             amend: false,
+            amend_mode: None,
             sign_off: false,
             no_verify: false,
             sign: None,
             author: None,
         }
+    }
+
+    #[test]
+    fn the_default_amend_mode_matches_git_and_unknown_modes_are_rejected() {
+        let parsed = request().into_domain().unwrap();
+        assert_eq!(
+            parsed.amend_mode,
+            AmendMode::IncludeStaged,
+            "缺省跟随 git 自己的行为（把索引并进去）"
+        );
+
+        let message_only = PrepareCommitRequest {
+            amend: true,
+            amend_mode: Some("messageOnly".to_owned()),
+            ..request()
+        };
+        assert_eq!(
+            message_only.into_domain().unwrap().amend_mode,
+            AmendMode::MessageOnly
+        );
+
+        let broken = PrepareCommitRequest {
+            amend_mode: Some("partial".to_owned()),
+            ..request()
+        };
+        assert_eq!(
+            broken
+                .into_domain()
+                .expect_err("未知 amend 模式必须被拒绝")
+                .code,
+            ErrorCode::Validation
+        );
     }
 
     #[test]

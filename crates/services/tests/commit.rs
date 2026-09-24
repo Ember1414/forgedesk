@@ -14,10 +14,11 @@
 //! 不是错误码，而是"报错的同时已经写了一半"。
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
+use std::path::Path;
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::Arc;
 
-use forgedesk_domain::git::{RepoId, SignMode, Signature};
+use forgedesk_domain::git::{AmendMode, RepoId, SignMode, Signature};
 use forgedesk_domain::ErrorCode;
 use forgedesk_git_engine::engine::GitEngine;
 use forgedesk_services::{
@@ -120,6 +121,28 @@ impl Fixture {
         git_ok(self.dir.path(), &["add", "--", FILE]);
     }
 
+    /// HEAD 的 oid。
+    fn head_oid(&self) -> String {
+        stdout(self.dir.path(), &["rev-parse", "HEAD"])
+    }
+
+    /// HEAD 的树 oid —— "提交内容"的规范摘要。
+    fn head_tree(&self) -> String {
+        stdout(self.dir.path(), &["rev-parse", "HEAD^{tree}"])
+    }
+
+    /// 索引里相对 HEAD 的变更文件。
+    ///
+    /// 刻意用 git 命令而不是产品代码读：断言"产品说它做了什么"与
+    /// "git 说发生了什么"是两件事，测试要的是后者。
+    fn staged_files(&self) -> Vec<String> {
+        stdout(self.dir.path(), &["diff", "--cached", "--name-only"])
+            .lines()
+            .map(str::to_owned)
+            .filter(|line| !line.is_empty())
+            .collect()
+    }
+
     fn operations(&self) -> Vec<forgedesk_storage::OperationRecord> {
         OperationStore::new(&self.database)
             .recent(self.repo_id, 10)
@@ -139,6 +162,7 @@ fn request(subject: &str) -> PrepareRequest {
         subject: subject.to_owned(),
         description: None,
         amend: false,
+        amend_mode: AmendMode::default(),
         sign_off: false,
         no_verify: false,
         sign: SignMode::Auto,
@@ -480,6 +504,155 @@ fn amend_changes_only_the_message_when_nothing_new_is_staged() {
         "等价命令要带上 --amend：{}",
         plan.equivalent_command
     );
+}
+
+// ---------------------------------------------------------------- amend（T1.8）
+
+/// 执行一条 git 命令并取回 trim 后的 stdout（断言成功）。
+fn stdout(dir: &Path, command: &[&str]) -> String {
+    String::from_utf8_lossy(&git(dir, command).stdout)
+        .trim()
+        .to_owned()
+}
+
+/// 建一个裸远端并把 HEAD 推上去（造出"已推送"的场景）。
+///
+/// 返回的 `TempDir` 必须活到测试结束：它 `Drop` 时会删掉远端目录。
+fn push_to_bare_remote(fixture: &Fixture) -> TempDir {
+    let remote = TempDir::new("bare-origin");
+    git_ok(remote.path(), &["init", "--bare", "-q", "-b", "main"]);
+    let url = remote.path().to_string_lossy().into_owned();
+    git_ok(fixture.dir.path(), &["remote", "add", "origin", &url]);
+    git_ok(
+        fixture.dir.path(),
+        &["push", "-q", "-u", "origin", "HEAD:main"],
+    );
+    remote
+}
+
+#[test]
+fn amending_with_message_only_keeps_the_staged_content_out_of_the_commit() {
+    let fixture = Fixture::new("amend-message-only");
+    fixture.stage_change(b"changed\n");
+    let head_before = fixture.head_oid();
+    let tree_before = fixture.head_tree();
+
+    let spec = PrepareRequest {
+        amend: true,
+        amend_mode: AmendMode::MessageOnly,
+        ..request("fix: typo in the message")
+    };
+    let plan = fixture
+        .service()
+        .prepare(fixture.repo_id, &spec)
+        .expect("准备计划失败");
+    assert_eq!(
+        plan.files.len(),
+        1,
+        "预览仍要如实列出索引里的内容（只是这次不会提交它）"
+    );
+
+    let outcome = fixture.service().execute(&plan.plan_id).expect("执行失败");
+
+    assert_eq!(fixture.commit_count(), 1, "amend 不增加提交数");
+    assert_ne!(outcome.oid, head_before, "提交被替换，oid 必须变化");
+    assert_eq!(
+        fixture.head_tree(),
+        tree_before,
+        "只改信息时提交内容必须一模一样"
+    );
+    assert_eq!(fixture.head_subject(), "fix: typo in the message");
+    assert_eq!(
+        fixture.staged_files(),
+        vec![FILE.to_owned()],
+        "暂存的改动必须原样留在索引里，不能被顺手提交掉"
+    );
+}
+
+#[test]
+fn amending_with_the_staged_content_folds_it_into_the_last_commit() {
+    let fixture = Fixture::new("amend-include-staged");
+    fixture.stage_change(b"changed\n");
+    let tree_before = fixture.head_tree();
+    let head_before = fixture.head_oid();
+
+    let spec = PrepareRequest {
+        amend: true,
+        amend_mode: AmendMode::IncludeStaged,
+        ..request("feat: more of the same")
+    };
+    let plan = fixture
+        .service()
+        .prepare(fixture.repo_id, &spec)
+        .expect("准备计划失败");
+    let outcome = fixture.service().execute(&plan.plan_id).expect("执行失败");
+
+    assert_eq!(fixture.commit_count(), 1, "amend 不增加提交数");
+    assert_ne!(outcome.oid, head_before);
+    assert_ne!(
+        fixture.head_tree(),
+        tree_before,
+        "这条路径的提交内容必须变（改动被并进去了）"
+    );
+    assert!(
+        fixture.staged_files().is_empty(),
+        "索引内容进了提交，索引随之变干净"
+    );
+}
+
+#[test]
+fn amend_context_reports_the_last_message_and_whether_it_reached_a_remote() {
+    let fixture = Fixture::new("amend-context");
+
+    // 还没有远端：不能提示"可能已推送"（假警报会让用户对提示失去信任）
+    let before = fixture
+        .service()
+        .amend_context(fixture.repo_id)
+        .expect("读取 amend 语境失败");
+    assert_eq!(before.subject.as_deref(), Some("base"));
+    assert_eq!(
+        before.head_oid.as_deref(),
+        Some(fixture.head_oid().as_str())
+    );
+    assert!(!before.pushed, "没推过就不该说推过");
+
+    let _remote = push_to_bare_remote(&fixture);
+
+    let after = fixture
+        .service()
+        .amend_context(fixture.repo_id)
+        .expect("读取 amend 语境失败");
+    assert!(after.pushed, "推过之后必须提示改写历史的后果");
+    assert_eq!(after.pushed_refs, vec!["origin/main".to_owned()]);
+}
+
+#[test]
+fn hooks_are_listed_from_the_effective_hooks_directory() {
+    let fixture = Fixture::new("hooks-list");
+    write(
+        fixture.dir.path(),
+        ".git/hooks/pre-commit",
+        b"#!/bin/sh\nexit 0\n",
+    );
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let path = fixture.dir.path().join(".git/hooks/pre-commit");
+        let mut permissions = std::fs::metadata(&path).expect("读权限失败").permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(&path, permissions).expect("设置权限失败");
+    }
+
+    let hooks = fixture
+        .service()
+        .hooks(fixture.repo_id)
+        .expect("读取钩子失败");
+
+    let pre_commit = hooks
+        .iter()
+        .find(|hook| hook.name == "pre-commit")
+        .expect("pre-commit 必须在清单里");
+    assert!(pre_commit.commit_hook, "它属于提交时会执行的那三类");
 }
 
 // ---------------------------------------------------------------- 提示与快照

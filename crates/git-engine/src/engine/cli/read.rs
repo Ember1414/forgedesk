@@ -585,6 +585,30 @@ fn parse_tags(input: &[u8]) -> Vec<Tag> {
     out
 }
 
+/// 包含指定提交的远程跟踪分支（短名，如 `origin/main`）。
+///
+/// 回答"改写这个提交会不会影响别人"：只要它出现在任何一个 `refs/remotes/*` 上，
+/// 本地改写就会与远端产生分歧，之后推送需要 `--force-with-lease`
+/// （见 `services::commit` 的 amend 语境说明）。
+///
+/// 调用方必须先确认该修订存在：空仓库里 `--contains=HEAD` 会让 git 解析失败，
+/// 而"没有任何远端包含一个不存在的提交"虽然听起来是空集，语义上却不对——
+/// 那不是"没推送"，那是"还没有提交"。
+pub(super) fn remote_refs_containing(
+    engine: &CliGitEngine,
+    repo: &RepoId,
+    revision: &str,
+) -> AppResult<Vec<String>> {
+    let output = run(engine, repo, args::remote_refs_containing_args(revision))?;
+    Ok(output
+        .stdout_lossy()
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(str::to_owned)
+        .collect())
+}
+
 /// 远端列表。
 pub(super) fn remote_list(engine: &CliGitEngine, repo: &RepoId) -> AppResult<Vec<Remote>> {
     let output = run(engine, repo, GitInvocation::new(args::remote_args()))?;

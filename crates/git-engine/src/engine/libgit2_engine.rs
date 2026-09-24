@@ -776,6 +776,13 @@ impl GitEngine for Libgit2Engine {
         })
     }
 
+    fn remote_refs_containing(&self, _repo: &RepoId, _revision: &str) -> AppResult<Vec<String>> {
+        // 与 commit 同族：它服务的是"这次改写会不会影响远端"这个写路径判断，
+        // 而 libgit2 侧要遍历 refs 自己做可达性计算。能力边界见
+        // docs/GIT-ENGINE-DIFF.md §4。
+        Err(unsupported(EngineId::Libgit2, "remote_refs_containing"))
+    }
+
     fn commit(
         &self,
         _repo: &RepoId,

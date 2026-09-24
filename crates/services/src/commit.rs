@@ -28,13 +28,13 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use forgedesk_diagnostics::sanitize_log;
 use forgedesk_domain::git::{
-    compose_message, equivalent_command, review_message, ChangeKind, CommitPlan, CommitSpec,
-    EntryKind, EquivalentCommandInput, LogQuery, PlannedFile, RepoId, RepoPath, SignMode,
-    Signature, StatusQuery, StatusReport, EMPTY_TREE_OID,
+    compose_message, equivalent_command, review_message, AmendMode, ChangeKind, CommitPlan,
+    CommitSpec, EntryKind, EquivalentCommandInput, LogQuery, PlannedFile, RepoId, RepoPath,
+    SignMode, Signature, StatusQuery, StatusReport, EMPTY_TREE_OID,
 };
 use forgedesk_domain::{AppError, AppResult, ErrorCode, FixAction};
 use forgedesk_git_engine::engine::GitEngine;
-use forgedesk_git_engine::probe::executable_commit_hooks;
+use forgedesk_git_engine::probe::{executable_commit_hooks, list_hooks, HookEntry};
 use forgedesk_snapshot::{SnapshotKind, SnapshotManager, SnapshotRequest};
 use forgedesk_storage::{NewOperation, OperationOutcome, OperationStore, RepositoryStore};
 
@@ -50,6 +50,8 @@ pub struct PrepareRequest {
     pub description: Option<String>,
     /// 是否 amend 上一个提交。
     pub amend: bool,
+    /// amend 的语义（T1.8）；`amend` 为假时忽略。
+    pub amend_mode: AmendMode,
     /// 是否追加 `Signed-off-by`。
     pub sign_off: bool,
     /// 是否跳过钩子。
@@ -87,6 +89,25 @@ pub struct MessageHint {
     pub template: Option<String>,
     /// 从分支名推断出的风格前缀。
     pub branch_style: Option<String>,
+}
+
+/// amend 之前需要的上下文（T1.8）。
+///
+/// 一次拿全三样东西：上一次提交的信息（用来预填表单）、它是否（可能）已在远端、
+/// 以及命中的远程分支。分成几次问会多几次 IPC 往返，而且几次之间仓库可能变化——
+/// 于是会出现"信息来自提交 A、推送状态来自提交 B"这类自相矛盾的界面。
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct AmendContext {
+    /// 上一次提交的首行（空仓库为 `None`）。
+    pub subject: Option<String>,
+    /// 上一次提交的正文。
+    pub body: Option<String>,
+    /// 上一次提交的 oid。
+    pub head_oid: Option<String>,
+    /// 是否**可能**已被推送（依据是本地的远程跟踪分支）。
+    pub pushed: bool,
+    /// 命中的远程跟踪分支短名（如 `origin/main`）。
+    pub pushed_refs: Vec<String>,
 }
 
 /// 待执行的提交计划（进程内、带有效期）。
@@ -230,6 +251,17 @@ impl<'a> CommitService<'a> {
         let index_fingerprint = reader.index_tree(&repo)?;
         let head_tree = reader.head_tree(&repo)?;
         let head_oid = self.head_oid(&repo)?;
+        // 只在 amend 时判定"是否可能已推送"：它要遍历远程引用
+        // （`for-each-ref --contains`），在远程分支多的仓库上并不便宜，
+        // 而普通提交根本不需要这个信息
+        let head_pushed = match (request.amend, head_oid.as_deref()) {
+            (true, Some(oid)) => !self
+                .engines
+                .write()
+                .remote_refs_containing(&repo, oid)?
+                .is_empty(),
+            _ => false,
+        };
 
         let hooks = self.commit_hooks(&repo)?;
         let equivalent = equivalent_command(EquivalentCommandInput {
@@ -253,6 +285,8 @@ impl<'a> CommitService<'a> {
             sign_off: request.sign_off,
             no_verify: request.no_verify,
             amend: request.amend,
+            amend_mode: request.amend_mode,
+            head_pushed,
             hooks,
             equivalent_command: equivalent,
             head_oid,
@@ -325,8 +359,10 @@ impl<'a> CommitService<'a> {
             // 路径级提交（`--only`）等到有"只提交某几个文件"的需求时再说
             paths: Vec::new(),
             amend: plan.amend,
-            // amend 时允许"索引没有变化"：用户只改信息是完全正常的用法
+            // "只改信息"的 amend 索引不变，内容当然也不变；普通的 amend 也可能
+            // 只是补一个漏掉的文件后再无改动——两种情况下"允许空"都是对的
             allow_empty: plan.amend,
+            amend_mode: plan.amend_mode,
             sign: plan.sign.as_commit_flag(),
             sign_off: plan.sign_off,
             author: plan.author.clone(),
@@ -378,6 +414,44 @@ impl<'a> CommitService<'a> {
             template: branch_style.as_ref().map(|style| format!("{style}: ")),
             branch_style,
         })
+    }
+
+    /// amend 之前需要的上下文（T1.8）。
+    ///
+    /// 空仓库返回全空的 [`AmendContext`] 而不是报错：那是**正常状态**，
+    /// 界面据此关掉 amend 开关即可，不该让用户对着一句错误发愣。
+    pub fn amend_context(&self, repo_id: i64) -> AppResult<AmendContext> {
+        let workdir = self.resolve_workdir(repo_id)?;
+        let repo = RepoId::new(workdir);
+
+        let Some(oid) = self.head_oid(&repo)? else {
+            return Ok(AmendContext::default());
+        };
+
+        let commit = self.engines.read().show(&repo, &oid)?;
+        // 判定走写引擎：它与 `commit` 同族（libgit2 侧未实现，见 GIT-ENGINE-DIFF §4）
+        let pushed_refs = self.engines.write().remote_refs_containing(&repo, &oid)?;
+
+        Ok(AmendContext {
+            subject: Some(commit.subject),
+            body: commit.body.filter(|body| !body.trim().is_empty()),
+            head_oid: Some(oid),
+            pushed: !pushed_refs.is_empty(),
+            pushed_refs,
+        })
+    }
+
+    /// 仓库里的钩子清单（仅展示，不编辑；T1.8）。
+    ///
+    /// 用引擎给的钩子目录（`core.hooksPath` 会被考虑），列**全部**钩子：
+    /// 用户来看这个列表，想知道的多半是"为什么提交被拒/很慢"，
+    /// `pre-push` 同样可能是答案。而"这次提交会执行哪些"由 plan 的 `hooks` 回答。
+    pub fn hooks(&self, repo_id: i64) -> AppResult<Vec<HookEntry>> {
+        let workdir = self.resolve_workdir(repo_id)?;
+        let repo = RepoId::new(workdir);
+        let hooks_dir = self.engines.read().hooks_dir(&repo)?;
+
+        Ok(list_hooks(&hooks_dir))
     }
 
     // ---------------------------------------------------------------- 内部

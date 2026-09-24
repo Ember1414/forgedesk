@@ -1,5 +1,5 @@
 /**
- * 提交面板（M1 / T1.7）：写信息 → 预览 → 提交。
+ * 提交面板（M1 / T1.7 + T1.8）：写信息 → 预览 → 提交。
  *
  * # 为什么按钮上要写"预览并提交"而不是"提交"
  *
@@ -7,18 +7,21 @@
  * 钩子列表摆出来，用户在预览里确认后才真正写仓库。把两步的东西说成一步，
  * 用户就不会去看那一屏——而那一屏正是"提交了什么"的唯一可信来源。
  *
+ * # amend 的两条纪律（T1.8）
+ *
+ * 1. **预填不覆盖**：勾选 amend 时只在输入还空着的情况下填入上一次的信息；
+ *    用户已经写了一半的内容不该被一次开关抹掉。
+ * 2. **语义必须选**："把暂存内容并进去"与"只改信息"是两种结果完全不同的操作
+ *    （`git commit --amend` 默认是前者），因此界面上必须让用户明确选择，
+ *    而不是替他决定。
+ *
  * # 状态归属
  *
  * 表单内容、计划、预览开关都是**组件局部状态**（只有这个页面用），不入 store；
- * 服务端状态（工作区状态、风格提示）走 TanStack Query（AGENTS.md §6：
- * Git 状态不进 Zustand）。
- *
- * # 禁用与原因
- *
- * 没有暂存内容且不是 amend 时按钮禁用，并在旁边写明原因与出口（去工作区暂存）。
- * 只禁用一个按钮而不解释，是"界面看起来坏了"的经典来源。
+ * 服务端状态（工作区状态、风格提示、amend 语境、钩子清单）走 TanStack Query
+ * （AGENTS.md §6：Git 状态不进 Zustand）。
  */
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
@@ -30,8 +33,14 @@ import { STATUS_QUERY_KEY } from '@/features/workspace/WorkspaceStatusPage';
 import { normalizeError, useAppError } from '@/lib/errors';
 import type { NormalizedError } from '@/lib/errors';
 import { isTauriRuntime } from '@/lib/ipc/client';
-import { commitExecute, commitMessageHint, commitPrepare } from '@/lib/ipc/commit';
-import type { CommitPlan, CommitSignMode } from '@/lib/ipc/commit';
+import {
+  commitAmendContext,
+  commitExecute,
+  commitHooksList,
+  commitMessageHint,
+  commitPrepare,
+} from '@/lib/ipc/commit';
+import type { AmendContext, AmendMode, CommitPlan, CommitSignMode } from '@/lib/ipc/commit';
 import { onRepoChanged, workspaceStatus } from '@/lib/ipc/workspace';
 import { pushToast } from '@/stores/toastStore';
 import { Button } from '@/ui/components/button';
@@ -40,6 +49,7 @@ import { Input } from '@/ui/components/input';
 import { SelectField } from '@/ui/components/select';
 import { Skeleton } from '@/ui/components/skeleton';
 import { Textarea } from '@/ui/components/textarea';
+import { ToggleGroup } from '@/ui/components/toggle-group';
 
 /**
  * 首行的建议长度。
@@ -52,6 +62,10 @@ const SUBJECT_RECOMMENDED_MAX_CHARS = 72;
 /** 最近提交下拉里展示的条数。 */
 const RECENT_LIMIT = 5;
 
+const AMEND_CONTEXT_QUERY_KEY = 'commit-amend';
+const HOOKS_QUERY_KEY = 'commit-hooks';
+const HINT_QUERY_KEY = 'commit-hint';
+
 export function CommitPage() {
   const { t } = useTranslation('shell');
   const params = useParams();
@@ -62,6 +76,8 @@ export function CommitPage() {
   const [subject, setSubject] = useState('');
   const [description, setDescription] = useState('');
   const [amend, setAmend] = useState(false);
+  const [amendMode, setAmendMode] = useState<AmendMode>('includeStaged');
+  const [amendContext, setAmendContext] = useState<AmendContext | null>(null);
   const [signOff, setSignOff] = useState(false);
   const [noVerify, setNoVerify] = useState(false);
   const [sign, setSign] = useState<CommitSignMode>('auto');
@@ -79,20 +95,36 @@ export function CommitPage() {
   });
 
   const hintQuery = useQuery({
-    queryKey: ['commit-hint', repoId],
+    queryKey: [HINT_QUERY_KEY, repoId],
     queryFn: () => commitMessageHint(repoId),
     enabled: Number.isFinite(repoId),
   });
 
-  // 暂存 / 提交等操作会发布 `repo:changed`：本页的"已暂存 N 个文件"与提示都要跟着变
+  // 钩子清单是"这个仓库的现状"，与提交面板同屏最有用；它很小，随页面加载即可
+  const hooksQuery = useQuery({
+    queryKey: [HOOKS_QUERY_KEY, repoId],
+    queryFn: () => commitHooksList(repoId),
+    enabled: Number.isFinite(repoId),
+  });
+
+  // 本页依赖的三份服务端状态：工作区状态、风格提示、钩子清单。
+  // 只用一处失效逻辑：提交成功后与收到 repo:changed 时走的是同一条路径
+  const invalidateRepoQueries = useCallback(() => {
+    void queryClient.invalidateQueries({ queryKey: [STATUS_QUERY_KEY, repoId] });
+    void queryClient.invalidateQueries({ queryKey: [HINT_QUERY_KEY, repoId] });
+    void queryClient.invalidateQueries({ queryKey: [HOOKS_QUERY_KEY, repoId] });
+  }, [queryClient, repoId]);
+
+  // 用户在别处（状态面板、终端）暂存或改文件后，本页的"已暂存 N 个文件"必须跟着变。
+  // 这个 effect 里只做失效（不 setState），因此不会引发额外的渲染回合。
   useEffect(() => {
     if (!isTauriRuntime() || !Number.isFinite(repoId)) return;
     let unlisten: (() => void) | undefined;
     let cancelled = false;
     void onRepoChanged((payload) => {
-      if (payload.repoId !== repoId) return;
-      void queryClient.invalidateQueries({ queryKey: [STATUS_QUERY_KEY, repoId] });
-      void queryClient.invalidateQueries({ queryKey: ['commit-hint', repoId] });
+      if (payload.repoId === repoId) {
+        invalidateRepoQueries();
+      }
     }).then((fn) => {
       if (cancelled) {
         fn();
@@ -104,15 +136,46 @@ export function CommitPage() {
       cancelled = true;
       unlisten?.();
     };
-  }, [queryClient, repoId]);
+  }, [invalidateRepoQueries, repoId]);
 
   const stagedCount = statusQuery.data ? countsOf(groupsOf(statusQuery.data)).staged : 0;
   const subjectChars = subject.trim().length;
   // amend 可以只改信息，因此"没有暂存内容"在 amend 模式下不构成阻断
   const canSubmit = subject.trim() !== '' && (stagedCount > 0 || amend);
 
+  /**
+   * 勾选 amend：取回上一次提交的信息并预填。
+   *
+   * 刻意写成"用户动作 → 一次 await → 一次填充"，而不是"effect 里监听数据到达后
+   * 改 state"：后者会让"什么时候发生"变得含糊，而且容易在数据刷新时把用户
+   * 正在输入的内容覆盖掉。
+   */
+  const toggleAmend = async (next: boolean): Promise<void> => {
+    setAmend(next);
+    if (!next) {
+      return;
+    }
+
+    try {
+      const context = await queryClient.fetchQuery({
+        queryKey: [AMEND_CONTEXT_QUERY_KEY, repoId],
+        queryFn: () => commitAmendContext(repoId),
+      });
+      setAmendContext(context);
+      // 只在空着的时候填：用户可能已经写好了新信息，开关不该抹掉它
+      if (subject.trim() === '') {
+        setSubject(context.subject ?? '');
+      }
+      if (description.trim() === '' && context.body !== null) {
+        setDescription(context.body);
+      }
+    } catch (error) {
+      show(normalizeError(error));
+    }
+  };
+
   const prepareMutation = useMutation({
-    mutationFn: () => {
+    mutationFn: (override: { readonly noVerify?: boolean } = {}) => {
       const body = description.trim();
       const name = authorName.trim();
       const email = authorEmail.trim();
@@ -120,8 +183,10 @@ export function CommitPage() {
       return commitPrepare(repoId, {
         message: subject,
         amend,
+        amendMode,
         signOff,
-        noVerify,
+        // "跳过钩子重试"走 override：setState 之后同一轮里读到的还是旧值
+        noVerify: override.noVerify ?? noVerify,
         sign,
         // exactOptionalPropertyTypes：可选字段按存在性展开，不传 undefined
         ...(body === '' ? {} : { description: body }),
@@ -151,13 +216,12 @@ export function CommitPage() {
       setSubject('');
       setDescription('');
       setAmend(false);
+      setAmendContext(null);
       setSelectedRecent(undefined);
-      void queryClient.invalidateQueries({ queryKey: [STATUS_QUERY_KEY, repoId] });
-      void queryClient.invalidateQueries({ queryKey: ['commit-hint', repoId] });
+      invalidateRepoQueries();
     },
     onError: (error) => {
-      // 失败留在对话框里而不是只弹提示：钩子拒绝的原始输出必须能被读到
-      // （T1.8 会把它结构化展示）
+      // 失败留在对话框里而不是只弹提示：钩子拒绝的原始输出必须能被读到（T1.8）
       setFailure(normalizeError(error));
     },
   });
@@ -168,10 +232,11 @@ export function CommitPage() {
     label: message,
   }));
   const template = hintQuery.data?.template ?? null;
+  const hooks = hooksQuery.data ?? [];
 
   const submit = () => {
     if (!canSubmit) return;
-    prepareMutation.mutate();
+    prepareMutation.mutate({});
   };
 
   return (
@@ -227,14 +292,55 @@ export function CommitPage() {
               {t('commit.optionsLabel')}
             </legend>
 
-            <Checkbox
-              label={t('commit.amend')}
-              checked={amend}
-              onCheckedChange={(next) => {
-                setAmend(next === true);
-              }}
-            />
-            <p className="text-11 text-fg-subtle">{t('commit.amendHint')}</p>
+            <div className="flex flex-col gap-2">
+              <Checkbox
+                label={t('commit.amend')}
+                checked={amend}
+                disabled={amendContext !== null && amendContext.headOid === null}
+                onCheckedChange={(next) => {
+                  void toggleAmend(next === true);
+                }}
+              />
+              {amendContext !== null && amendContext.headOid === null ? (
+                <p className="text-11 text-fg-subtle">{t('commit.amendEmpty')}</p>
+              ) : (
+                <p className="text-11 text-fg-subtle">{t('commit.amendHint')}</p>
+              )}
+
+              {amend && amendContext !== null && amendContext.headOid !== null ? (
+                <div className="flex flex-col gap-2 rounded-md border border-warning bg-surface p-2">
+                  {amendContext.pushed ? (
+                    <p className="text-12 text-warning">
+                      {t(
+                        amendContext.pushedRefs.length > 0
+                          ? 'commit.amendPushedWarning'
+                          : 'commit.amendPushedUnknown',
+                        { refs: amendContext.pushedRefs.join(' · ') },
+                      )}
+                    </p>
+                  ) : null}
+                  <p className="text-11 text-fg-subtle">
+                    {t('commit.amendLastMessage')}: {amendContext.subject ?? ''}
+                  </p>
+                  <ToggleGroup
+                    label={t('commit.amendModeLabel')}
+                    value={amendMode}
+                    options={[
+                      { value: 'includeStaged', label: t('commit.amendModeInclude') },
+                      { value: 'messageOnly', label: t('commit.amendModeMessageOnly') },
+                    ]}
+                    onValueChange={(next) => {
+                      setAmendMode(next as AmendMode);
+                    }}
+                  />
+                  <p className="text-11 text-fg-subtle">
+                    {amendMode === 'messageOnly'
+                      ? t('commit.amendModeMessageOnlyHint')
+                      : t('commit.amendModeIncludeHint')}
+                  </p>
+                </div>
+              ) : null}
+            </div>
 
             <Checkbox
               label={t('commit.signOff')}
@@ -331,6 +437,30 @@ export function CommitPage() {
             </Button>
           ) : null}
 
+          {/* 钩子清单：只展示不编辑（改钩子是编辑器的活，不是 Git 客户端的） */}
+          <div className="flex flex-col gap-1 rounded-lg border border-line bg-surface p-3">
+            <h3 className="text-12 font-medium text-fg-muted">{t('commit.hooksListTitle')}</h3>
+            {hooksQuery.isPending ? (
+              <Skeleton className="h-4 w-32" />
+            ) : hooks.length === 0 ? (
+              <p className="text-11 text-fg-subtle">{t('commit.hooksListEmpty')}</p>
+            ) : (
+              <ul className="flex flex-col gap-0.5">
+                {hooks.map((hook) => (
+                  <li key={hook.name} className="flex items-center gap-2 text-11">
+                    <span className="font-mono text-fg-muted">{hook.name}</span>
+                    {hook.commitHook ? (
+                      <span className="text-brand">{t('commit.hooksPlannedShort')}</span>
+                    ) : null}
+                    {!hook.executable ? (
+                      <span className="text-warning">{t('commit.hooksListNotExecutable')}</span>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
           <div className="mt-auto flex flex-col gap-1.5">
             <Button
               loading={prepareMutation.isPending}
@@ -368,6 +498,12 @@ export function CommitPage() {
           if (plan !== null) {
             executeMutation.mutate(plan.planId);
           }
+        }}
+        onSkipHooks={() => {
+          // 用户明确选择了跳过钩子：把勾选状态与事实对齐，然后重新生成计划。
+          // 重新生成（而不是直接执行）让用户再确认一次——跳过钩子是个有后果的决定。
+          setNoVerify(true);
+          prepareMutation.mutate({ noVerify: true });
         }}
       />
     </section>

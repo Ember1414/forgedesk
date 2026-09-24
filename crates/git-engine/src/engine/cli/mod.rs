@@ -240,6 +240,9 @@ impl CliGitEngine {
         let mut opts = GitRunOpts::new(cwd)
             .with_timeout(timeout)
             .with_optional_locks(kind.optional_locks());
+        if let Some(index_file) = invocation.index_file.as_ref() {
+            opts = opts.with_isolated_index(index_file);
+        }
         if let Some(stdin) = invocation.stdin {
             opts = opts.with_stdin(stdin);
         }
@@ -368,6 +371,10 @@ impl GitEngine for CliGitEngine {
 
     fn hooks_dir(&self, repo: &RepoId) -> AppResult<PathBuf> {
         read::hooks_dir(self, repo)
+    }
+
+    fn remote_refs_containing(&self, repo: &RepoId, revision: &str) -> AppResult<Vec<String>> {
+        read::remote_refs_containing(self, repo, revision)
     }
 
     fn commit(&self, repo: &RepoId, spec: CommitSpec) -> AppResult<String> {

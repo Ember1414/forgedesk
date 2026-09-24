@@ -1,11 +1,17 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { CommitPage } from '@/features/commit/CommitPage';
 import type { WorkspaceStatus } from '@/features/workspace/statusModel';
-import { commitExecute, commitMessageHint, commitPrepare } from '@/lib/ipc/commit';
+import {
+  commitAmendContext,
+  commitExecute,
+  commitHooksList,
+  commitMessageHint,
+  commitPrepare,
+} from '@/lib/ipc/commit';
 import type { CommitPlan } from '@/lib/ipc/commit';
 import { onRepoChanged, workspaceStatus } from '@/lib/ipc/workspace';
 import { createTestQueryClient } from '@/test/queryClient';
@@ -20,6 +26,8 @@ vi.mock('@/lib/ipc/commit', () => ({
   commitPrepare: vi.fn(),
   commitExecute: vi.fn(),
   commitMessageHint: vi.fn(),
+  commitAmendContext: vi.fn(),
+  commitHooksList: vi.fn(),
 }));
 vi.mock('@/lib/ipc/workspace', () => ({
   workspaceStatus: vi.fn(),
@@ -34,6 +42,8 @@ vi.mock('@/lib/ipc/client', () => ({
 const commitPrepareMock = vi.mocked(commitPrepare);
 const commitExecuteMock = vi.mocked(commitExecute);
 const commitMessageHintMock = vi.mocked(commitMessageHint);
+const commitAmendContextMock = vi.mocked(commitAmendContext);
+const commitHooksListMock = vi.mocked(commitHooksList);
 const workspaceStatusMock = vi.mocked(workspaceStatus);
 const onRepoChangedMock = vi.mocked(onRepoChanged);
 
@@ -79,6 +89,8 @@ function plan(overrides: Partial<CommitPlan> = {}): CommitPlan {
     signOff: false,
     noVerify: false,
     amend: false,
+    amendMode: 'includeStaged',
+    headPushed: false,
     hooks: ['pre-commit'],
     equivalentCommand: 'git commit -m "feat: thing"',
     headOid: 'b'.repeat(40),
@@ -118,10 +130,24 @@ beforeEach(() => {
     template: null,
     branchStyle: null,
   });
+  commitAmendContextMock.mockResolvedValue({
+    subject: 'base',
+    body: null,
+    headOid: 'b'.repeat(40),
+    pushed: false,
+    pushedRefs: [],
+  });
+  commitHooksListMock.mockResolvedValue([
+    { name: 'pre-commit', executable: true, commitHook: true },
+  ]);
   workspaceStatusMock.mockResolvedValue(statusWith([]));
 });
 
 afterEach(() => {
+  // 先卸载再复位：不 cleanup 会让上一个用例的 DOM 留在 document 里，
+  // 于是同一个文案被匹配到两次（"Found multiple elements"），
+  // 排查起来像是实现有问题，实际是测试自己没清干净
+  cleanup();
   vi.restoreAllMocks();
 });
 
@@ -146,11 +172,12 @@ describe('提交面板', () => {
 
     fireEvent.click(submit);
 
-    // 预览里展示的必须是后端给的那份计划
-    expect(await screen.findByText('确认这次提交')).toBeInTheDocument();
-    expect(screen.getByText('src/app.ts')).toBeInTheDocument();
-    expect(screen.getByText('git commit -m "feat: thing"')).toBeInTheDocument();
-    expect(screen.getByText('pre-commit')).toBeInTheDocument();
+    // 预览里展示的必须是后端给的那份计划。
+    // 断言限定在对话框内：页面右侧栏也有一份"仓库里的钩子"清单，同名文本会撞车
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText('src/app.ts')).toBeInTheDocument();
+    expect(within(dialog).getByText('git commit -m "feat: thing"')).toBeInTheDocument();
+    expect(within(dialog).getByText('pre-commit')).toBeInTheDocument();
     expect(commitPrepareMock).toHaveBeenCalledWith(
       1,
       expect.objectContaining({ message: 'feat: thing', amend: false, sign: 'auto' }),
@@ -205,8 +232,9 @@ describe('提交面板', () => {
     const dialog = await screen.findByRole('dialog');
     fireEvent.click(within(dialog).getByRole('button', { name: '提交' }));
 
-    expect(await screen.findByText('被 Git 钩子拒绝')).toBeInTheDocument();
-    // 原始输出默认折叠，但必须存在（用户展开就能看到钩子说了什么）
+    // T1.8 起钩子拒绝走结构化面板：先给"看起来是哪一类"（并标明是推断），
+    // 再把原文一字不改地摆出来
+    expect(await within(dialog).findByText(/无法从输出判断是哪个钩子失败/)).toBeInTheDocument();
     expect(within(dialog).getByText('pre-commit: nope')).toBeInTheDocument();
     expect(screen.getByLabelText('提交信息')).toHaveValue('feat: thing');
   });
@@ -256,5 +284,93 @@ describe('提交面板', () => {
     expect(await screen.findByRole('button', { name: '用「feat: 」开头' })).toBeInTheDocument();
     const hint = await screen.findByRole('combobox', { name: '最近提交' });
     expect(hint).toBeInTheDocument();
+  });
+
+  it('勾选 amend 会填入上一次信息，并在可能已推送时给出警示', async () => {
+    commitAmendContextMock.mockResolvedValue({
+      subject: 'fix: previous',
+      body: 'old body',
+      headOid: 'b'.repeat(40),
+      pushed: true,
+      pushedRefs: ['origin/main'],
+    });
+
+    renderCommit();
+    fireEvent.click(await screen.findByRole('checkbox', { name: 'Amend 上一次提交' }));
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('提交信息')).toHaveValue('fix: previous');
+    });
+    expect(screen.getByLabelText('正文')).toHaveValue('old body');
+    // 改写已推送的历史必须说清后果，而不是只给一个开关
+    expect(await screen.findByText(/origin\/main/)).toBeInTheDocument();
+    expect(screen.getByText(/force-with-lease/)).toBeInTheDocument();
+  });
+
+  it('amend 时可以选择只改信息，并把该选择原样传给后端', async () => {
+    commitPrepareMock.mockResolvedValue(plan({ amend: true, amendMode: 'messageOnly' }));
+
+    renderCommit();
+    fireEvent.click(await screen.findByRole('checkbox', { name: 'Amend 上一次提交' }));
+    // 等 amend 语境到达：模式选择是它之后才出现的元素
+    // （不用 /base/ 这类文本匹配——插值会把一句话拆成多个文本节点）
+    await screen.findByRole('radio', { name: '只改提交信息' });
+    fireEvent.click(screen.getByRole('radio', { name: '只改提交信息' }));
+    typeSubject('fix: message only');
+    fireEvent.click(screen.getByTestId('commit-submit'));
+
+    await waitFor(() => {
+      expect(commitPrepareMock).toHaveBeenCalledWith(
+        1,
+        expect.objectContaining({ amend: true, amendMode: 'messageOnly' }),
+      );
+    });
+  });
+
+  it('钩子拒绝时展示结构化输出，并能跳过钩子重试', async () => {
+    workspaceStatusMock.mockResolvedValue(statusWith(['src/a.ts']));
+    commitPrepareMock.mockResolvedValue(plan());
+    commitExecuteMock.mockRejectedValue({
+      code: 'HOOK_REJECTED',
+      message: 'a commit hook rejected the commit',
+      detail: '  3:5  error  Unexpected console statement  no-console',
+      hint: 'pre-commit',
+      actions: [],
+      retryable: false,
+    });
+
+    renderCommit();
+    expect(await screen.findByText('已暂存 1 个文件')).toBeInTheDocument();
+    typeSubject('feat: thing');
+    fireEvent.click(screen.getByTestId('commit-submit'));
+
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.click(within(dialog).getByRole('button', { name: '提交' }));
+
+    // 推断出的阶段 + 错误计数 + 一字不改的原文
+    expect(await within(dialog).findByText(/看起来是代码检查/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/1 行错误/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/Unexpected console statement/)).toBeInTheDocument();
+
+    fireEvent.click(within(dialog).getByRole('button', { name: '跳过钩子重试' }));
+    await waitFor(() => {
+      expect(commitPrepareMock).toHaveBeenCalledWith(
+        1,
+        expect.objectContaining({ noVerify: true }),
+      );
+    });
+  });
+
+  it('列出仓库里的钩子，并对不会执行的如实标注', async () => {
+    commitHooksListMock.mockResolvedValue([
+      { name: 'pre-commit', executable: true, commitHook: true },
+      { name: 'pre-push', executable: false, commitHook: false },
+    ]);
+
+    renderCommit();
+
+    expect(await screen.findByText('pre-commit')).toBeInTheDocument();
+    expect(screen.getByText('pre-push')).toBeInTheDocument();
+    expect(screen.getByText('缺少执行位，git 会忽略它')).toBeInTheDocument();
   });
 });

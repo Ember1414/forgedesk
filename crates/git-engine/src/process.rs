@@ -101,6 +101,19 @@ pub struct GitRunOpts {
     pub cwd: PathBuf,
     /// 额外环境变量。固定项（[`FIXED_ENV`]）与剔除名单优先级更高，见模块头。
     pub env: Vec<(String, String)>,
+    /// 显式指定的索引文件（`GIT_INDEX_FILE`）。
+    ///
+    /// **这是设置该变量的唯一入口**。默认情况下它会被
+    /// [`INHERITED_ENV_DENYLIST`] 剔除，因为父进程泄漏的索引路径会让 git 去操作
+    /// 另一个索引，且完全不报错。但有两类场景需要**刻意**换一个索引：
+    ///
+    /// - `amend` 的"只改提交信息"：临时索引读成 HEAD 的树，否则会把暂存内容一起提交；
+    /// - 快照恢复（T1.9）：把索引读回快照记录的那棵树。
+    ///
+    /// 两者的共同点是"绝不能碰用户真实索引"。因此剔除与显式设置被分成两件事：
+    /// 前者防的是泄漏，后者是调用方明确表达意图（并且由 `with_isolated_index`
+    /// 在命名上再提醒一次：它给出的路径必须是**隔离**的）。
+    pub index_file: Option<PathBuf>,
     /// 超时。
     pub timeout: Duration,
     /// 取消令牌。触发后子进程会被杀掉。
@@ -125,6 +138,7 @@ impl GitRunOpts {
         Self {
             cwd: cwd.into(),
             env: Vec::new(),
+            index_file: None,
             timeout: DEFAULT_TIMEOUT,
             cancel: None,
             stdin: None,
@@ -137,6 +151,16 @@ impl GitRunOpts {
     #[must_use]
     pub fn with_env(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
         self.env.push((key.into(), value.into()));
+        self
+    }
+
+    /// 用另一个索引文件执行（**不要**传用户真实索引的路径）。
+    ///
+    /// 见 [`GitRunOpts::index_file`]：这是设置 `GIT_INDEX_FILE` 的唯一入口，
+    /// 供"只改提交信息"与快照恢复这类"刻意不碰用户索引"的场景使用。
+    #[must_use]
+    pub fn with_isolated_index(mut self, index_file: impl Into<PathBuf>) -> Self {
+        self.index_file = Some(index_file.into());
         self
     }
 
@@ -360,6 +384,11 @@ fn apply_environment(command: &mut Command, opts: &GitRunOpts) {
     }
     for key in INHERITED_ENV_DENYLIST {
         command.env_remove(key);
+    }
+    // 显式索引放在剔除**之后**，顺序即语义：剔除防的是父进程泄漏，
+    // 而这个值是调用方刻意给出的（见 `GitRunOpts::index_file`）。
+    if let Some(index_file) = &opts.index_file {
+        command.env("GIT_INDEX_FILE", index_file);
     }
     for (key, value) in FIXED_ENV {
         command.env(key, value);
@@ -606,8 +635,43 @@ fn cancelled_error(program: &Path, args: &[String], duration: Duration) -> AppEr
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
     use super::{
-        emit_lines, sanitized_snippet, FIXED_ENV, INHERITED_ENV_DENYLIST, LOG_SNIPPET_LIMIT,
+        apply_environment, emit_lines, sanitized_snippet, GitRunOpts, FIXED_ENV,
+        INHERITED_ENV_DENYLIST, LOG_SNIPPET_LIMIT,
     };
+
+    /// 读出命令上记录的 `GIT_INDEX_FILE` 状态（`None` 表示被移除）。
+    fn index_file_of(command: &tokio::process::Command) -> Option<Option<String>> {
+        command
+            .as_std()
+            .get_envs()
+            .find(|(key, _)| *key == "GIT_INDEX_FILE")
+            .map(|(_, value)| value.map(|value| value.to_string_lossy().into_owned()))
+    }
+
+    #[test]
+    fn an_inherited_index_file_is_dropped_while_an_explicit_one_is_kept() {
+        // 默认：必须被移除。父进程（IDE、终端、别的 git 包装）泄漏的索引路径
+        // 会让 git 去操作另一个索引，而且完全不报错——这是本模块最想避免的故障。
+        let mut plain = tokio::process::Command::new("git");
+        apply_environment(&mut plain, &GitRunOpts::new("."));
+        assert_eq!(
+            index_file_of(&plain),
+            Some(None),
+            "继承来的 GIT_INDEX_FILE 必须被剔除"
+        );
+
+        // 显式：必须生效。顺序（先剔除、后设置）就是这条规则的实现。
+        let mut isolated = tokio::process::Command::new("git");
+        apply_environment(
+            &mut isolated,
+            &GitRunOpts::new(".").with_isolated_index("/tmp/forgedesk-index"),
+        );
+        assert_eq!(
+            index_file_of(&isolated),
+            Some(Some("/tmp/forgedesk-index".to_owned())),
+            "调用方显式给出的隔离索引必须生效"
+        );
+    }
 
     #[test]
     fn fixed_environment_cannot_be_overridden_by_callers() {

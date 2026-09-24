@@ -89,6 +89,7 @@
 | `Branch.upstream_gone` | 可判定（`[gone]`） | 恒为 `false` | libgit2 无法区分"没有上游"与"上游已删除" |
 | `Tag.message` | 附注标签有值 | 附注标签有值 | 一致（轻量标签两边都不填：`%(contents:subject)` 给的是提交标题，不是标签信息） |
 | `RepositoryInfo.worktrees`（T1.3） | 完整列表（主 + 关联工作区，含路径 / HEAD / 分支 / locked / prunable） | **只有主工作区** | `git2::Repository::worktrees` 返回的是 `StringArray`（只有工作区**名称**），既没有路径也没有 HEAD，而 `git2` 没有暴露 `git_worktree_lookup` |
+| `remote_refs_containing`（T1.8） | 已实现（`for-each-ref --contains HEAD refs/remotes`） | 返回 `UNSUPPORTED_BY_ENGINE` | 与 `commit` 同族：它服务的是"这次改写会不会影响远端"这个**写路径**判断，而 libgit2 侧要自己遍历 refs 做可达性计算（还要单独处理"相等"这一 libgit2 API 不覆盖的边界），收益不抵两套实现之间产生分歧的风险 |
 
 **给 `services` 层的约束**：需要上述字段的功能，必须走 CLI 引擎，
 或者由 CLI 引擎补一次查询；不得假设"换个引擎也有这些值"。

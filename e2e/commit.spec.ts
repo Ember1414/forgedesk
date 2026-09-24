@@ -21,8 +21,8 @@ interface MockFile {
   readonly indexStatus: string;
 }
 
-/** 生成 mock 脚本；`files` 决定起始的索引状态。 */
-function mockScript(files: readonly MockFile[]): string {
+/** 生成 mock 脚本；`files` 决定起始的索引状态，`headPushed` 决定是否"已在远端"。 */
+function mockScript(files: readonly MockFile[], headPushed = false): string {
   const entries = files.map((file) => ({
     kind: 'ordinary',
     worktreeStatus: '.',
@@ -35,9 +35,14 @@ function mockScript(files: readonly MockFile[]): string {
 
   return `
   const files = ${JSON.stringify(entries)};
+  // 提交历史只保留 HEAD 一条：amend 的断言要的是"提交数不变、oid 变化"
+  const commits = [{ oid: "old-oid-0000", subject: "base" }];
+  const headPushed = ${headPushed ? 'true' : 'false'};
   const listeners = [];
   window.__errs = [];
   window.__commitCalls = [];
+  window.__mockFiles = files;
+  window.__mockCommits = commits;
   function emit(name, payload) {
     for (const listener of listeners) listener({ event: name, id: 0, payload: payload });
   }
@@ -61,10 +66,30 @@ function mockScript(files: readonly MockFile[]): string {
       if (command === "commit_message_hint") {
         return Promise.resolve({ recentMessages: ["feat: previous"], template: "feat: ", branchStyle: "feat" });
       }
+      if (command === "commit_amend_context") {
+        return Promise.resolve({
+          subject: commits[0].subject,
+          body: null,
+          headOid: commits[0].oid,
+          pushed: headPushed,
+          pushedRefs: headPushed ? ["origin/main"] : []
+        });
+      }
+      if (command === "commit_hooks_list") {
+        return Promise.resolve([
+          { name: "pre-commit", executable: true, commitHook: true },
+          { name: "pre-push", executable: false, commitHook: false }
+        ]);
+      }
       if (command === "commit_prepare") {
         window.__commitCalls.push({ command: command, args: args });
         const spec = args.spec || {};
         const subject = String(spec.message || "").trim();
+        window.__lastPrepare = {
+          subject: subject,
+          amend: !!spec.amend,
+          amendMode: spec.amendMode || "includeStaged"
+        };
         return Promise.resolve({
           planId: "plan-e2e",
           repoId: args.repoId,
@@ -76,6 +101,8 @@ function mockScript(files: readonly MockFile[]): string {
           signOff: !!spec.signOff,
           noVerify: !!spec.noVerify,
           amend: !!spec.amend,
+          amendMode: spec.amendMode || "includeStaged",
+          headPushed: !!spec.amend && headPushed,
           hooks: ["pre-commit"],
           equivalentCommand: "git commit -m \\"" + subject + "\\"",
           headOid: "abc",
@@ -89,13 +116,22 @@ function mockScript(files: readonly MockFile[]): string {
       }
       if (command === "commit_execute") {
         window.__commitCalls.push({ command: command, args: args });
-        const paths = [];
-        for (const file of files) {
-          paths.push(file.path);
-          file.indexStatus = ".";
+        const last = window.__lastPrepare || { subject: "", amend: false, amendMode: "includeStaged" };
+        const paths = files.map((file) => file.path);
+        if (last.amend) {
+          // amend 替换 HEAD：提交数不变、oid 变化。真实的 git 语义由
+          // crates/services/tests/commit.rs 在真实仓库上保证，这里只复刻形状。
+          commits[0] = { oid: "amended-oid-0001", subject: last.subject };
+          // "只改信息"不动索引；"并入"才把索引清空
+          if (last.amendMode === "includeStaged") {
+            for (const file of files) file.indexStatus = ".";
+          }
+        } else {
+          commits.unshift({ oid: "new-oid-0001", subject: last.subject });
+          for (const file of files) file.indexStatus = ".";
         }
         emit("repo:changed", { repoId: 1, paths: paths });
-        return Promise.resolve({ oid: "0123456789abcdef0123456789abcdef01234567", subject: "feat: e2e commit", snapshotId: null, paths: paths });
+        return Promise.resolve({ oid: commits[0].oid, subject: commits[0].subject, snapshotId: null, paths: paths });
       }
       if (command === "plugin:event|unlisten") return Promise.resolve(null);
       if (command === "repo_recent_list") return Promise.resolve([{ record: { id: 1, path: "/tmp/repo", name: "repo" }, isOpen: true }]);
@@ -199,6 +235,74 @@ test('amend 模式下没有暂存内容也能提交（只改信息）', async ({
     command: 'commit_prepare',
     args: { spec: { amend: true, message: 'fix: message only' } },
   });
+
+  await expectNoPageErrors(page);
+});
+
+test('amend 只改信息：提交数不变、oid 变化、暂存内容原样保留', async ({ page }) => {
+  await page.addInitScript(() => window.localStorage.setItem('forgedesk.language', 'zh-CN'));
+  await page.addInitScript(mockScript([{ path: 'src/a.ts', indexStatus: 'M' }], true));
+
+  await page.goto('/#/repo/1/commit');
+  await expect(page.getByText('已暂存 1 个文件')).toBeVisible();
+
+  await page.getByRole('checkbox', { name: 'Amend 上一次提交' }).check();
+  // 勾选后自动填入上一次提交的信息（在输入为空时）
+  await expect(page.getByLabel('提交信息')).toHaveValue('base');
+  // "可能已推送"必须给出后果说明，而不是只给一个开关
+  await expect(page.getByText(/force-with-lease/)).toBeVisible();
+
+  await page.getByRole('radio', { name: '只改提交信息' }).click();
+  await page.getByLabel('提交信息').fill('fix: typo');
+
+  await page.getByTestId('commit-submit').click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole('button', { name: '提交', exact: true }).click();
+
+  const calls = await page.evaluate(() => window.__commitCalls ?? []);
+  expect(calls[0]).toMatchObject({
+    command: 'commit_prepare',
+    args: { spec: { amend: true, amendMode: 'messageOnly', message: 'fix: typo' } },
+  });
+
+  const state = await page.evaluate(() => ({
+    commits: window.__mockCommits,
+    files: window.__mockFiles,
+  }));
+  expect(state.commits, 'amend 不增加提交数').toHaveLength(1);
+  expect(state.commits?.[0]?.oid, '提交被替换，oid 必须变化').not.toBe('old-oid-0000');
+  expect(state.commits?.[0]?.subject).toBe('fix: typo');
+  expect(state.files?.[0]?.indexStatus, '只改信息不动索引').toBe('M');
+  await expect(page.getByText('已暂存 1 个文件')).toBeVisible();
+
+  await expectNoPageErrors(page);
+});
+
+test('amend 并入暂存内容：索引随之变干净', async ({ page }) => {
+  await page.addInitScript(() => window.localStorage.setItem('forgedesk.language', 'zh-CN'));
+  await page.addInitScript(mockScript([{ path: 'src/a.ts', indexStatus: 'M' }]));
+
+  await page.goto('/#/repo/1/commit');
+  await expect(page.getByText('已暂存 1 个文件')).toBeVisible();
+
+  await page.getByRole('checkbox', { name: 'Amend 上一次提交' }).check();
+  await page.getByLabel('提交信息').fill('feat: fold in');
+  // 默认模式就是"并入暂存内容"（= git 的行为），无需额外选择
+  await page.getByTestId('commit-submit').click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole('button', { name: '提交', exact: true }).click();
+
+  const calls = await page.evaluate(() => window.__commitCalls ?? []);
+  expect(calls[0]).toMatchObject({
+    command: 'commit_prepare',
+    args: { spec: { amend: true, amendMode: 'includeStaged' } },
+  });
+
+  const state = await page.evaluate(() => window.__mockCommits);
+  expect(state).toHaveLength(1);
+  await expect(page.getByText('还没有暂存任何改动')).toBeVisible();
 
   await expectNoPageErrors(page);
 });

@@ -15,8 +15,8 @@ use std::path::{Path, PathBuf};
 
 use forgedesk_diagnostics::sanitize_log;
 use forgedesk_domain::git::{
-    ApplyPatchSpec, CheckoutSpec, CloneSpec, CommitSpec, DiscardSpec, FetchOutcome, FetchSpec,
-    InitSpec, MergeKind, MergeOutcome, MergeSpec, PullOutcome, PullSpec, PushOutcome,
+    AmendMode, ApplyPatchSpec, CheckoutSpec, CloneSpec, CommitSpec, DiscardSpec, FetchOutcome,
+    FetchSpec, InitSpec, MergeKind, MergeOutcome, MergeSpec, PullOutcome, PullSpec, PushOutcome,
     PushRejection, PushSpec, RefUpdate, RefUpdateKind, RepoId, RepositoryInfo, ResetSpec,
     StageSpec, StashSpec,
 };
@@ -164,9 +164,21 @@ fn remove_empty_parents(root: &Path, file: &Path) {
 }
 
 /// 提交，返回新提交的 oid。
+///
+/// amend 有两种语义（见 [`AmendMode`]）：把暂存区并进去，还是只换提交信息。
+/// 后者走一条独立路径——它必须在一个**隔离索引**上执行，理由见
+/// [`commit_amending_message_only`]。
 pub(super) fn commit(engine: &CliGitEngine, repo: &RepoId, spec: &CommitSpec) -> AppResult<String> {
-    engine.run_write(repo, args::commit_args(spec)?)?;
+    if spec.amend && spec.amend_mode == AmendMode::MessageOnly {
+        return commit_amending_message_only(engine, repo, spec);
+    }
 
+    engine.run_write(repo, args::commit_args(spec)?)?;
+    read_head_oid(engine, repo)
+}
+
+/// 提交之后取回新提交的 oid。
+fn read_head_oid(engine: &CliGitEngine, repo: &RepoId) -> AppResult<String> {
     let output = engine.run_read(
         repo,
         GitInvocation::new(vec!["rev-parse".to_owned(), "HEAD".to_owned()]),
@@ -179,6 +191,111 @@ pub(super) fn commit(engine: &CliGitEngine, repo: &RepoId, spec: &CommitSpec) ->
         ));
     }
     Ok(oid)
+}
+
+/// "只改提交信息"的 amend。
+///
+/// # 为什么必须用隔离索引
+///
+/// `git commit --amend` 提交的是**当前索引**。所以"只改信息"要实现成
+/// "索引内容 = HEAD 的树"，否则用户以为自己在改一个错别字，实际把暂存区里的
+/// 三个文件一起提交了——这是本项目里最容易被误解、代价也最高的一类动作。
+///
+/// 做法是在临时索引上跑三步：
+///
+/// 1. `git read-tree HEAD` 把它读成 HEAD 的树；
+/// 2. **校验**它确实等于 HEAD 的树。理由：read-tree 失败而 commit 继续，
+///    产出的会是一棵空树的提交（内容被清空），那比报错糟糕得多。
+///    多一次 git 调用换这道闸，值得；
+/// 3. 在该索引上执行 `git commit --amend`。
+///
+/// 用户的真实索引全程没有被读写：`GIT_INDEX_FILE` 指向临时文件，git 的提交只看它。
+/// 临时文件由 [`TempIndex`] 保证在提前返回时也被删掉。
+fn commit_amending_message_only(
+    engine: &CliGitEngine,
+    repo: &RepoId,
+    spec: &CommitSpec,
+) -> AppResult<String> {
+    if !spec.paths.is_empty() {
+        // 路径限制决定"提交哪些内容"，与"内容不进提交"直接冲突：
+        // 两者同时给出时，任何一个结果都会让另一方变成谎话
+        return Err(AppError::new(
+            ErrorCode::Validation,
+            "amend with an explicit path list cannot leave the index untouched",
+        )
+        .with_hint("--only"));
+    }
+
+    let head_tree = read::head_tree(engine, repo)?.ok_or_else(|| {
+        AppError::new(
+            ErrorCode::Validation,
+            "there is no commit to amend (HEAD is unborn)",
+        )
+    })?;
+
+    let index = TempIndex::create();
+
+    engine.run_write(
+        repo,
+        args::read_tree_args("HEAD").with_index_file(index.path()),
+    )?;
+
+    let isolated_tree = engine
+        .run_read(repo, args::write_tree_args().with_index_file(index.path()))?
+        .stdout_lossy()
+        .trim()
+        .to_owned();
+    if isolated_tree != head_tree {
+        return Err(AppError::new(
+            ErrorCode::Internal,
+            "the isolated index does not match HEAD; refusing to amend",
+        )
+        .with_detail(format!(
+            "expected tree {head_tree}, isolated index holds {isolated_tree}"
+        )));
+    }
+
+    engine.run_write(repo, args::commit_args(spec)?.with_index_file(index.path()))?;
+
+    read_head_oid(engine, repo)
+}
+
+/// 隔离索引文件的清理守卫。
+///
+/// 用 `Drop` 而不是在函数末尾手动删：中间任何一步 `?` 提前返回都不该留下垃圾。
+/// 刻意放系统临时目录而不是仓库里——`.git` 是用户的目录，留下一个像索引的文件
+/// （`.git/index-xyz` 之类）比留下一个明显的临时文件危险得多：
+/// 用户与工具都可能把它当成真实索引。
+struct TempIndex(PathBuf);
+
+impl TempIndex {
+    fn create() -> Self {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| duration.as_nanos())
+            .unwrap_or(0);
+        let path =
+            std::env::temp_dir().join(format!("forgedesk-index-{}-{unique}", std::process::id()));
+        // `read-tree` 要求索引文件缺失或合法；上一次异常退出可能留下同名文件
+        // （进程号与纳秒双重唯一，概率极低，但"删干净再开始"比"碰运气"便宜）
+        let _ = std::fs::remove_file(&path);
+        Self(path)
+    }
+
+    fn path(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl Drop for TempIndex {
+    fn drop(&mut self) {
+        // git 失败路径上可能留下 `<index>.lock`
+        let _ = std::fs::remove_file(self.0.with_extension("lock"));
+        if let Err(error) = std::fs::remove_file(&self.0) {
+            // 删不掉不是本次操作的失败原因（系统会清临时目录），但要留痕
+            tracing::debug!(path = %self.0.display(), %error, "临时索引未能删除");
+        }
+    }
 }
 
 /// 重置。

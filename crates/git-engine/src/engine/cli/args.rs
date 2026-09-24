@@ -28,6 +28,8 @@
 //! 因此 [`PathSpecArgs::append_to`] 在"不支持却又有非 UTF-8 路径"时返回
 //! `VALIDATION`，而不是悄悄 lossy 掉一个字节——那会让操作落到**另一个文件**上。
 
+use std::path::PathBuf;
+
 use forgedesk_domain::git::{
     ApplyDirection, ApplyPatchSpec, ApplyTarget, CheckoutSpec, CloneSpec, CommitSpec, DiffSpec,
     DiffTarget, FetchSpec, InitSpec, LogQuery, MergeSpec, PullSpec, PushSpec, ReorderSpec,
@@ -42,18 +44,34 @@ pub struct GitInvocation {
     pub args: Vec<String>,
     /// 写入子进程 stdin 的载荷。
     pub stdin: Option<Vec<u8>>,
+    /// 用哪个索引文件执行；`None` = 用户真实索引。
+    ///
+    /// 见 `GitRunOpts::index_file`：这是 `GIT_INDEX_FILE` 的显式入口，
+    /// 只用于"刻意不碰用户索引"的场景（amend 只改信息、快照恢复）。
+    pub index_file: Option<PathBuf>,
 }
 
 impl GitInvocation {
     /// 只有参数、没有 stdin。
     pub fn new(args: Vec<String>) -> Self {
-        Self { args, stdin: None }
+        Self {
+            args,
+            stdin: None,
+            index_file: None,
+        }
     }
 
     /// 附加 stdin 载荷。
     #[must_use]
     pub fn with_stdin(mut self, stdin: Vec<u8>) -> Self {
         self.stdin = Some(stdin);
+        self
+    }
+
+    /// 在指定索引文件上执行（**不要**传用户真实索引的路径）。
+    #[must_use]
+    pub fn with_index_file(mut self, index_file: impl Into<PathBuf>) -> Self {
+        self.index_file = Some(index_file.into());
         self
     }
 }
@@ -462,6 +480,37 @@ pub fn commit_args(spec: &CommitSpec) -> AppResult<GitInvocation> {
 
     invocation(args, &PathSpecArgs::from_paths(&spec.paths), false)
         .map(|invocation| invocation.with_stdin(spec.message.clone().into_bytes()))
+}
+
+/// `git read-tree <tree>`：把某棵树读进索引。
+///
+/// 只与 `GitInvocation::with_index_file` 搭配才有意义：对**用户真实索引**跑它
+/// 等于把索引重置到那棵树，那是数据丢失级别的动作。调用点只有两处
+/// （amend 只改信息、T1.9 快照恢复），都传隔离索引。
+pub fn read_tree_args(tree: &str) -> GitInvocation {
+    GitInvocation::new(vec!["read-tree".to_owned(), tree.to_owned()])
+}
+
+/// `git write-tree`：把索引写成树对象并返回它的 oid。
+pub fn write_tree_args() -> GitInvocation {
+    GitInvocation::new(vec!["write-tree".to_owned()])
+}
+
+/// `git for-each-ref --contains <revision> refs/remotes`。
+///
+/// 回答"这个提交是否已经存在于某个远程跟踪分支上"——也就是"改写它会不会影响别人"。
+/// 用 `%(refname:short)`：界面显示 `origin/main`，而 `refs/remotes/origin/main`
+/// 是给机器看的。
+///
+/// 刻意只查 `refs/remotes`：本地分支、标签、stash 都不代表"远端已有副本"。
+/// 完整的语义边界见 `services::commit` 的 amend 语境说明。
+pub fn remote_refs_containing_args(revision: &str) -> GitInvocation {
+    GitInvocation::new(vec![
+        "for-each-ref".to_owned(),
+        "--format=%(refname:short)".to_owned(),
+        format!("--contains={revision}"),
+        "refs/remotes".to_owned(),
+    ])
 }
 
 /// `git reset`（重置）。

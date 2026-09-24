@@ -52,6 +52,12 @@ export interface MockCommitCall {
   };
 }
 
+/** mock 里的一条提交记录。 */
+export interface MockCommit {
+  readonly oid: string;
+  readonly subject: string;
+}
+
 declare global {
   interface Window {
     /** mock 记录收到的暂存 / 取消暂存请求（断言"界面选的粒度与下标"是否原样传到后端）。 */
@@ -60,5 +66,7 @@ declare global {
     __mockFiles?: MockFileChange[];
     /** mock 记录收到的提交命令（断言预览与执行用的是同一份数据）。 */
     __commitCalls?: MockCommitCall[];
+    /** mock 的提交历史（断言 amend 后提交数不变、oid 变化）。 */
+    __mockCommits?: MockCommit[];
   }
 }

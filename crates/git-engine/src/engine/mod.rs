@@ -207,6 +207,20 @@ pub trait GitEngine: Send + Sync {
     /// 实际却执行了——用户据以判断的依据是错的。
     fn hooks_dir(&self, repo: &RepoId) -> AppResult<std::path::PathBuf>;
 
+    /// 包含指定提交的远程跟踪分支（短名，如 `origin/main`）。
+    ///
+    /// 用于回答"改写这个提交会不会影响别人"（amend 前的警示条）。
+    ///
+    /// **语义边界（决定了界面文案的措辞）**：查的是本地的 `refs/remotes/*`，
+    /// 它是"上次 fetch 时远端的印象"，可能已经过期；而且它无法判断远端是否
+    /// 仍保有那个对象。所以结论只能支撑"**可能**已推送"这样的提示，
+    /// 不能用来断言"一定推过"或"一定没推过"。
+    ///
+    /// 只有 CLI 实现：它与 `commit` 同属"写历史"的判断族，而 libgit2 侧要自己
+    /// 遍历 refs 做可达性计算，收益不抵两套实现之间产生分歧的风险
+    /// （见 `docs/GIT-ENGINE-DIFF.md` §4 的能力边界表）。
+    fn remote_refs_containing(&self, repo: &RepoId, revision: &str) -> AppResult<Vec<String>>;
+
     /// 提交（含 amend），返回新提交的 oid。
     fn commit(&self, repo: &RepoId, spec: CommitSpec) -> AppResult<String>;
 

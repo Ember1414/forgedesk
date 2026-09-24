@@ -85,6 +85,8 @@ interface FixAction {
 | [`commit_prepare`](#commit_prepare) | ReadOnly | T1.7 | 生成提交计划（不创建提交） |
 | [`commit_execute`](#commit_execute) | Mutating | T1.7 | 执行提交计划（成功后发布 repo:changed） |
 | [`commit_message_hint`](#commit_message_hint) | ReadOnly | T1.7 | 最近提交与分支风格提示（纯本地规则） |
+| [`commit_amend_context`](#commit_amend_context) | ReadOnly | T1.8 | amend 语境：上一次提交信息 + 是否可能已推送 |
+| [`commit_hooks_list`](#commit_hooks_list) | ReadOnly | T1.8 | 仓库里的钩子清单（仅展示） |
 
 ---
 
@@ -602,12 +604,24 @@ interface PrepareCommitRequest {
   message: string;              // 提交信息**首行**（subject）
   description?: string;         // 正文；空字符串与缺省等价
   amend?: boolean;              // 默认 false
+  amendMode?: 'includeStaged' | 'messageOnly'; // 默认 includeStaged（T1.8）
   signOff?: boolean;            // 默认 false（--signoff；与 GPG 签名是两件事）
   noVerify?: boolean;           // 默认 false（跳过钩子必须由用户显式选择）
   sign?: 'auto' | 'yes' | 'no'; // 默认 auto（跟随仓库/全局配置）
   author?: { name: string; email: string }; // 覆盖作者身份（amend 保留原作者时用）
 }
 ```
+
+**`amendMode` 的两种语义（T1.8）**：`git commit --amend` 提交的是**当前索引**，
+所以"只改提交信息"并不是它的默认行为：
+
+| 取值 | 行为 | 实现 |
+| --- | --- | --- |
+| `includeStaged`（默认） | 把暂存区并入上一次提交 | 普通的 `git commit --amend` |
+| `messageOnly` | 只替换提交信息，索引内容不进提交 | 在**隔离索引**（`GIT_INDEX_FILE`）上先 `read-tree HEAD`、校验树一致，再 `--amend` |
+
+两者的结果完全不同（"改一个错别字" vs "多提交三个文件"），因此它是一个显式参数
+而不是布尔开关；未知取值返回 `VALIDATION`，不静默降级。
 
 - **返回**：`CommitPlanDto`
 
@@ -623,6 +637,8 @@ interface CommitPlanDto {
   signOff: boolean;
   noVerify: boolean;
   amend: boolean;
+  amendMode: 'includeStaged' | 'messageOnly';
+  headPushed: boolean;               // HEAD 是否（可能）已在某个远程跟踪分支上
   hooks: string[];                   // 将要执行的钩子（按 git 的调用顺序）
   equivalentCommand: string;         // 可直接粘贴到终端的等价 git 命令
   headOid: string | null;            // 空仓库为 null
@@ -714,6 +730,55 @@ interface MessageHintDto {
 - **用途**：让用户看到"这个仓库习惯怎么写"，**不是替他写**。
 - **错误**：`NOT_FOUND`、`STORAGE`。
 - **前端封装**：`commitMessageHint(repoId)`；调用点：`src/features/commit/CommitPanel.tsx`
+
+### commit_amend_context
+
+amend 之前需要的上下文。**能力等级**：`ReadOnly`。
+
+界面打开"Amend 上一次提交"时**一次**拿全三样东西：上一次提交的信息（用来预填）、
+它是否（可能）已经在远端、以及是哪些远程分支。分成几次问会多几次 IPC 往返，
+而且几次之间仓库可能变化——于是会出现"信息来自提交 A、推送状态来自提交 B"这类
+自相矛盾的界面。
+
+- **参数**：`repoId: number`
+- **返回**：
+
+```ts
+interface AmendContext {
+  subject: string | null;   // 上一次提交的首行
+  body: string | null;      // 上一次提交的正文
+  headOid: string | null;   // 上一次提交的 oid
+  pushed: boolean;          // 是否**可能**已推送
+  pushedRefs: string[];     // 命中的远程跟踪分支短名，如 ['origin/main']
+}
+```
+
+- **空仓库返回全 `null` / `false`**，不是错误：那是正常状态，界面据此把 amend 开关
+  置为不可用即可，让用户对着一句错误发愣没有意义。
+- **`pushed` 的语义边界**：判定依据是本地的 `refs/remotes/*`
+  （`git for-each-ref --contains HEAD refs/remotes`，见 `crates/git-engine` 的
+  `remote_refs_containing`）。它可能过期，也无法判断远端是否仍保有那个对象，
+  因此界面文案只能是"**可能**已推送"，据此提示 force-with-lease 的必要性，
+  但不能用来断言"一定推过"或"一定没推过"。
+- **错误**：`NOT_FOUND`（仓库记录不存在）、`STORAGE`。
+- **前端封装**：`commitAmendContext(repoId)`；调用点：`src/features/commit/CommitPage.tsx`
+
+### commit_hooks_list
+
+仓库里的钩子清单（**仅展示，不编辑**）。**能力等级**：`ReadOnly`。
+
+- **参数**：`repoId: number`
+- **返回**：`{ name: string; executable: boolean; commitHook: boolean }[]`
+- **为什么列全部而不是只列提交相关的三个**：用户来看这个列表，想知道的多半是
+  "为什么提交被拒/很慢"或"我装了哪些工具"，`pre-push`、`post-checkout` 同样可能是
+  答案；`commitHook` 标出"这次提交会不会跑它"。而"**这一次**提交会执行哪些"
+  由 `CommitPlan.hooks` 回答（它只含存在且会被执行的三类）。
+- **目录来自引擎**（`git rev-parse --git-path hooks`），因此 `core.hooksPath`
+  （husky 默认设置它）会被正确考虑。
+- `.sample` 与点文件一律不列：`git init` 会放一批示例进去，它们永远不会被执行。
+  `executable` 为假时界面必须如实说明"git 会忽略它"（Unix 看执行位，Windows 看是否存在）。
+- **错误**：`NOT_FOUND`、`STORAGE`。
+- **前端封装**：`commitHooksList(repoId)`；调用点：`src/features/commit/CommitPage.tsx`
 
 ---
 

@@ -20,6 +20,7 @@ import { useState } from 'react';
 import { Copy } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
+import { HookOutputPanel } from '@/features/commit/HookOutputPanel';
 import type { NormalizedError } from '@/lib/errors';
 import type { CommitPlan, PlannedFile } from '@/lib/ipc/commit';
 import { Button } from '@/ui/components/button';
@@ -57,6 +58,13 @@ export interface CommitPreviewDialogProps {
   readonly failure: NormalizedError | null;
   readonly onOpenChange: (open: boolean) => void;
   readonly onConfirm: () => void;
+  /**
+   * 钩子拒绝后的出口：用 `noVerify` 重新走一遍 prepare + execute。
+   *
+   * 由页面提供而不是在这里自己发起调用：跳过钩子是一个需要用户重新确认的动作，
+   * 而"重新确认"这件事只有页面知道怎么表达（重新生成计划 → 打开预览）。
+   */
+  readonly onSkipHooks?: () => void;
 }
 
 /** 按索引状态分组（顺序稳定，便于核对）。 */
@@ -78,6 +86,7 @@ export function CommitPreviewDialog({
   failure,
   onOpenChange,
   onConfirm,
+  onSkipHooks,
 }: CommitPreviewDialogProps) {
   const { t } = useTranslation('shell');
   const [copied, setCopied] = useState(false);
@@ -193,9 +202,16 @@ export function CommitPreviewDialog({
             ) : null}
 
             {plan.amend ? (
-              <p className="rounded-md border border-warning bg-surface px-3 py-2 text-12 text-warning">
-                {t('commit.previewAmend')}
-              </p>
+              <div className="flex flex-col gap-1 rounded-md border border-warning bg-surface px-3 py-2">
+                <p className="text-12 text-warning">
+                  {plan.amendMode === 'messageOnly'
+                    ? t('commit.amendModeMessageOnlyHint')
+                    : t('commit.amendModeIncludeHint')}
+                </p>
+                <p className="text-12 text-warning">
+                  {plan.headPushed ? t('commit.amendPushedUnknown') : t('commit.previewAmend')}
+                </p>
+              </div>
             ) : null}
 
             <p className="rounded-md border border-line bg-surface-sunken px-3 py-2 text-12 text-fg-subtle">
@@ -203,13 +219,24 @@ export function CommitPreviewDialog({
             </p>
 
             {failure !== null && plan !== null ? (
-              <ErrorState
-                title={t(`errors:${failure.code}.title`)}
-                {...(failure.hint === undefined
-                  ? { hint: t(`errors:${failure.code}.hint`) }
-                  : { hint: failure.hint })}
-                {...(failure.detail === undefined ? {} : { details: failure.detail })}
-              />
+              failure.code === 'HOOK_REJECTED' && failure.detail !== undefined ? (
+                // 钩子拒绝是这条链路里最需要"看原文"的失败：交给专门的面板，
+                // 它会把哪几行是错误标出来，同时保证原文一字不改
+                <HookOutputPanel
+                  output={failure.detail}
+                  hooks={plan.hooks}
+                  {...(onSkipHooks === undefined ? {} : { onSkipHooks })}
+                  busy={busy}
+                />
+              ) : (
+                <ErrorState
+                  title={t(`errors:${failure.code}.title`)}
+                  {...(failure.hint === undefined
+                    ? { hint: t(`errors:${failure.code}.hint`) }
+                    : { hint: failure.hint })}
+                  {...(failure.detail === undefined ? {} : { details: failure.detail })}
+                />
+              )
             ) : null}
           </div>
         ) : null}

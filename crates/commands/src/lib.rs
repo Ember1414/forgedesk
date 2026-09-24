@@ -39,8 +39,9 @@ pub mod system;
 pub mod workspace;
 
 pub use commit::{
-    commit_execute, commit_message_hint, commit_prepare, CommitOutcomeDto, CommitPlanDto,
-    IdentityDto, IdentityRequest, MessageHintDto, PlannedFileDto, PrepareCommitRequest,
+    commit_amend_context, commit_execute, commit_hooks_list, commit_message_hint, commit_prepare,
+    AmendContextDto, CommitOutcomeDto, CommitPlanDto, HookEntryDto, IdentityDto, IdentityRequest,
+    MessageHintDto, PlannedFileDto, PrepareCommitRequest,
 };
 pub use debug::{debug_panic, debug_throw_error};
 pub use error::{to_app_error, Fallible};

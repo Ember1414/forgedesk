@@ -58,6 +58,64 @@ pub fn executable_commit_hooks(hooks_dir: &Path) -> Vec<String> {
         .collect()
 }
 
+/// 钩子目录里的一项（T1.8 的"hooks 状态查看"）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HookEntry {
+    /// 钩子名（文件名，如 `pre-commit`）。
+    pub name: String,
+    /// git 是否会执行它（Unix 看执行位，Windows 看文件是否存在）。
+    pub executable: bool,
+    /// 是否属于提交时会调用的三类之一。
+    pub commit_hook: bool,
+}
+
+/// 列出钩子目录里的**全部**钩子（仅展示，不编辑）。
+///
+/// 为什么列全部而不是只列提交相关的三个：用户来看这个列表，
+/// 想知道的多半是"为什么提交被拒/很慢"或"我装了哪些工具"，
+/// `pre-push`、`post-checkout` 同样可能是答案。而"**这次**提交会执行哪些"
+/// 是另一个问题，由 [`executable_commit_hooks`] 回答。
+///
+/// `.sample` 与点文件一律排除：`git init` 会放一批示例进去，它们永远不会被执行，
+/// 列出来只会让列表看起来像"这个仓库装了一堆钩子"。
+///
+/// 顺序是确定的（提交相关在前，其次按名字）：`read_dir` 的顺序不保证，
+/// 而不确定的顺序会让界面跳动、让测试随机失败。
+pub fn list_hooks(hooks_dir: &Path) -> Vec<HookEntry> {
+    let Ok(entries) = std::fs::read_dir(hooks_dir) else {
+        return Vec::new();
+    };
+
+    let mut hooks: Vec<HookEntry> = entries
+        .filter_map(Result::ok)
+        .filter_map(|entry| {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if name.ends_with(".sample") || name.starts_with('.') {
+                return None;
+            }
+            let path = entry.path();
+            // `is_file`（而不是 file_type）会跟随符号链接：用符号链接指向
+            // 别处的钩子是常见做法，不该被当成"不是文件"而漏掉
+            if !path.is_file() {
+                return None;
+            }
+            Some(HookEntry {
+                executable: is_executable(&path),
+                commit_hook: COMMIT_HOOKS.contains(&name.as_str()),
+                name,
+            })
+        })
+        .collect();
+
+    hooks.sort_by(|left, right| {
+        right
+            .commit_hook
+            .cmp(&left.commit_hook)
+            .then_with(|| left.name.cmp(&right.name))
+    });
+    hooks
+}
+
 /// Unix：git 要求钩子文件带执行位，没有执行位的钩子会被忽略。
 #[cfg(unix)]
 fn is_executable(path: &Path) -> bool {
@@ -84,7 +142,7 @@ fn is_executable(path: &Path) -> bool {
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
-    use super::{detect_lfs, executable_commit_hooks, COMMIT_HOOKS};
+    use super::{detect_lfs, executable_commit_hooks, list_hooks, COMMIT_HOOKS};
     use std::path::Path;
 
     /// 建一个临时目录；测试结束由 `TempDir` 自行清理。
@@ -213,6 +271,45 @@ mod tests {
         let dir = TempDir::new("no-hooks");
 
         assert!(executable_commit_hooks(&dir.path().join(".git/hooks")).is_empty());
+    }
+
+    #[test]
+    fn hooks_are_listed_with_their_commit_role_and_samples_excluded() {
+        let dir = TempDir::new("list-hooks");
+        dir.write(".git/hooks/pre-commit", "#!/bin/sh\n");
+        dir.write(".git/hooks/pre-push", "#!/bin/sh\n");
+        dir.write(".git/hooks/post-commit", "#!/bin/sh\n");
+        // git init 放的示例文件永远不会被执行，列出来只会误导
+        dir.write(".git/hooks/pre-commit.sample", "#!/bin/sh\n");
+        make_runnable(&dir.path().join(".git/hooks/pre-commit"));
+
+        let hooks = list_hooks(&dir.path().join(".git/hooks"));
+
+        assert_eq!(
+            hooks
+                .iter()
+                .map(|hook| hook.name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["pre-commit", "post-commit", "pre-push"],
+            "提交相关的钩子排在最前，其余按名字；示例文件不列"
+        );
+        assert!(hooks[0].commit_hook, "pre-commit 属于提交钩子");
+        assert!(!hooks[1].commit_hook, "post-commit 不在提交链路上");
+        assert!(!hooks[2].commit_hook, "pre-push 不在提交链路上");
+
+        #[cfg(unix)]
+        {
+            assert!(hooks[0].executable, "带执行位的钩子 git 会执行");
+            assert!(!hooks[1].executable, "没有执行位的钩子 git 会忽略");
+        }
+    }
+
+    #[test]
+    fn a_hook_directory_with_no_hooks_lists_nothing() {
+        let dir = TempDir::new("empty-hooks");
+        dir.mkdir(".git/hooks");
+
+        assert!(list_hooks(&dir.path().join(".git/hooks")).is_empty());
     }
 
     #[cfg(unix)]

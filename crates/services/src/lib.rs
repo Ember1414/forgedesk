@@ -28,7 +28,9 @@ pub mod staging;
 pub mod templates;
 pub mod workspace;
 
-pub use commit::{CommitOutcome, CommitPlanRegistry, CommitService, MessageHint, PrepareRequest};
+pub use commit::{
+    AmendContext, CommitOutcome, CommitPlanRegistry, CommitService, MessageHint, PrepareRequest,
+};
 pub use engines::GitEngines;
 pub use repository::{
     InitExtras, LicenseSpec, MillisClock, OpenRepoRegistry, OpenedRepository, RecentRepository,

@@ -26,6 +26,7 @@
 
 use super::commit::Signature;
 use super::path::RepoPath;
+use super::spec::AmendMode;
 use super::status::ChangeKind;
 
 /// 提交计划的有效期（毫秒）。
@@ -187,6 +188,14 @@ pub struct CommitPlan {
     pub no_verify: bool,
     /// 是否 amend 上一个提交。
     pub amend: bool,
+    /// amend 的语义（T1.8）。`amend` 为假时无语义，取默认值。
+    pub amend_mode: AmendMode,
+    /// HEAD 是否（可能）已经存在于某个远程跟踪分支上（T1.8）。
+    ///
+    /// 只用于**提示**：为真时界面要说清"改写这个提交会让本地与远端分歧、
+    /// 之后推送需要 force-with-lease"。判定依据是本地 `refs/remotes/*`，
+    /// 它可能过期，因此文案必须是"可能已推送"而不是"已推送"。
+    pub head_pushed: bool,
     /// 将要执行的钩子名（仓库里存在且可执行的那些）。
     pub hooks: Vec<String>,
     /// 等价的 git 命令（可复制到终端执行）。
@@ -380,8 +389,9 @@ fn quote_argument(value: &str) -> String {
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
     use super::{
-        compose_message, equivalent_command, review_message, CommitPlan, EquivalentCommandInput,
-        MessageIssue, SignMode, EMPTY_TREE_OID, SUBJECT_RECOMMENDED_MAX_CHARS,
+        compose_message, equivalent_command, review_message, AmendMode, CommitPlan,
+        EquivalentCommandInput, MessageIssue, SignMode, EMPTY_TREE_OID,
+        SUBJECT_RECOMMENDED_MAX_CHARS,
     };
     use crate::git::Signature;
 
@@ -397,6 +407,8 @@ mod tests {
             sign_off: false,
             no_verify: false,
             amend,
+            amend_mode: AmendMode::default(),
+            head_pushed: false,
             hooks: Vec::new(),
             equivalent_command: String::new(),
             head_oid: Some("a".repeat(40)),

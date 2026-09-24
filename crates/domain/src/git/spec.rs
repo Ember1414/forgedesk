@@ -191,6 +191,44 @@ impl ApplyPatchSpec {
     }
 }
 
+/// `amend` 的两种语义（T1.8）。
+///
+/// `git commit --amend` 提交的是**当前索引**，所以"只改提交信息"并不是它的
+/// 默认行为。同一个动作要不要把暂存区一起并进去，结果完全不同，因此必须由
+/// 用户明确回答——这正是它值得成为一个显式参数、而不是布尔开关的理由。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum AmendMode {
+    /// 把当前暂存区并入上一次提交（`git commit --amend` 的默认行为）。
+    #[default]
+    IncludeStaged,
+    /// 只替换提交信息，索引内容不进提交。
+    ///
+    /// 实现要点：必须在**隔离索引**（`GIT_INDEX_FILE`）上执行，且该索引先被
+    /// 读成 HEAD 的树。直接跑 `git commit --amend` 会把暂存区一并提交——
+    /// 那是"改一个错别字"变成"多提交了三个文件"的事故。
+    MessageOnly,
+}
+
+impl AmendMode {
+    /// 稳定的短名（IPC 用；前端据此走 i18n）。
+    pub const fn key(self) -> &'static str {
+        match self {
+            Self::IncludeStaged => "includeStaged",
+            Self::MessageOnly => "messageOnly",
+        }
+    }
+
+    /// 从稳定短名解析；未知取值返回 `None`（由命令层转成 `VALIDATION`，
+    /// 而不是静默降级成默认值）。
+    pub fn from_key(key: &str) -> Option<Self> {
+        match key {
+            "includeStaged" => Some(Self::IncludeStaged),
+            "messageOnly" => Some(Self::MessageOnly),
+            _ => None,
+        }
+    }
+}
+
 /// 提交参数。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CommitSpec {
@@ -210,6 +248,8 @@ pub struct CommitSpec {
     /// `Signed-off-by: Name <email>`（很多项目的 DCO 流程要求它），
     /// 而 `sign` 是对提交对象做密码学签名。名字相近，很容易在参数里搞混。
     pub sign_off: bool,
+    /// amend 的语义（T1.8）。仅在 `amend` 为真时有意义。
+    pub amend_mode: AmendMode,
     /// 覆盖作者身份（amend 时用于保留原作者）。
     pub author: Option<Signature>,
     /// 是否跳过 pre-commit / commit-msg 钩子。
@@ -229,6 +269,7 @@ impl CommitSpec {
             allow_empty: false,
             sign: None,
             sign_off: false,
+            amend_mode: AmendMode::default(),
             author: None,
             no_verify: false,
         }
