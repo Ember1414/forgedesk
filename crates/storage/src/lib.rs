@@ -19,6 +19,7 @@
 
 pub mod database;
 pub mod migrations;
+pub mod operations;
 pub mod repositories;
 pub mod settings;
 
@@ -26,6 +27,7 @@ pub use database::{storage_error, Database};
 pub use migrations::{
     current_version, migrate, migrate_with, Migration, MigrationReport, MIGRATIONS,
 };
+pub use operations::{NewOperation, OperationOutcome, OperationRecord, OperationStore};
 pub use repositories::{RepositoryRecord, RepositoryStore, RepositoryUpsert};
 pub use settings::{Scope, SettingsRepository};
 

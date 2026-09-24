@@ -183,6 +183,30 @@ pub trait GitEngine: Send + Sync {
     /// 空补丁是幂等成功（裁剪后没有内容可写），实现不得为此报错。
     fn apply_patch(&self, repo: &RepoId, spec: &ApplyPatchSpec) -> AppResult<()>;
 
+    /// 当前索引的树 oid（`git write-tree`）。
+    ///
+    /// 提交计划用它做"索引指纹"：`prepare` 与 `execute` 之间索引若被别处改过，
+    /// 指纹就会变，计划必须作废——否则会提交出用户没在预览里看过的内容（T1.7）。
+    ///
+    /// 选 `write-tree` 而不是"自己把 `ls-files --stage` 的输出哈希一遍"：
+    /// 树 oid 就是 git 对索引内容的规范摘要，等价而且**不会引入第二份真相**
+    /// （自建哈希还得引一个 sha2 依赖，并自己保证跨平台/跨版本稳定）。
+    /// 它会往对象库里写一个树对象（不影响引用与工作区，gc 会回收）。
+    fn index_tree(&self, repo: &RepoId) -> AppResult<String>;
+
+    /// HEAD 的树 oid；空仓库（还没有提交）返回 `None`。
+    ///
+    /// 与 [`GitEngine::index_tree`] 一起回答"这次提交是否什么都不会提交"：
+    /// 索引为空（空树 oid）或索引内容与 HEAD 完全相同，都属于"没有暂存内容"。
+    fn head_tree(&self, repo: &RepoId) -> AppResult<Option<String>>;
+
+    /// 实际生效的钩子目录。
+    ///
+    /// **不能**直接拼 `.git/hooks`：`core.hooksPath` 会改掉它，而它是常见配置
+    /// （husky 默认就设成 `.husky`）。看错目录的后果是提交预览里说"不会执行钩子"、
+    /// 实际却执行了——用户据以判断的依据是错的。
+    fn hooks_dir(&self, repo: &RepoId) -> AppResult<std::path::PathBuf>;
+
     /// 提交（含 amend），返回新提交的 oid。
     fn commit(&self, repo: &RepoId, spec: CommitSpec) -> AppResult<String>;
 

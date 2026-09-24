@@ -1,0 +1,260 @@
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { QueryClientProvider } from '@tanstack/react-query';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { CommitPage } from '@/features/commit/CommitPage';
+import type { WorkspaceStatus } from '@/features/workspace/statusModel';
+import { commitExecute, commitMessageHint, commitPrepare } from '@/lib/ipc/commit';
+import type { CommitPlan } from '@/lib/ipc/commit';
+import { onRepoChanged, workspaceStatus } from '@/lib/ipc/workspace';
+import { createTestQueryClient } from '@/test/queryClient';
+
+/**
+ * 提交面板的测试重点：
+ *   - 禁用与**原因**（只禁用不解释是"界面看起来坏了"的经典来源）；
+ *   - 预览里展示的确实是后端给的那份计划（文件、等价命令、钩子）；
+ *   - 失败留在对话框里（钩子拒绝的原始输出必须能读到），且不静默清空用户输入。
+ */
+vi.mock('@/lib/ipc/commit', () => ({
+  commitPrepare: vi.fn(),
+  commitExecute: vi.fn(),
+  commitMessageHint: vi.fn(),
+}));
+vi.mock('@/lib/ipc/workspace', () => ({
+  workspaceStatus: vi.fn(),
+  onRepoChanged: vi.fn(),
+}));
+// 测试环境没有 Tauri：事件订阅整条链路跳过（它由 e2e 覆盖）
+vi.mock('@/lib/ipc/client', () => ({
+  isTauriRuntime: () => false,
+  invokeCommand: vi.fn(),
+}));
+
+const commitPrepareMock = vi.mocked(commitPrepare);
+const commitExecuteMock = vi.mocked(commitExecute);
+const commitMessageHintMock = vi.mocked(commitMessageHint);
+const workspaceStatusMock = vi.mocked(workspaceStatus);
+const onRepoChangedMock = vi.mocked(onRepoChanged);
+
+function statusWith(stagedPaths: readonly string[]): WorkspaceStatus {
+  return {
+    branch: {
+      oid: 'a'.repeat(40),
+      head: 'main',
+      detached: false,
+      upstream: null,
+      ahead: null,
+      behind: null,
+    },
+    operation: 'none',
+    staged: stagedPaths.map((path) => ({
+      path,
+      oldPath: null,
+      kind: 'ordinary' as const,
+      indexStatus: 'M',
+      worktreeStatus: '.',
+      isBinary: false,
+      isLfs: false,
+      isSubmodule: false,
+      sizeBytes: 12,
+    })),
+    unstaged: [],
+    untracked: [],
+    conflicted: [],
+    ignored: [],
+    ignoredCount: null,
+  };
+}
+
+function plan(overrides: Partial<CommitPlan> = {}): CommitPlan {
+  return {
+    planId: 'plan-1',
+    repoId: 1,
+    files: [{ path: 'src/app.ts', indexStatus: 'M' }],
+    message: 'feat: thing\n',
+    description: null,
+    author: null,
+    sign: 'auto',
+    signOff: false,
+    noVerify: false,
+    amend: false,
+    hooks: ['pre-commit'],
+    equivalentCommand: 'git commit -m "feat: thing"',
+    headOid: 'b'.repeat(40),
+    indexFingerprint: 'c'.repeat(40),
+    createdAtMs: 1_700_000_000_000,
+    expiresAtMs: 1_700_000_300_000,
+    subject: 'feat: thing',
+    subjectChars: 11,
+    warnings: [],
+    ...overrides,
+  };
+}
+
+function renderCommit() {
+  const queryClient = createTestQueryClient();
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter initialEntries={['/repo/1/commit']}>
+        <Routes>
+          <Route path="/repo/:repoId/commit" element={<CommitPage />} />
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>,
+  );
+}
+
+/** 填入提交信息（首行）。 */
+function typeSubject(value: string) {
+  fireEvent.change(screen.getByLabelText('提交信息'), { target: { value } });
+}
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  onRepoChangedMock.mockResolvedValue(() => undefined);
+  commitMessageHintMock.mockResolvedValue({
+    recentMessages: [],
+    template: null,
+    branchStyle: null,
+  });
+  workspaceStatusMock.mockResolvedValue(statusWith([]));
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
+describe('提交面板', () => {
+  it('没有暂存内容时按钮禁用并说明原因', async () => {
+    renderCommit();
+
+    expect(await screen.findByText('还没有暂存任何改动')).toBeInTheDocument();
+    expect(screen.getByTestId('commit-submit')).toBeDisabled();
+  });
+
+  it('有暂存内容时展示数量，填入信息后可预览计划', async () => {
+    workspaceStatusMock.mockResolvedValue(statusWith(['src/a.ts', 'src/b.ts']));
+    commitPrepareMock.mockResolvedValue(plan());
+
+    renderCommit();
+
+    expect(await screen.findByText('已暂存 2 个文件')).toBeInTheDocument();
+    typeSubject('feat: thing');
+    const submit = screen.getByTestId('commit-submit');
+    expect(submit).toBeEnabled();
+
+    fireEvent.click(submit);
+
+    // 预览里展示的必须是后端给的那份计划
+    expect(await screen.findByText('确认这次提交')).toBeInTheDocument();
+    expect(screen.getByText('src/app.ts')).toBeInTheDocument();
+    expect(screen.getByText('git commit -m "feat: thing"')).toBeInTheDocument();
+    expect(screen.getByText('pre-commit')).toBeInTheDocument();
+    expect(commitPrepareMock).toHaveBeenCalledWith(
+      1,
+      expect.objectContaining({ message: 'feat: thing', amend: false, sign: 'auto' }),
+    );
+  });
+
+  it('确认后执行计划，并在成功后清空表单', async () => {
+    workspaceStatusMock.mockResolvedValue(statusWith(['src/a.ts']));
+    commitPrepareMock.mockResolvedValue(plan());
+    commitExecuteMock.mockResolvedValue({
+      oid: 'd'.repeat(40),
+      subject: 'feat: thing',
+      snapshotId: null,
+      paths: ['src/app.ts'],
+    });
+
+    renderCommit();
+    // 必须等到状态查询落地：在那之前"有没有暂存内容"还不知道，按钮是禁用的
+    expect(await screen.findByText('已暂存 1 个文件')).toBeInTheDocument();
+    typeSubject('feat: thing');
+    fireEvent.click(screen.getByTestId('commit-submit'));
+
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.click(within(dialog).getByRole('button', { name: '提交' }));
+
+    await waitFor(() => {
+      expect(commitExecuteMock).toHaveBeenCalledWith('plan-1');
+    });
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    });
+    expect(screen.getByLabelText('提交信息')).toHaveValue('');
+  });
+
+  it('钩子拒绝时把原始输出留在对话框里，输入不被清空', async () => {
+    workspaceStatusMock.mockResolvedValue(statusWith(['src/a.ts']));
+    commitPrepareMock.mockResolvedValue(plan());
+    commitExecuteMock.mockRejectedValue({
+      code: 'HOOK_REJECTED',
+      message: 'a commit hook rejected the commit',
+      detail: 'pre-commit: nope',
+      hint: 'pre-commit',
+      actions: [],
+      retryable: false,
+    });
+
+    renderCommit();
+    expect(await screen.findByText('已暂存 1 个文件')).toBeInTheDocument();
+    typeSubject('feat: thing');
+    fireEvent.click(screen.getByTestId('commit-submit'));
+
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.click(within(dialog).getByRole('button', { name: '提交' }));
+
+    expect(await screen.findByText('被 Git 钩子拒绝')).toBeInTheDocument();
+    // 原始输出默认折叠，但必须存在（用户展开就能看到钩子说了什么）
+    expect(within(dialog).getByText('pre-commit: nope')).toBeInTheDocument();
+    expect(screen.getByLabelText('提交信息')).toHaveValue('feat: thing');
+  });
+
+  it('amend 模式下没有暂存内容也能提交（只改信息）', async () => {
+    commitPrepareMock.mockResolvedValue(plan({ amend: true, files: [] }));
+
+    renderCommit();
+    expect(await screen.findByText('还没有暂存任何改动')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Amend 上一次提交' }));
+    typeSubject('fix: message only');
+
+    expect(screen.getByTestId('commit-submit')).toBeEnabled();
+    fireEvent.click(screen.getByTestId('commit-submit'));
+
+    expect(await screen.findByText('确认这次提交')).toBeInTheDocument();
+    expect(commitPrepareMock).toHaveBeenCalledWith(1, expect.objectContaining({ amend: true }));
+  });
+
+  it('Ctrl+Enter 触发预览', async () => {
+    workspaceStatusMock.mockResolvedValue(statusWith(['src/a.ts']));
+    commitPrepareMock.mockResolvedValue(plan());
+
+    renderCommit();
+    expect(await screen.findByText('已暂存 1 个文件')).toBeInTheDocument();
+    typeSubject('feat: keyboard');
+
+    fireEvent.keyDown(screen.getByTestId('commit-panel'), { key: 'Enter', ctrlKey: true });
+
+    await waitFor(() => {
+      expect(commitPrepareMock).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it('最近提交下拉可以把历史信息填回首行', async () => {
+    commitMessageHintMock.mockResolvedValue({
+      recentMessages: ['feat: previous'],
+      template: 'feat: ',
+      branchStyle: 'feat',
+    });
+    workspaceStatusMock.mockResolvedValue(statusWith(['src/a.ts']));
+
+    renderCommit();
+
+    // 模板按钮与下拉都来自后端提示（纯本地规则）
+    expect(await screen.findByRole('button', { name: '用「feat: 」开头' })).toBeInTheDocument();
+    const hint = await screen.findByRole('combobox', { name: '最近提交' });
+    expect(hint).toBeInTheDocument();
+  });
+});

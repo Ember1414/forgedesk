@@ -785,6 +785,59 @@ pub(super) fn head_oid(engine: &CliGitEngine, repo: &RepoId) -> AppResult<Option
     rev_parse(engine, repo, "HEAD")
 }
 
+/// 当前索引的树 oid（`git write-tree`；T1.7 的索引指纹）。
+///
+/// 走 `run_write` 而不是 `run_read`：它**确实会往对象库里写一个树对象**
+/// （因此不是只读路径），只是不动引用与工作区。索引里有未合并条目时 git 会拒绝，
+/// 错误按常规分类上报——冲突状态下本来就不该发起提交。
+pub(super) fn index_tree(engine: &CliGitEngine, repo: &RepoId) -> AppResult<String> {
+    let output = engine.run_write(repo, GitInvocation::new(vec!["write-tree".to_owned()]))?;
+    let oid = output.stdout_lossy().trim().to_owned();
+    if oid.is_empty() {
+        return Err(AppError::new(
+            ErrorCode::Internal,
+            "git write-tree returned no tree id",
+        ));
+    }
+    Ok(oid)
+}
+
+/// HEAD 的树 oid；空仓库返回 `None`。
+pub(super) fn head_tree(engine: &CliGitEngine, repo: &RepoId) -> AppResult<Option<String>> {
+    rev_parse(engine, repo, "HEAD^{tree}")
+}
+
+/// 实际生效的钩子目录（`git rev-parse --git-path hooks`）。
+///
+/// 用 git 自己解析而不是拼 `.git/hooks`：`core.hooksPath`（husky 默认设置它）
+/// 会让真实目录完全不同。
+///
+/// 输出去 `trim` 后可能是相对路径（`--git-path` 在旧版本上给相对路径），
+/// 因此非绝对路径要相对仓库根解析。
+pub(super) fn hooks_dir(engine: &CliGitEngine, repo: &RepoId) -> AppResult<std::path::PathBuf> {
+    let output = engine.run_read(
+        repo,
+        GitInvocation::new(vec![
+            "rev-parse".to_owned(),
+            "--git-path".to_owned(),
+            "hooks".to_owned(),
+        ]),
+    )?;
+    let text = output.stdout_lossy().trim().to_owned();
+    if text.is_empty() {
+        return Err(AppError::new(
+            ErrorCode::Internal,
+            "git rev-parse --git-path hooks returned nothing",
+        ));
+    }
+    let path = std::path::PathBuf::from(text);
+    Ok(if path.is_absolute() {
+        path
+    } else {
+        repo.root().join(path)
+    })
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {

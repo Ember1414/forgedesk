@@ -48,8 +48,8 @@ interface FixAction {
 
 `PATH_NOT_REPO`、`GIT_CONFLICT`、`AUTH_REQUIRED`、`AUTH_EXPIRED`、`PERMISSION_DENIED`、
 `NOT_FOUND`、`VALIDATION`、`NETWORK`、`RATE_LIMITED`、`PATCH_APPLY_FAILED`、`PLAN_STALE`、
-`HOOK_REJECTED`、`RESTORE_VERIFY_FAILED`、`KEYRING_UNAVAILABLE`、`STORAGE`、`PTY_UNSUPPORTED`、
-`UNSUPPORTED_BY_ENGINE`、`CANCELLED`、`INTERNAL`
+`HOOK_REJECTED`、`EMPTY_COMMIT`、`RESTORE_VERIFY_FAILED`、`KEYRING_UNAVAILABLE`、`STORAGE`、
+`PTY_UNSUPPORTED`、`UNSUPPORTED_BY_ENGINE`、`CANCELLED`、`INTERNAL`
 
 **转换入口**：命令层不得自行拼装错误，一律经 `forgedesk_commands::error::to_app_error`——
 错误分类在领域层（`ErrorCode::classify`，纯函数可单测），脱敏在 `forgedesk-diagnostics`
@@ -82,6 +82,9 @@ interface FixAction {
 | [`workspace_unstage`](#workspace_stage--workspace_unstage--workspace_discard--workspace_reveal) | Mutating | T1.4 / T1.6 | 取消暂存路径 / 块 / 行 |
 | [`workspace_discard`](#workspace_stage--workspace_unstage--workspace_discard--workspace_reveal) | Mutating | T1.4 / T1.6 | 放弃工作区修改（前端必须先确认；快照 M3 接入） |
 | [`workspace_reveal`](#workspace_stage--workspace_unstage--workspace_discard--workspace_reveal) | ReadOnly | T1.4 | 在系统文件管理器中显示文件 |
+| [`commit_prepare`](#commit_prepare) | ReadOnly | T1.7 | 生成提交计划（不创建提交） |
+| [`commit_execute`](#commit_execute) | Mutating | T1.7 | 执行提交计划（成功后发布 repo:changed） |
+| [`commit_message_hint`](#commit_message_hint) | ReadOnly | T1.7 | 最近提交与分支风格提示（纯本地规则） |
 
 ---
 
@@ -583,6 +586,136 @@ interface PatchView {
     `actions` 里带一个指向 `workspace_status` 的刷新动作（`args.repoId` 已填好），
     因为这类失败的唯一有效修复是"刷新状态再选一次"；
   - `GIT_CONFLICT`：冲突路径不可放弃（M3 处理）。
+
+### commit_prepare
+
+生成提交计划（**不创建提交**）。这是红线 R7"计划预览 → 快照 → 执行 → 可回滚"里的第一步：
+用户先把"将要提交什么、会执行哪个命令、会跑哪些钩子"看清楚，再由 [`commit_execute`](#commit_execute) 落地。
+
+- **能力等级**：`ReadOnly`。它只读索引与配置，不创建提交、不写审计、不发事件——界面因此
+  不需要任何确认对话框。实现上会执行 `git write-tree`（会往对象库写一个树对象，gc 会回收），
+  但**不动索引、引用与工作区**：能力等级说的是"是否改变用户的数据"，不是"是否碰了磁盘"。
+- **参数**：`repoId: number`、`spec: PrepareCommitRequest`
+
+```ts
+interface PrepareCommitRequest {
+  message: string;              // 提交信息**首行**（subject）
+  description?: string;         // 正文；空字符串与缺省等价
+  amend?: boolean;              // 默认 false
+  signOff?: boolean;            // 默认 false（--signoff；与 GPG 签名是两件事）
+  noVerify?: boolean;           // 默认 false（跳过钩子必须由用户显式选择）
+  sign?: 'auto' | 'yes' | 'no'; // 默认 auto（跟随仓库/全局配置）
+  author?: { name: string; email: string }; // 覆盖作者身份（amend 保留原作者时用）
+}
+```
+
+- **返回**：`CommitPlanDto`
+
+```ts
+interface CommitPlanDto {
+  planId: string;                    // 执行时原样回传
+  repoId: number;
+  files: { path: string; indexStatus: string }[]; // indexStatus：A/M/D/R/U，界面按它分组
+  message: string;                   // 完整提交信息（首行 + 空行 + 正文）
+  description: string | null;
+  author: { name: string; email: string } | null;
+  sign: 'auto' | 'yes' | 'no';
+  signOff: boolean;
+  noVerify: boolean;
+  amend: boolean;
+  hooks: string[];                   // 将要执行的钩子（按 git 的调用顺序）
+  equivalentCommand: string;         // 可直接粘贴到终端的等价 git 命令
+  headOid: string | null;            // 空仓库为 null
+  indexFingerprint: string;          // 索引的树 oid（git write-tree）
+  createdAtMs: number;
+  expiresAtMs: number;               // createdAtMs + 5 分钟
+  subject: string;                   // 首行（界面计数器用）
+  subjectChars: number;
+  warnings: string[];                // 不阻断的建议：'subjectTooLong'
+}
+```
+
+- **`equivalentCommand` 的形式**：文件数 ≤ 20 时按 POSIX sh 规则生成
+  `git commit [--amend] [--signoff] [--no-verify] [--gpg-sign] [--author=...] -m "..." -m "..."`
+  （`\`、`"`、`$`、反引号会被转义，换行不转义）；超过 20 个文件时改为两步说明
+  （把信息写入文件后用 `-F <message-file>`），因为几百字符的命令没人会去核对。
+- **`hooks` 的准确性**：目录由 `git rev-parse --git-path hooks` 解析，因此 `core.hooksPath`
+  （husky 默认设置它）会被正确考虑；只列出 `pre-commit` / `prepare-commit-msg` / `commit-msg`
+  且带执行位（Windows 上按文件存在）的那些。`post-commit` 不列：它在提交之后运行，
+  失败不会让提交失败。
+- **错误**：
+  - `VALIDATION`：信息为空或只有空白、签名模式未知、作者姓名/邮箱形状不合法、信息超过 IPC 上限；
+  - `EMPTY_COMMIT`：没有可提交的内容（索引为空，或索引与 HEAD 相同）。
+    归到这个码而不是通用 `VALIDATION`，是为了让界面说"先暂存一些改动"，
+    而不是让用户去检查自己写的提交信息；
+  - `GIT_CONFLICT`：仓库有未解决的冲突。冲突检查**排在指纹之前**：`git write-tree` 遇到
+    未合并条目会直接失败，那样用户拿到的是一句 git 内部报错，而不是真正的原因；
+  - `NOT_FOUND`：仓库记录不存在。
+- **前端封装**：`commitPrepare(repoId, spec)`；调用点：`src/features/commit/CommitPanel.tsx`
+
+### commit_execute
+
+执行一份提交计划。**能力等级**：`Mutating`；成功后发布 `repo:changed`
+（载荷 `{ repoId, paths }`，让状态面板与历史刷新）。
+
+- **参数**：`planId: string`
+- **返回**：`CommitOutcomeDto`
+
+```ts
+interface CommitOutcomeDto {
+  oid: string;
+  subject: string;
+  snapshotId: number | null;  // M3 之前为 null
+  paths: string[];            // 本次提交涉及的路径
+}
+```
+
+- **执行序列（顺序即语义）**：
+  1. 取出计划 —— **取走即失效**，同一 `planId` 只能执行一次；
+  2. 有效期校验（TTL 5 分钟）；
+  3. **索引指纹校验**：与 `prepare` 时不同即拒绝。界面上的 diff 是几秒前取的，而
+     "用户刚在终端里又 `git add` 了一次"是完全正常的用法；不校验就会提交出用户没看过的内容；
+  4. 写审计 `operation_records`（begin）；
+  5. `SnapshotManager.create("pre-commit")`（M3 / T1.9 之前注入的是"未启用"实现）；
+  6. `git commit`（提交信息走 stdin 的 `--file=-`，不落临时文件）；
+  7. 审计收尾（exit code、stderr 摘要、快照 id、reversible）。
+- **错误**：
+  - `PLAN_STALE`：planId 未知或已用过、已过期、索引被外部改过。
+    前两者不带动作，第三者带一个指向 `workspace_status` 且已填好 `repoId` 的刷新动作；
+  - `HOOK_REJECTED`：钩子拒绝了提交。`detail` 是 git 的**原始输出**（展开即见钩子说了什么），
+    `hint` 是钩子名清单。**不返回 `actions`**：`FixAction` 的语义是"点击后调用某个 Tauri 命令"，
+    而"查看输出"等于展开 detail、"禁用钩子重试"等于用 `noVerify: true` 重新走
+    prepare + execute——两者都不是单命令。伪造一个指向无关命令的按钮，用户点下去只会
+    再撞一次错（比没有按钮更糟），因此这两个动作由前端实现；
+  - 其余错误原样透传（`GIT_CONFLICT`、`PERMISSION_DENIED`、`STORAGE`…）。
+- **审计的诚实标注**：M3 之前没有快照，因此记录里 `snapshot_id` 为 `NULL`、
+  `reversible` 为 `false` —— 审计不会假装有快照。`reversible` 的判定就是
+  `snapshot_id.is_some()`。
+- **前端封装**：`commitExecute(planId)`；调用点：`src/features/commit/CommitPreviewDialog.tsx`
+
+### commit_message_hint
+
+提交信息的风格提示。**能力等级**：`ReadOnly`。
+
+- **参数**：`repoId: number`
+- **返回**：
+
+```ts
+interface MessageHintDto {
+  recentMessages: string[];    // 最近 20 条提交的首行（新 → 旧）
+  template: string | null;     // 例如 'feat: '（分支名形如 feat/xxx 时）
+  branchStyle: string | null;  // 分支名斜杠前那一段
+}
+```
+
+- **规则**（**纯本地、无任何模型推理**，红线 R1）：最近 20 条提交的首行；当前分支名形如
+  `<prefix>/<rest>` 时给出 `template = "<prefix>: "`。更复杂的推断（Conventional Commits 的
+  scope、团队自定义前缀）靠猜只会猜错，而错的提示比没有提示更烦人。
+- **用途**：让用户看到"这个仓库习惯怎么写"，**不是替他写**。
+- **错误**：`NOT_FOUND`、`STORAGE`。
+- **前端封装**：`commitMessageHint(repoId)`；调用点：`src/features/commit/CommitPanel.tsx`
+
+---
 
 ## 4. 新增命令的检查清单
 

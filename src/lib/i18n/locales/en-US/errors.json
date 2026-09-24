@@ -47,6 +47,10 @@
     "title": "Rejected by a Git hook",
     "hint": "Read the hook output (often a commit-message check or a failing test), fix it and commit again."
   },
+  "EMPTY_COMMIT": {
+    "title": "Nothing to commit",
+    "hint": "The index is empty, or the staged changes are identical to the last commit. Stage something first."
+  },
   "RESTORE_VERIFY_FAILED": {
     "title": "Restore verification failed",
     "hint": "The restored state does not match the snapshot. Review the details and bring the repository back to a safe state."

@@ -358,6 +358,18 @@ impl GitEngine for CliGitEngine {
         write::apply_patch(self, repo, spec)
     }
 
+    fn index_tree(&self, repo: &RepoId) -> AppResult<String> {
+        read::index_tree(self, repo)
+    }
+
+    fn head_tree(&self, repo: &RepoId) -> AppResult<Option<String>> {
+        read::head_tree(self, repo)
+    }
+
+    fn hooks_dir(&self, repo: &RepoId) -> AppResult<PathBuf> {
+        read::hooks_dir(self, repo)
+    }
+
     fn commit(&self, repo: &RepoId, spec: CommitSpec) -> AppResult<String> {
         write::commit(self, repo, &spec)
     }

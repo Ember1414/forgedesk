@@ -29,6 +29,7 @@
 
 pub mod audit;
 pub mod commit;
+pub mod commit_plan;
 pub mod diff;
 pub mod index;
 pub mod path;
@@ -46,6 +47,11 @@ pub use audit::{
     RepoAuditReport,
 };
 pub use commit::{Commit, Signature, SignatureStatus};
+pub use commit_plan::{
+    compose_message, equivalent_command, review_message, CommitPlan, EquivalentCommandInput,
+    MessageIssue, MessageReview, PlannedFile, SignMode, COMMIT_PLAN_TTL_MS, EMPTY_TREE_OID,
+    EQUIVALENT_COMMAND_FILE_LIMIT, SUBJECT_RECOMMENDED_MAX_CHARS,
+};
 pub use diff::{
     DiffChangeKind, DiffHunk, DiffLine, DiffLineKind, DiffReport, DiffSpec, DiffTarget, FileDiff,
     FileStat, DEFAULT_CONTEXT_LINES, MAX_DIFF_BYTES_PER_FILE, MAX_DIFF_LINES_PER_FILE,

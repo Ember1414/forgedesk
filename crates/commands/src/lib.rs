@@ -27,6 +27,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod commit;
 pub mod debug;
 pub mod error;
 pub mod jobs;
@@ -37,6 +38,10 @@ pub mod state;
 pub mod system;
 pub mod workspace;
 
+pub use commit::{
+    commit_execute, commit_message_hint, commit_prepare, CommitOutcomeDto, CommitPlanDto,
+    IdentityDto, IdentityRequest, MessageHintDto, PlannedFileDto, PrepareCommitRequest,
+};
 pub use debug::{debug_panic, debug_throw_error};
 pub use error::{to_app_error, Fallible};
 pub use jobs::{job_cancel, TauriJobReporter};

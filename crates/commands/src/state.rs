@@ -23,8 +23,12 @@ use std::sync::Arc;
 
 use forgedesk_jobs::JobRunner;
 use forgedesk_services::repository::OpenRepoRegistry;
-use forgedesk_services::{GitEngines, RepositoryService, StagingService, WorkspaceService};
-use forgedesk_storage::{Database, RepositoryStore};
+use forgedesk_services::{
+    CommitPlanRegistry, CommitService, GitEngines, RepositoryService, StagingService,
+    WorkspaceService,
+};
+use forgedesk_snapshot::SnapshotManager;
+use forgedesk_storage::{Database, OperationStore, RepositoryStore};
 
 /// 应用级共享状态。
 #[derive(Debug)]
@@ -42,6 +46,16 @@ pub struct AppState {
     pub jobs: Arc<JobRunner>,
     /// 当前会话中已打开的仓库。
     pub open_repos: Arc<OpenRepoRegistry>,
+    /// 快照管理器。
+    ///
+    /// M3 / T1.9 之前注入的是"未启用"实现（`NoopSnapshotManager`）——提交链路已经
+    /// 在正确的位置调用它，只是它如实回答"没有快照"。换成真实实现不需要改上层。
+    pub snapshots: Arc<dyn SnapshotManager>,
+    /// 待执行的提交计划（进程内、带 5 分钟有效期）。
+    ///
+    /// 必须全进程共享：`commit_prepare` 与 `commit_execute` 是两次独立调用，
+    /// 各自 new 一个注册表会让 `execute` 永远找不到 `prepare` 放进去的计划。
+    pub commit_plans: Arc<CommitPlanRegistry>,
 }
 
 impl AppState {
@@ -74,5 +88,19 @@ impl AppState {
     /// 会变成"两个服务看到两个不同的世界"。
     pub fn staging_service(&self) -> StagingService<'_> {
         StagingService::new(self.workspace_service(), &self.engines)
+    }
+
+    /// 绑定当前状态构造提交用例服务（prepare / execute / 提示，T1.7）。
+    ///
+    /// 与其它工厂方法共用同一批引擎、同一个数据库与**同一个计划注册表**：
+    /// 注册表是 `prepare` 与 `execute` 之间的唯一纽带，换一个就等于把计划丢了。
+    pub fn commit_service(&self) -> CommitService<'_> {
+        CommitService::new(
+            &self.engines,
+            RepositoryStore::new(&self.database),
+            OperationStore::new(&self.database),
+            self.snapshots.as_ref(),
+            &self.commit_plans,
+        )
     }
 }

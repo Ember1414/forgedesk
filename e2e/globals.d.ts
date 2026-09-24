@@ -35,11 +35,30 @@ export interface MockStagingCall {
   readonly paths: readonly string[];
 }
 
+/** mock 记录的一次提交命令调用（prepare / execute）。 */
+export interface MockCommitCall {
+  readonly command: string;
+  readonly args: {
+    readonly repoId?: number;
+    readonly planId?: string;
+    readonly spec?: {
+      readonly message?: string;
+      readonly description?: string;
+      readonly amend?: boolean;
+      readonly signOff?: boolean;
+      readonly noVerify?: boolean;
+      readonly sign?: string;
+    };
+  };
+}
+
 declare global {
   interface Window {
     /** mock 记录收到的暂存 / 取消暂存请求（断言"界面选的粒度与下标"是否原样传到后端）。 */
     __stagingCalls?: MockStagingCall[];
     /** mock 的文件夹具（断言部分暂存后的索引 / 工作区状态）。 */
     __mockFiles?: MockFileChange[];
+    /** mock 记录收到的提交命令（断言预览与执行用的是同一份数据）。 */
+    __commitCalls?: MockCommitCall[];
   }
 }

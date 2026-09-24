@@ -448,6 +448,9 @@ pub fn commit_args(spec: &CommitSpec) -> AppResult<GitInvocation> {
     if spec.no_verify {
         args.push("--no-verify".to_owned());
     }
+    if spec.sign_off {
+        args.push("--signoff".to_owned());
+    }
     match spec.sign {
         Some(true) => args.push("--gpg-sign".to_owned()),
         Some(false) => args.push("--no-gpg-sign".to_owned()),

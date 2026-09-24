@@ -18,6 +18,7 @@ import type { RouteObject } from 'react-router-dom';
 
 import { AppShell } from '@/app/shell/AppShell';
 import { NotFoundPage } from '@/app/shell/NotFoundPage';
+import { CommitPage } from '@/features/commit/CommitPage';
 import { DashboardPage } from '@/features/dashboard/DashboardPage';
 import { GitHubActionsPage } from '@/features/github/GitHubActionsPage';
 import { GitHubIssuesPage } from '@/features/github/GitHubIssuesPage';
@@ -61,6 +62,7 @@ export const appRoutes: RouteObject[] = [
         children: [
           { index: true, element: <Navigate to="status" replace /> },
           { path: 'status', element: <RepoStatusPage /> },
+          { path: 'commit', element: <CommitPage /> },
           { path: 'history', element: <RepoHistoryPage /> },
           { path: 'branches', element: <RepoBranchesPage /> },
           { path: 'conflict', element: <RepoConflictPage /> },

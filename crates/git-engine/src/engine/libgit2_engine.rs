@@ -718,6 +718,64 @@ impl GitEngine for Libgit2Engine {
         Err(unsupported(EngineId::Libgit2, "apply_patch"))
     }
 
+    fn index_tree(&self, repo: &RepoId) -> AppResult<String> {
+        let repository = open(repo)?;
+        let mut index = repository
+            .index()
+            .map_err(|error| map_error(&error, "index"))?;
+        // 与 CLI 的 `git write-tree` 同一语义：写树对象、不动引用与工作区。
+        // 两边都由 git/libgit2 从同一份索引算出，因此结果必须一致
+        // （差分测试里断言这一点）。
+        let oid = index
+            .write_tree()
+            .map_err(|error| map_error(&error, "write-tree"))?;
+        Ok(oid.to_string())
+    }
+
+    fn head_tree(&self, repo: &RepoId) -> AppResult<Option<String>> {
+        let repository = open(repo)?;
+        // 结果先绑定到局部变量：git2 的 `Reference` 借用 `repository`，
+        // 若把这个 match 留作尾表达式，临时值会在 `repository` 之后析构，
+        // 借用检查因此拒绝（E0597）。
+        let tree = match repository.head() {
+            Ok(head) => {
+                let commit = head
+                    .peel_to_commit()
+                    .map_err(|error| map_error(&error, "head"))?;
+                Some(commit.tree_id().to_string())
+            }
+            // 空仓库（HEAD 指向尚未诞生的分支）与没有 HEAD 都返回 None：
+            // 它们是**正常状态**，不该让"准备提交"整体失败。
+            Err(error)
+                if matches!(
+                    error.code(),
+                    git2::ErrorCode::UnbornBranch | git2::ErrorCode::NotFound
+                ) =>
+            {
+                None
+            }
+            Err(error) => return Err(map_error(&error, "head")),
+        };
+        Ok(tree)
+    }
+
+    fn hooks_dir(&self, repo: &RepoId) -> AppResult<std::path::PathBuf> {
+        let repository = open(repo)?;
+        // `core.hooksPath` 可能来自仓库配置，也可能来自全局/系统配置，
+        // 因此问 config()（它按 git 的优先级合并）而不是自己读 .git/config
+        let configured = repository
+            .config()
+            .ok()
+            .and_then(|config| config.get_path("core.hooksPath").ok());
+
+        Ok(match configured {
+            Some(path) if path.is_absolute() => path,
+            // 相对路径相对**仓库根**解析（与 git 的行为一致），不是 .git 目录
+            Some(path) => repo.root().join(path),
+            None => repository.path().join("hooks"),
+        })
+    }
+
     fn commit(
         &self,
         _repo: &RepoId,

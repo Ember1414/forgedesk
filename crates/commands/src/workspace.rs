@@ -194,7 +194,7 @@ fn to_repo_paths(paths: &[String]) -> Vec<RepoPath> {
         .collect()
 }
 
-fn emit_changed(app: &AppHandle, repo_id: i64, paths: Vec<String>) {
+pub(crate) fn emit_changed(app: &AppHandle, repo_id: i64, paths: Vec<String>) {
     // 事件投递失败不该让"操作已成功"回滚成错误：数据变化是事实，
     // 面板下一次刷新自然会追上。这里只记录告警（经脱敏层）。
     if let Err(_error) = app.emit(EVENT_REPO_CHANGED, RepoChangedPayload { repo_id, paths }) {

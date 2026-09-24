@@ -204,6 +204,12 @@ pub struct CommitSpec {
     pub allow_empty: bool,
     /// 是否 GPG 签名。`None` = 跟随仓库/全局配置（不显式传 `-S`/`--no-gpg-sign`）。
     pub sign: Option<bool>,
+    /// 是否在提交信息末尾追加 `Signed-off-by`（`--signoff`，T1.7）。
+    ///
+    /// 与 GPG 签名是**两件不同的事**：`--signoff` 只是往信息里写一行
+    /// `Signed-off-by: Name <email>`（很多项目的 DCO 流程要求它），
+    /// 而 `sign` 是对提交对象做密码学签名。名字相近，很容易在参数里搞混。
+    pub sign_off: bool,
     /// 覆盖作者身份（amend 时用于保留原作者）。
     pub author: Option<Signature>,
     /// 是否跳过 pre-commit / commit-msg 钩子。
@@ -222,6 +228,7 @@ impl CommitSpec {
             amend: false,
             allow_empty: false,
             sign: None,
+            sign_off: false,
             author: None,
             no_verify: false,
         }

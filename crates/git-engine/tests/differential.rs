@@ -34,8 +34,8 @@ use std::collections::BTreeSet;
 use std::path::Path;
 
 use forgedesk_domain::git::{
-    Commit, DiffReport, DiffSpec, DiffTarget, EntryKind, LogQuery, Page, RepoId, StatusQuery,
-    StatusReport,
+    Commit, CommitSpec, DiffReport, DiffSpec, DiffTarget, EntryKind, LogQuery, Page, RepoId,
+    StageSpec, StatusQuery, StatusReport,
 };
 use forgedesk_git_engine::engine::{CliGitEngine, GitEngine, Libgit2Engine, ProgressSink};
 use support::{commit_all, git_ok, init_repo, write, TempDir};
@@ -543,4 +543,54 @@ fn libgit2_engine_refuses_every_write_operation_explicitly() {
             "写操作必须报 UNSUPPORTED_BY_ENGINE 而不是静默成功：{error:?}"
         );
     }
+}
+
+// ---------------------------------------------------------------- 索引指纹（T1.7）
+
+#[test]
+fn the_index_and_head_tree_oids_agree_across_engines() {
+    let dir = TempDir::new("index-tree");
+    let (cli, libgit2) = engines();
+    init_repo(dir.path());
+    let repo = RepoId::new(dir.path());
+
+    // 空索引：两个引擎都要给出 git 的空树 oid，而不是各自报错或给出空串。
+    // 服务层就是靠这个值判定"没有暂存内容"的。
+    let empty = cli.index_tree(&repo).expect("CLI write-tree 失败");
+    assert_eq!(empty, forgedesk_domain::git::EMPTY_TREE_OID);
+    assert_eq!(
+        libgit2.index_tree(&repo).expect("libgit2 write-tree 失败"),
+        empty,
+        "两个引擎对同一份空索引必须给出同一个树 oid"
+    );
+    assert_eq!(cli.head_tree(&repo).expect("CLI head tree 失败"), None);
+    assert_eq!(
+        libgit2.head_tree(&repo).expect("libgit2 head tree 失败"),
+        None
+    );
+
+    // 暂存内容之后：指纹必须随索引变化
+    write(dir.path(), "a.txt", b"one\n");
+    cli.stage(&repo, StageSpec::All).expect("stage 失败");
+    let staged = cli.index_tree(&repo).expect("CLI write-tree 失败");
+    assert_ne!(staged, empty);
+    assert_eq!(
+        libgit2.index_tree(&repo).expect("libgit2 write-tree 失败"),
+        staged
+    );
+
+    // 提交之后：HEAD 的树就等于刚才索引的树（这正是"索引 == HEAD ⇒ 没东西可提交"）
+    cli.commit(&repo, CommitSpec::new("first"))
+        .expect("commit 失败");
+    let head_tree = cli.head_tree(&repo).expect("CLI head tree 失败");
+    assert_eq!(head_tree.as_deref(), Some(staged.as_str()));
+    assert_eq!(
+        libgit2.head_tree(&repo).expect("libgit2 head tree 失败"),
+        head_tree
+    );
+
+    // 再改一次内容：指纹又变了——这是"索引被外部改过"能被检出的依据
+    write(dir.path(), "a.txt", b"two\n");
+    cli.stage(&repo, StageSpec::All).expect("stage 失败");
+    assert_ne!(cli.index_tree(&repo).expect("CLI write-tree 失败"), staged);
 }

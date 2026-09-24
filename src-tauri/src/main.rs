@@ -16,7 +16,8 @@ use forgedesk_jobs::JobRunner;
 use forgedesk_platform::session::{detect_previous_session, start_session, SessionMarker};
 use forgedesk_platform::{install_panic_hook, non_blocking_writer, LogFlushGuard, LogPolicy};
 use forgedesk_services::repository::OpenRepoRegistry;
-use forgedesk_services::GitEngines;
+use forgedesk_services::{CommitPlanRegistry, GitEngines};
+use forgedesk_snapshot::NoopSnapshotManager;
 use forgedesk_storage::{migrate, Database};
 use tauri::{Manager, RunEvent};
 use tracing::{error, info, warn};
@@ -111,6 +112,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 engines: Arc::new(engines),
                 jobs: Arc::new(JobRunner::new()),
                 open_repos: Arc::new(OpenRepoRegistry::new()),
+                // 快照本体在 M3 / T1.9 落地；提交链路已经在"执行前打点"的位置
+                // 就位，这里注入的是如实回答"没有快照"的实现，而不是假装有。
+                snapshots: Arc::new(NoopSnapshotManager),
+                commit_plans: Arc::new(CommitPlanRegistry::new()),
             });
             app.manage(RuntimeHandles {
                 _log_guard: guard,
@@ -137,6 +142,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         forgedesk_commands::workspace_stage,
         forgedesk_commands::workspace_unstage,
         forgedesk_commands::workspace_discard,
+        forgedesk_commands::commit_prepare,
+        forgedesk_commands::commit_execute,
+        forgedesk_commands::commit_message_hint,
         forgedesk_commands::logs_tail,
         forgedesk_commands::repo_discover,
         forgedesk_commands::repo_open,
@@ -162,6 +170,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         forgedesk_commands::workspace_stage,
         forgedesk_commands::workspace_unstage,
         forgedesk_commands::workspace_discard,
+        forgedesk_commands::commit_prepare,
+        forgedesk_commands::commit_execute,
+        forgedesk_commands::commit_message_hint,
         forgedesk_commands::logs_tail,
         forgedesk_commands::repo_discover,
         forgedesk_commands::repo_open,

@@ -42,6 +42,12 @@ pub enum ErrorCode {
     PlanStale,
     /// Git 钩子拒绝了本次操作。
     HookRejected,
+    /// 没有可提交的内容（索引为空，或索引与 HEAD 相同）。
+    ///
+    /// 为什么单独一个码：这是用户**站在提交按钮前**最常遇到的情况，
+    /// 界面要把它变成一句可操作的话（"先暂存一些改动"）。归到通用的 `VALIDATION`
+    /// 会让用户跑去检查自己写的提交信息——而问题根本不在那里。
+    EmptyCommit,
     /// 快照回滚后的状态校验未通过。
     RestoreVerifyFailed,
     /// 系统凭据库不可用（例如 Linux 上缺少 Secret Service）。
@@ -81,6 +87,7 @@ impl ErrorCode {
         Self::PatchApplyFailed,
         Self::PlanStale,
         Self::HookRejected,
+        Self::EmptyCommit,
         Self::RestoreVerifyFailed,
         Self::KeyringUnavailable,
         Self::Storage,
@@ -105,6 +112,7 @@ impl ErrorCode {
             Self::PatchApplyFailed => "PATCH_APPLY_FAILED",
             Self::PlanStale => "PLAN_STALE",
             Self::HookRejected => "HOOK_REJECTED",
+            Self::EmptyCommit => "EMPTY_COMMIT",
             Self::RestoreVerifyFailed => "RESTORE_VERIFY_FAILED",
             Self::KeyringUnavailable => "KEYRING_UNAVAILABLE",
             Self::Storage => "STORAGE",
@@ -147,6 +155,7 @@ impl ErrorCode {
             Self::PatchApplyFailed => "the patch could not be applied",
             Self::PlanStale => "the plan is stale: the repository changed after it was built",
             Self::HookRejected => "a Git hook rejected the operation",
+            Self::EmptyCommit => "there is nothing staged to commit",
             Self::RestoreVerifyFailed => "the restored state failed verification",
             Self::KeyringUnavailable => "the system credential store is unavailable",
             Self::Storage => "local data storage failed",

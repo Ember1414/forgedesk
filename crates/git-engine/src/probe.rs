@@ -40,10 +40,51 @@ pub fn detect_lfs(git_dir: &Path, workdir: Option<&Path>) -> bool {
         .any(|line| !line.starts_with('#') && line.contains("filter=lfs"))
 }
 
+/// 提交时 git 会调用的钩子（按 git 的调用顺序）。
+///
+/// 只有这三个：`post-commit` 在提交**之后**运行，它失败不会让提交失败，
+/// 把它列进"将要执行的钩子"会让用户以为提交可能因此被拒绝。
+pub const COMMIT_HOOKS: [&str; 3] = ["pre-commit", "prepare-commit-msg", "commit-msg"];
+
+/// 钩子目录里**存在且可执行**的提交钩子（提交预览用）。
+///
+/// `hooks_dir` 必须由 `GitEngine::hooks_dir` 给出——`core.hooksPath`（husky 默认设置它）
+/// 会让真实的钩子目录不是 `.git/hooks`。
+pub fn executable_commit_hooks(hooks_dir: &Path) -> Vec<String> {
+    COMMIT_HOOKS
+        .iter()
+        .filter(|name| is_executable(&hooks_dir.join(name)))
+        .map(|name| (*name).to_owned())
+        .collect()
+}
+
+/// Unix：git 要求钩子文件带执行位，没有执行位的钩子会被忽略。
+#[cfg(unix)]
+fn is_executable(path: &Path) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+
+    let Ok(metadata) = std::fs::metadata(path) else {
+        return false;
+    };
+    metadata.is_file() && metadata.permissions().mode() & 0o111 != 0
+}
+
+/// Windows：没有执行位，git for Windows 就是"文件存在即执行"。
+///
+/// 这里刻意不要求 `.exe` / `.bat` 扩展名：钩子的常见形态是无扩展名的 sh 脚本，
+/// 加了扩展名判定会把绝大多数真实钩子漏掉——而"预览里说没有钩子、实际执行了"
+/// 比"多列一个"糟糕得多。
+#[cfg(not(unix))]
+fn is_executable(path: &Path) -> bool {
+    std::fs::metadata(path)
+        .map(|metadata| metadata.is_file())
+        .unwrap_or(false)
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
-    use super::detect_lfs;
+    use super::{detect_lfs, executable_commit_hooks, COMMIT_HOOKS};
     use std::path::Path;
 
     /// 建一个临时目录；测试结束由 `TempDir` 自行清理。
@@ -116,5 +157,77 @@ mod tests {
     fn a_bare_repository_without_workdir_is_never_lfs() {
         let dir = TempDir::new("bare");
         assert!(!detect_lfs(dir.path(), None));
+    }
+
+    /// 让钩子文件带上执行位（Windows 上没有执行位，git 以文件存在为准）。
+    fn make_runnable(path: &Path) {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut permissions = std::fs::metadata(path).unwrap().permissions();
+            permissions.set_mode(0o755);
+            std::fs::set_permissions(path, permissions).unwrap();
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = path;
+        }
+    }
+
+    #[test]
+    fn only_the_hooks_git_would_actually_run_are_listed() {
+        let dir = TempDir::new("hooks");
+        dir.write(".git/hooks/pre-commit", "#!/bin/sh\n");
+        // post-commit 在提交之后运行，失败也不会让提交失败——列出来是误导
+        dir.write(".git/hooks/post-commit", "#!/bin/sh\n");
+        // git init 自带的示例文件名字带后缀，git 永远不执行它
+        dir.write(".git/hooks/commit-msg.sample", "#!/bin/sh\n");
+        make_runnable(&dir.path().join(".git/hooks/pre-commit"));
+
+        assert_eq!(
+            executable_commit_hooks(&dir.path().join(".git/hooks")),
+            vec!["pre-commit".to_owned()]
+        );
+    }
+
+    #[test]
+    fn the_hook_list_follows_the_order_git_calls_them() {
+        let dir = TempDir::new("hook-order");
+        for name in COMMIT_HOOKS {
+            dir.write(&format!(".git/hooks/{name}"), "#!/bin/sh\n");
+            make_runnable(&dir.path().join(format!(".git/hooks/{name}")));
+        }
+
+        assert_eq!(
+            executable_commit_hooks(&dir.path().join(".git/hooks")),
+            vec![
+                "pre-commit".to_owned(),
+                "prepare-commit-msg".to_owned(),
+                "commit-msg".to_owned()
+            ]
+        );
+    }
+
+    #[test]
+    fn a_missing_hooks_directory_lists_nothing() {
+        let dir = TempDir::new("no-hooks");
+
+        assert!(executable_commit_hooks(&dir.path().join(".git/hooks")).is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_hook_without_the_execute_bit_is_not_listed_because_git_would_skip_it() {
+        let dir = TempDir::new("hook-perm");
+        dir.write(".git/hooks/pre-commit", "#!/bin/sh\n");
+
+        // 默认权限是 0644：git 会忽略它，预览里也就不能说"会执行"
+        assert!(executable_commit_hooks(&dir.path().join(".git/hooks")).is_empty());
+
+        make_runnable(&dir.path().join(".git/hooks/pre-commit"));
+        assert_eq!(
+            executable_commit_hooks(&dir.path().join(".git/hooks")),
+            vec!["pre-commit".to_owned()]
+        );
     }
 }

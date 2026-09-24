@@ -43,7 +43,10 @@ use crate::templates::{sanitize_holder, GitignoreTemplate, LicenseTemplate};
 pub type MillisClock = Arc<dyn Fn() -> i64 + Send + Sync>;
 
 /// 系统时钟。
-fn system_clock() -> i64 {
+///
+/// `pub(crate)` 而不是私有：提交服务（T1.7）也要用它，而两个实现各写一份
+/// "取当前毫秒"正是那种"看似无害、实则让时间语义分叉"的重复。
+pub(crate) fn system_clock() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|elapsed| i64::try_from(elapsed.as_millis()).unwrap_or(i64::MAX))
