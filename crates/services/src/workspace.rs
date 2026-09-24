@@ -30,14 +30,18 @@ use crate::repository::OpenRepoRegistry;
 use forgedesk_git_engine::engine::GitEngine;
 use forgedesk_storage::RepositoryStore;
 
+/// 工作区用例：状态读取与文件级变更操作（暂存 / 取消暂存 / 放弃）。
 pub struct WorkspaceService<'a> {
     engines: &'a GitEngines,
     store: RepositoryStore<'a>,
+    /// 打开仓库注册表（与 RepositoryService 共享；状态与暂存不要求"已打开"，
+    /// 保留引用是为了 M2 的"最近列表高亮"决策不必再改签名）。
     #[allow(dead_code)]
     open: &'a OpenRepoRegistry,
 }
 
 impl WorkspaceService<'_> {
+    /// 组装服务（与 [`crate::repository::RepositoryService::new`] 同一批基础设施）。
     pub fn new<'a>(
         engines: &'a GitEngines,
         store: RepositoryStore<'a>,
