@@ -489,8 +489,11 @@ impl DiffRequest {
 pub struct DiffLineDto {
     /// `context` / `added` / `removed` / `noNewline`。
     pub kind: String,
+    /// 行内容（不含 `+`/`-` 前缀与换行）。
     pub content: String,
+    /// 旧文件行号（新增行为 `null`）。
     pub old_no: Option<u32>,
+    /// 新文件行号（删除行为 `null`）。
     pub new_no: Option<u32>,
 }
 
@@ -515,11 +518,17 @@ impl DiffLineDto {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DiffHunkDto {
+    /// 旧文件起始行号。
     pub old_start: u32,
+    /// 旧文件行数。
     pub old_lines: u32,
+    /// 新文件起始行号。
     pub new_start: u32,
+    /// 新文件行数。
     pub new_lines: u32,
+    /// @@ 之后的上下文（通常是函数签名）。
     pub header: String,
+    /// hunk 内的行。
     pub lines: Vec<DiffLineDto>,
 }
 
