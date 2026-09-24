@@ -119,7 +119,9 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
     set({ loading: true, loadError: null, scope });
 
     try {
-      const values = await settingsAll(scope, repoId ?? undefined);
+      // 边界归一化：IPC 返回 null/undefined（mock、旧后端）时按空表处理，
+      // 否则整个 store 的 values 变成 null，任何 getJson 都会崩掉整页
+      const values = (await settingsAll(scope, repoId ?? undefined)) ?? {};
       set({
         values,
         loaded: true,

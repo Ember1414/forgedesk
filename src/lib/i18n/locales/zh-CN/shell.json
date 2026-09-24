@@ -158,6 +158,32 @@
       "description": "日志、诊断与数据目录。"
     }
   },
+  "diff": {
+    "loading": "正在读取 diff…",
+    "error": "读取 diff 失败",
+    "errorHint": "git diff 没有正常返回；可以重试，或在终端里直接查看该文件。",
+    "retry": "重试",
+    "noFile": "该文件没有行级变更（可能是模式变更或尚未被 git 跟踪）。",
+    "mode": {
+      "label": "diff 显示模式",
+      "unified": "内联",
+      "sideBySide": "并排"
+    },
+    "loadFull": "加载完整 diff",
+    "truncatedBanner": "文件过大，已截断显示前面的部分；点击「加载完整 diff」查看全部。",
+    "moreContext": "显示更多上下文",
+    "prevHunk": "上一个 hunk",
+    "nextHunk": "下一个 hunk",
+    "copyPatch": "复制文件补丁",
+    "copyHunk": "复制此 hunk",
+    "listLabel": "diff 内容",
+    "binary": {
+      "title": "二进制文件",
+      "hint": "二进制文件没有行级 diff；可以复制补丁或用专门工具比较内容。"
+    },
+    "sheetDescription": "文件变更的行级差异视图",
+    "close": "关闭 diff"
+  },
   "logs": {
     "title": "日志",
     "description": "最近的应用日志（本地生成、不上传、已脱敏）。排查问题时可以直接从这里复制。",

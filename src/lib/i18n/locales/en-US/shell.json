@@ -158,6 +158,32 @@
       "description": "Logs, diagnostics and data directory."
     }
   },
+  "diff": {
+    "loading": "Reading diff…",
+    "error": "Could not read the diff",
+    "errorHint": "git diff did not return normally. Retry, or inspect the file in a terminal.",
+    "retry": "Retry",
+    "noFile": "No line-level changes for this file (a mode change, or not yet tracked by git).",
+    "mode": {
+      "label": "Diff display mode",
+      "unified": "Inline",
+      "sideBySide": "Side by side"
+    },
+    "loadFull": "Load full diff",
+    "truncatedBanner": "This file is too large and was truncated; click \"Load full diff\" to see everything.",
+    "moreContext": "Show more context",
+    "prevHunk": "Previous hunk",
+    "nextHunk": "Next hunk",
+    "copyPatch": "Copy file patch",
+    "copyHunk": "Copy this hunk",
+    "listLabel": "Diff content",
+    "binary": {
+      "title": "Binary file",
+      "hint": "Binary files have no line-level diff; copy the patch or compare with a dedicated tool."
+    },
+    "sheetDescription": "Line-level diff view for the file",
+    "close": "Close diff"
+  },
   "logs": {
     "title": "Logs",
     "description": "Recent application logs (generated locally, never uploaded, sanitized). Copy from here when reporting a problem.",

@@ -31,6 +31,7 @@ import type {
   WorkspaceView,
 } from '@/features/workspace/statusModel';
 import { PlaceholderPage } from '@/ui/PlaceholderPage';
+import { DiffView } from '@/features/diff/DiffView';
 import { Button } from '@/ui/components/button';
 import {
   Dialog,
@@ -44,6 +45,13 @@ import { EmptyState } from '@/ui/components/empty-state';
 import { ErrorState } from '@/ui/components/error-state';
 import { IconButton } from '@/ui/components/icon-button';
 import { Skeleton } from '@/ui/components/skeleton';
+import {
+  Sheet,
+  SheetBody,
+  SheetContent,
+  SheetDescription,
+  SheetTitle,
+} from '@/ui/components/sheet';
 import { ToggleGroup } from '@/ui/components/toggle-group';
 import { VirtualList } from '@/ui/components/virtual-list';
 import {
@@ -104,6 +112,8 @@ function GroupSection(props: {
     action: 'stage' | 'unstage' | 'discard' | 'reveal' | 'copy',
     entry: WorkspaceFileChange,
   ) => void;
+  /** 点击文件名打开 diff（T1.5）。 */
+  readonly onOpenDiff: (entry: WorkspaceFileChange) => void;
 }) {
   const { t } = useTranslation('shell');
   const {
@@ -117,6 +127,7 @@ function GroupSection(props: {
     onToggleDir,
     onToggleSelect,
     onRowAction,
+    onOpenDiff,
   } = props;
   const [open, setOpen] = useState(true);
 
@@ -176,6 +187,7 @@ function GroupSection(props: {
                   selected={selected.has(row.entry.path)}
                   onToggleSelect={onToggleSelect}
                   onAction={onRowAction}
+                  onOpenDiff={onOpenDiff}
                 />
               )
             }
@@ -195,8 +207,10 @@ function FileRow(props: {
     action: 'stage' | 'unstage' | 'discard' | 'reveal' | 'copy',
     entry: WorkspaceFileChange,
   ) => void;
+  /** 点击文件名打开 diff（T1.5）。 */
+  readonly onOpenDiff: (entry: WorkspaceFileChange) => void;
 }) {
-  const { entry, selected, onToggleSelect, onAction } = props;
+  const { entry, selected, onToggleSelect, onAction, onOpenDiff } = props;
   const { t } = useTranslation('shell');
   const dir = entry.path.includes('/') ? entry.path.slice(0, entry.path.lastIndexOf('/')) : '';
   const name = entry.path.slice(dir === '' ? 0 : dir.length + 1);
@@ -226,7 +240,15 @@ function FileRow(props: {
         {t(statusLabelKey(entry))}
       </span>
       <span className="min-w-0 flex-1 truncate" title={entry.path}>
-        {name}
+        <button
+          type="button"
+          className="fd-transition rounded-sm text-left hover:text-brand hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand"
+          onClick={() => {
+            onOpenDiff(entry);
+          }}
+        >
+          {name}
+        </button>
         {dir === '' ? null : <span className="text-fg-subtle"> · {dir}</span>}
       </span>
       {entry.isLfs ? <span className="rounded-sm bg-surface-sunken px-1 text-10">LFS</span> : null}
@@ -294,6 +316,12 @@ export function WorkspaceStatusPage() {
   const [pendingDiscard, setPendingDiscard] = useState<{
     tracked: string[];
     untracked: string[];
+  } | null>(null);
+  // 点文件名打开 diff（T1.5）。放在页面级状态而不是 store：
+  // 只有这个页面用它，且"关掉即忘"符合临时查看的语义。
+  const [diffTarget, setDiffTarget] = useState<{
+    path: string;
+    target: 'staged' | 'unstaged';
   } | null>(null);
 
   const query = useQuery({
@@ -419,6 +447,7 @@ export function WorkspaceStatusPage() {
     count: number,
     tone: string,
     entries: readonly WorkspaceFileChange[],
+    diffTarget: 'staged' | 'unstaged',
   ) =>
     count > 0 ? (
       <GroupSection
@@ -432,6 +461,9 @@ export function WorkspaceStatusPage() {
         onToggleDir={toggleDir}
         onToggleSelect={toggleSelect}
         onRowAction={handleRowAction}
+        onOpenDiff={(entry) => {
+          setDiffTarget({ path: entry.path, target: diffTarget });
+        }}
       />
     ) : null;
 
@@ -536,29 +568,64 @@ export function WorkspaceStatusPage() {
                     counts.conflicted,
                     'text-warning',
                     groups.conflicted,
+                    'unstaged',
                   ),
                   renderGroup(
                     t('workspace.groups.staged'),
                     counts.staged,
                     'text-success',
                     groups.staged,
+                    'staged',
                   ),
                   renderGroup(
                     t('workspace.groups.unstaged'),
                     counts.unstaged,
                     'text-info',
                     groups.unstaged,
+                    'unstaged',
                   ),
                   renderGroup(
                     t('workspace.groups.untracked'),
                     counts.untracked,
                     'text-fg-muted',
                     groups.untracked,
+                    'unstaged',
                   ),
                 ]}
           </div>
         </>
       )}
+
+      {/* diff 侧滑（T1.5）：点文件名打开；右侧滑出保持列表可见，便于对照操作 */}
+      <Sheet
+        open={diffTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setDiffTarget(null);
+          }
+        }}
+      >
+        <SheetContent
+          side="right"
+          closeLabel={t('diff.close')}
+          className="flex w-[min(960px,85vw)] flex-col p-0"
+        >
+          <div className="border-b border-border/60 px-3 py-2">
+            <SheetTitle className="truncate font-mono text-13">{diffTarget?.path ?? ''}</SheetTitle>
+            <SheetDescription className="sr-only">{t('diff.sheetDescription')}</SheetDescription>
+          </div>
+          <SheetBody className="min-h-0 flex-1 overflow-hidden">
+            {diffTarget !== null && (
+              <DiffView
+                repoId={repoId}
+                path={diffTarget.path}
+                target={diffTarget.target}
+                className="h-full"
+              />
+            )}
+          </SheetBody>
+        </SheetContent>
+      </Sheet>
 
       <Dialog
         open={pendingDiscard !== null}

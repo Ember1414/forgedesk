@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
 
 import { cn } from '@/lib/utils';
@@ -28,6 +28,12 @@ export interface VirtualListProps<TItem> {
   /** 可视区外额外渲染的行数（滚动时减少白屏闪烁）。 */
   readonly overscan?: number;
   readonly className?: string;
+  /**
+   * 程序化滚动到指定行（hunk 跳转等场景）。
+   * 值变化时才生效；传 -1 表示无目标。受控滚动不适合本组件的内部状态，
+   * 因此只做"变更驱动的一次性滚动"。
+   */
+  readonly scrollTargetIndex?: number;
 }
 
 export function VirtualList<TItem>({
@@ -39,8 +45,23 @@ export function VirtualList<TItem>({
   label,
   overscan = 4,
   className,
+  scrollTargetIndex,
 }: VirtualListProps<TItem>) {
   const [scrollTop, setScrollTop] = useState(0);
+  const viewportRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (scrollTargetIndex === undefined || scrollTargetIndex < 0) {
+      return;
+    }
+    const viewport = viewportRef.current;
+    if (viewport === null) {
+      return;
+    }
+    // 直接改 DOM 的 scrollTop（不 setState）：浏览器随后会触发 onScroll，
+    // 由它把 state 同步到新值——绕开"effect 内同步 setState"的级联渲染问题
+    viewport.scrollTop = scrollTargetIndex * itemHeight;
+  }, [scrollTargetIndex, itemHeight]);
 
   const firstVisible = Math.floor(scrollTop / itemHeight);
   const start = Math.max(0, firstVisible - overscan);
@@ -50,6 +71,7 @@ export function VirtualList<TItem>({
 
   return (
     <div
+      ref={viewportRef}
       role="list"
       aria-label={label}
       className={cn('overflow-y-auto rounded-md border border-line bg-surface', className)}

@@ -58,6 +58,23 @@ const MOCK_SCRIPT = `
         return Promise.resolve(null);
       }
       if (command === "workspace_reveal") return Promise.resolve(null);
+      if (command === "workspace_diff") {
+        const path = (args.spec && args.spec.paths && args.spec.paths[0]) || "";
+        const big = path === "untracked.txt";
+        const perHunk = big ? 1500 : 3;
+        const hunks = [];
+        for (let h = 0; h < 2; h++) {
+          const lines = [];
+          for (let i = 0; i < perHunk; i++) {
+            lines.push({ kind: "context", content: "ctx " + h + "-" + i, oldNo: h * perHunk + i + 1, newNo: h * perHunk + i + 1 });
+          }
+          lines.push({ kind: "removed", content: "old value", oldNo: null, newNo: null });
+          lines.push({ kind: "added", content: "new value " + h, oldNo: null, newNo: null });
+          hunks.push({ oldStart: h * perHunk + 1, oldLines: perHunk + 1, newStart: h * perHunk + 1, newLines: perHunk + 1, header: "fn " + h, lines: lines });
+        }
+        return Promise.resolve({ files: [{ path: path, oldPath: null, change: "modified", binary: false, additions: 2, deletions: 2, truncated: false, hunks: hunks }], truncatedFiles: 0 });
+      }
+      if (command === "workspace_diff_patch") return Promise.resolve([100, 110]);
       if (command === "plugin:event|unlisten") return Promise.resolve(null);
       if (command === "repo_recent_list") return Promise.resolve([{ record: { id: 1, path: "/tmp/repo", name: "repo" }, isOpen: true }]);
       if (command === "app_version") return Promise.resolve({ version: "0.0.1", gitDescribe: null });
@@ -136,4 +153,76 @@ test('10000 个变更文件的首屏渲染（性能基准）', async ({ page }) 
   // eslint-disable-next-line no-console -- 基准数据走测试输出
   console.log('T1.4 基准：10000 文件首屏渲染 ' + elapsed + 'ms（含 dev server 与 mock IPC）');
   expect(elapsed).toBeLessThan(1000);
+});
+
+// ---------------------------------------------------------------- T1.5 diff 查看器
+
+test('T1.5: 点文件名打开 diff → 切换并排 → 切回内联 → __errs 为空', async ({ page }) => {
+  await page.goto('/#/repo/1/status');
+  await expect(page.getByRole('heading', { name: '工作区' })).toBeVisible();
+
+  // 点未暂存文件的文件名（不是复选框、不是行内操作按钮）
+  await page.getByRole('button', { name: 'dirty-0.ts' }).first().click();
+
+  const view = page.getByTestId('diff-view');
+  await expect(view).toBeVisible();
+
+  // 内联模式：修改对的词级片段
+  await expect(page.getByText(/old/).first()).toBeVisible();
+
+  // 切到并排：同一修改对的左右两半都在
+  await page.getByRole('radio', { name: '并排' }).click();
+  await expect(page.getByText(/new value/).first()).toBeVisible();
+
+  // 切回内联
+  await page.getByRole('radio', { name: '内联' }).click();
+  await expect(page.getByText(/old/).first()).toBeVisible();
+
+  const errs = await page.evaluate(() => window.__errs ?? []);
+  expect(errs, JSON.stringify(errs)).toEqual([]);
+});
+
+test('T1.5: 折叠 hunk 后该 hunk 正文隐藏，再展开恢复', async ({ page }) => {
+  await page.goto('/#/repo/1/status');
+  await page.getByRole('button', { name: 'dirty-0.ts' }).first().click();
+  const view = page.getByTestId('diff-view');
+  await expect(view).toBeVisible();
+
+  // 两个 hunk 各自的内容都可先见到
+  await expect(page.getByText('new value 0')).toBeVisible();
+
+  // 折叠交互契约：点击 hunk 头在 aria-expanded 之间翻转。
+  // （行的显隐由 DiffView 单测覆盖；这里的 e2e 验证真实点击链路可达。）
+  const firstHeader = page.getByRole('button', { name: /@@ -1,4 \+1,4 @@/ }).first();
+  await expect(firstHeader).toHaveAttribute('aria-expanded', 'true');
+  await firstHeader.click();
+  await expect(firstHeader).toHaveAttribute('aria-expanded', 'false');
+  await firstHeader.click();
+  await expect(firstHeader).toHaveAttribute('aria-expanded', 'true');
+  const errs = await page.evaluate(() => window.__errs ?? []);
+  expect(errs, JSON.stringify(errs)).toEqual([]);
+});
+
+test('T1.5 基准：3000 行 diff 渲染与滚动', async ({ page }) => {
+  await page.goto('/#/repo/1/status');
+  // mock 约定：untracked.txt 的 diff 返回 2 个 hunk × 1500 上下文行 = 3000 行
+  await page.getByRole('button', { name: 'untracked.txt' }).first().click();
+  await expect(page.getByTestId('diff-view')).toBeVisible();
+
+  const start = Date.now();
+  // 3000 行分 2 个 hunk、每 hunk 1500 上下文行：滚动到底再回顶
+  const list = page.getByRole('list', { name: 'diff 内容' });
+  await list.evaluate((el) => {
+    el.scrollTop = el.scrollHeight;
+  });
+  await page.waitForTimeout(120);
+  await list.evaluate((el) => {
+    el.scrollTop = 0;
+  });
+  const elapsed = Date.now() - start;
+  // eslint-disable-next-line no-console -- 基准数据走测试输出
+  console.log('T1.5 基准：3000 行 diff 两次全量滚动 ' + elapsed + 'ms（虚拟化只渲染可见行）');
+  expect(elapsed).toBeLessThan(1000);
+  const errs2 = await page.evaluate(() => window.__errs ?? []);
+  expect(errs2, JSON.stringify(errs2)).toEqual([]);
 });

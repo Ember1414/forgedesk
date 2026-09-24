@@ -88,3 +88,74 @@ export function workspaceReveal(repoId: number, path: string): Promise<void> {
 export function onRepoChanged(handler: (payload: RepoChangedPayload) => void): Promise<Unlisten> {
   return listenEvent<RepoChangedPayload>('repo:changed', handler);
 }
+
+// ---------------------------------------------------------------- diff（T1.5）
+
+/** hunk 内一行的类别（与后端 DiffLineKind 对应）。 */
+export type DiffLineKind = 'context' | 'added' | 'removed' | 'noNewline';
+
+/** hunk 内一行（后端已解析统一补丁）。 */
+export interface DiffLine {
+  readonly kind: DiffLineKind;
+  readonly content: string;
+  readonly oldNo?: number | null;
+  readonly newNo?: number | null;
+}
+
+/** 一个 hunk。 */
+export interface DiffHunk {
+  readonly oldStart: number;
+  readonly oldLines: number;
+  readonly newStart: number;
+  readonly newLines: number;
+  readonly header: string;
+  readonly lines: readonly DiffLine[];
+}
+
+/** 单个文件的行级 diff。 */
+export interface FileDiff {
+  readonly path: string;
+  readonly oldPath?: string | null;
+  readonly change: string;
+  readonly binary: boolean;
+  readonly additions: number;
+  readonly deletions: number;
+  /** 行级内容被截断（大文件保护；配合 forceFull 重新请求）。 */
+  readonly truncated: boolean;
+  readonly hunks: readonly DiffHunk[];
+}
+
+/** 一次 diff 查询的结果。 */
+export interface DiffReport {
+  readonly files: readonly FileDiff[];
+  readonly truncatedFiles: number;
+}
+
+/** diff 查询条件（camelCase，与后端 DiffRequest 对应）。 */
+export interface DiffRequest {
+  readonly target: 'staged' | 'unstaged' | 'between' | 'since' | 'commit';
+  readonly from?: string;
+  readonly to?: string;
+  readonly revision?: string;
+  readonly paths?: readonly string[];
+  readonly ignoreWhitespace?: boolean;
+  readonly contextLines?: number;
+  readonly detectRenames?: boolean;
+  /** 跳过大文件截断（加载完整 diff）。 */
+  readonly forceFull?: boolean;
+}
+
+/** 读取行级 diff（文本补丁由后端 git CLI 生成，与用户终端一致）。 */
+export function workspaceDiff(repoId: number, spec: DiffRequest): Promise<DiffReport> {
+  return invokeCommand<DiffReport>('workspace_diff', { repoId, spec });
+}
+
+/**
+ * 生成原始补丁字节（复制 / 导出 .patch）。
+ *
+ * 返回字节数组而不是字符串：补丁里的路径与内容都可能是非 UTF-8，
+ * 前端按 UTF-8 解码显示（解码失败的路径占位符与 git 终端行为一致）。
+ */
+export function workspaceDiffPatch(repoId: number, spec: DiffRequest): Promise<number[]> {
+  return invokeCommand<number[]>('workspace_diff_patch', { repoId, spec });
+}
