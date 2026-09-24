@@ -54,6 +54,7 @@ pnpm check:contrast       # 设计 token 的 WCAG AA 对比度
 pnpm check:workflows      # .github/workflows/*.yml
 pnpm check:repo           # 仓库一致性：workspace 成员存在且已被 git 跟踪
 pnpm check:docs           # 文档内部链接与锚点有效
+pnpm compliance           # 合规红线：名称/免责声明/图标/依赖许可/AI 依赖
 cargo fmt --all -- --check
 cargo clippy --all-targets --all-features -- -D warnings
 cargo test --workspace --all-features
@@ -66,6 +67,13 @@ cargo test --workspace --all-features
 - 覆盖率底线：Rust 整体 ≥ 60%、`domain` crate ≥ 85%、前端关键模块 ≥ 70%。
 - 前端 E2E 必须断言 `window.__errs` 为空（未捕获错误集合）。
 - 改动文档后运行 `pnpm check:docs`：文档里的相对链接与锚点必须有效（外部链接不做网络校验）。
+- **改动任何依赖清单（`Cargo.toml`、`Cargo.lock`、`package.json`、`pnpm-lock.yaml`）后
+  必须运行 `pnpm compliance`**：它会重新生成 `docs/LICENSE-AUDIT.md`，与仓库内版本不一致时
+  失败并就地更新，提交新版本即可转绿。
+  这条为什么必须在这个列表里：`compliance.yml` 在 push main 时只对特定路径触发
+  （`Cargo.lock` / `package.json` 等），因此一次只改业务代码的提交不会暴露审计过期；
+  等到某次动了依赖，CI 才红——而那时代码本身往往毫无问题，排查方向会被误导。
+  （真实事故：T1.5 引入 `diff` 依赖后审计停留不动，直到 T1.7 改 `Cargo.lock` 才被 CI 抓到。）
 
 ---
 
