@@ -200,6 +200,12 @@ pub trait GitEngine: Send + Sync {
     /// 索引为空（空树 oid）或索引内容与 HEAD 完全相同，都属于"没有暂存内容"。
     fn head_tree(&self, repo: &RepoId) -> AppResult<Option<String>>;
 
+    /// 当前 HEAD 的 oid；空仓库（还没有提交）返回 `None`。
+    ///
+    /// 快照回滚后的校验用它：读引擎与写引擎是两条独立实现（T1.2 的差分测试
+    /// 保证它们对同一状态给出同一结论），用读路径核对写路径的结果才有意义。
+    fn head_oid(&self, repo: &RepoId) -> AppResult<Option<String>>;
+
     /// 实际生效的钩子目录。
     ///
     /// **不能**直接拼 `.git/hooks`：`core.hooksPath` 会改掉它，而它是常见配置
@@ -220,6 +226,27 @@ pub trait GitEngine: Send + Sync {
     /// 遍历 refs 做可达性计算，收益不抵两套实现之间产生分歧的风险
     /// （见 `docs/GIT-ENGINE-DIFF.md` §4 的能力边界表）。
     fn remote_refs_containing(&self, repo: &RepoId, revision: &str) -> AppResult<Vec<String>>;
+
+    // ---------------------------------------------------------------- 快照（T1.9）
+
+    /// 把一个 ref 指到指定提交（快照的防 gc 锚点）。
+    ///
+    /// 快照为什么需要自己的 ref：HEAD 移走之后，若没有任何引用指着旧提交，
+    /// `git gc` 会把它当垃圾收掉，"回滚"就永远失败了。
+    /// 刻意不用 `git reflog` / `HEAD@{n}` 当依据——reflog 会被外部操作改写或清空。
+    fn update_ref(&self, repo: &RepoId, name: &str, oid: &str) -> AppResult<()>;
+
+    /// 删除一个 ref（快照保留策略的清理动作）。
+    fn delete_ref(&self, repo: &RepoId, name: &str) -> AppResult<()>;
+
+    /// 一个 ref 是否存在且指向提交。
+    ///
+    /// 回滚前必须先做这个检查：ref 没了（用户手动清过、或被 gc 机制影响），
+    /// 回滚注定失败——先知道，才能给用户一句可操作的话。
+    fn ref_exists(&self, repo: &RepoId, name: &str) -> AppResult<bool>;
+
+    /// 把索引读到指定树/提交。写的是**用户真实索引**——快照恢复的语义就是恢复它。
+    fn read_tree(&self, repo: &RepoId, treeish: &str) -> AppResult<()>;
 
     /// 提交（含 amend），返回新提交的 oid。
     fn commit(&self, repo: &RepoId, spec: CommitSpec) -> AppResult<String>;

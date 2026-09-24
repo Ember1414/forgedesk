@@ -87,6 +87,10 @@ interface FixAction {
 | [`commit_message_hint`](#commit_message_hint) | ReadOnly | T1.7 | 最近提交与分支风格提示（纯本地规则） |
 | [`commit_amend_context`](#commit_amend_context) | ReadOnly | T1.8 | amend 语境：上一次提交信息 + 是否可能已推送 |
 | [`commit_hooks_list`](#commit_hooks_list) | ReadOnly | T1.8 | 仓库里的钩子清单（仅展示） |
+| [`snapshot_list`](#snapshot_list) | ReadOnly | T1.9 | 快照列表（新的在前） |
+| [`snapshot_diff`](#snapshot_diff) | ReadOnly | T1.9 | 快照与当前状态的差异摘要 |
+| [`snapshot_restore`](#snapshot_restore) | Mutating | T1.9 | 回滚到快照（成功后发布 repo:changed） |
+| [`snapshot_prune`](#snapshot_prune) | Mutating | T1.9 | 按保留策略清理旧快照 |
 
 ---
 
@@ -779,6 +783,76 @@ interface AmendContext {
   `executable` 为假时界面必须如实说明"git 会忽略它"（Unix 看执行位，Windows 看是否存在）。
 - **错误**：`NOT_FOUND`、`STORAGE`。
 - **前端封装**：`commitHooksList(repoId)`；调用点：`src/features/commit/CommitPage.tsx`
+
+### snapshot_list / snapshot_diff / snapshot_restore / snapshot_prune
+
+快照与回滚（M1 / T1.9）。这是红线 R7"计划预览 → 快照 → 执行 → 可回滚"的最后一环：
+每个快照是一组**可独立校验的 git 事实**（HEAD oid、索引树、自定义 ref 锚点），
+而不是一份需要解释的备份文件。
+
+**锚点为什么是自定义 ref**：HEAD 移走之后，没有任何引用指着的提交会被 `git gc`
+回收，回滚从此永远失败。`refs/forgedesk/snapshots/<id>` 指向快照时刻的 HEAD 提交，
+git 因此不会回收它。**刻意不用** `git reflog` / `HEAD@{n}`：reflog 会被外部操作
+改写或清空，不能作为唯一依据。
+
+#### snapshot_list
+
+- **能力等级**：`ReadOnly`
+- **参数**：`repoId: number`、`limit?: number`（缺省 50，夹在 `1..=200`）
+- **返回**：`{ id, label, kind, headOid, branch, detached, createdAtMs }[]`（新的在前；
+  `kind` 是稳定短名：`pre-commit` / `pre-restore` / `manual` / `pre-sync` / `pre-head-move`）
+- **错误**：`NOT_FOUND`、`INTERNAL`
+
+#### snapshot_diff
+
+- **能力等级**：`ReadOnly`
+- **参数**：`repoId`、`snapshotId`
+- **返回**：
+
+```ts
+interface SnapshotDiff {
+  headChanged: boolean;
+  indexChanged: boolean;
+  currentHeadOid: string | null;      // 空仓库为 null
+  currentIndexTreeOid: string | null; // 索引有未合并条目时为 null（这本身就是"已变化"）
+  refMissing: boolean;                // 锚点丢失 = 不可恢复
+}
+```
+
+- **用途**：回滚确认框的内容来源。**前端必须在确认前展示它**——
+  让用户对一个看不懂的东西说"是"，等于没有闸门。
+- **错误**：`NOT_FOUND`（快照不存在或不属于该仓库）、`INTERNAL`
+
+#### snapshot_restore
+
+- **能力等级**：`Mutating`；成功后发布 `repo:changed`
+- **参数**：`repoId`、`snapshotId`
+- **执行序列（顺序即语义）**：
+  1. 校验锚点 ref 仍在——不在就直接返回 `NOT_FOUND`，绝不动仓库；
+  2. 给当前状态打**回滚前快照**（`pre-restore`）——打不出来就中止回滚：
+     宁可不动，不可无保护地动；
+  3. `git reset --hard <head_oid>`；
+  4. `git read-tree <index_tree_oid>` 把索引恢复到快照的树
+     （`reset --hard` 只能把索引带到 HEAD 的树，恢复不了"已暂存未提交"的内容）；
+  5. **用读引擎校验** HEAD 与索引树——读与写是两条独立实现（T1.2 差分测试保证一致），
+     让考生批自己的卷子是无效的；
+  6. 校验失败 → `RESTORE_VERIFY_FAILED`，并**自动恢复到回滚前快照**——
+     绝不停在中间态。
+- **返回**：`{ restoredSnapshotId, headOid, indexTreeOid, preRestoreSnapshotId, untrackedPaths }`
+- **v1 的边界（界面必须如实转述）**：未跟踪文件**只记录了路径**，不备份内容；
+  回滚不会删除或恢复它们。会删除未跟踪文件的操作属于 T3.8 快照 v2 的保护范围。
+- **错误**：`NOT_FOUND`（快照不存在 / 锚点丢失）、`RESTORE_VERIFY_FAILED`（已自动回退）、
+  `INTERNAL`
+- **前端封装**：`snapshotRestore(repoId, snapshotId)`；调用点：`src/features/snapshots/SnapshotsPage.tsx`
+
+#### snapshot_prune
+
+- **能力等级**：`Mutating`（删除快照记录与其锚点 ref——只删一头都会留下假快照）
+- **参数**：`repoId`
+- **保留策略**：v1 使用内置默认（每仓库 50 条或 30 天，先到者生效）；把策略暴露成
+  设置项随 T3.8（连同磁盘占用阈值）一起做
+- **返回**：`number[]`（被清理的快照 id）
+- **错误**：`NOT_FOUND`、`INTERNAL`
 
 ---
 

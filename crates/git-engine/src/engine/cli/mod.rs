@@ -369,12 +369,32 @@ impl GitEngine for CliGitEngine {
         read::head_tree(self, repo)
     }
 
+    fn head_oid(&self, repo: &RepoId) -> AppResult<Option<String>> {
+        read::head_oid(self, repo)
+    }
+
     fn hooks_dir(&self, repo: &RepoId) -> AppResult<PathBuf> {
         read::hooks_dir(self, repo)
     }
 
     fn remote_refs_containing(&self, repo: &RepoId, revision: &str) -> AppResult<Vec<String>> {
         read::remote_refs_containing(self, repo, revision)
+    }
+
+    fn update_ref(&self, repo: &RepoId, name: &str, oid: &str) -> AppResult<()> {
+        write::update_ref(self, repo, name, oid)
+    }
+
+    fn delete_ref(&self, repo: &RepoId, name: &str) -> AppResult<()> {
+        write::delete_ref(self, repo, name)
+    }
+
+    fn ref_exists(&self, repo: &RepoId, name: &str) -> AppResult<bool> {
+        read::ref_exists(self, repo, name)
+    }
+
+    fn read_tree(&self, repo: &RepoId, treeish: &str) -> AppResult<()> {
+        write::read_tree(self, repo, treeish)
     }
 
     fn commit(&self, repo: &RepoId, spec: CommitSpec) -> AppResult<String> {

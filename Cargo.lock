@@ -1028,7 +1028,9 @@ version = "0.0.1"
 dependencies = [
  "forgedesk-domain",
  "forgedesk-git-engine",
+ "forgedesk-storage",
  "serde",
+ "serde_json",
  "thiserror 2.0.20",
  "tracing",
 ]

@@ -52,10 +52,10 @@ graph TD
 | --- | --- | --- | --- |
 | `crates/domain` | 纯逻辑：领域模型、状态机、错误类型与错误码分类 | 所有 Rust crate | ✅ 错误模型与 `ErrorCode::classify` + 补丁裁剪（T1.6）+ 提交计划模型（T1.7） |
 | `crates/commands` | Tauri 命令定义、DTO 转换、能力等级校验 | `src-tauri` | ✅ 26 个命令（含 2 个仅开发构建）：仓库 / 工作区 / diff / 暂存 / 提交 |
-| `crates/services` | 用例编排（打开仓库、工作区状态、部分暂存、提交…） | `commands`、`plugin-host` | ✅ `RepositoryService`（T1.3）+ `WorkspaceService`（T1.4）+ `StagingService`（T1.6，含 400 组对拍测试）+ `CommitService`（T1.7，prepare/execute 两段式 + 索引指纹） |
+| `crates/services` | 用例编排（打开仓库、工作区状态、部分暂存、提交…） | `commands`、`plugin-host` | ✅ `RepositoryService`（T1.3）+ `WorkspaceService`（T1.4）+ `StagingService`（T1.6，含 400 组对拍测试）+ `CommitService`（T1.7/T1.8，prepare/execute 两段式 + 索引指纹 + amend 语义；提交路径已接通快照） |
 | `crates/git-engine` | `GitEngine` trait + CLI 实现 + libgit2 实现 | `services`、`snapshot`、`commands` | ✅ `GitProcess` 执行器 + 4 个解析器（T1.1）+ `GitEngine` 双实现与差分测试（T1.2）+ 统一补丁解析（T1.5）+ 补丁应用通道（T1.6） |
 | `crates/provider` | `HostProvider` trait + GitHub/GitLab/Gitea 实现 | `services`、`commands` | ⬜ 骨架（M4） |
-| `crates/snapshot` | 快照创建/列表/回滚/校验 | `services`、`commands` | 🟡 接口就位（T1.7：`SnapshotManager` + 如实回答"没有快照"的 `NoopSnapshotManager`）；实现属 M3 / T1.9 |
+| `crates/snapshot` | 快照创建/列表/回滚/校验 | `services`、`commands` | ✅ ref 锚点快照（T1.9：`refs/forgedesk/snapshots/<id>` 防 gc、回滚前自动打保护点、双引擎校验、保留策略） |
 | `crates/diagnostics` | 日志脱敏、stderr 解析、错误码映射、修复建议 | `commands`、`platform`、`git-engine`、`src-tauri` | ✅ 脱敏写入层（592 行）；规则引擎 M5 |
 | `crates/storage` | SQLite 仓储、版本化迁移、设置读写、操作审计 | `commands`、`services`、`src-tauri` | ✅ 7 张表 + 迁移 + `OperationStore`（T1.7：`operation_records` 审计） |
 | `crates/credentials` | keyring 封装、账号模型 | `services`、`commands` | ⬜ 骨架（M4） |

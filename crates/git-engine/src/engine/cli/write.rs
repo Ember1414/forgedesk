@@ -304,6 +304,35 @@ pub(super) fn reset(engine: &CliGitEngine, repo: &RepoId, spec: &ResetSpec) -> A
     Ok(())
 }
 
+/// 快照的防 gc 锚点：把 `refs/forgedesk/snapshots/<id>` 指到指定提交。
+///
+/// 没有这个 ref，快照记录的 HEAD 提交会在 HEAD 移走后被 gc 收掉，
+/// 回滚从此只能对着一个不存在的对象失败。
+pub(super) fn update_ref(
+    engine: &CliGitEngine,
+    repo: &RepoId,
+    name: &str,
+    oid: &str,
+) -> AppResult<()> {
+    engine.run_write(repo, args::update_ref_args(name, oid))?;
+    Ok(())
+}
+
+/// 删除快照的锚点 ref（保留策略的清理动作）。
+pub(super) fn delete_ref(engine: &CliGitEngine, repo: &RepoId, name: &str) -> AppResult<()> {
+    engine.run_write(repo, args::delete_ref_args(name))?;
+    Ok(())
+}
+
+/// 把索引读到指定树/提交。
+///
+/// 快照恢复专用：它的语义**就是**"把用户的索引恢复到当时的树"，
+/// 因此写的是真实索引，不隔离。调用方在把它用于恢复之外的场景前必须三思。
+pub(super) fn read_tree(engine: &CliGitEngine, repo: &RepoId, treeish: &str) -> AppResult<()> {
+    engine.run_write(repo, args::read_tree_args(treeish))?;
+    Ok(())
+}
+
 /// 切换分支 / 提交。
 pub(super) fn checkout(engine: &CliGitEngine, repo: &RepoId, spec: &CheckoutSpec) -> AppResult<()> {
     engine.run_write(repo, args::checkout_args(spec)?)?;

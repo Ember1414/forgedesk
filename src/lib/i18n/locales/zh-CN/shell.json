@@ -39,6 +39,7 @@
     "dashboard": "仪表盘",
     "status": "工作区",
     "commit": "提交",
+    "snapshots": "快照",
     "history": "历史",
     "branches": "分支",
     "conflict": "冲突",
@@ -242,6 +243,46 @@
       "languageLabel": "语言",
       "languageHint": "切换后界面文案立即更新（M0 已覆盖外壳与骨架页面）。"
     }
+  },
+  "snapshots": {
+    "title": "快照与回滚",
+    "description": "提交等操作前会自动打一个快照；出问题时可以回到那个时点。",
+    "loading": "正在读取快照…",
+    "error": "读取快照失败",
+    "retry": "重试",
+    "empty": "还没有快照",
+    "emptyHint": "完成第一次提交后，这里会出现「提交前」的快照。",
+    "column": {
+      "kind": "场景",
+      "time": "时间",
+      "head": "HEAD",
+      "branch": "分支",
+      "actions": "操作"
+    },
+    "kind": {
+      "manual": "手动",
+      "preCommit": "提交前",
+      "preRestore": "回滚前",
+      "preSync": "同步前",
+      "preHeadMove": "重置前",
+      "other": "快照"
+    },
+    "detached": "游离 HEAD",
+    "restore": "回滚到这里",
+    "restoreConfirmTitle": "回滚到这个快照？",
+    "restoreConfirmDescription": "将回到 HEAD 为 {{oid}} 的状态。",
+    "impactLabel": "影响",
+    "impactUnknown": "无法读取当前状态与快照的差异，请关闭后重试。",
+    "impactRefMissing": "这个快照的锚点已丢失，无法回滚。",
+    "impactUnchanged": "工作区、索引与 HEAD 都已与快照一致，无需回滚。",
+    "impactHead": "HEAD 将从 {{current}} 回到 {{oid}}。",
+    "impactIndex": "索引内容也会恢复到快照时的状态，已暂存但未提交的内容会被放弃。",
+    "impactUntracked": "未跟踪文件不会被删除或恢复（快照只记录了它们的路径）。",
+    "restoreConfirm": "回滚",
+    "cancel": "取消",
+    "restored": "已回滚到 {{oid}}",
+    "prune": "清理旧快照",
+    "pruned": "已清理 {{count}} 个旧快照"
   },
   "commit": {
     "title": "提交",

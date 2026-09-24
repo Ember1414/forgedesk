@@ -19,6 +19,7 @@
 #![forbid(unsafe_code)]
 
 pub mod engine;
+pub mod engines;
 pub mod parsers;
 pub mod probe;
 pub mod process;

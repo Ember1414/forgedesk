@@ -16,7 +16,7 @@ use forgedesk_domain::git::{
 use forgedesk_domain::{AppError, AppResult, ErrorCode};
 
 use super::args::{self, GitInvocation};
-use super::CliGitEngine;
+use super::{CliGitEngine, RunKind};
 use crate::parsers::{
     parse_diff_numstat, parse_log_format, parse_show_format, parse_status_porcelain_v2,
     parse_worktree_list, LOG_FORMAT, SHOW_FORMAT,
@@ -829,6 +829,29 @@ pub(super) fn index_tree(engine: &CliGitEngine, repo: &RepoId) -> AppResult<Stri
 /// HEAD 的树 oid；空仓库返回 `None`。
 pub(super) fn head_tree(engine: &CliGitEngine, repo: &RepoId) -> AppResult<Option<String>> {
     rev_parse(engine, repo, "HEAD^{tree}")
+}
+
+/// 一个 ref 是否存在且指向提交。
+///
+/// 退出码的语义必须分清：`--verify --quiet` 对**不存在的对象**返回 1（正常情况，
+/// 返回 false），其它非零退出码是真错误（权限、仓库损坏），不能一并当成"没有"。
+///
+/// 因此这里走 `run_at`（不断言退出码）而不是 `run_read`——
+/// "ref 不存在"是这个查询的正常答案之一，不该被当成命令失败。
+pub(super) fn ref_exists(engine: &CliGitEngine, repo: &RepoId, name: &str) -> AppResult<bool> {
+    let output = engine.run_at(repo.root(), args::ref_exists_args(name), RunKind::Read)?;
+    match output.exit_code {
+        Some(0) => Ok(true),
+        Some(1) => Ok(false),
+        other => Err(AppError::new(
+            ErrorCode::Internal,
+            "git rev-parse --verify failed with an unexpected exit code",
+        )
+        .with_detail(format!(
+            "ref: {name}, exit code: {other:?}, stderr: {}",
+            output.stderr_lossy()
+        ))),
+    }
 }
 
 /// 实际生效的钩子目录（`git rev-parse --git-path hooks`）。

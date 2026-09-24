@@ -39,6 +39,7 @@
     "dashboard": "Dashboard",
     "status": "Working tree",
     "commit": "Commit",
+    "snapshots": "Snapshots",
     "history": "History",
     "branches": "Branches",
     "conflict": "Conflicts",
@@ -242,6 +243,46 @@
       "languageLabel": "Language",
       "languageHint": "Text updates immediately (M0 already covers the shell and skeleton pages)."
     }
+  },
+  "snapshots": {
+    "title": "Snapshots and rollback",
+    "description": "A snapshot is taken automatically before each commit; go back to that point when something goes wrong.",
+    "loading": "Reading snapshots…",
+    "error": "Could not read the snapshots",
+    "retry": "Retry",
+    "empty": "No snapshots yet",
+    "emptyHint": "After the first commit, a \"pre-commit\" snapshot appears here.",
+    "column": {
+      "kind": "Kind",
+      "time": "Time",
+      "head": "HEAD",
+      "branch": "Branch",
+      "actions": "Actions"
+    },
+    "kind": {
+      "manual": "Manual",
+      "preCommit": "Pre-commit",
+      "preRestore": "Pre-restore",
+      "preSync": "Pre-sync",
+      "preHeadMove": "Pre-reset",
+      "other": "Snapshot"
+    },
+    "detached": "Detached HEAD",
+    "restore": "Restore here",
+    "restoreConfirmTitle": "Restore to this snapshot?",
+    "restoreConfirmDescription": "This returns to the state where HEAD was {{oid}}.",
+    "impactLabel": "Impact",
+    "impactUnknown": "The difference between the current state and the snapshot could not be read. Close and retry.",
+    "impactRefMissing": "This snapshot's anchor is gone; it cannot be restored.",
+    "impactUnchanged": "The working tree, index and HEAD already match the snapshot; nothing to restore.",
+    "impactHead": "HEAD will move from {{current}} back to {{oid}}.",
+    "impactIndex": "The index will also be restored to the snapshot's tree; staged but uncommitted content will be dropped.",
+    "impactUntracked": "Untracked files are neither deleted nor restored (only their paths were recorded).",
+    "restoreConfirm": "Restore",
+    "cancel": "Cancel",
+    "restored": "Restored to {{oid}}",
+    "prune": "Prune old snapshots",
+    "pruned": "Pruned {{count}} old snapshot(s)"
   },
   "commit": {
     "title": "Commit",

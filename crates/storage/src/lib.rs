@@ -22,6 +22,7 @@ pub mod migrations;
 pub mod operations;
 pub mod repositories;
 pub mod settings;
+pub mod snapshots;
 
 pub use database::{storage_error, Database};
 pub use migrations::{
@@ -30,6 +31,7 @@ pub use migrations::{
 pub use operations::{NewOperation, OperationOutcome, OperationRecord, OperationStore};
 pub use repositories::{RepositoryRecord, RepositoryStore, RepositoryUpsert};
 pub use settings::{Scope, SettingsRepository};
+pub use snapshots::{NewSnapshot, SnapshotRecord, SnapshotStore};
 
 /// crate 名称，用于日志与诊断中标识来源。
 pub const CRATE_NAME: &str = env!("CARGO_PKG_NAME");

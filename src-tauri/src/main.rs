@@ -17,7 +17,7 @@ use forgedesk_platform::session::{detect_previous_session, start_session, Sessio
 use forgedesk_platform::{install_panic_hook, non_blocking_writer, LogFlushGuard, LogPolicy};
 use forgedesk_services::repository::OpenRepoRegistry;
 use forgedesk_services::{CommitPlanRegistry, GitEngines};
-use forgedesk_snapshot::NoopSnapshotManager;
+use forgedesk_snapshot::RefSnapshotManager;
 use forgedesk_storage::{migrate, Database};
 use tauri::{Manager, RunEvent};
 use tracing::{error, info, warn};
@@ -106,15 +106,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 error.to_string()
             })?;
 
+            // 快照管理器与命令层共享同一批引擎与同一个库：
+            // 快照是"git 事实 + 一行记录"的组合体，两者必须同源，否则会各说各话
+            let engines = Arc::new(engines);
+            let database = Arc::new(database);
+
             app.manage(AppState {
-                database: Arc::new(database),
+                database: Arc::clone(&database),
                 log_dir,
-                engines: Arc::new(engines),
+                engines: Arc::clone(&engines),
                 jobs: Arc::new(JobRunner::new()),
                 open_repos: Arc::new(OpenRepoRegistry::new()),
-                // 快照本体在 M3 / T1.9 落地；提交链路已经在"执行前打点"的位置
-                // 就位，这里注入的是如实回答"没有快照"的实现，而不是假装有。
-                snapshots: Arc::new(NoopSnapshotManager),
+                // T1.9：真实的 ref 锚点快照。提交链路"执行前打点"的位置在 T1.7
+                // 就已接好，这里只是把"如实回答没有快照"的占位换成实现。
+                snapshots: Arc::new(RefSnapshotManager::new(
+                    Arc::clone(&engines),
+                    Arc::clone(&database),
+                )),
                 commit_plans: Arc::new(CommitPlanRegistry::new()),
             });
             app.manage(RuntimeHandles {
@@ -147,6 +155,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         forgedesk_commands::commit_message_hint,
         forgedesk_commands::commit_amend_context,
         forgedesk_commands::commit_hooks_list,
+        forgedesk_commands::snapshot_list,
+        forgedesk_commands::snapshot_diff,
+        forgedesk_commands::snapshot_restore,
+        forgedesk_commands::snapshot_prune,
         forgedesk_commands::logs_tail,
         forgedesk_commands::repo_discover,
         forgedesk_commands::repo_open,
@@ -177,6 +189,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         forgedesk_commands::commit_message_hint,
         forgedesk_commands::commit_amend_context,
         forgedesk_commands::commit_hooks_list,
+        forgedesk_commands::snapshot_list,
+        forgedesk_commands::snapshot_diff,
+        forgedesk_commands::snapshot_restore,
+        forgedesk_commands::snapshot_prune,
         forgedesk_commands::logs_tail,
         forgedesk_commands::repo_discover,
         forgedesk_commands::repo_open,

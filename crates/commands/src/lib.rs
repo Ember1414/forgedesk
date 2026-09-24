@@ -34,6 +34,7 @@ pub mod jobs;
 pub mod logs;
 pub mod repository;
 pub mod settings;
+pub mod snapshots;
 pub mod state;
 pub mod system;
 pub mod workspace;
@@ -53,6 +54,10 @@ pub use repository::{
     RecentRepositoryDto, RepoAuditDto, RepositoryDto, WorktreeDto,
 };
 pub use settings::{settings_all, settings_get, settings_set};
+pub use snapshots::{
+    snapshot_diff, snapshot_list, snapshot_prune, snapshot_restore, RestoreReportDto,
+    SnapshotDiffDto, SnapshotMetaDto,
+};
 pub use state::AppState;
 pub use system::{app_version, AppVersion};
 pub use workspace::{

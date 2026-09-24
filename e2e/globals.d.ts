@@ -52,6 +52,12 @@ export interface MockCommitCall {
   };
 }
 
+/** mock 记录的一次快照命令调用。 */
+export interface MockSnapshotCall {
+  readonly command: string;
+  readonly args: { readonly repoId?: number; readonly snapshotId?: number };
+}
+
 /** mock 里的一条提交记录。 */
 export interface MockCommit {
   readonly oid: string;
@@ -68,5 +74,7 @@ declare global {
     __commitCalls?: MockCommitCall[];
     /** mock 的提交历史（断言 amend 后提交数不变、oid 变化）。 */
     __mockCommits?: MockCommit[];
+    /** mock 记录收到的快照命令（断言回滚用的是预览的那一个快照）。 */
+    __snapshotCalls?: MockSnapshotCall[];
   }
 }

@@ -56,11 +56,18 @@ impl Migration {
 }
 
 /// 全部迁移，按版本升序。
-pub const MIGRATIONS: &[Migration] = &[Migration {
-    version: 1,
-    name: "0001_init",
-    sql: include_str!("../migrations/0001_init.sql"),
-}];
+pub const MIGRATIONS: &[Migration] = &[
+    Migration {
+        version: 1,
+        name: "0001_init",
+        sql: include_str!("../migrations/0001_init.sql"),
+    },
+    Migration {
+        version: 2,
+        name: "0002_snapshots_v1",
+        sql: include_str!("../migrations/0002_snapshots_v1.sql"),
+    },
+];
 
 /// 迁移执行结果。
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -325,13 +332,14 @@ mod tests {
 
     /// 已有数据的库在迁移前必须留下备份（这是"改坏了也要能捞回来"的底线）。
     ///
-    /// 用注入的假 0002 走到这条分支：真实清单里只有 0001，如果只测真实清单，
-    /// "备份 + 应用第二个迁移"这条路径会一直没被执行过。
+    /// 用注入的假 0002 走到这条分支：真实清单里现在有 0002，所以库先只迁到 0001，
+    /// 再注入一个同样标着 version 2 的假迁移来触发"备份 + 应用第二个迁移"。
+    /// （用真实清单的话，这条路径会在日常 `migrate` 里跑过，测不到备份分支。）
     #[test]
     fn backs_up_existing_database_before_applying_new_migration() {
         let path = temp_db_path("backup");
         let database = Database::open(&path).expect("打开数据库失败");
-        migrate(&database).expect("首次迁移失败");
+        migrate_with(&database, &[MIGRATIONS[0]]).expect("首次迁移失败");
 
         const FAKE_0002: Migration = Migration {
             version: 2,
@@ -366,7 +374,8 @@ mod tests {
     #[test]
     fn failed_migration_rolls_back_its_transaction() {
         let database = Database::open_in_memory().expect("打开内存库失败");
-        migrate(&database).expect("首次迁移失败");
+        // 只迁到 0001，让注入的坏 0002 有机会被执行
+        migrate_with(&database, &[MIGRATIONS[0]]).expect("首次迁移失败");
 
         const BROKEN_0002: Migration = Migration {
             version: 2,

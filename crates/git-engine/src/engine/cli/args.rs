@@ -484,11 +484,40 @@ pub fn commit_args(spec: &CommitSpec) -> AppResult<GitInvocation> {
 
 /// `git read-tree <tree>`：把某棵树读进索引。
 ///
-/// 只与 `GitInvocation::with_index_file` 搭配才有意义：对**用户真实索引**跑它
-/// 等于把索引重置到那棵树，那是数据丢失级别的动作。调用点只有两处
-/// （amend 只改信息、T1.9 快照恢复），都传隔离索引。
+/// 两个调用点对"写哪个索引"的诉求完全相反，因此参数由调用方自己决定：
+///
+/// - amend 只改信息（T1.8）：传**隔离索引**——绝不能动用户的暂存区；
+/// - 快照恢复（T1.9）：写**用户真实索引**——恢复索引正是这次操作的目的。
 pub fn read_tree_args(tree: &str) -> GitInvocation {
     GitInvocation::new(vec!["read-tree".to_owned(), tree.to_owned()])
+}
+
+/// `git update-ref <name> <oid>`：把一个 ref 指到指定提交。
+pub fn update_ref_args(name: &str, oid: &str) -> GitInvocation {
+    GitInvocation::new(vec![
+        "update-ref".to_owned(),
+        name.to_owned(),
+        oid.to_owned(),
+    ])
+}
+
+/// `git update-ref -d <name>`：删除一个 ref。
+pub fn delete_ref_args(name: &str) -> GitInvocation {
+    GitInvocation::new(vec![
+        "update-ref".to_owned(),
+        "-d".to_owned(),
+        name.to_owned(),
+    ])
+}
+
+/// `git rev-parse --verify --quiet <name>^{commit}`：ref 是否存在且指向提交。
+pub fn ref_exists_args(name: &str) -> GitInvocation {
+    GitInvocation::new(vec![
+        "rev-parse".to_owned(),
+        "--verify".to_owned(),
+        "--quiet".to_owned(),
+        format!("{name}^{{commit}}"),
+    ])
 }
 
 /// `git write-tree`：把索引写成树对象并返回它的 oid。

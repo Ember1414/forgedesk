@@ -20,6 +20,7 @@ import { AppShell } from '@/app/shell/AppShell';
 import { NotFoundPage } from '@/app/shell/NotFoundPage';
 import { CommitPage } from '@/features/commit/CommitPage';
 import { DashboardPage } from '@/features/dashboard/DashboardPage';
+import { SnapshotsPage } from '@/features/snapshots/SnapshotsPage';
 import { GitHubActionsPage } from '@/features/github/GitHubActionsPage';
 import { GitHubIssuesPage } from '@/features/github/GitHubIssuesPage';
 import { GitHubLayout } from '@/features/github/GitHubLayout';
@@ -63,6 +64,7 @@ export const appRoutes: RouteObject[] = [
           { index: true, element: <Navigate to="status" replace /> },
           { path: 'status', element: <RepoStatusPage /> },
           { path: 'commit', element: <CommitPage /> },
+          { path: 'snapshots', element: <SnapshotsPage /> },
           { path: 'history', element: <RepoHistoryPage /> },
           { path: 'branches', element: <RepoBranchesPage /> },
           { path: 'conflict', element: <RepoConflictPage /> },

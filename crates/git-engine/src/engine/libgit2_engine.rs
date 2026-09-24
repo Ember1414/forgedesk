@@ -795,6 +795,36 @@ impl GitEngine for Libgit2Engine {
         Err(unsupported(EngineId::Libgit2, "reset"))
     }
 
+    fn head_oid(&self, repo: &RepoId) -> AppResult<Option<String>> {
+        let repository = open(repo)?;
+        if repository
+            .is_empty()
+            .map_err(|error| map_error(&error, "is_empty"))?
+        {
+            return Ok(None);
+        }
+        let head = repository
+            .head()
+            .map_err(|error| map_error(&error, "head"))?;
+        Ok(head.target().map(|oid| oid.to_string()))
+    }
+
+    fn update_ref(&self, _repo: &RepoId, _name: &str, _oid: &str) -> AppResult<()> {
+        Err(unsupported(EngineId::Libgit2, "update_ref"))
+    }
+
+    fn delete_ref(&self, _repo: &RepoId, _name: &str) -> AppResult<()> {
+        Err(unsupported(EngineId::Libgit2, "delete_ref"))
+    }
+
+    fn ref_exists(&self, _repo: &RepoId, _name: &str) -> AppResult<bool> {
+        Err(unsupported(EngineId::Libgit2, "ref_exists"))
+    }
+
+    fn read_tree(&self, _repo: &RepoId, _treeish: &str) -> AppResult<()> {
+        Err(unsupported(EngineId::Libgit2, "read_tree"))
+    }
+
     fn checkout(
         &self,
         _repo: &RepoId,

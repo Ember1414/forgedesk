@@ -25,7 +25,10 @@ use forgedesk_services::{
     CommitPlanRegistry, CommitService, GitEngines, MillisClock, OpenRepoRegistry, PrepareRequest,
     RepositoryService,
 };
-use forgedesk_snapshot::{NoopSnapshotManager, SnapshotError, SnapshotManager, SnapshotRequest};
+use forgedesk_snapshot::{
+    NoopSnapshotManager, RestoreReport, RetentionPolicy, SnapshotDiff, SnapshotError,
+    SnapshotManager, SnapshotMeta, SnapshotRequest,
+};
 use forgedesk_storage::{Database, OperationStore, RepositoryStore};
 
 mod support;
@@ -689,8 +692,28 @@ fn a_snapshot_manager_that_fails_does_not_block_the_commit() {
     struct FailingSnapshots;
 
     impl SnapshotManager for FailingSnapshots {
-        fn create(&self, _request: &SnapshotRequest<'_>) -> Result<Option<i64>, SnapshotError> {
+        fn create(&self, _request: &SnapshotRequest<'_>) -> Result<i64, SnapshotError> {
             Err(SnapshotError::Failed("disk full".to_owned()))
+        }
+
+        fn list(&self, _repo_id: i64, _limit: i64) -> Result<Vec<SnapshotMeta>, SnapshotError> {
+            Ok(Vec::new())
+        }
+
+        fn restore(&self, _repo_id: i64, snapshot_id: i64) -> Result<RestoreReport, SnapshotError> {
+            Err(SnapshotError::NotFound(snapshot_id))
+        }
+
+        fn diff(&self, _repo_id: i64, snapshot_id: i64) -> Result<SnapshotDiff, SnapshotError> {
+            Err(SnapshotError::NotFound(snapshot_id))
+        }
+
+        fn prune(
+            &self,
+            _repo_id: i64,
+            _policy: &RetentionPolicy,
+        ) -> Result<Vec<i64>, SnapshotError> {
+            Ok(Vec::new())
         }
     }
 
