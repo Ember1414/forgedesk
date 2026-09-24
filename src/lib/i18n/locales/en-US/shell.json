@@ -179,7 +179,23 @@
     "listLabel": "Diff content",
     "binary": {
       "title": "Binary file",
-      "hint": "Binary files have no line-level diff; copy the patch or compare with a dedicated tool."
+      "hint": "Binary files have no line-level diff; copy the patch or compare with a dedicated tool.",
+      "stageWhole": "Stage whole file",
+      "unstageWhole": "Unstage whole file"
+    },
+    "stageHunk": "Stage this hunk",
+    "unstageHunk": "Unstage this hunk",
+    "selection": {
+      "toolbar": "Actions for the selected lines",
+      "pickLineWithNumber": "Select line {{line}}",
+      "hint": "Click a line number to select that line; hold Shift to select a range.",
+      "count": "{{count}} line(s) selected",
+      "clear": "Clear selection",
+      "stage": "Stage selected lines",
+      "unstage": "Unstage selected lines",
+      "discard": "Discard selected lines",
+      "shortcuts": "Shortcuts: s stage · u unstage · d discard",
+      "truncatedHint": "This file was truncated: load the full diff before staging lines."
     },
     "sheetDescription": "Line-level diff view for the file",
     "close": "Close diff"
@@ -270,6 +286,11 @@
     "discard": {
       "title": "Discard these changes?",
       "description": "The following changes will be lost and cannot be restored by this app:",
+      "impactLabel": "Impact",
+      "linesDescription": "The selected lines in this file will be reverted. Staged content is not affected.",
+      "summaryLines": "{{path}} · {{count}} line(s) selected",
+      "summaryHunks": "{{path}} · {{count}} hunk(s) selected",
+      "summaryFiles": "{{count}} file(s) in total",
       "confirm": "Discard"
     },
     "status": {

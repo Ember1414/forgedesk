@@ -78,9 +78,9 @@ interface FixAction {
 | [`debug_throw_error`](#debug_throw_error) | ReadOnly | T0.6 | 触发受控失败，用于验证错误链路（**仅开发构建注册**） |
 | [`debug_panic`](#debug_panic) | ReadOnly | T0.8 | 触发真实 panic，用于验证崩溃留档（**仅开发构建注册**） |
 | [`workspace_status`](#workspace_status) | ReadOnly | T1.4 | 读取工作区状态（分组、分支头、操作状态） |
-| [`workspace_stage`](#workspace_stage--workspace_unstage--workspace_discard--workspace_reveal) | Mutating | T1.4 | 暂存路径（成功后发布 repo:changed） |
-| [`workspace_unstage`](#workspace_stage--workspace_unstage--workspace_discard--workspace_reveal) | Mutating | T1.4 | 取消暂存路径 |
-| [`workspace_discard`](#workspace_stage--workspace_unstage--workspace_discard--workspace_reveal) | Mutating | T1.4 | 放弃工作区修改（前端必须先确认；快照 M3 接入） |
+| [`workspace_stage`](#workspace_stage--workspace_unstage--workspace_discard--workspace_reveal) | Mutating | T1.4 / T1.6 | 暂存路径 / 块 / 行（成功后发布 repo:changed） |
+| [`workspace_unstage`](#workspace_stage--workspace_unstage--workspace_discard--workspace_reveal) | Mutating | T1.4 / T1.6 | 取消暂存路径 / 块 / 行 |
+| [`workspace_discard`](#workspace_stage--workspace_unstage--workspace_discard--workspace_reveal) | Mutating | T1.4 / T1.6 | 放弃工作区修改（前端必须先确认；快照 M3 接入） |
 | [`workspace_reveal`](#workspace_stage--workspace_unstage--workspace_discard--workspace_reveal) | ReadOnly | T1.4 | 在系统文件管理器中显示文件 |
 
 ---
@@ -526,10 +526,63 @@ Toast → 动作按钮）是基础设施，它坏掉时不会有任何业务功�
 ### workspace_stage / workspace_unstage / workspace_discard / workspace_reveal
 
 - **能力等级**：stage / unstage / discard = `Mutating`；reveal = `ReadOnly`
-- **参数**：`repoId`；stage/unstage 传 `paths: string[]`；discard 传 `tracked: string[]` 与 `untracked: string[]`（语义不同：前者 git 可恢复，后者磁盘删除）；reveal 传 `path`
+- **参数**：`repoId` + `spec`（粒度判别联合，见下）+ `view?`（补丁查看参数）
 - **返回**：`null`；成功后发布 `repo:changed` 事件（payload `{ repoId, paths }`）
-- **错误**：`NOT_FOUND`、`VALIDATION`（空 discard）、`GIT_CONFLICT`（冲突路径不可放弃，M3 处理）
-- **前端封装**：`workspaceStage / workspaceUnstage / workspaceDiscard / workspaceReveal`；调用点：`src/features/workspace/WorkspaceStatusPage.tsx`
+- **前端封装**：`workspaceStage / workspaceUnstage / workspaceDiscard / workspaceReveal`；调用点：`src/features/workspace/WorkspaceStatusPage.tsx`、`src/features/diff/DiffView.tsx`
+
+#### 粒度（`spec.kind`）
+
+```ts
+type StageScope =
+  | { kind: 'files'; paths: string[] }
+  | { kind: 'hunks'; path: string; hunkIndices: number[] }
+  | { kind: 'lines'; path: string; selections: { hunkIndex: number; lines: number[] }[] };
+
+// discard 的整文件粒度需要区分两类路径：前者 git 可恢复，后者只能从磁盘删除
+type DiscardScope =
+  | { kind: 'files'; tracked: string[]; untracked: string[] }
+  | { kind: 'hunks'; path: string; hunkIndices: number[] }
+  | { kind: 'lines'; path: string; selections: { hunkIndex: number; lines: number[] }[] };
+
+interface PatchView {
+  contextLines?: number;      // `-U<n>`，缺省 3
+  ignoreWhitespace?: boolean; // `-w`，缺省 false
+  detectRenames?: boolean;    // `-M`，缺省 true
+}
+```
+
+#### 两个通道（T1.6 的关键设计）
+
+| 粒度 | 通道 | 为什么 |
+| --- | --- | --- |
+| `files` | `git add` / `git reset` | 更快，且能处理未跟踪文件与模式变更（它们没有可裁剪的补丁） |
+| `hunks` / `lines` | `git diff` → 裁剪 → `git apply --cached [--reverse]` | `git add` 的最小粒度是文件，只有补丁通道能表达"这个文件里只暂存这几行" |
+
+补丁通道固定"先 `--check` 再应用"，两次用**同一份字节**；`--check` 失败时不写任何东西，
+因此失败后仓库状态一定与调用前一致。`discard` 的块级 / 行级用同一份补丁反向应用到**工作区**
+（不碰索引：已暂存的内容保留）。
+
+- **`view` 必须与打开 diff 时用的参数一致**：hunk 的划分取决于上下文行数，
+  参数不同会让"第 2 块"在后端对应到另一块。后端据此重新生成补丁并对下标做越界校验，
+  宁可返回错误也不会"照着错位的下标写内容"。
+- **`hunkIndex` / `lines` 的下标**与该文件 `workspace_diff` 返回的 `hunks[].lines` 一一对应
+  （`lines` 是行在该 hunk `lines` 数组中的位置，0 基，上下文行与 `\ No newline` 标记也参与计数）。
+- **限制**：
+  - 二进制文件只允许整文件粒度（`VALIDATION`）；
+  - 未跟踪文件没有补丁（`git diff` 不含它们），只允许整文件粒度，行级会返回 `VALIDATION`；
+  - 不支持"选取一行的一部分"（那需要字符级 hunk，属于 M5）；
+  - 重命名是文件级属性：该文件只要有块被暂存 / 取消暂存，重命名就一起生效；
+  - 新增文件被部分**撤销**暂存时，后端会去掉 `--- /dev/null` 与 `new file mode`（否则
+    git 会把它当成"整份删除"）；删除文件被部分**暂存**同理（不会把文件删掉）。
+- **错误**：
+  - `NOT_FOUND`：仓库记录不存在；
+  - `VALIDATION`：路径为空 / 含 NUL / 选择超过 4096 项 / hunk 或行下标越界 /
+    该侧没有变更 / 二进制文件用了行级；
+  - `PATCH_APPLY_FAILED`：补丁被 git 拒绝（界面上的 diff 已经不是仓库现在的样子）。
+    `detail` 是 git 的原始 stderr（已脱敏），`hint` 是本次实际使用的 git 开关，
+    `actions` 里带一个指向 `workspace_status` 的刷新动作（`args.repoId` 已填好），
+    因为这类失败的唯一有效修复是"刷新状态再选一次"；
+  - `GIT_CONFLICT`：冲突路径不可放弃（M3 处理）。
 
 ## 4. 新增命令的检查清单
 

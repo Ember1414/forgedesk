@@ -75,19 +75,120 @@ impl ResetSpec {
     }
 }
 
-/// 暂存 / 取消暂存的参数。
+/// 暂存 / 取消暂存的**文件级**参数。
+///
+/// 行级 / 块级不在这里：`git add` 的最小粒度是文件，而用户要的是
+/// "这个文件里只有第 12–15 行"，唯一可靠的通道是 `git apply --cached`。
+/// 那条通道由 [`ApplyPatchSpec`] 承担 —— 它还必须支持"先 `--check` 再应用"，
+/// 而本枚举表达不了这件事。把补丁塞进来只会让"用哪条通道"变成调用方的自由选择，
+/// 而两条通道的失败语义并不一样（补丁可能被拒绝，`git add` 不会）。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StageSpec {
     /// 整文件暂存（或取消暂存）。
     Paths(Vec<RepoPath>),
-    /// 把补丁应用到索引：行级 / 块级暂存的实现路径（T1.6）。
-    ///
-    /// 为什么走补丁而不是逐文件：`git add` 的最小粒度是文件，
-    /// 而用户要的是"这个文件里只有第 12–15 行"，唯一可靠的通道就是
-    /// `git apply --cached`。
-    Patch(Vec<u8>),
     /// 全部变更（含删除与未跟踪文件）。
     All,
+}
+
+/// 补丁应用的作用面。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ApplyTarget {
+    /// 索引（`--cached`）：暂存与取消暂存（T1.6）。
+    Index,
+    /// 工作区：按块丢弃未暂存的修改。
+    Worktree,
+}
+
+/// 补丁应用的方向。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ApplyDirection {
+    /// 正向：把补丁描述的"新内容"写进作用面（暂存）。
+    Forward,
+    /// 反向：把补丁的效果撤掉（取消暂存、丢弃）。
+    Reverse,
+}
+
+/// 应用一份（可能被裁剪过的）补丁。
+///
+/// # 为什么 `check_only` 长在参数里
+///
+/// 红线 R7 要求"先预览再执行"，而补丁通道的预览就是 `git apply --check`：
+/// 同一份字节先问一次"能不能应用"，再真正应用。两次调用之间没有任何写入，
+/// 因此"检查通过而应用失败"只可能来自并发的外部改动 —— 那种情况下失败是正确结果，
+/// 而不是"部分应用"。把 dry-run 做成独立方法会让调用方有机会忘记先检查。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ApplyPatchSpec {
+    /// 补丁字节（统一 diff；可能是裁剪后的子集）。
+    pub patch: Vec<u8>,
+    /// 作用面。
+    pub target: ApplyTarget,
+    /// 方向。
+    pub direction: ApplyDirection,
+    /// 只做 `--check`，不写任何东西。
+    pub check_only: bool,
+}
+
+impl ApplyPatchSpec {
+    /// 暂存到索引（正向、作用于索引）。
+    pub fn stage(patch: Vec<u8>) -> Self {
+        Self {
+            patch,
+            target: ApplyTarget::Index,
+            direction: ApplyDirection::Forward,
+            check_only: false,
+        }
+    }
+
+    /// 从索引里撤销（反向、作用于索引）。
+    pub fn unstage(patch: Vec<u8>) -> Self {
+        Self {
+            patch,
+            target: ApplyTarget::Index,
+            direction: ApplyDirection::Reverse,
+            check_only: false,
+        }
+    }
+
+    /// 撤销工作区的部分修改（反向、作用于工作区）。
+    pub fn discard_worktree(patch: Vec<u8>) -> Self {
+        Self {
+            patch,
+            target: ApplyTarget::Worktree,
+            direction: ApplyDirection::Reverse,
+            check_only: false,
+        }
+    }
+
+    /// 只做 dry-run。
+    #[must_use]
+    pub fn checked(mut self) -> Self {
+        self.check_only = true;
+        self
+    }
+
+    /// 空补丁（裁剪后没有任何内容需要写）；服务层据此幂等返回。
+    pub fn is_empty(&self) -> bool {
+        self.patch.is_empty()
+    }
+
+    /// 传给 git 的开关串。
+    ///
+    /// 只用于错误 `hint` 与日志（`hint` 只放数据，见 CODING_STYLE §2.1）——
+    /// 用户与维护者都需要知道"失败的那次到底加没加 `--reverse`"。
+    pub fn git_flags(&self) -> String {
+        let mut flags = vec!["apply"];
+        if self.target == ApplyTarget::Index {
+            flags.push("--cached");
+        }
+        if self.direction == ApplyDirection::Reverse {
+            flags.push("--reverse");
+        }
+        if self.check_only {
+            flags.push("--check");
+        }
+        flags.push("--recount");
+        flags.join(" ")
+    }
 }
 
 /// 提交参数。
@@ -683,9 +784,9 @@ impl ReflogEntry {
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
     use super::{
-        CheckoutSpec, CommitSpec, FetchOutcome, InitSpec, MergeKind, MergeOutcome, PullOutcome,
-        PullStrategy, PushOutcome, ReflogEntry, ReorderAction, ResetMode, ResetSpec, StageSpec,
-        StashAction, StashSpec,
+        ApplyDirection, ApplyPatchSpec, ApplyTarget, CheckoutSpec, CommitSpec, FetchOutcome,
+        InitSpec, MergeKind, MergeOutcome, PullOutcome, PullStrategy, PushOutcome, ReflogEntry,
+        ReorderAction, ResetMode, ResetSpec, StageSpec, StashAction, StashSpec,
     };
     use crate::git::refs::{RefUpdate, RefUpdateKind};
 
@@ -872,12 +973,35 @@ mod tests {
     }
 
     #[test]
-    fn stage_spec_distinguishes_paths_patch_and_all() {
+    fn stage_spec_only_carries_file_level_granularity() {
         let paths = StageSpec::Paths(vec!["a.txt".into()]);
-        let patch = StageSpec::Patch(b"diff --git a/x b/x\n".to_vec());
         let all = StageSpec::All;
 
-        assert_ne!(paths, patch);
-        assert_ne!(patch, all);
+        assert_ne!(paths, all);
+    }
+
+    #[test]
+    fn apply_specs_pick_the_target_and_direction_for_their_use_case() {
+        let stage = ApplyPatchSpec::stage(b"patch".to_vec());
+        assert_eq!(stage.target, ApplyTarget::Index);
+        assert_eq!(stage.direction, ApplyDirection::Forward);
+        assert_eq!(stage.git_flags(), "apply --cached --recount");
+
+        let unstage = ApplyPatchSpec::unstage(b"patch".to_vec());
+        assert_eq!(unstage.git_flags(), "apply --cached --reverse --recount");
+
+        let discard = ApplyPatchSpec::discard_worktree(b"patch".to_vec());
+        assert_eq!(discard.target, ApplyTarget::Worktree);
+        assert_eq!(discard.git_flags(), "apply --reverse --recount");
+
+        let checked = ApplyPatchSpec::stage(b"patch".to_vec()).checked();
+        assert!(checked.check_only, "dry-run 必须能表达在同一个 spec 里");
+        assert_eq!(checked.git_flags(), "apply --cached --check --recount");
+    }
+
+    #[test]
+    fn an_empty_patch_is_detected_before_spawning_git() {
+        assert!(ApplyPatchSpec::stage(Vec::new()).is_empty());
+        assert!(!ApplyPatchSpec::stage(b"x".to_vec()).is_empty());
     }
 }

@@ -15,6 +15,7 @@ import { useEffect, useMemo, useState } from 'react';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Copy, FolderOpen, Minus, Plus, RefreshCw, RotateCcw, Rows3 } from 'lucide-react';
+import type { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 import { useParams } from 'react-router-dom';
 
@@ -32,6 +33,16 @@ import type {
 } from '@/features/workspace/statusModel';
 import { PlaceholderPage } from '@/ui/PlaceholderPage';
 import { DiffView } from '@/features/diff/DiffView';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/ui/components/alert-dialog';
 import { Button } from '@/ui/components/button';
 import {
   Dialog,
@@ -62,6 +73,7 @@ import {
   workspaceStatus,
   workspaceUnstage,
 } from '@/lib/ipc/workspace';
+import type { DiscardScope, PatchViewSpec, StageScope } from '@/lib/ipc/workspace';
 import { normalizeError, useAppError } from '@/lib/errors';
 import { cn } from '@/lib/utils';
 import { isTauriRuntime } from '@/lib/ipc/client';
@@ -317,6 +329,24 @@ export function WorkspaceStatusPage() {
     tracked: string[];
     untracked: string[];
   } | null>(null);
+  /**
+   * 待确认的"部分丢弃"（按块 / 按行）。
+   *
+   * 与 `pendingDiscard` 分开：文件级丢弃列的是路径清单，部分丢弃给的是选择摘要，
+   * 而且两者走的后端通道不同（`git restore` / 反向补丁）。
+   */
+  const [pendingPartialDiscard, setPendingPartialDiscard] = useState<{
+    scope: StageScope;
+    view: PatchViewSpec;
+  } | null>(null);
+  /**
+   * 写操作成功计数：作为 DiffView 的 key 的一部分。
+   *
+   * 暂存之后 hunks 已经变了，旧的"选中第 3 行"可能指向完全不同的内容。
+   * 用 key 让组件重建（React 官方的"重置 state"手法），比在组件里
+   * 用 effect 监听数据变化再把 state 改回去（会触发 set-state-in-effect 告警）干净。
+   */
+  const [selectionEpoch, setSelectionEpoch] = useState(0);
   // 点文件名打开 diff（T1.5）。放在页面级状态而不是 store：
   // 只有这个页面用它，且"关掉即忘"符合临时查看的语义。
   const [diffTarget, setDiffTarget] = useState<{
@@ -363,22 +393,31 @@ export function WorkspaceStatusPage() {
     });
   }
 
+  /** 写操作成功后：清空文件选择、让 diff 查看器重建（它的选择已经过期）。 */
+  function afterWrite(): void {
+    setSelected(new Set());
+    setSelectionEpoch((epoch) => epoch + 1);
+  }
+
   const stageMutation = useMutation({
-    mutationFn: (paths: readonly string[]) => workspaceStage(repoId, paths),
-    onSuccess: () => setSelected(new Set()),
+    mutationFn: (request: { scope: StageScope; view?: PatchViewSpec }) =>
+      workspaceStage(repoId, request.scope, request.view),
+    onSuccess: afterWrite,
     onError: (error) => show(normalizeError(error)),
   });
   const unstageMutation = useMutation({
-    mutationFn: (paths: readonly string[]) => workspaceUnstage(repoId, paths),
-    onSuccess: () => setSelected(new Set()),
+    mutationFn: (request: { scope: StageScope; view?: PatchViewSpec }) =>
+      workspaceUnstage(repoId, request.scope, request.view),
+    onSuccess: afterWrite,
     onError: (error) => show(normalizeError(error)),
   });
   const discardMutation = useMutation({
-    mutationFn: (spec: { tracked: string[]; untracked: string[] }) =>
-      workspaceDiscard(repoId, spec.tracked, spec.untracked),
+    mutationFn: (request: { scope: DiscardScope; view?: PatchViewSpec }) =>
+      workspaceDiscard(repoId, request.scope, request.view),
     onSuccess: () => {
-      setSelected(new Set());
+      afterWrite();
       setPendingDiscard(null);
+      setPendingPartialDiscard(null);
     },
     onError: (error) => show(normalizeError(error)),
   });
@@ -389,10 +428,10 @@ export function WorkspaceStatusPage() {
   ): void {
     switch (action) {
       case 'stage':
-        stageMutation.mutate([entry.path]);
+        stageMutation.mutate({ scope: { kind: 'files', paths: [entry.path] } });
         break;
       case 'unstage':
-        unstageMutation.mutate([entry.path]);
+        unstageMutation.mutate({ scope: { kind: 'files', paths: [entry.path] } });
         break;
       case 'discard':
         setPendingDiscard({
@@ -413,14 +452,14 @@ export function WorkspaceStatusPage() {
     const paths = [...selected].filter(
       (path) => !groups?.staged.some((entry) => entry.path === path),
     );
-    stageMutation.mutate(paths);
+    stageMutation.mutate({ scope: { kind: 'files', paths } });
   }
 
   function unstageSelected(): void {
     const paths = [...selected].filter((path) =>
       groups?.staged.some((entry) => entry.path === path),
     );
-    unstageMutation.mutate(paths);
+    unstageMutation.mutate({ scope: { kind: 'files', paths } });
   }
 
   function requestDiscardSelected(): void {
@@ -617,10 +656,19 @@ export function WorkspaceStatusPage() {
           <SheetBody className="min-h-0 flex-1 overflow-hidden">
             {diffTarget !== null && (
               <DiffView
+                // 每次写操作成功后重建（清空行选择与折叠态）：暂存之后 hunk 已经变了，
+                // 旧的"选中第 3 行"可能指向完全不同的内容。
+                key={`${diffTarget.path}:${diffTarget.target}:${selectionEpoch}`}
                 repoId={repoId}
                 path={diffTarget.path}
                 target={diffTarget.target}
                 className="h-full"
+                onStage={(scope, view) => stageMutation.mutate({ scope, view })}
+                onUnstage={(scope, view) => unstageMutation.mutate({ scope, view })}
+                onDiscard={(scope, view) => setPendingPartialDiscard({ scope, view })}
+                busy={
+                  stageMutation.isPending || unstageMutation.isPending || discardMutation.isPending
+                }
               />
             )}
           </SheetBody>
@@ -657,7 +705,13 @@ export function WorkspaceStatusPage() {
               loading={discardMutation.isPending}
               onClick={() => {
                 if (pendingDiscard !== null) {
-                  discardMutation.mutate(pendingDiscard);
+                  discardMutation.mutate({
+                    scope: {
+                      kind: 'files',
+                      tracked: pendingDiscard.tracked,
+                      untracked: pendingDiscard.untracked,
+                    },
+                  });
                 }
               }}
             >
@@ -666,8 +720,75 @@ export function WorkspaceStatusPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* 部分丢弃的确认框（红线 R7 在 UI 层的闸门）：必须说清"影响"才允许执行 */}
+      <AlertDialog
+        open={pendingPartialDiscard !== null}
+        onOpenChange={(next) => {
+          if (!next) {
+            setPendingPartialDiscard(null);
+          }
+        }}
+      >
+        <AlertDialogContent
+          impactLabel={t('workspace.discard.impactLabel')}
+          impact={t('workspace.discard.linesDescription')}
+        >
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('workspace.discard.title')}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {pendingPartialDiscard === null
+                ? ''
+                : partialDiscardSummary(t, pendingPartialDiscard.scope)}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('common:actions.cancel')}</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={discardMutation.isPending}
+              onClick={() => {
+                if (pendingPartialDiscard !== null) {
+                  discardMutation.mutate({
+                    scope: toDiscardScope(pendingPartialDiscard.scope),
+                    view: pendingPartialDiscard.view,
+                  });
+                }
+              }}
+            >
+              {t('workspace.discard.confirm')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </section>
   );
+}
+
+/** 把"行 / 块"选择转换成丢弃请求（文件粒度的形状不同，这里不该出现）。 */
+function toDiscardScope(scope: StageScope): DiscardScope {
+  if (scope.kind === 'hunks') {
+    return { kind: 'hunks', path: scope.path, hunkIndices: scope.hunkIndices };
+  }
+  if (scope.kind === 'lines') {
+    return { kind: 'lines', path: scope.path, selections: scope.selections };
+  }
+  // 兜底：块级 / 行级之外的调用点走文件级确认框，这里保守地按已跟踪路径处理
+  return { kind: 'files', tracked: scope.paths, untracked: [] };
+}
+
+/** 确认框里的选择摘要（"哪个文件、多少行 / 块"）。 */
+function partialDiscardSummary(t: TFunction, scope: StageScope): string {
+  if (scope.kind === 'hunks') {
+    return t('workspace.discard.summaryHunks', {
+      path: scope.path,
+      count: scope.hunkIndices.length,
+    });
+  }
+  if (scope.kind === 'lines') {
+    const count = scope.selections.reduce((total, item) => total + item.lines.length, 0);
+    return t('workspace.discard.summaryLines', { path: scope.path, count });
+  }
+  return t('workspace.discard.summaryFiles', { count: scope.paths.length });
 }
 
 function allSelected(status: WorkspaceStatus): readonly string[] {

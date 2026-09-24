@@ -21,10 +21,10 @@ use std::time::Duration;
 
 use forgedesk_diagnostics::sanitize_log;
 use forgedesk_domain::git::{
-    Branch, CheckoutSpec, CloneSpec, Commit, CommitSpec, DiffReport, DiffSpec, DiscardSpec,
-    FetchOutcome, FetchSpec, InitSpec, LogQuery, MergeOutcome, MergeSpec, Page, PullOutcome,
-    PullSpec, PushOutcome, PushSpec, ReflogEntry, Remote, ReorderSpec, RepoId, RepositoryInfo,
-    ResetSpec, StageSpec, StashEntry, StashSpec, StatusQuery, StatusReport, Tag,
+    ApplyPatchSpec, Branch, CheckoutSpec, CloneSpec, Commit, CommitSpec, DiffReport, DiffSpec,
+    DiscardSpec, FetchOutcome, FetchSpec, InitSpec, LogQuery, MergeOutcome, MergeSpec, Page,
+    PullOutcome, PullSpec, PushOutcome, PushSpec, ReflogEntry, Remote, ReorderSpec, RepoId,
+    RepositoryInfo, ResetSpec, StageSpec, StashEntry, StashSpec, StatusQuery, StatusReport, Tag,
 };
 use forgedesk_domain::{AppError, AppResult, ErrorCode};
 
@@ -275,7 +275,7 @@ pub(crate) fn ensure_success(output: &GitOutput) -> AppResult<&GitOutput> {
 }
 
 /// 按字符数截断（`detail` 可能是一整屏的 stderr）。
-fn truncate(mut text: String, limit: usize) -> String {
+pub(crate) fn truncate(mut text: String, limit: usize) -> String {
     if text.chars().count() <= limit {
         return text;
     }
@@ -352,6 +352,10 @@ impl GitEngine for CliGitEngine {
 
     fn unstage(&self, repo: &RepoId, spec: StageSpec) -> AppResult<()> {
         write::unstage(self, repo, &spec)
+    }
+
+    fn apply_patch(&self, repo: &RepoId, spec: &ApplyPatchSpec) -> AppResult<()> {
+        write::apply_patch(self, repo, spec)
     }
 
     fn commit(&self, repo: &RepoId, spec: CommitSpec) -> AppResult<String> {

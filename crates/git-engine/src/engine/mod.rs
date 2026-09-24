@@ -43,10 +43,10 @@ pub use progress::{parse_progress_line, ProgressEvent, ProgressPhase, ProgressSi
 use std::path::Path;
 
 use forgedesk_domain::git::{
-    Branch, CheckoutSpec, CloneSpec, Commit, CommitSpec, DiffReport, DiffSpec, DiscardSpec,
-    FetchOutcome, FetchSpec, InitSpec, LogQuery, MergeOutcome, MergeSpec, Page, PullOutcome,
-    PullSpec, PushOutcome, PushSpec, ReflogEntry, Remote, ReorderSpec, RepoId, RepositoryInfo,
-    ResetSpec, StageSpec, StashEntry, StashSpec, StatusQuery, StatusReport, Tag,
+    ApplyPatchSpec, Branch, CheckoutSpec, CloneSpec, Commit, CommitSpec, DiffReport, DiffSpec,
+    DiscardSpec, FetchOutcome, FetchSpec, InitSpec, LogQuery, MergeOutcome, MergeSpec, Page,
+    PullOutcome, PullSpec, PushOutcome, PushSpec, ReflogEntry, Remote, ReorderSpec, RepoId,
+    RepositoryInfo, ResetSpec, StageSpec, StashEntry, StashSpec, StatusQuery, StatusReport, Tag,
 };
 use forgedesk_domain::{AppError, AppResult, ErrorCode};
 
@@ -175,6 +175,13 @@ pub trait GitEngine: Send + Sync {
 
     /// 取消暂存。
     fn unstage(&self, repo: &RepoId, spec: StageSpec) -> AppResult<()>;
+
+    /// 应用一份补丁（行级 / 块级暂存与取消暂存、按块丢弃；T1.6）。
+    ///
+    /// `spec.check_only` 为真时只做 dry-run（`git apply --check`）—— 红线 R7
+    /// 的"先预览再执行"在补丁通道上的形态：服务层用同一份字节先检查再应用。
+    /// 空补丁是幂等成功（裁剪后没有内容可写），实现不得为此报错。
+    fn apply_patch(&self, repo: &RepoId, spec: &ApplyPatchSpec) -> AppResult<()>;
 
     /// 提交（含 amend），返回新提交的 oid。
     fn commit(&self, repo: &RepoId, spec: CommitSpec) -> AppResult<String>;

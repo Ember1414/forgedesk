@@ -15,9 +15,10 @@ use std::path::{Path, PathBuf};
 
 use forgedesk_diagnostics::sanitize_log;
 use forgedesk_domain::git::{
-    CheckoutSpec, CloneSpec, CommitSpec, DiscardSpec, FetchOutcome, FetchSpec, InitSpec, MergeKind,
-    MergeOutcome, MergeSpec, PullOutcome, PullSpec, PushOutcome, PushRejection, PushSpec,
-    RefUpdate, RefUpdateKind, RepoId, RepositoryInfo, ResetSpec, StageSpec, StashSpec,
+    ApplyPatchSpec, CheckoutSpec, CloneSpec, CommitSpec, DiscardSpec, FetchOutcome, FetchSpec,
+    InitSpec, MergeKind, MergeOutcome, MergeSpec, PullOutcome, PullSpec, PushOutcome,
+    PushRejection, PushSpec, RefUpdate, RefUpdateKind, RepoId, RepositoryInfo, ResetSpec,
+    StageSpec, StashSpec,
 };
 use forgedesk_domain::{AppError, AppResult, ErrorCode};
 
@@ -64,6 +65,50 @@ pub(super) fn stage(engine: &CliGitEngine, repo: &RepoId, spec: &StageSpec) -> A
 pub(super) fn unstage(engine: &CliGitEngine, repo: &RepoId, spec: &StageSpec) -> AppResult<()> {
     engine.run_write(repo, args::unstage_args(spec)?)?;
     Ok(())
+}
+
+/// 应用一份补丁（行级 / 块级暂存与取消暂存、按块丢弃；T1.6）。
+///
+/// # 为什么不走 `run_write`
+///
+/// `run_write` 用 `ensure_success` 把非零退出分类成通用错误码，而补丁被拒绝时
+/// 契约要求的是 `PATCH_APPLY_FAILED` 加上**原始 stderr**（它是唯一能解释
+/// "为什么这一块应用不上"的信息）与一个"刷新状态并重试"的动作。
+/// 分类不在这里猜：`ErrorCode::classify` 认得 "patch does not apply"，
+/// 但补丁失败还有"上下文不匹配"这类没有固定措辞的形态，因此直接给定错误码。
+///
+/// 空补丁不启动进程：裁剪后没有内容要写是正常结果（用户只选了上下文行），
+/// 起一个 git 进程去应用空补丁只会得到一条无意义的 stderr。
+pub(super) fn apply_patch(
+    engine: &CliGitEngine,
+    repo: &RepoId,
+    spec: &ApplyPatchSpec,
+) -> AppResult<()> {
+    if spec.is_empty() {
+        return Ok(());
+    }
+
+    // `--check` 只读索引，不该获取可选锁（否则会与用户终端里的 git 抢锁）。
+    let kind = if spec.check_only {
+        RunKind::Read
+    } else {
+        RunKind::Write
+    };
+    let output = engine.run_at(repo.root(), args::apply_patch_args(spec), kind)?;
+    if output.success() {
+        return Ok(());
+    }
+
+    let stderr = output.stderr_lossy();
+    Err(
+        AppError::new(ErrorCode::PatchApplyFailed, "git apply rejected the patch")
+            .with_detail(super::truncate(
+                sanitize_log(&stderr),
+                super::ERROR_DETAIL_LIMIT,
+            ))
+            .with_hint(spec.git_flags())
+            .with_retryable(true),
+    )
 }
 
 /// 放弃工作区修改（T1.4"放弃"操作）。

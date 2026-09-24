@@ -23,7 +23,7 @@ use std::sync::Arc;
 
 use forgedesk_jobs::JobRunner;
 use forgedesk_services::repository::OpenRepoRegistry;
-use forgedesk_services::{GitEngines, RepositoryService, WorkspaceService};
+use forgedesk_services::{GitEngines, RepositoryService, StagingService, WorkspaceService};
 use forgedesk_storage::{Database, RepositoryStore};
 
 /// 应用级共享状态。
@@ -58,12 +58,21 @@ impl AppState {
         )
     }
 
-    /// 绑定当前状态构造工作区用例服务（状态 / 暂存 / 放弃）。
+    /// 绑定当前状态构造工作区用例服务（状态 / 文件级暂存 / 放弃）。
     pub fn workspace_service(&self) -> WorkspaceService<'_> {
         WorkspaceService::new(
             &self.engines,
             RepositoryStore::new(&self.database),
             &self.open_repos,
         )
+    }
+
+    /// 绑定当前状态构造部分暂存服务（行级 / 块级，T1.6）。
+    ///
+    /// `StagingService` 内部持有一个 `WorkspaceService`（复用 `repo_id → 工作区路径`
+    /// 的解析），因此两个工厂方法必须用**同一批引擎与同一个注册表** —— 各自 new 一个
+    /// 会变成"两个服务看到两个不同的世界"。
+    pub fn staging_service(&self) -> StagingService<'_> {
+        StagingService::new(self.workspace_service(), &self.engines)
     }
 }

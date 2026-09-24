@@ -36,6 +36,7 @@ pub mod query;
 pub mod refs;
 pub mod repository;
 pub mod spec;
+pub mod staging;
 pub mod stash;
 pub mod status;
 pub mod version;
@@ -55,11 +56,12 @@ pub use query::{LogQuery, Page};
 pub use refs::{Branch, RefUpdate, RefUpdateKind, Remote, RemoteKind, Tag};
 pub use repository::{BranchLabel, RepoId, RepositoryInfo, Worktree};
 pub use spec::{
-    CheckoutSpec, CloneSpec, CommitSpec, DiscardSpec, FetchOutcome, FetchSpec, InitSpec, MergeKind,
-    MergeOutcome, MergeSpec, PullOutcome, PullSpec, PullStrategy, PushOutcome, PushRejection,
-    PushSpec, ReflogEntry, ReorderAction, ReorderSpec, ReorderStep, ResetMode, ResetSpec,
-    StageSpec, StashAction, StashSpec,
+    ApplyDirection, ApplyPatchSpec, ApplyTarget, CheckoutSpec, CloneSpec, CommitSpec, DiscardSpec,
+    FetchOutcome, FetchSpec, InitSpec, MergeKind, MergeOutcome, MergeSpec, PullOutcome, PullSpec,
+    PullStrategy, PushOutcome, PushRejection, PushSpec, ReflogEntry, ReorderAction, ReorderSpec,
+    ReorderStep, ResetMode, ResetSpec, StageSpec, StashAction, StashSpec,
 };
+pub use staging::{trim_patch, LineSelection, PatchDirection, StageGranularity, StageScope};
 pub use stash::StashEntry;
 pub use status::{
     BranchInfo, ChangeKind, ConflictStages, EntryKind, FileChange, OperationState, StatusQuery,

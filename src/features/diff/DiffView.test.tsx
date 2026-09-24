@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { DiffView } from '@/features/diff/DiffView';
 import { workspaceDiff, workspaceDiffPatch } from '@/lib/ipc/workspace';
-import type { DiffHunk, DiffReport } from '@/lib/ipc/workspace';
+import type { DiffHunk, DiffReport, PatchViewSpec, StageScope } from '@/lib/ipc/workspace';
 import { initialSettingsState, useSettingsStore } from '@/stores/settingsStore';
 import { createTestQueryClient } from '@/test/queryClient';
 import { QueryClientProvider } from '@tanstack/react-query';
@@ -206,5 +206,177 @@ describe('DiffView', () => {
       );
       expect(writeText).toHaveBeenCalledWith('diff --git x');
     });
+  });
+});
+
+// ---------------------------------------------------------------- 行级 / 块级选择（T1.6）
+
+type StageHandler = (scope: StageScope, view: PatchViewSpec) => void;
+
+function renderSelectable(handlers: {
+  readonly onStage?: StageHandler;
+  readonly onUnstage?: StageHandler;
+  readonly onDiscard?: StageHandler;
+  readonly target?: 'staged' | 'unstaged';
+}) {
+  const queryClient = createTestQueryClient();
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <DiffView
+        repoId={1}
+        path="src/app.ts"
+        target={handlers.target ?? 'unstaged'}
+        {...(handlers.onStage === undefined ? {} : { onStage: handlers.onStage })}
+        {...(handlers.onUnstage === undefined ? {} : { onUnstage: handlers.onUnstage })}
+        {...(handlers.onDiscard === undefined ? {} : { onDiscard: handlers.onDiscard })}
+      />
+    </QueryClientProvider>,
+  );
+}
+
+/** 行号按钮（"修改对"的两侧行号都是 2，所以这里返回一组）。 */
+async function lineButtons(): Promise<HTMLElement[]> {
+  return screen.findAllByRole('button', { name: '选择第 2 行' });
+}
+
+describe('DiffView 行级 / 块级选择', () => {
+  it('点击行号选中该行，操作条显示计数并能暂存选中行', async () => {
+    workspaceDiffMock.mockResolvedValue(report());
+    const onStage = vi.fn<StageHandler>();
+    renderSelectable({ onStage });
+
+    const buttons = await lineButtons();
+    fireEvent.click(buttons[0] as HTMLElement);
+
+    expect(await screen.findByText('已选 1 行')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '暂存选中行' }));
+
+    expect(onStage).toHaveBeenCalledWith(
+      { kind: 'lines', path: 'src/app.ts', selections: [{ hunkIndex: 0, lines: [1] }] },
+      { contextLines: 3 },
+    );
+  });
+
+  it('按住 Shift 点击行号会选中一段范围', async () => {
+    workspaceDiffMock.mockResolvedValue(report());
+    const onStage = vi.fn<StageHandler>();
+    renderSelectable({ onStage });
+
+    const buttons = await lineButtons();
+    fireEvent.click(buttons[0] as HTMLElement);
+    fireEvent.click(buttons[1] as HTMLElement, { shiftKey: true });
+
+    expect(await screen.findByText('已选 2 行')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '暂存选中行' }));
+
+    expect(onStage).toHaveBeenCalledWith(
+      { kind: 'lines', path: 'src/app.ts', selections: [{ hunkIndex: 0, lines: [1, 2] }] },
+      { contextLines: 3 },
+    );
+  });
+
+  it('hunk 头提供整块操作并按块粒度回调', async () => {
+    workspaceDiffMock.mockResolvedValue(report());
+    const onStage = vi.fn<StageHandler>();
+    renderSelectable({ onStage });
+
+    fireEvent.click(await screen.findByRole('button', { name: '暂存此块' }));
+
+    expect(onStage).toHaveBeenCalledWith(
+      { kind: 'hunks', path: 'src/app.ts', hunkIndices: [0] },
+      { contextLines: 3 },
+    );
+  });
+
+  it('已暂存一侧提供的是取消暂存', async () => {
+    workspaceDiffMock.mockResolvedValue(report());
+    const onUnstage = vi.fn<StageHandler>();
+    renderSelectable({ target: 'staged', onUnstage });
+
+    expect(await screen.findByRole('button', { name: '取消暂存此块' })).toBeInTheDocument();
+    const buttons = await lineButtons();
+    fireEvent.click(buttons[0] as HTMLElement);
+
+    expect(screen.queryByRole('button', { name: '暂存选中行' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '取消暂存选中行' }));
+
+    expect(onUnstage).toHaveBeenCalledTimes(1);
+  });
+
+  it('取消选中后操作条消失', async () => {
+    workspaceDiffMock.mockResolvedValue(report());
+    renderSelectable({ onStage: vi.fn<StageHandler>() });
+
+    const buttons = await lineButtons();
+    fireEvent.click(buttons[0] as HTMLElement);
+    expect(await screen.findByText('已选 1 行')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '清除选择' }));
+    expect(screen.queryByText('已选 1 行')).not.toBeInTheDocument();
+  });
+
+  it('按 s 键暂存选中的行，按 d 键交给调用方确认放弃', async () => {
+    workspaceDiffMock.mockResolvedValue(report());
+    const onStage = vi.fn<StageHandler>();
+    const onDiscard = vi.fn<StageHandler>();
+    renderSelectable({ onStage, onDiscard });
+
+    const buttons = await lineButtons();
+    fireEvent.click(buttons[0] as HTMLElement);
+    const view = screen.getByTestId('diff-view');
+
+    fireEvent.keyDown(view, { key: 's' });
+    expect(onStage).toHaveBeenCalledTimes(1);
+
+    fireEvent.keyDown(view, { key: 'd' });
+    expect(onDiscard).toHaveBeenCalledTimes(1);
+    expect(onDiscard).toHaveBeenCalledWith(
+      { kind: 'lines', path: 'src/app.ts', selections: [{ hunkIndex: 0, lines: [1] }] },
+      { contextLines: 3 },
+    );
+  });
+
+  it('没有选中行时快捷键不触发任何回调', async () => {
+    workspaceDiffMock.mockResolvedValue(report());
+    const onStage = vi.fn<StageHandler>();
+    renderSelectable({ onStage });
+
+    await screen.findByText('context line');
+    fireEvent.keyDown(screen.getByTestId('diff-view'), { key: 's' });
+
+    expect(onStage).not.toHaveBeenCalled();
+  });
+
+  it('二进制文件只提供整体暂存，不提供行号选择', async () => {
+    workspaceDiffMock.mockResolvedValue(report({ binary: true, hunks: [] }));
+    const onStage = vi.fn<StageHandler>();
+    renderSelectable({ onStage });
+
+    expect(await screen.findByText('二进制文件')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /选择第/ })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '整体暂存' }));
+    expect(onStage).toHaveBeenCalledWith(
+      { kind: 'files', paths: ['src/app.ts'] },
+      { contextLines: 3 },
+    );
+  });
+
+  it('被截断的文件不提供行级选择并说明原因', async () => {
+    workspaceDiffMock.mockResolvedValue(report({ truncated: true }));
+    renderSelectable({ onStage: vi.fn<StageHandler>() });
+
+    expect(await screen.findByText(/先「加载完整 diff」才能按行暂存/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /选择第/ })).not.toBeInTheDocument();
+  });
+
+  it('只读用法（没有回调）不显示选择入口', async () => {
+    workspaceDiffMock.mockResolvedValue(report());
+
+    renderSelectable({});
+
+    expect(await screen.findByText('context line')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /选择第/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '暂存此块' })).not.toBeInTheDocument();
   });
 });

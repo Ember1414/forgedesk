@@ -14,6 +14,13 @@ const MOCK_SCRIPT = `
   files.push({ path: "untracked.txt", kind: "untracked", indexStatus: "?", worktreeStatus: "?", isBinary: false, isLfs: false, isSubmodule: false, sizeBytes: 6 });
   files.push({ path: "assets/logo.png", kind: "untracked", indexStatus: "?", worktreeStatus: "?", isBinary: true, isLfs: false, isSubmodule: false, sizeBytes: 999 });
   const listeners = [];
+  // 记录收到的暂存 / 取消暂存请求：断言"界面选的粒度与下标"是否原样传到后端
+  window.__stagingCalls = [];
+  window.__mockFiles = files;
+  function specPaths(spec) {
+    if (!spec) return [];
+    return spec.kind === "files" ? (spec.paths || []) : (spec.path ? [spec.path] : []);
+  }
   function group(name) { return files.filter((f) => f.kind === name); }
   function report() {
     return {
@@ -35,26 +42,37 @@ const MOCK_SCRIPT = `
     unregisterListener: function () {},
     invoke: function (command, args) {
       if (command === "workspace_status") return Promise.resolve(report());
-      if (command === "workspace_stage") {
-        for (const path of args.paths) {
+      if (command === "workspace_stage" || command === "workspace_unstage") {
+        const spec = args.spec || { kind: "files", paths: [] };
+        const paths = specPaths(spec);
+        window.__stagingCalls.push({ command: command, spec: spec, view: args.view || null, paths: paths });
+        for (const path of paths) {
           const f = files.find((x) => x.path === path);
-          if (f) { f.indexStatus = f.kind === "untracked" ? "A" : "M"; f.worktreeStatus = "."; f.kind = "ordinary"; }
+          if (!f) continue;
+          if (command === "workspace_stage") {
+            // 文件粒度：整个文件进索引；行级 / 块级：索引变了但工作区仍有改动
+            // （真实行为就是同时出现在"已暂存"与"未暂存"两个分组里）
+            const wholeFile = spec.kind === "files";
+            f.indexStatus = f.kind === "untracked" ? "A" : "M";
+            f.worktreeStatus = wholeFile ? "." : "M";
+            f.kind = "ordinary";
+          } else {
+            f.indexStatus = ".";
+            f.worktreeStatus = f.kind === "untracked" ? "?" : "M";
+          }
         }
-        emitRepoChanged(args.paths);
-        return Promise.resolve(null);
-      }
-      if (command === "workspace_unstage") {
-        for (const path of args.paths) {
-          const f = files.find((x) => x.path === path);
-          if (f) { f.indexStatus = "."; f.worktreeStatus = f.kind === "untracked" ? "?" : "M"; }
-        }
-        emitRepoChanged(args.paths);
+        emitRepoChanged(paths);
         return Promise.resolve(null);
       }
       if (command === "workspace_discard") {
-        for (const path of args.untracked) { const i = files.findIndex((x) => x.path === path); if (i >= 0) files.splice(i, 1); }
-        for (const path of args.tracked) { const f = files.find((x) => x.path === path); if (f) { f.worktreeStatus = "."; } }
-        emitRepoChanged(args.tracked.concat(args.untracked));
+        const spec = args.spec || { kind: "files", tracked: [], untracked: [] };
+        if (spec.kind === "files") {
+          for (const path of spec.untracked || []) { const i = files.findIndex((x) => x.path === path); if (i >= 0) files.splice(i, 1); }
+          for (const path of spec.tracked || []) { const f = files.find((x) => x.path === path); if (f) { f.worktreeStatus = "."; } }
+          emitRepoChanged((spec.tracked || []).concat(spec.untracked || []));
+        } else {
+          emitRepoChanged([spec.path]);
+        }
         return Promise.resolve(null);
       }
       if (command === "workspace_reveal") return Promise.resolve(null);
@@ -68,8 +86,9 @@ const MOCK_SCRIPT = `
           for (let i = 0; i < perHunk; i++) {
             lines.push({ kind: "context", content: "ctx " + h + "-" + i, oldNo: h * perHunk + i + 1, newNo: h * perHunk + i + 1 });
           }
-          lines.push({ kind: "removed", content: "old value", oldNo: null, newNo: null });
-          lines.push({ kind: "added", content: "new value " + h, oldNo: null, newNo: null });
+          // 行号非空：界面只让"该侧真的有行号"的那一列可点（与真实 git 输出一致）
+          lines.push({ kind: "removed", content: "old value", oldNo: h * perHunk + perHunk + 1, newNo: null });
+          lines.push({ kind: "added", content: "new value " + h, oldNo: null, newNo: h * perHunk + perHunk + 1 });
           hunks.push({ oldStart: h * perHunk + 1, oldLines: perHunk + 1, newStart: h * perHunk + 1, newLines: perHunk + 1, header: "fn " + h, lines: lines });
         }
         return Promise.resolve({ files: [{ path: path, oldPath: null, change: "modified", binary: false, additions: 2, deletions: 2, truncated: false, hunks: hunks }], truncatedFiles: 0 });
@@ -116,6 +135,70 @@ test('打开仓库 → 看到分组 → 批量暂存 → 计数变化 → __errs
 function toolbarOf(page: Page) {
   return page.getByTestId('workspace-toolbar');
 }
+test('行选择 → 暂存 → 计数变化 → 后端收到行级 spec → __errs 为空', async ({ page }) => {
+  await page.goto('/#/repo/1/status');
+  await expect(page.getByRole('button', { name: '未暂存' }).first()).toBeVisible();
+
+  // 点文件名打开行级 diff
+  await page.getByRole('button', { name: 'dirty-0.ts' }).click();
+  const diff = page.getByTestId('diff-view');
+  await expect(diff).toBeVisible();
+
+  // 选一行（"修改对"的删除行是第 4 行；新增行同号，取第一个）
+  await diff.getByRole('button', { name: '选择第 4 行' }).first().click();
+  await expect(diff.getByText('已选 1 行')).toBeVisible();
+
+  await diff.getByRole('button', { name: '暂存选中行' }).click();
+
+  // 行级 spec 与下标原样传到后端（下标口径 = 该行在 hunk lines 里的位置）
+  const calls = await page.evaluate(() => window.__stagingCalls ?? []);
+  expect(calls.at(-1)).toMatchObject({
+    command: 'workspace_stage',
+    spec: { kind: 'lines', path: 'src/dirty-0.ts', selections: [{ hunkIndex: 0, lines: [3] }] },
+    view: { contextLines: 3 },
+  });
+
+  // mock 侧的夹具确实变成了"索引有内容、工作区也有改动"
+  const touched = await page.evaluate(
+    () => window.__mockFiles?.find((file) => file.path === 'src/dirty-0.ts') ?? null,
+  );
+  expect(touched).toMatchObject({ indexStatus: 'M', worktreeStatus: 'M' });
+
+  // 先关掉抽屉：Sheet 打开时 Radix 会把页面其余内容标记为 aria-hidden，
+  // 按角色查询会直接找不到分组按钮（不是"不可见"，是"不存在于无障碍树"）
+  await page.getByRole('button', { name: '关闭 diff' }).click();
+  await expect(page.getByTestId('workspace-toolbar')).toBeVisible();
+
+  // 部分暂存后该文件同时出现在两组：已暂存 5 → 6（它仍未暂存，因为工作区还有改动）
+  const groupLabels = await page
+    .getByRole('button', { name: /已暂存|未暂存|未跟踪/ })
+    .allTextContents();
+  expect(groupLabels.join(' | '), '分组计数应当更新').toMatch(/已暂存\s*6/);
+
+  const errs = await page.evaluate(() => window.__errs ?? []);
+  expect(errs, JSON.stringify(errs)).toEqual([]);
+});
+
+test('hunk 头的"暂存此块"按块粒度提交', async ({ page }) => {
+  await page.goto('/#/repo/1/status');
+  await expect(page.getByRole('button', { name: '未暂存' }).first()).toBeVisible();
+
+  await page.getByRole('button', { name: 'dirty-1.ts' }).click();
+  const diff = page.getByTestId('diff-view');
+  await expect(diff).toBeVisible();
+
+  await diff.getByRole('button', { name: '暂存此块' }).first().click();
+
+  const calls = await page.evaluate(() => window.__stagingCalls ?? []);
+  expect(calls.at(-1)).toMatchObject({
+    command: 'workspace_stage',
+    spec: { kind: 'hunks', path: 'src/dirty-1.ts', hunkIndices: [0] },
+  });
+
+  const errs = await page.evaluate(() => window.__errs ?? []);
+  expect(errs, JSON.stringify(errs)).toEqual([]);
+});
+
 test('放弃走确认对话框并列出路径', async ({ page }) => {
   await page.goto('/#/repo/1/status');
   await expect(page.getByRole('button', { name: '未跟踪' }).first()).toBeVisible();

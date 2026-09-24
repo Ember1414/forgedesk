@@ -56,26 +56,95 @@ export function workspaceStatus(repoId: number, includeIgnored = false): Promise
   return invokeCommand<WorkspaceStatus>('workspace_status', { repoId, includeIgnored });
 }
 
-/** 暂存路径。 */
-export function workspaceStage(repoId: number, paths: readonly string[]): Promise<void> {
-  return invokeCommand<void>('workspace_stage', { repoId, paths: [...paths] });
+/** hunk 内被选中的行（`lines` 是行在该 hunk `lines` 数组中的位置，0 基）。 */
+export interface LineSelection {
+  readonly hunkIndex: number;
+  readonly lines: readonly number[];
 }
 
-/** 取消暂存路径。 */
-export function workspaceUnstage(repoId: number, paths: readonly string[]): Promise<void> {
-  return invokeCommand<void>('workspace_unstage', { repoId, paths: [...paths] });
+/**
+ * 暂存 / 取消暂存的粒度。
+ *
+ * `hunks` 与 `lines` 的下标都以该文件 `workspace_diff` 的返回为准：
+ * 后端用它重新生成补丁并按同一口径裁剪，因此界面不需要（也不能）自己算补丁。
+ */
+export type StageScope =
+  | { readonly kind: 'files'; readonly paths: readonly string[] }
+  | { readonly kind: 'hunks'; readonly path: string; readonly hunkIndices: readonly number[] }
+  | {
+      readonly kind: 'lines';
+      readonly path: string;
+      readonly selections: readonly LineSelection[];
+    };
+
+/**
+ * 放弃修改的粒度。
+ *
+ * 整文件粒度区分两类路径：`tracked` 可由 git 恢复，`untracked` 只能从磁盘删除
+ * （不可恢复，界面必须先经确认对话框）。
+ */
+export type DiscardScope =
+  | {
+      readonly kind: 'files';
+      readonly tracked: readonly string[];
+      readonly untracked: readonly string[];
+    }
+  | { readonly kind: 'hunks'; readonly path: string; readonly hunkIndices: readonly number[] }
+  | {
+      readonly kind: 'lines';
+      readonly path: string;
+      readonly selections: readonly LineSelection[];
+    };
+
+/**
+ * 生成补丁时的查看参数。
+ *
+ * **必须与打开 diff 时用的参数一致**：hunk 的划分取决于上下文行数，
+ * 参数不同会让"用户选中的第 2 块"在后端对应到另一块。
+ * 缺省值与后端一致（`-U3`、不忽略空白、检测重命名）。
+ */
+export interface PatchViewSpec {
+  readonly contextLines?: number;
+  readonly ignoreWhitespace?: boolean;
+  readonly detectRenames?: boolean;
 }
 
-/** 放弃工作区修改（tracked 可恢复；untracked 是磁盘删除）。 */
+/** 暂存：整文件、按块或按行。 */
+export function workspaceStage(
+  repoId: number,
+  spec: StageScope,
+  view?: PatchViewSpec,
+): Promise<void> {
+  return invokeCommand<void>('workspace_stage', {
+    repoId,
+    spec,
+    ...(view === undefined ? {} : { view }),
+  });
+}
+
+/** 取消暂存：整文件、按块或按行。 */
+export function workspaceUnstage(
+  repoId: number,
+  spec: StageScope,
+  view?: PatchViewSpec,
+): Promise<void> {
+  return invokeCommand<void>('workspace_unstage', {
+    repoId,
+    spec,
+    ...(view === undefined ? {} : { view }),
+  });
+}
+
+/** 放弃工作区修改：整文件（tracked 可恢复；untracked 是磁盘删除）、按块或按行。 */
 export function workspaceDiscard(
   repoId: number,
-  tracked: readonly string[],
-  untracked: readonly string[],
+  spec: DiscardScope,
+  view?: PatchViewSpec,
 ): Promise<void> {
   return invokeCommand<void>('workspace_discard', {
     repoId,
-    tracked: [...tracked],
-    untracked: [...untracked],
+    spec,
+    ...(view === undefined ? {} : { view }),
   });
 }
 

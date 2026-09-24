@@ -23,6 +23,7 @@
 
 pub mod engines;
 pub mod repository;
+pub mod staging;
 pub mod templates;
 pub mod workspace;
 
@@ -31,6 +32,7 @@ pub use repository::{
     InitExtras, LicenseSpec, MillisClock, OpenRepoRegistry, OpenedRepository, RecentRepository,
     RepositoryService,
 };
+pub use staging::{PatchView, StagingService};
 pub use templates::{sanitize_holder, GitignoreTemplate, LicenseTemplate};
 pub use workspace::WorkspaceService;
 

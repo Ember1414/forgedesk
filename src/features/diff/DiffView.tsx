@@ -1,5 +1,5 @@
 /**
- * Diff 查看器（T1.5）。
+ * Diff 查看器（T1.5）+ 行级 / 块级选择（T1.6）。
  *
  * # 关键取舍
  *
@@ -10,6 +10,18 @@
  * - **行高恒定 + 内容不换行**：定高是 VirtualList 虚拟化的前提；长行横向滚动。
  * - **折叠是纯界面状态**（上下文已在响应里），"更多上下文"才重新请求（×4 递增）。
  * - 模式偏好持久化在后端设置（`ui.diffViewMode`），与界面密度同一套机制。
+ * - **查看器不做写操作**：选择由本组件收集，暂存 / 取消暂存 / 丢弃通过回调交给
+ *   调用方（页面）去接线 IPC 与查询失效。这样同一个查看器仍能用在只读场景
+ *   （例如未来的提交详情），而"谁能改仓库"这件事只在页面层决定一次。
+ * - **`view` 参数必须与查询一致**：hunk 的划分取决于上下文行数，后端要用同一组
+ *   参数重新生成补丁并对下标做越界校验（见 `services::staging` 的模块头）。
+ *
+ * # 可选择的边界
+ *
+ * - 只有新增 / 删除行可选（上下文行两侧都有，选中它没有语义）；
+ * - 二进制文件与**被截断的大 diff** 不提供行级选择：前者的补丁不是文本，
+ *   后者的 hunk 下标与后端的完整补丁对不上 —— 与其让用户点了再失败，
+ *   不如把入口关掉并说明原因。
  */
 import { useMemo, useRef, useState } from 'react';
 
@@ -20,16 +32,25 @@ import { useTranslation } from 'react-i18next';
 import {
   changedLineCount,
   CHAR_DIFF_MAX_CHANGED_LINES,
-  flattenUnified,
   modifiedPairs,
   modifiedPairsUnified,
   pairSideBySide,
 } from '@/features/diff/diffModel';
 import type { PairRow, UnifiedRow } from '@/features/diff/diffModel';
+import {
+  countSelected,
+  emptySelection,
+  isEmptySelection,
+  isSelectable,
+  selectRange,
+  toLineSelections,
+  toggleLine,
+} from '@/features/diff/selectionModel';
+import type { SelectableLine, Selection } from '@/features/diff/selectionModel';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { normalizeError } from '@/lib/errors';
 import { workspaceDiff, workspaceDiffPatch } from '@/lib/ipc/workspace';
-import type { DiffHunk, DiffLine } from '@/lib/ipc/workspace';
+import type { DiffHunk, DiffLine, PatchViewSpec, StageScope } from '@/lib/ipc/workspace';
 import { Button } from '@/ui/components/button';
 import { ErrorState } from '@/ui/components/error-state';
 import { IconButton } from '@/ui/components/icon-button';
@@ -54,12 +75,25 @@ export interface DiffViewProps {
   readonly path: string;
   readonly target: 'staged' | 'unstaged';
   readonly className?: string;
+  /**
+   * 暂存选中的行 / 块（未暂存侧提供）。
+   *
+   * `view` 是生成补丁时用的查看参数，**必须原样转发给后端**：hunk 的划分取决于
+   * 上下文行数，后端要用同一组参数重新生成补丁（见 `services::staging` 的模块头）。
+   */
+  readonly onStage?: (scope: StageScope, view: PatchViewSpec) => void;
+  /** 取消暂存选中的行 / 块（已暂存侧提供）。 */
+  readonly onUnstage?: (scope: StageScope, view: PatchViewSpec) => void;
+  /** 丢弃选中的行 / 块（调用方必须先弹确认对话框）。 */
+  readonly onDiscard?: (scope: StageScope, view: PatchViewSpec) => void;
+  /** 有写操作正在进行：按钮进入 loading 且快捷键失效。 */
+  readonly busy?: boolean;
 }
 
 /** 显示序列的一行：hunk 头 / 内联行 / 并排行。 */
 type DisplayRow =
   | { readonly kind: 'header'; readonly hunkIndex: number; readonly hunk: DiffHunk }
-  | { readonly kind: 'u-line'; readonly row: UnifiedRow }
+  | { readonly kind: 'u-line'; readonly row: UnifiedRow; readonly lineIndex: number }
   | { readonly kind: 'pair'; readonly row: PairRow };
 
 /** 重建一个 hunk 的补丁文本（复制用；与 git 输出逐字节可对齐）。 */
@@ -120,12 +154,43 @@ function CharDiffText({
     </span>
   );
 }
-/** 行号列（并排视图半边一个；内联视图两个）。 */
-function LineNo({ value }: { readonly value: number | null | undefined }) {
+
+/** 行号列（并排视图半边一个；内联视图两个）。可选中的行号同时是选择按钮。 */
+function LineNo({
+  value,
+  canPick = false,
+  selected = false,
+  onPick,
+}: {
+  readonly value: number | null | undefined;
+  readonly canPick?: boolean;
+  readonly selected?: boolean;
+  readonly onPick?: (additive: boolean) => void;
+}) {
+  const { t } = useTranslation('shell');
+  const label = value ?? '';
+
+  if (!canPick) {
+    return (
+      <span className="w-12 shrink-0 select-none pr-1.5 text-right text-11 text-fg-subtle tabular-nums">
+        {label}
+      </span>
+    );
+  }
+
   return (
-    <span className="w-12 shrink-0 select-none pr-1.5 text-right text-11 text-fg-subtle tabular-nums">
-      {value ?? ''}
-    </span>
+    <button
+      type="button"
+      aria-pressed={selected}
+      aria-label={t('diff.selection.pickLineWithNumber', { line: label })}
+      onClick={(event) => onPick?.(event.shiftKey)}
+      className={cn(
+        'fd-transition w-12 shrink-0 select-none pr-1.5 text-right text-11 tabular-nums',
+        selected ? 'bg-brand-subtle font-semibold text-brand' : 'text-fg-subtle hover:bg-subtle/60',
+      )}
+    >
+      {label}
+    </button>
   );
 }
 
@@ -134,10 +199,16 @@ function Cell({
   line,
   charPair,
   side,
+  canPick,
+  selected,
+  onPick,
 }: {
   readonly line: DiffLine | null;
   readonly charPair: readonly [string, string] | undefined;
   readonly side: 'old' | 'new';
+  readonly canPick: boolean;
+  readonly selected: boolean;
+  readonly onPick: (line: DiffLine, additive: boolean) => void;
 }) {
   if (line === null) {
     return <div className="flex flex-1 bg-subtle/30" aria-hidden="true" />;
@@ -149,7 +220,16 @@ function Cell({
     charPair !== undefined && (line.kind === 'added' || line.kind === 'removed');
   return (
     <div className={cn('flex min-w-0 flex-1 items-center', tone)}>
-      <LineNo value={side === 'old' ? line.oldNo : line.newNo} />
+      <LineNo
+        value={side === 'old' ? line.oldNo : line.newNo}
+        canPick={
+          canPick &&
+          isSelectable(line.kind) &&
+          (side === 'old' ? line.oldNo != null : line.newNo != null)
+        }
+        selected={selected}
+        onPick={(additive) => onPick(line, additive)}
+      />
       <span className="w-4 shrink-0 select-none text-center text-11 text-fg-subtle">{sign}</span>
       <span className="min-w-0 flex-1 overflow-hidden pr-2">
         {isModifiedHalf && charPair !== undefined ? (
@@ -166,17 +246,21 @@ function Cell({
   );
 }
 
-/** hunk 头行：范围 + 函数上下文 + 折叠开关 + 复制 hunk。 */
+/** hunk 头行：范围 + 函数上下文 + 折叠开关 + 复制 hunk + （可选）整块操作。 */
 function HunkHeader({
   hunk,
   hunkIndex,
   isCollapsed,
   onToggle,
+  actionLabel,
+  onAction,
 }: {
   readonly hunk: DiffHunk;
   readonly hunkIndex: number;
   readonly isCollapsed: boolean;
   readonly onToggle: (hunkIndex: number) => void;
+  readonly actionLabel?: string;
+  readonly onAction?: (hunkIndex: number) => void;
 }) {
   const { t } = useTranslation('shell');
   return (
@@ -209,6 +293,15 @@ function HunkHeader({
         </span>
         {hunk.header !== '' && <span className="truncate text-fg-subtle/80">{hunk.header}</span>}
       </button>
+      {actionLabel !== undefined && onAction !== undefined ? (
+        <button
+          type="button"
+          className="fd-transition shrink-0 rounded-sm px-1.5 py-0.5 text-11 text-brand hover:bg-brand-subtle"
+          onClick={() => onAction(hunkIndex)}
+        >
+          {actionLabel}
+        </button>
+      ) : null}
       <IconButton
         variant="ghost"
         size="sm"
@@ -224,13 +317,26 @@ function HunkHeader({
     </div>
   );
 }
-export function DiffView({ repoId, path, target, className }: DiffViewProps) {
+
+export function DiffView({
+  repoId,
+  path,
+  target,
+  className,
+  onStage,
+  onUnstage,
+  onDiscard,
+  busy = false,
+}: DiffViewProps) {
   const { t } = useTranslation('shell');
   const [contextLines, setContextLines] = useState(3);
   const [forceFull, setForceFull] = useState(false);
   const [collapsed, setCollapsed] = useState<ReadonlySet<number>>(new Set());
   const [scrollTarget, setScrollTarget] = useState(-1);
   const [jumpCursor, setJumpCursor] = useState(-1);
+  const [selection, setSelection] = useState<Selection>(() => emptySelection());
+  /** Shift 范围选择的锚点（上一次点击的行）。 */
+  const anchor = useRef<SelectableLine | null>(null);
 
   // VirtualList 需要像素高度：用 ResizeObserver 测容器（Sheet 高度会随窗口变化）。
   // 必须用**回调 ref** 而不是挂载 effect：容器只在查询成功后渲染，
@@ -266,6 +372,24 @@ export function DiffView({ repoId, path, target, className }: DiffViewProps) {
   const hunks = useMemo(() => file?.hunks ?? [], [file]);
   const charDiffEnabled = changedLineCount(hunks) <= CHAR_DIFF_MAX_CHANGED_LINES;
 
+  /** 行对象 → 它在所属 hunk 里的位置（选择与后端用同一口径，见 selectionModel）。 */
+  const lineIndexOf = useMemo(() => {
+    const map = new Map<DiffLine, number>();
+    for (const hunk of hunks) {
+      hunk.lines.forEach((line, index) => {
+        map.set(line, index);
+      });
+    }
+    return map;
+  }, [hunks]);
+
+  /** 该文件是否允许行级选择（二进制与截断的补丁做不到）。 */
+  const canPick =
+    file !== undefined &&
+    !file.binary &&
+    !file.truncated &&
+    (onStage !== undefined || onUnstage !== undefined);
+
   const displayRows = useMemo<readonly DisplayRow[]>(() => {
     const rows: DisplayRow[] = [];
     hunks.forEach((hunk, hunkIndex) => {
@@ -274,9 +398,9 @@ export function DiffView({ repoId, path, target, className }: DiffViewProps) {
         return;
       }
       if (mode === 'unified') {
-        for (const row of flattenUnified([hunk])) {
-          rows.push({ kind: 'u-line', row });
-        }
+        hunk.lines.forEach((line, lineIndex) => {
+          rows.push({ kind: 'u-line', row: { kind: 'line', line, hunkIndex }, lineIndex });
+        });
       } else {
         for (const row of pairSideBySide([hunk])) {
           rows.push({ kind: 'pair', row });
@@ -314,7 +438,84 @@ export function DiffView({ repoId, path, target, className }: DiffViewProps) {
     return map;
   }, [displayRows, charDiffEnabled, mode]);
 
-  const toggleHunk = (hunkIndex: number) => {
+  /**
+   * 某个"行对象"是否被选中。
+   *
+   * 并排视图里一行显示的是 (左, 右) 两个 DiffLine，所以这里以**行对象**为入口，
+   * 而不是以位置为入口 —— 位置在视图之间会变，行对象不会。
+   */
+  const isSelectedLine = (hunkIndex: number, line: DiffLine): boolean => {
+    const lineIndex = lineIndexOf.get(line);
+    return lineIndex !== undefined && (selection.get(hunkIndex)?.has(lineIndex) ?? false);
+  };
+
+  const pickLine = (line: DiffLine, hunkIndex: number, additive: boolean) => {
+    const lineIndex = lineIndexOf.get(line);
+    if (lineIndex === undefined) {
+      return;
+    }
+    const position: SelectableLine = { hunkIndex, lineIndex };
+    setSelection((previous) => {
+      if (additive && anchor.current !== null) {
+        return selectRange(hunks, previous, anchor.current, position);
+      }
+      return toggleLine(previous, position);
+    });
+    anchor.current = position;
+  };
+
+  const selectedCount = countSelected(selection);
+  const canStage = target === 'unstaged' && onStage !== undefined;
+  const canUnstage = target === 'staged' && onUnstage !== undefined;
+  const canDiscard = target === 'unstaged' && onDiscard !== undefined;
+
+  /**
+   * 生成补丁的查看参数。
+   *
+   * 只带 `contextLines`：其余两项（忽略空白、重命名检测）与查询用的是后端默认值，
+   * 省略即等价。**"更多上下文"改过的值必须带走** —— 否则后端会用 -U3 重新生成补丁，
+   * hunk 的划分与界面看到的不是同一份，下标随之错位。
+   */
+  const viewSpec: PatchViewSpec = { contextLines };
+
+  const scopeFromSelection = (): StageScope => ({
+    kind: 'lines',
+    path,
+    selections: toLineSelections(selection),
+  });
+
+  const applySelection = () => {
+    if (isEmptySelection(selection) || busy) {
+      return;
+    }
+    if (canStage) {
+      onStage?.(scopeFromSelection(), viewSpec);
+    } else if (canUnstage) {
+      onUnstage?.(scopeFromSelection(), viewSpec);
+    }
+  };
+
+  const discardSelection = () => {
+    if (isEmptySelection(selection) || busy) {
+      return;
+    }
+    onDiscard?.(scopeFromSelection(), viewSpec);
+  };
+
+  /** 整块操作：粒度是 hunk（与"选中行"区分开，用户不必先选行再点）。 */
+  const applyHunk = (hunkIndex: number) => {
+    if (busy) {
+      return;
+    }
+    const scope: StageScope = { kind: 'hunks', path, hunkIndices: [hunkIndex] };
+    if (canStage) {
+      onStage?.(scope, viewSpec);
+    } else if (canUnstage) {
+      onUnstage?.(scope, viewSpec);
+    }
+  };
+
+  const toggleHunkCollapsed = (hunkIndex: number) => {
     setCollapsed((previous) => {
       const next = new Set(previous);
       if (next.has(hunkIndex)) {
@@ -345,6 +546,40 @@ export function DiffView({ repoId, path, target, className }: DiffViewProps) {
     const target = headerPositions[bounded];
     if (target !== undefined) {
       setScrollTarget(target);
+    }
+  };
+
+  /**
+   * 快捷键：s 暂存选中 / u 取消暂存选中 / d 丢弃选中。
+   *
+   * 只在容器内生效（容器可聚焦），并且跳过输入控件里的按键 ——
+   * 把快捷键挂在 window 上会与页面其他输入抢键，而那类冲突极难排查。
+   */
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) {
+      return;
+    }
+    const element = event.target as HTMLElement | null;
+    if (
+      element !== null &&
+      (element.tagName === 'INPUT' || element.tagName === 'TEXTAREA' || element.isContentEditable)
+    ) {
+      return;
+    }
+    if (isEmptySelection(selection) || busy) {
+      return;
+    }
+
+    const key = event.key.toLowerCase();
+    if (key === 's' && canStage) {
+      event.preventDefault();
+      applySelection();
+    } else if (key === 'u' && canUnstage) {
+      event.preventDefault();
+      applySelection();
+    } else if (key === 'd' && canDiscard) {
+      event.preventDefault();
+      discardSelection();
     }
   };
 
@@ -383,15 +618,47 @@ export function DiffView({ repoId, path, target, className }: DiffViewProps) {
       <div className={cn('flex flex-col items-start gap-1.5 p-3', className)}>
         <p className="text-13">{t('diff.binary.title')}</p>
         <p className="text-12 text-fg-subtle">{t('diff.binary.hint')}</p>
-        <Button variant="secondary" size="sm" onClick={copyPatch}>
-          {t('diff.copyPatch')}
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="secondary" size="sm" onClick={copyPatch}>
+            {t('diff.copyPatch')}
+          </Button>
+          {/* 二进制没有可裁剪的文本补丁，只能整体暂存 / 取消暂存 */}
+          {canStage ? (
+            <Button
+              size="sm"
+              loading={busy}
+              onClick={() => onStage?.({ kind: 'files', paths: [path] }, viewSpec)}
+            >
+              {t('diff.binary.stageWhole')}
+            </Button>
+          ) : null}
+          {canUnstage ? (
+            <Button
+              size="sm"
+              loading={busy}
+              onClick={() => onUnstage?.({ kind: 'files', paths: [path] }, viewSpec)}
+            >
+              {t('diff.binary.unstageWhole')}
+            </Button>
+          ) : null}
+        </div>
       </div>
     );
   }
 
+  const hunkActionLabel = canStage
+    ? t('diff.stageHunk')
+    : canUnstage
+      ? t('diff.unstageHunk')
+      : undefined;
+
   return (
-    <div className={cn('flex min-h-0 flex-col', className)} data-testid="diff-view">
+    <div
+      className={cn('flex min-h-0 flex-col outline-none', className)}
+      data-testid="diff-view"
+      tabIndex={0}
+      onKeyDown={handleKeyDown}
+    >
       <div className="flex items-center gap-1 border-b border-border/60 px-2 py-1">
         <ToggleGroup
           label={t('diff.mode.label')}
@@ -460,6 +727,14 @@ export function DiffView({ repoId, path, target, className }: DiffViewProps) {
         </p>
       )}
 
+      {file.truncated && (
+        <p className="px-3 py-1 text-12 text-fg-subtle">{t('diff.selection.truncatedHint')}</p>
+      )}
+
+      {canPick && selectedCount === 0 ? (
+        <p className="px-3 py-1 text-11 text-fg-subtle">{t('diff.selection.hint')}</p>
+      ) : null}
+
       {/* VirtualList 需要像素高度：容器高度用 ResizeObserver 测量 */}
       <div ref={attachListContainer} className="min-h-0 flex-1 overflow-hidden">
         {listHeight > 0 ? (
@@ -476,26 +751,78 @@ export function DiffView({ repoId, path, target, className }: DiffViewProps) {
                 row={row}
                 pair={pairs.get(index)}
                 isCollapsed={row.kind === 'header' ? collapsed.has(row.hunkIndex) : false}
-                onToggle={toggleHunk}
+                onToggle={toggleHunkCollapsed}
+                canPick={canPick}
+                isSelectedLine={isSelectedLine}
+                onPickLine={pickLine}
+                hunkActionLabel={hunkActionLabel}
+                onHunkAction={applyHunk}
               />
             )}
           />
         ) : null}
       </div>
+
+      {selectedCount > 0 ? (
+        <div
+          role="toolbar"
+          aria-label={t('diff.selection.toolbar')}
+          className="flex flex-wrap items-center gap-2 border-t border-border/60 bg-surface px-2 py-1.5"
+        >
+          <span className="text-12 text-fg-muted">
+            {t('diff.selection.count', { count: selectedCount })}
+          </span>
+          <span className="hidden text-11 text-fg-subtle sm:inline">
+            {t('diff.selection.shortcuts')}
+          </span>
+          <div className="flex-1" />
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={() => {
+              setSelection(emptySelection());
+              anchor.current = null;
+            }}
+          >
+            {t('diff.selection.clear')}
+          </Button>
+          {canStage || canUnstage ? (
+            <Button size="sm" loading={busy} onClick={applySelection}>
+              {canStage ? t('diff.selection.stage') : t('diff.selection.unstage')}
+            </Button>
+          ) : null}
+          {canDiscard ? (
+            <Button size="sm" variant="danger" loading={busy} onClick={discardSelection}>
+              {t('diff.selection.discard')}
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }
+
 /** 渲染显示序列的一行（模块级组件：显式接收全部依赖，避免闭包作用域纠缠）。 */
 function DisplayRowView({
   row,
   pair,
   isCollapsed,
   onToggle,
+  canPick,
+  isSelectedLine,
+  onPickLine,
+  hunkActionLabel,
+  onHunkAction,
 }: {
   readonly row: DisplayRow;
   readonly pair: readonly [string, string] | undefined;
   readonly isCollapsed: boolean;
   readonly onToggle: (hunkIndex: number) => void;
+  readonly canPick: boolean;
+  readonly isSelectedLine: (hunkIndex: number, line: DiffLine) => boolean;
+  readonly onPickLine: (line: DiffLine, hunkIndex: number, additive: boolean) => void;
+  readonly hunkActionLabel: string | undefined;
+  readonly onHunkAction: (hunkIndex: number) => void;
 }) {
   if (row.kind === 'header') {
     return (
@@ -504,6 +831,8 @@ function DisplayRowView({
         hunkIndex={row.hunkIndex}
         isCollapsed={isCollapsed}
         onToggle={onToggle}
+        {...(hunkActionLabel === undefined ? {} : { actionLabel: hunkActionLabel })}
+        onAction={onHunkAction}
       />
     );
   }
@@ -513,10 +842,24 @@ function DisplayRowView({
       line.kind === 'added' ? 'bg-success/12' : line.kind === 'removed' ? 'bg-danger/12' : '';
     const sign = line.kind === 'added' ? '+' : line.kind === 'removed' ? '-' : '';
     const isModified = pair !== undefined && (line.kind === 'added' || line.kind === 'removed');
+    const selected = isSelectedLine(row.row.hunkIndex, line);
+    // 只有"该侧真的有行号"的那一列才可点：删除行没有 newNo、新增行没有 oldNo，
+    // 否则会出现一个标签为空的可点击行号（既不可读，也无法被测试定位）。
+    const pickable = canPick && isSelectable(line.kind);
     return (
       <div className={cn('flex h-6 items-center', tone)}>
-        <LineNo value={line.oldNo} />
-        <LineNo value={line.newNo} />
+        <LineNo
+          value={line.oldNo}
+          canPick={pickable && line.oldNo != null}
+          selected={selected}
+          onPick={(additive) => onPickLine(line, row.row.hunkIndex, additive)}
+        />
+        <LineNo
+          value={line.newNo}
+          canPick={pickable && line.newNo != null}
+          selected={selected}
+          onPick={(additive) => onPickLine(line, row.row.hunkIndex, additive)}
+        />
         <span className="w-4 shrink-0 select-none text-center text-11 text-fg-subtle">{sign}</span>
         <span className="min-w-0 flex-1 overflow-hidden pr-2">
           {isModified && pair !== undefined ? (
@@ -532,14 +875,30 @@ function DisplayRowView({
       </div>
     );
   }
+  const left = row.row.left;
+  const right = row.row.right;
   return (
     <div className="flex h-6 items-stretch">
       <div className="flex min-w-0 flex-1">
-        <Cell line={row.row.left} charPair={pair} side="old" />
+        <Cell
+          line={left}
+          charPair={pair}
+          side="old"
+          canPick={canPick}
+          selected={left !== null && isSelectedLine(row.row.hunkIndex, left)}
+          onPick={(line, additive) => onPickLine(line, row.row.hunkIndex, additive)}
+        />
       </div>
       <div className="w-px shrink-0 bg-border/60" aria-hidden="true" />
       <div className="flex min-w-0 flex-1">
-        <Cell line={row.row.right} charPair={pair} side="new" />
+        <Cell
+          line={right}
+          charPair={pair}
+          side="new"
+          canPick={canPick}
+          selected={right !== null && isSelectedLine(row.row.hunkIndex, right)}
+          onPick={(line, additive) => onPickLine(line, row.row.hunkIndex, additive)}
+        />
       </div>
     </div>
   );

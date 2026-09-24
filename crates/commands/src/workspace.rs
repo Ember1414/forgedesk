@@ -19,9 +19,10 @@
 
 use forgedesk_domain::git::{
     DiffChangeKind, DiffHunk, DiffLineKind, DiffReport, DiffSpec, DiffTarget, DiscardSpec,
-    EntryKind, OperationState, RepoPath, StatusReport,
+    EntryKind, LineSelection, OperationState, RepoPath, StageScope, StatusReport,
 };
-use forgedesk_domain::AppResult;
+use forgedesk_domain::{AppError, AppResult, ErrorCode};
+use forgedesk_services::PatchView;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
 
@@ -219,68 +220,311 @@ pub fn workspace_status(
         .map(StatusReportDto::from)
 }
 
-/// 暂存路径。能力等级：`Mutating`；成功后发布 `repo:changed`。
+/// hunk 内被选中的行（请求形状）。
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LineSelectionRequest {
+    /// hunk 下标（0 基）。
+    pub hunk_index: usize,
+    /// 该 hunk 内被选中的行下标（0 基，与该 hunk `lines` 数组的顺序一致）。
+    pub lines: Vec<usize>,
+}
+
+/// 暂存 / 取消暂存的粒度请求。
+///
+/// `#[serde(tag = "kind")]` 让前端传 `{ kind: "hunks", path, hunkIndices }` 这样的
+/// 判别联合：**一种能力只有一个命令入口**，"用户到底选了什么"由 `kind` 说清楚，
+/// 而不是靠"哪个字段非空"来猜（那种接口在失败时无法给出有意义的错误）。
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum StageScopeRequest {
+    /// 整文件（走 `git add` / `git reset`）。
+    Files {
+        /// 路径列表（相对仓库根）。
+        paths: Vec<String>,
+    },
+    /// 单文件内的若干块。
+    Hunks {
+        /// 目标文件（重命名时是目标路径）。
+        path: String,
+        /// 选中的 hunk 下标。
+        hunk_indices: Vec<usize>,
+    },
+    /// 单文件内的若干行。
+    Lines {
+        /// 目标文件。
+        path: String,
+        /// 每个 hunk 内选中的行。
+        selections: Vec<LineSelectionRequest>,
+    },
+}
+
+/// 放弃修改的粒度请求。
+///
+/// 只有整文件粒度需要区分 `tracked` / `untracked`：前者可由 git 恢复，
+/// 后者只能从磁盘删除（**不可恢复**）。块级 / 行级只作用于已跟踪文件。
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum DiscardRequest {
+    /// 整文件。
+    Files {
+        /// 已跟踪路径（`git restore` 可恢复）。
+        tracked: Vec<String>,
+        /// 未跟踪路径（磁盘删除，不可恢复）。
+        untracked: Vec<String>,
+    },
+    /// 单文件内的若干块。
+    Hunks {
+        /// 目标文件。
+        path: String,
+        /// 选中的 hunk 下标。
+        hunk_indices: Vec<usize>,
+    },
+    /// 单文件内的若干行。
+    Lines {
+        /// 目标文件。
+        path: String,
+        /// 每个 hunk 内选中的行。
+        selections: Vec<LineSelectionRequest>,
+    },
+}
+
+/// 生成补丁时的查看参数（缺省时用后端默认值）。
+///
+/// 必须与界面打开 diff 时用的那组参数一致：hunk 的划分取决于上下文行数，
+/// 参数不同会让"用户选中的第 2 块"在后端对应到另一块（见 services::staging 的模块头）。
+#[derive(Debug, Clone, Default, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PatchViewRequest {
+    /// 上下文行数（`-U<n>`，缺省 3）。
+    pub context_lines: Option<u32>,
+    /// 忽略空白变化（`-w`，缺省 false）。
+    pub ignore_whitespace: Option<bool>,
+    /// 重命名检测（`-M`，缺省 true）。
+    pub detect_renames: Option<bool>,
+}
+
+impl PatchViewRequest {
+    /// 转成领域类型（缺省值取 [`PatchView`] 的默认）。
+    pub fn into_domain(self) -> PatchView {
+        let defaults = PatchView::default();
+        PatchView {
+            context_lines: self.context_lines.unwrap_or(defaults.context_lines),
+            ignore_whitespace: self.ignore_whitespace.unwrap_or(defaults.ignore_whitespace),
+            detect_renames: self.detect_renames.unwrap_or(defaults.detect_renames),
+        }
+    }
+}
+
+/// 选择项数量的上限。
+///
+/// 这不是安全边界（后端仍会逐项做越界校验），而是防手滑：一个界面不可能一次选中
+/// 上千个 hunk 之外的东西，而超长数组只会在日志与错误信息里制造噪音。
+const MAX_SELECTION_ENTRIES: usize = 4096;
+
+/// 路径的二次校验（前端校验只为即时反馈，见 `docs/API.md` §1）。
+fn validate_path(path: &str) -> AppResult<RepoPath> {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return Err(AppError::new(ErrorCode::Validation, "the path is empty"));
+    }
+    if trimmed.contains('\0') {
+        return Err(
+            AppError::new(ErrorCode::Validation, "the path contains a NUL byte")
+                .with_hint("path".to_owned()),
+        );
+    }
+    Ok(RepoPath::from(trimmed))
+}
+
+fn validate_entries(count: usize) -> AppResult<()> {
+    if count > MAX_SELECTION_ENTRIES {
+        return Err(
+            AppError::new(ErrorCode::Validation, "the selection has too many entries")
+                .with_detail(format!("entries: {count}")),
+        );
+    }
+    Ok(())
+}
+
+impl StageScopeRequest {
+    /// 转成领域类型，并给出 `repo:changed` 事件要用的路径列表。
+    pub fn into_domain(self) -> AppResult<(Vec<String>, StageScope)> {
+        match self {
+            Self::Files { paths } => {
+                validate_entries(paths.len())?;
+                let domain_paths = to_repo_paths(&paths);
+                Ok((paths, StageScope::Files(domain_paths)))
+            }
+            Self::Hunks { path, hunk_indices } => {
+                let repo_path = validate_path(&path)?;
+                validate_entries(hunk_indices.len())?;
+                Ok((vec![path], StageScope::hunks(repo_path, hunk_indices)))
+            }
+            Self::Lines { path, selections } => {
+                let repo_path = validate_path(&path)?;
+                validate_entries(selections.len())?;
+                let selections = selections
+                    .into_iter()
+                    .map(|item| LineSelection {
+                        hunk_index: item.hunk_index,
+                        lines: item.lines,
+                    })
+                    .collect();
+                Ok((vec![path], StageScope::lines(repo_path, selections)))
+            }
+        }
+    }
+}
+
+/// 放弃修改的领域形态（命令层内部使用）。
+enum DiscardScope {
+    /// 整文件。
+    Files(DiscardSpec),
+    /// 块级 / 行级。
+    Patch(StageScope),
+}
+
+impl DiscardRequest {
+    fn into_domain(self) -> AppResult<(Vec<String>, DiscardScope)> {
+        match self {
+            Self::Files { tracked, untracked } => {
+                let mut paths = tracked.clone();
+                paths.extend(untracked.iter().cloned());
+                Ok((
+                    paths,
+                    DiscardScope::Files(DiscardSpec {
+                        tracked: to_repo_paths(&tracked),
+                        untracked: to_repo_paths(&untracked),
+                    }),
+                ))
+            }
+            Self::Hunks { path, hunk_indices } => {
+                let repo_path = validate_path(&path)?;
+                validate_entries(hunk_indices.len())?;
+                Ok((
+                    vec![path],
+                    DiscardScope::Patch(StageScope::hunks(repo_path, hunk_indices)),
+                ))
+            }
+            Self::Lines { path, selections } => {
+                let repo_path = validate_path(&path)?;
+                validate_entries(selections.len())?;
+                let selections = selections
+                    .into_iter()
+                    .map(|item| LineSelection {
+                        hunk_index: item.hunk_index,
+                        lines: item.lines,
+                    })
+                    .collect();
+                Ok((
+                    vec![path],
+                    DiscardScope::Patch(StageScope::lines(repo_path, selections)),
+                ))
+            }
+        }
+    }
+}
+
+/// 暂存：整文件走 `git add`，块级 / 行级走补丁通道（T1.6）。
+/// 能力等级：`Mutating`；成功后发布 `repo:changed`。
 #[tauri::command]
 pub fn workspace_stage(
     state: State<'_, AppState>,
     app: AppHandle,
     repo_id: i64,
-    paths: Vec<String>,
+    spec: StageScopeRequest,
+    view: Option<PatchViewRequest>,
 ) -> AppResult<()> {
+    let (paths, scope) = spec.into_domain()?;
     // 空选择是界面正常的"全都没选"状态，不是错误：静默成功
-    if paths.is_empty() {
+    if scope.is_empty() {
         return Ok(());
     }
-    state
-        .workspace_service()
-        .stage(repo_id, &to_repo_paths(&paths))?;
+
+    match &scope {
+        // 文件粒度刻意不走补丁：`git add` 更快，也能处理未跟踪文件与模式变更
+        StageScope::Files(domain_paths) => {
+            state.workspace_service().stage(repo_id, domain_paths)?;
+        }
+        _ => {
+            state.staging_service().stage(
+                repo_id,
+                &scope,
+                view.unwrap_or_default().into_domain(),
+            )?;
+        }
+    }
+
     emit_changed(&app, repo_id, paths);
     Ok(())
 }
 
-/// 取消暂存路径。能力等级：`Mutating`；成功后发布 `repo:changed`。
+/// 取消暂存：整文件走 `git reset`，块级 / 行级走反向补丁通道（T1.6）。
+/// 能力等级：`Mutating`；成功后发布 `repo:changed`。
 #[tauri::command]
 pub fn workspace_unstage(
     state: State<'_, AppState>,
     app: AppHandle,
     repo_id: i64,
-    paths: Vec<String>,
+    spec: StageScopeRequest,
+    view: Option<PatchViewRequest>,
 ) -> AppResult<()> {
-    if paths.is_empty() {
+    let (paths, scope) = spec.into_domain()?;
+    if scope.is_empty() {
         return Ok(());
     }
-    state
-        .workspace_service()
-        .unstage(repo_id, &to_repo_paths(&paths))?;
+
+    match &scope {
+        StageScope::Files(domain_paths) => {
+            state.workspace_service().unstage(repo_id, domain_paths)?;
+        }
+        _ => {
+            state.staging_service().unstage(
+                repo_id,
+                &scope,
+                view.unwrap_or_default().into_domain(),
+            )?;
+        }
+    }
+
     emit_changed(&app, repo_id, paths);
     Ok(())
 }
 
-/// 放弃工作区修改。能力等级：`Mutating`（前端必须先经确认对话框）；
-/// 成功后发布 `repo:changed`。
+/// 放弃修改。能力等级：`Mutating`（前端必须先经确认对话框）；成功后发布 `repo:changed`。
 ///
-/// `tracked` / `untracked` 分开传：前者可由 git 恢复，后者是磁盘删除。
-/// 快照安全网在 M3 接入（见 services 的模块头）。
+/// 整文件粒度区分 `tracked` / `untracked`；块级 / 行级只作用于已跟踪文件，
+/// 且先做 dry-run（补丁对不上时不写任何东西）。快照安全网在 M3 接入。
 #[tauri::command]
 pub fn workspace_discard(
     state: State<'_, AppState>,
     app: AppHandle,
     repo_id: i64,
-    tracked: Vec<String>,
-    untracked: Vec<String>,
+    spec: DiscardRequest,
+    view: Option<PatchViewRequest>,
 ) -> AppResult<()> {
-    if tracked.is_empty() && untracked.is_empty() {
-        return Ok(());
+    let (paths, scope) = spec.into_domain()?;
+
+    match scope {
+        DiscardScope::Files(discard) => {
+            if discard.is_empty() {
+                return Ok(());
+            }
+            state.workspace_service().discard(repo_id, discard)?;
+        }
+        DiscardScope::Patch(scope) => {
+            if scope.is_empty() {
+                return Ok(());
+            }
+            state.staging_service().discard(
+                repo_id,
+                &scope,
+                view.unwrap_or_default().into_domain(),
+            )?;
+        }
     }
-    state.workspace_service().discard(
-        repo_id,
-        DiscardSpec {
-            tracked: to_repo_paths(&tracked),
-            untracked: to_repo_paths(&untracked),
-        },
-    )?;
-    let mut paths = tracked;
-    paths.extend(untracked);
+
     emit_changed(&app, repo_id, paths);
     Ok(())
 }
@@ -301,11 +545,16 @@ pub fn workspace_reveal(state: State<'_, AppState>, repo_id: i64, path: String) 
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
     use forgedesk_domain::git::{
-        BranchInfo, ChangeKind, EntryKind, FileChange, OperationState, RepoPath, StatusReport,
-        SubmoduleState,
+        BranchInfo, ChangeKind, EntryKind, FileChange, LineSelection, OperationState, RepoPath,
+        StageGranularity, StageScope, StatusReport, SubmoduleState,
     };
+    use forgedesk_domain::ErrorCode;
+    use forgedesk_services::PatchView;
 
-    use super::{StatusReportDto, EVENT_REPO_CHANGED};
+    use super::{
+        DiscardRequest, DiscardScope, LineSelectionRequest, PatchViewRequest, StageScopeRequest,
+        StatusReportDto, EVENT_REPO_CHANGED, MAX_SELECTION_ENTRIES,
+    };
 
     /// 构造一条目（测试专用的简写）。
     fn change(kind: EntryKind, path: &str, index: ChangeKind, worktree: ChangeKind) -> FileChange {
@@ -411,6 +660,153 @@ mod tests {
     fn event_name_follows_the_plan_convention() {
         // 事件命名与 PLAN §5.5 一致：domain:action
         assert_eq!(EVENT_REPO_CHANGED, "repo:changed");
+    }
+
+    #[test]
+    fn file_granularity_stays_on_the_path_channel() {
+        let request = StageScopeRequest::Files {
+            paths: vec!["a.txt".to_owned(), "b.txt".to_owned()],
+        };
+
+        let (paths, scope) = request.into_domain().unwrap();
+
+        assert_eq!(paths, vec!["a.txt".to_owned(), "b.txt".to_owned()]);
+        assert_eq!(scope.granularity(), StageGranularity::Files);
+    }
+
+    #[test]
+    fn hunk_granularity_carries_the_file_and_the_indices() {
+        let request = StageScopeRequest::Hunks {
+            path: "src/main.rs".to_owned(),
+            hunk_indices: vec![1, 2],
+        };
+
+        let (paths, scope) = request.into_domain().unwrap();
+
+        assert_eq!(paths, vec!["src/main.rs".to_owned()], "事件载荷要带上路径");
+        assert_eq!(scope.granularity(), StageGranularity::Hunks);
+        assert_eq!(
+            scope.path().map(|path| path.to_string()),
+            Some("src/main.rs".to_owned())
+        );
+    }
+
+    #[test]
+    fn line_granularity_keeps_the_hunk_and_line_indices_intact() {
+        let request = StageScopeRequest::Lines {
+            path: "src/main.rs".to_owned(),
+            selections: vec![LineSelectionRequest {
+                hunk_index: 1,
+                lines: vec![2, 3],
+            }],
+        };
+
+        let (_, scope) = request.into_domain().unwrap();
+
+        match scope {
+            StageScope::Lines { selections, .. } => assert_eq!(
+                selections,
+                vec![LineSelection {
+                    hunk_index: 1,
+                    lines: vec![2, 3],
+                }]
+            ),
+            other => panic!("应当转换出行级选择：{other:?}"),
+        }
+    }
+
+    #[test]
+    fn an_empty_or_nul_path_is_rejected_before_it_reaches_git() {
+        let blank = StageScopeRequest::Hunks {
+            path: "   ".to_owned(),
+            hunk_indices: vec![0],
+        };
+        assert_eq!(
+            blank.into_domain().expect_err("空路径必须拒绝").code,
+            ErrorCode::Validation
+        );
+
+        let nul = StageScopeRequest::Hunks {
+            path: "a\0b".to_owned(),
+            hunk_indices: vec![0],
+        };
+        assert_eq!(
+            nul.into_domain().expect_err("含 NUL 的路径必须拒绝").code,
+            ErrorCode::Validation
+        );
+    }
+
+    #[test]
+    fn an_absurdly_large_selection_is_rejected_at_the_boundary() {
+        let request = StageScopeRequest::Files {
+            paths: vec!["a.txt".to_owned(); MAX_SELECTION_ENTRIES + 1],
+        };
+
+        assert_eq!(
+            request.into_domain().expect_err("超长选择必须拒绝").code,
+            ErrorCode::Validation
+        );
+    }
+
+    #[test]
+    fn the_patch_view_falls_back_to_the_backend_defaults() {
+        let view = PatchViewRequest::default().into_domain();
+
+        assert_eq!(view, PatchView::default());
+        assert_eq!(
+            view.context_lines,
+            forgedesk_domain::git::DEFAULT_CONTEXT_LINES
+        );
+    }
+
+    #[test]
+    fn the_patch_view_forwards_exactly_what_the_ui_used() {
+        let view = PatchViewRequest {
+            context_lines: Some(12),
+            ignore_whitespace: Some(true),
+            detect_renames: Some(false),
+        }
+        .into_domain();
+
+        assert_eq!(view.context_lines, 12);
+        assert!(view.ignore_whitespace);
+        assert!(!view.detect_renames);
+    }
+
+    #[test]
+    fn discarding_a_file_keeps_tracked_and_untracked_apart() {
+        let request = DiscardRequest::Files {
+            tracked: vec!["a.txt".to_owned()],
+            untracked: vec!["b.txt".to_owned()],
+        };
+
+        let (paths, scope) = request.into_domain().unwrap();
+
+        assert_eq!(paths, vec!["a.txt".to_owned(), "b.txt".to_owned()]);
+        match scope {
+            DiscardScope::Files(spec) => {
+                assert_eq!(spec.tracked.len(), 1, "已跟踪路径可由 git 恢复");
+                assert_eq!(spec.untracked.len(), 1, "未跟踪路径是磁盘删除");
+            }
+            DiscardScope::Patch(_) => panic!("文件粒度不该走补丁通道"),
+        }
+    }
+
+    #[test]
+    fn discarding_a_hunk_goes_through_the_patch_channel() {
+        let request = DiscardRequest::Hunks {
+            path: "a.txt".to_owned(),
+            hunk_indices: vec![0],
+        };
+
+        let (_, scope) = request.into_domain().unwrap();
+
+        match scope {
+            DiscardScope::Patch(scope) => {
+                assert_eq!(scope.granularity(), StageGranularity::Hunks);
+            }
+            DiscardScope::Files(_) => panic!("块级丢弃不该走文件通道"),
+        }
     }
 }
 

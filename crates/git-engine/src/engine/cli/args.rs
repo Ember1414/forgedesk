@@ -29,9 +29,9 @@
 //! `VALIDATION`，而不是悄悄 lossy 掉一个字节——那会让操作落到**另一个文件**上。
 
 use forgedesk_domain::git::{
-    CheckoutSpec, CloneSpec, CommitSpec, DiffSpec, DiffTarget, FetchSpec, InitSpec, LogQuery,
-    MergeSpec, PullSpec, PushSpec, ReorderSpec, RepoPath, ResetSpec, StageSpec, StashAction,
-    StashSpec,
+    ApplyDirection, ApplyPatchSpec, ApplyTarget, CheckoutSpec, CloneSpec, CommitSpec, DiffSpec,
+    DiffTarget, FetchSpec, InitSpec, LogQuery, MergeSpec, PullSpec, PushSpec, ReorderSpec,
+    RepoPath, ResetSpec, StageSpec, StashAction, StashSpec,
 };
 use forgedesk_domain::{AppError, AppResult, ErrorCode};
 
@@ -363,7 +363,7 @@ pub fn clone_args(spec: &CloneSpec) -> Vec<String> {
     args
 }
 
-/// `git add`（暂存）。
+/// `git add`（整文件暂存）。
 pub fn stage_args(spec: &StageSpec) -> AppResult<GitInvocation> {
     match spec {
         // 注意：这里**不能**自己 push `--`，PathSpecArgs::append_to 会加
@@ -376,20 +376,10 @@ pub fn stage_args(spec: &StageSpec) -> AppResult<GitInvocation> {
             "add".to_owned(),
             "--all".to_owned(),
         ])),
-        StageSpec::Patch(patch) => Ok(GitInvocation::new(vec![
-            "apply".to_owned(),
-            "--cached".to_owned(),
-            // --recount：补丁的行号统计可能不精确，让 git 自己重算而不是直接失败
-            "--recount".to_owned(),
-            // --whitespace=nowarn：用户的空白风格不该阻断"我只想暂存这几行"
-            "--whitespace=nowarn".to_owned(),
-            "-".to_owned(),
-        ])
-        .with_stdin(patch.clone())),
     }
 }
 
-/// `git reset`（取消暂存）。
+/// `git reset`（整文件取消暂存）。
 pub fn unstage_args(spec: &StageSpec) -> AppResult<GitInvocation> {
     match spec {
         StageSpec::Paths(paths) => invocation(
@@ -402,17 +392,36 @@ pub fn unstage_args(spec: &StageSpec) -> AppResult<GitInvocation> {
             "--quiet".to_owned(),
             "HEAD".to_owned(),
         ])),
-        StageSpec::Patch(patch) => Ok(GitInvocation::new(vec![
-            "apply".to_owned(),
-            "--cached".to_owned(),
-            // 反向应用 = 把补丁从索引里撤掉
-            "--reverse".to_owned(),
-            "--recount".to_owned(),
-            "--whitespace=nowarn".to_owned(),
-            "-".to_owned(),
-        ])
-        .with_stdin(patch.clone())),
     }
+}
+
+/// `git apply`：把（可能被裁剪过的）补丁应用到索引或工作区（T1.6 部分暂存的唯一通道）。
+///
+/// 三个开关各有理由：
+///
+/// - `--recount`：不信任补丁头部声明的行数，让 git 按实际 body 重算 —— 裁剪器
+///   已经重算过一遍，这里是第二道保险（第三方生成的补丁行数常常不准）；
+/// - `--whitespace=nowarn`：用户的空白风格不该阻断"我只想暂存这几行"
+///   （git 默认对新增空白行报错）；
+/// - `-`（stdin）：补丁里有非 UTF-8 的路径与内容，放进 argv 会被编码转换毁掉。
+///
+/// `--check` 只读索引，不该获取可选锁（否则会与用户终端里的 git 抢锁）。
+pub fn apply_patch_args(spec: &ApplyPatchSpec) -> GitInvocation {
+    let mut args = vec!["apply".to_owned()];
+    if spec.target == ApplyTarget::Index {
+        args.push("--cached".to_owned());
+    }
+    if spec.direction == ApplyDirection::Reverse {
+        args.push("--reverse".to_owned());
+    }
+    if spec.check_only {
+        args.push("--check".to_owned());
+    }
+    args.push("--recount".to_owned());
+    args.push("--whitespace=nowarn".to_owned());
+    args.push("-".to_owned());
+
+    GitInvocation::new(args).with_stdin(spec.patch.clone())
 }
 
 /// `git commit`。
@@ -771,8 +780,8 @@ mod tests {
     }
 
     #[test]
-    fn stage_patch_applies_to_the_index_and_feeds_the_patch_on_stdin() {
-        let invocation = stage_args(&StageSpec::Patch(b"diff --git a/x b/x\n".to_vec())).unwrap();
+    fn staging_a_patch_targets_the_index_and_feeds_the_patch_on_stdin() {
+        let invocation = apply_patch_args(&ApplyPatchSpec::stage(b"diff --git a/x b/x\n".to_vec()));
 
         assert_eq!(
             joined(&invocation.args),
@@ -782,11 +791,37 @@ mod tests {
     }
 
     #[test]
-    fn unstage_patch_reverses_the_patch_instead_of_staging_it() {
-        let invocation = unstage_args(&StageSpec::Patch(b"patch".to_vec())).unwrap();
+    fn unstaging_a_patch_reverses_it_inside_the_index() {
+        let invocation = apply_patch_args(&ApplyPatchSpec::unstage(b"patch".to_vec()));
 
         assert!(invocation.args.contains(&"--reverse".to_owned()));
         assert!(invocation.args.contains(&"--cached".to_owned()));
+    }
+
+    #[test]
+    fn discarding_a_patch_touches_the_worktree_and_never_the_index() {
+        let invocation = apply_patch_args(&ApplyPatchSpec::discard_worktree(b"patch".to_vec()));
+
+        assert_eq!(
+            joined(&invocation.args),
+            "apply --reverse --recount --whitespace=nowarn -"
+        );
+        assert!(
+            !invocation.args.contains(&"--cached".to_owned()),
+            "丢弃必须只碰工作区：{:?}",
+            invocation.args
+        );
+    }
+
+    #[test]
+    fn a_dry_run_asks_git_to_check_without_writing() {
+        let invocation = apply_patch_args(&ApplyPatchSpec::stage(b"patch".to_vec()).checked());
+
+        assert!(invocation.args.contains(&"--check".to_owned()));
+        assert_eq!(
+            joined(&invocation.args),
+            "apply --cached --check --recount --whitespace=nowarn -"
+        );
     }
 
     #[test]

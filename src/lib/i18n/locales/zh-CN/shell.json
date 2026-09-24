@@ -179,7 +179,23 @@
     "listLabel": "diff 内容",
     "binary": {
       "title": "二进制文件",
-      "hint": "二进制文件没有行级 diff；可以复制补丁或用专门工具比较内容。"
+      "hint": "二进制文件没有行级 diff；可以复制补丁或用专门工具比较内容。",
+      "stageWhole": "整体暂存",
+      "unstageWhole": "整体取消暂存"
+    },
+    "stageHunk": "暂存此块",
+    "unstageHunk": "取消暂存此块",
+    "selection": {
+      "toolbar": "选中行的操作",
+      "pickLineWithNumber": "选择第 {{line}} 行",
+      "hint": "点击行号选择该行；按住 Shift 点击可选中一段范围。",
+      "count": "已选 {{count}} 行",
+      "clear": "清除选择",
+      "stage": "暂存选中行",
+      "unstage": "取消暂存选中行",
+      "discard": "放弃选中行",
+      "shortcuts": "快捷键：s 暂存 · u 取消暂存 · d 放弃",
+      "truncatedHint": "文件过大已被截断：先「加载完整 diff」才能按行暂存。"
     },
     "sheetDescription": "文件变更的行级差异视图",
     "close": "关闭 diff"
@@ -270,6 +286,11 @@
     "discard": {
       "title": "放弃这些修改？",
       "description": "以下修改将丢失，且无法通过本应用恢复：",
+      "impactLabel": "影响",
+      "linesDescription": "将放弃该文件中选中的行；已暂存的内容不受影响。",
+      "summaryLines": "{{path}} · 选中 {{count}} 行",
+      "summaryHunks": "{{path}} · 选中 {{count}} 块",
+      "summaryFiles": "共 {{count}} 个文件",
       "confirm": "放弃"
     },
     "status": {

@@ -708,6 +708,16 @@ impl GitEngine for Libgit2Engine {
         Err(unsupported(EngineId::Libgit2, "unstage"))
     }
 
+    fn apply_patch(
+        &self,
+        _repo: &RepoId,
+        _spec: &forgedesk_domain::git::ApplyPatchSpec,
+    ) -> AppResult<()> {
+        // 与所有写操作同一理由：部分暂存必须复刻用户终端里 `git apply --cached` 的行为
+        // （attributes / filter / 空白策略），libgit2 的索引写入不具备这条一致性。
+        Err(unsupported(EngineId::Libgit2, "apply_patch"))
+    }
+
     fn commit(
         &self,
         _repo: &RepoId,
