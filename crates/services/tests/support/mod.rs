@@ -1,3 +1,6 @@
+// 测试支撑模块：允许测试惯用的 unwrap/expect/panic（与其它测试文件同一约定）。
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, missing_docs)]
+
 //! 集成测试共用的辅助设施（临时目录、git 夹具、内存数据库）。
 //!
 //! 这个目录不是测试目标（`tests/` 下的子目录不会各自变成测试二进制）。

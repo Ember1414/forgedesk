@@ -7,7 +7,6 @@
 use std::path::Path;
 
 use forgedesk_domain::git::{DiscardSpec, EntryKind, RepoPath};
-use forgedesk_git_engine::engine::GitEngine;
 use forgedesk_services::{GitEngines, RepositoryService, WorkspaceService};
 use forgedesk_storage::{Database, RepositoryStore};
 
