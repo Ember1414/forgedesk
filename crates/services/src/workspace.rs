@@ -22,7 +22,9 @@
 
 use std::path::PathBuf;
 
-use forgedesk_domain::git::{DiscardSpec, RepoId, RepoPath, StatusQuery, StatusReport};
+use forgedesk_domain::git::{
+    DiffReport, DiffSpec, DiscardSpec, RepoId, RepoPath, StatusQuery, StatusReport,
+};
 use forgedesk_domain::{AppError, AppResult, ErrorCode};
 
 use crate::engines::GitEngines;
@@ -73,6 +75,28 @@ impl WorkspaceService<'_> {
         self.engines
             .read()
             .status(&repo, &StatusQuery { include_ignored })
+    }
+
+    /// 读取 diff（行级内容）。
+    ///
+    /// **刻意路由到 CLI 引擎**：T1.5 要求补丁文本与用户终端一致
+    /// （hooks / attributes / 外部 diff 都要生效），libgit2 的格式化输出被任务明确排除。
+    /// libgit2 的 diff 实现保留用于差分测试中的统计对拍。
+    pub fn diff(&self, repo_id: i64, spec: DiffSpec) -> AppResult<DiffReport> {
+        let workdir = self.resolve_workdir(repo_id)?;
+        let repo = RepoId::new(workdir);
+        self.engines.write().diff(&repo, spec)
+    }
+
+    /// 生成原始补丁文本（复制 / 导出 .patch；T1.6 部分暂存的底稿）。
+    ///
+    /// 与 [`Self::diff`] 同一 spec；补丁是否截断由 spec.force_full 决定，
+    /// 调用方在导出场景应显式传 true（用户要求的就是完整文件）。
+    /// 返回原始字节——补丁里的路径与内容都可能是非 UTF-8。
+    pub fn diff_patch(&self, repo_id: i64, spec: DiffSpec) -> AppResult<Vec<u8>> {
+        let workdir = self.resolve_workdir(repo_id)?;
+        let repo = RepoId::new(workdir);
+        self.engines.write().diff_patch(&repo, &spec)
     }
 
     /// 暂存指定路径（新增 / 修改 / 删除统一由 `git add -A --` 处理）。

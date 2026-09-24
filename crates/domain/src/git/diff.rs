@@ -101,10 +101,22 @@ pub struct DiffSpec {
     pub paths: Vec<RepoPath>,
     /// 是否启用重命名检测（`-M`）。
     pub detect_renames: bool,
+    /// 是否跳过大文件截断（"加载完整 diff"按钮）。
+    ///
+    /// 截断是**保护**而不是惩罚：一个 5 万行的生成文件 diff 足以让界面卡死。
+    /// 但保护不能剥夺知情权——界面上必须有"加载完整 diff"的显式入口，
+    /// 这就是它的开关。默认 `false`。
+    pub force_full: bool,
 }
 
 /// 默认上下文行数。
 pub const DEFAULT_CONTEXT_LINES: u32 = 3;
+
+/// 单文件行级内容的**默认行数上限**（超过即截断，见 [`DiffSpec::force_full`]）。
+pub const MAX_DIFF_LINES_PER_FILE: usize = 20_000;
+
+/// 单文件行级内容的**默认字节上限**（patch 文本，超过即截断）。
+pub const MAX_DIFF_BYTES_PER_FILE: usize = 2 * 1024 * 1024;
 
 impl DiffSpec {
     /// 用比较目标创建（其余取默认值）。
@@ -115,6 +127,7 @@ impl DiffSpec {
             context_lines: DEFAULT_CONTEXT_LINES,
             paths: Vec::new(),
             detect_renames: true,
+            force_full: false,
         }
     }
 
@@ -136,6 +149,13 @@ impl DiffSpec {
     #[must_use]
     pub fn with_paths(mut self, paths: Vec<RepoPath>) -> Self {
         self.paths = paths;
+        self
+    }
+
+    /// 跳过大文件截断。
+    #[must_use]
+    pub fn with_force_full(mut self, force: bool) -> Self {
+        self.force_full = force;
         self
     }
 }
@@ -206,6 +226,11 @@ pub struct FileDiff {
     pub deletions: u64,
     /// 行级内容。T1.5 之前为空（见模块头）。
     pub hunks: Vec<DiffHunk>,
+    /// 该文件的行级内容是否被截断（超过行数/字节预算且未 force_full）。
+    ///
+    /// 与 [`DiffReport::truncated_files`] 的区别：后者是**计数汇总**，
+    /// 这个标志告诉界面**哪一个**文件被截断了——截断提示要挂在那个文件上。
+    pub truncated: bool,
 }
 
 impl FileDiff {
@@ -375,6 +400,7 @@ mod tests {
                     additions: 3,
                     deletions: 1,
                     hunks: Vec::new(),
+                    truncated: false,
                 },
                 FileDiff {
                     path: RepoPath::from("bin.dat"),
@@ -384,6 +410,7 @@ mod tests {
                     additions: 0,
                     deletions: 0,
                     hunks: Vec::new(),
+                    truncated: false,
                 },
             ],
             truncated_files: 0,

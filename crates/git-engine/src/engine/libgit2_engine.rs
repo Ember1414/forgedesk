@@ -319,6 +319,12 @@ impl GitEngine for Libgit2Engine {
         Ok(report)
     }
 
+    fn diff_patch(&self, _repo: &RepoId, _spec: &DiffSpec) -> AppResult<Vec<u8>> {
+        // T1.5 明确要求：查看器的补丁文本必须来自 git CLI（与用户终端一致），
+        // libgit2 的格式化输出被排除；libgit2 的 diff 统计实现保留用于差分对拍。
+        Err(unsupported(EngineId::Libgit2, "diff_patch"))
+    }
+
     fn discard_worktree(&self, _repo: &RepoId, _spec: &DiscardSpec) -> AppResult<()> {
         Err(unsupported(EngineId::Libgit2, "discard_worktree"))
     }
@@ -411,6 +417,8 @@ impl GitEngine for Libgit2Engine {
                 binary: delta.flags().is_binary(),
                 additions: u64::try_from(additions).unwrap_or_default(),
                 deletions: u64::try_from(deletions).unwrap_or_default(),
+                // libgit2 路径只做统计对拍，行级内容（与截断）由 CLI 路径提供
+                truncated: false,
                 hunks: Vec::new(),
             });
         }

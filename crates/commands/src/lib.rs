@@ -50,6 +50,6 @@ pub use settings::{settings_all, settings_get, settings_set};
 pub use state::AppState;
 pub use system::{app_version, AppVersion};
 pub use workspace::{
-    workspace_discard, workspace_reveal, workspace_stage, workspace_status, workspace_unstage,
-    StatusReportDto, EVENT_REPO_CHANGED,
+    workspace_diff, workspace_diff_patch, workspace_discard, workspace_reveal, workspace_stage,
+    workspace_status, workspace_unstage, StatusReportDto, EVENT_REPO_CHANGED,
 };

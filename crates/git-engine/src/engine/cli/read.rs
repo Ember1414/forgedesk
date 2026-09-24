@@ -9,9 +9,9 @@
 use std::path::Path;
 
 use forgedesk_domain::git::{
-    Branch, Commit, DiffChangeKind, DiffReport, DiffSpec, FileDiff, FileStat, LogQuery, Page,
-    ReflogEntry, Remote, RemoteKind, RepoId, RepositoryInfo, StashEntry, StatusQuery, StatusReport,
-    Tag, Worktree,
+    Branch, Commit, DiffChangeKind, DiffReport, DiffSpec, FileDiff, LogQuery, Page, ReflogEntry,
+    Remote, RemoteKind, RepoId, RepositoryInfo, StashEntry, StatusQuery, StatusReport, Tag,
+    Worktree,
 };
 use forgedesk_domain::{AppError, AppResult, ErrorCode};
 
@@ -323,29 +323,63 @@ pub(super) fn diff(engine: &CliGitEngine, repo: &RepoId, spec: &DiffSpec) -> App
             .unwrap_or((DiffChangeKind::Unknown, None))
     };
 
+    // 第三次调用：统一补丁（行级内容）。T1.5 起唯一的数据源，
+    // 任务要求文本 diff 必须走 git CLI（与用户终端一致），不得用 libgit2 格式化输出。
+    let patch = run(engine, repo, args::patch_args(spec)?)?;
+    let limits = crate::parsers::PatchLimits::defaults();
+    let sections = crate::parsers::parse_unified_diff(&patch.stdout, &limits, spec.force_full);
+
+    // 按段序号拼合：numstat 与补丁的文件顺序一致（同一次 git 调用的既定顺序）。
+    // 段里尽力提取的路径只用于一致性检查；**权威路径来自 numstat（字节精确）**。
+    let mut truncated_files = 0_usize;
     let files = stats
         .into_iter()
-        .map(|stat: FileStat| {
+        .enumerate()
+        .map(|(position, stat)| {
             let (change, original) = kind_for(&stat.path);
+            let section = sections.get(position);
+            if section.is_some_and(|section| section.truncated) {
+                truncated_files += 1;
+            }
             FileDiff {
                 original_path: stat.original_path.or(original),
                 path: stat.path,
                 change,
-                binary: stat.binary,
+                binary: stat.binary || section.is_some_and(|section| section.binary),
                 additions: stat.additions.unwrap_or(0),
                 deletions: stat.deletions.unwrap_or(0),
-                // 行级内容由 T1.5 的补丁解析填充
-                hunks: Vec::new(),
+                truncated: section.is_some_and(|section| section.truncated),
+                hunks: section
+                    .map(|section| section.hunks.clone())
+                    .unwrap_or_default(),
             }
         })
         .collect();
 
     Ok(DiffReport {
         files,
-        truncated_files: 0,
+        truncated_files,
     })
 }
 
+/// 生成原始补丁文本（复制 / 导出 .patch 用；T1.6 的部分暂存也以它为底稿）。
+///
+/// 返回**原始字节**：补丁里的路径与内容都可能是非 UTF-8，
+/// 转成 String 等于把字节路径换成一个不存在的路径（与解析器同一纪律）。
+pub(super) fn diff_patch(
+    engine: &CliGitEngine,
+    repo: &RepoId,
+    spec: &DiffSpec,
+) -> AppResult<Vec<u8>> {
+    let output = run(engine, repo, args::patch_args(spec)?)?;
+    if !output.success() {
+        return Err(
+            AppError::new(ErrorCode::Internal, "git diff reported a failure")
+                .with_detail(forgedesk_diagnostics::sanitize_log(&output.stderr_lossy())),
+        );
+    }
+    Ok(output.stdout)
+}
 /// 解析 `git diff --name-status -z`。
 ///
 /// 格式（实测 git 2.54）：普通条目是 `<状态>\0<路径>\0`；

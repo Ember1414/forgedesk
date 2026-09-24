@@ -131,6 +131,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         forgedesk_commands::settings_all,
         forgedesk_commands::logs_open,
         forgedesk_commands::workspace_status,
+        forgedesk_commands::workspace_diff,
+        forgedesk_commands::workspace_diff_patch,
         forgedesk_commands::workspace_reveal,
         forgedesk_commands::workspace_stage,
         forgedesk_commands::workspace_unstage,

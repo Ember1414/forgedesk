@@ -20,6 +20,7 @@ pub mod diff;
 pub mod log;
 pub mod ls_files;
 pub mod status;
+pub mod unified_diff;
 pub mod worktree;
 
 pub use config::parse_config_list;
@@ -27,4 +28,5 @@ pub use diff::parse_diff_numstat;
 pub use log::{parse_log_format, parse_show_format, LOG_FORMAT, SHOW_FORMAT};
 pub use ls_files::parse_ls_files_stage;
 pub use status::parse_status_porcelain_v2;
+pub use unified_diff::{parse_unified_diff, ParsedPatchSection, PatchLimits};
 pub use worktree::parse_worktree_list;

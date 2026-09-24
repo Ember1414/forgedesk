@@ -223,6 +223,22 @@ pub fn diff_args(spec: &DiffSpec) -> AppResult<GitInvocation> {
     invocation(args, &PathSpecArgs::from_paths(&spec.paths), false)
 }
 
+/// `git diff --no-color -U<n> …` 的**统一补丁**输出（T1.5 行级内容的数据源）。
+///
+/// 与 [`diff_args`](给 numstat/name-status 用) 共享目标/路径/空白/重命名参数，
+/// 但**不带 `-z`**（统一补丁本身是行文本，没有 NUL 模式），并强制 `--no-color`：
+/// 任务要求与用户终端一致，且颜色码会污染解析。
+pub fn patch_args(spec: &DiffSpec) -> AppResult<GitInvocation> {
+    let base = diff_args(spec)?.args;
+    let mut args: Vec<String> = base
+        .into_iter()
+        .filter(|arg| arg != "--numstat" && arg != "-z")
+        .collect();
+    args.insert(1, "--no-color".to_owned());
+    // 非 UTF-8 路径在此前已由 diff_args 报错（diff 不支持 pathspec-from-file）
+    Ok(GitInvocation::new(args))
+}
+
 /// `git log` 查询。
 ///
 /// 请求 `limit + 1` 条：多出来的那条用于判断"还有下一页"，

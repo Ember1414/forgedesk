@@ -306,6 +306,10 @@ impl GitEngine for CliGitEngine {
         read::diff(self, repo, &spec)
     }
 
+    fn diff_patch(&self, repo: &RepoId, spec: &DiffSpec) -> AppResult<Vec<u8>> {
+        read::diff_patch(self, repo, spec)
+    }
+
     fn log(&self, repo: &RepoId, query: LogQuery) -> AppResult<Page<Commit>> {
         read::log(self, repo, &query)
     }

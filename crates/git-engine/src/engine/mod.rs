@@ -137,6 +137,10 @@ pub trait GitEngine: Send + Sync {
     /// 文件级变更统计（行级内容由 T1.5 填充，见 `domain::git::diff` 模块头）。
     fn diff(&self, repo: &RepoId, spec: DiffSpec) -> AppResult<DiffReport>;
 
+    /// 生成原始补丁文本（复制 / 导出 .patch；T1.6 部分暂存的底稿）。
+    /// 返回原始字节：补丁里的路径与内容都可能是非 UTF-8。
+    fn diff_patch(&self, repo: &RepoId, spec: &DiffSpec) -> AppResult<Vec<u8>>;
+
     /// 分页查询提交历史。
     fn log(&self, repo: &RepoId, query: LogQuery) -> AppResult<Page<Commit>>;
 

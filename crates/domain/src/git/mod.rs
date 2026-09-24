@@ -47,7 +47,7 @@ pub use audit::{
 pub use commit::{Commit, Signature, SignatureStatus};
 pub use diff::{
     DiffChangeKind, DiffHunk, DiffLine, DiffLineKind, DiffReport, DiffSpec, DiffTarget, FileDiff,
-    FileStat,
+    FileStat, DEFAULT_CONTEXT_LINES, MAX_DIFF_BYTES_PER_FILE, MAX_DIFF_LINES_PER_FILE,
 };
 pub use index::{StageEntry, UnmergedEntry, UnmergedStage};
 pub use path::RepoPath;

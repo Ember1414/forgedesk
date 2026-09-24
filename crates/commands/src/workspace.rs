@@ -17,7 +17,10 @@
 //! `workspace_discard` 会销毁工作区修改：前端必须先弹确认对话框（AlertDialog
 //! 列出将丢失的修改清单）；快照安全网在 M3 接入（见 services 的模块头）。
 
-use forgedesk_domain::git::{DiscardSpec, EntryKind, OperationState, RepoPath, StatusReport};
+use forgedesk_domain::git::{
+    DiffChangeKind, DiffHunk, DiffLineKind, DiffReport, DiffSpec, DiffTarget, DiscardSpec,
+    EntryKind, OperationState, RepoPath, StatusReport,
+};
 use forgedesk_domain::AppResult;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
@@ -409,4 +412,210 @@ mod tests {
         // 事件命名与 PLAN §5.5 一致：domain:action
         assert_eq!(EVENT_REPO_CHANGED, "repo:changed");
     }
+}
+
+// ---------------------------------------------------------------- diff（T1.5）
+
+/// 前端传来的 diff 查询条件（camelCase）。
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiffRequest {
+    /// 比较目标：`staged` / `unstaged` / `between` / `since` / `commit`。
+    pub target: String,
+    /// `between` 的起点。
+    pub from: Option<String>,
+    /// `between` 的终点。
+    pub to: Option<String>,
+    /// `since` / `commit` 的版本。
+    pub revision: Option<String>,
+    /// 限定路径（空 = 全部）。
+    #[serde(default)]
+    pub paths: Vec<String>,
+    /// 忽略空白变化。
+    #[serde(default)]
+    pub ignore_whitespace: bool,
+    /// 上下文行数。
+    #[serde(default = "default_context_lines")]
+    pub context_lines: u32,
+    /// 重命名检测。
+    #[serde(default = "default_true")]
+    pub detect_renames: bool,
+    /// 跳过大文件截断。
+    #[serde(default)]
+    pub force_full: bool,
+}
+
+fn default_context_lines() -> u32 {
+    forgedesk_domain::git::DEFAULT_CONTEXT_LINES
+}
+
+fn default_true() -> bool {
+    true
+}
+
+impl DiffRequest {
+    /// 转成领域 spec；未知 target 是调用方的 bug，显式拒绝而不是猜。
+    pub fn into_domain(self) -> AppResult<DiffSpec> {
+        let target = match self.target.as_str() {
+            "staged" => DiffTarget::Staged,
+            "unstaged" => DiffTarget::Unstaged,
+            "between" => DiffTarget::between(
+                self.from.clone().unwrap_or_default(),
+                self.to.clone().unwrap_or_default(),
+            ),
+            "since" => DiffTarget::Since(self.revision.clone().unwrap_or_default()),
+            "commit" => DiffTarget::Commit(self.revision.clone().unwrap_or_default()),
+            other => {
+                return Err(forgedesk_domain::AppError::new(
+                    forgedesk_domain::ErrorCode::Validation,
+                    "unknown diff target",
+                )
+                .with_detail(other.to_owned()));
+            }
+        };
+        let mut spec = DiffSpec::new(target)
+            .with_ignore_whitespace(self.ignore_whitespace)
+            .with_context_lines(self.context_lines)
+            .with_paths(to_repo_paths(&self.paths));
+        spec.detect_renames = self.detect_renames;
+        spec.force_full = self.force_full;
+        Ok(spec)
+    }
+}
+
+/// hunk 内一行的 DTO。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiffLineDto {
+    /// `context` / `added` / `removed` / `noNewline`。
+    pub kind: String,
+    pub content: String,
+    pub old_no: Option<u32>,
+    pub new_no: Option<u32>,
+}
+
+impl DiffLineDto {
+    fn from_domain(line: &forgedesk_domain::git::DiffLine) -> Self {
+        Self {
+            kind: match line.kind {
+                DiffLineKind::Context => "context",
+                DiffLineKind::Added => "added",
+                DiffLineKind::Removed => "removed",
+                DiffLineKind::NoNewlineMarker => "noNewline",
+            }
+            .to_owned(),
+            content: line.content.clone(),
+            old_no: line.old_lineno,
+            new_no: line.new_lineno,
+        }
+    }
+}
+
+/// 一个 hunk 的 DTO。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiffHunkDto {
+    pub old_start: u32,
+    pub old_lines: u32,
+    pub new_start: u32,
+    pub new_lines: u32,
+    pub header: String,
+    pub lines: Vec<DiffLineDto>,
+}
+
+impl DiffHunkDto {
+    fn from_domain(hunk: &DiffHunk) -> Self {
+        Self {
+            old_start: hunk.old_start,
+            old_lines: hunk.old_lines,
+            new_start: hunk.new_start,
+            new_lines: hunk.new_lines,
+            header: hunk.header.clone(),
+            lines: hunk.lines.iter().map(DiffLineDto::from_domain).collect(),
+        }
+    }
+}
+
+/// 单个文件的行级 diff DTO。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileDiffDto {
+    pub path: String,
+    pub old_path: Option<String>,
+    /// `added` / `deleted` / `modified` / `renamed` / `copied` / `typeChanged` / `unknown`。
+    pub change: String,
+    pub binary: bool,
+    pub additions: u64,
+    pub deletions: u64,
+    /// 行级内容是否被截断（大文件保护；配合 forceFull 重新请求）。
+    pub truncated: bool,
+    pub hunks: Vec<DiffHunkDto>,
+}
+
+impl FileDiffDto {
+    fn from_domain(file: &forgedesk_domain::git::FileDiff) -> Self {
+        Self {
+            path: file.path.to_string_lossy().into_owned(),
+            old_path: file
+                .original_path
+                .as_ref()
+                .map(|path| path.to_string_lossy().into_owned()),
+            change: match file.change {
+                DiffChangeKind::Added => "added",
+                DiffChangeKind::Deleted => "deleted",
+                DiffChangeKind::Modified => "modified",
+                DiffChangeKind::Renamed => "renamed",
+                DiffChangeKind::Copied => "copied",
+                DiffChangeKind::TypeChanged => "typeChanged",
+                DiffChangeKind::Unknown => "unknown",
+            }
+            .to_owned(),
+            binary: file.binary,
+            additions: file.additions,
+            deletions: file.deletions,
+            truncated: file.truncated,
+            hunks: file.hunks.iter().map(DiffHunkDto::from_domain).collect(),
+        }
+    }
+}
+
+/// 一次 diff 查询的 DTO。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiffReportDto {
+    pub files: Vec<FileDiffDto>,
+    pub truncated_files: usize,
+}
+
+impl DiffReportDto {
+    fn from_domain(report: &DiffReport) -> Self {
+        Self {
+            files: report.files.iter().map(FileDiffDto::from_domain).collect(),
+            truncated_files: report.truncated_files,
+        }
+    }
+}
+
+/// 读取 diff（行级内容）。能力等级：`ReadOnly`。
+#[tauri::command]
+pub fn workspace_diff(
+    state: State<'_, AppState>,
+    repo_id: i64,
+    spec: DiffRequest,
+) -> AppResult<DiffReportDto> {
+    let domain_spec = spec.into_domain()?;
+    let report = state.workspace_service().diff(repo_id, domain_spec)?;
+    Ok(DiffReportDto::from_domain(&report))
+}
+
+/// 生成原始补丁字节（复制 / 导出 .patch）。能力等级：`ReadOnly`。
+/// 返回原始字节：补丁里的路径与内容都可能是非 UTF-8。
+#[tauri::command]
+pub fn workspace_diff_patch(
+    state: State<'_, AppState>,
+    repo_id: i64,
+    spec: DiffRequest,
+) -> AppResult<Vec<u8>> {
+    let domain_spec = spec.into_domain()?;
+    state.workspace_service().diff_patch(repo_id, domain_spec)
 }
