@@ -160,6 +160,10 @@ fn parse_entry(prefix: u8, record: &[u8], original_path: Option<&[u8]>) -> Optio
             oid_index: None,
             stages: None,
             submodule: SubmoduleState::NONE,
+            // 二进制/LFS/大小由引擎在解析后富化（解析层只认 porcelain 输出）
+            is_binary: false,
+            is_lfs: false,
+            size_bytes: None,
         });
     }
 
@@ -203,6 +207,9 @@ fn parse_entry(prefix: u8, record: &[u8], original_path: Option<&[u8]>) -> Optio
         oid_index: None,
         stages: None,
         submodule,
+        is_binary: false,
+        is_lfs: false,
+        size_bytes: None,
     };
 
     match kind {

@@ -27,21 +27,26 @@
 
 pub mod bridge;
 pub mod cli;
+pub mod enrich;
 pub mod libgit2_engine;
 pub mod progress;
 
 pub use bridge::BlockingBridge;
 pub use cli::CliGitEngine;
+pub use enrich::{
+    apply_lfs, count_ignored, detect_operation, enrich_filesystem, lfs_paths_from_check_attr,
+    query_lfs_paths, resolve_git_dir,
+};
 pub use libgit2_engine::Libgit2Engine;
 pub use progress::{parse_progress_line, ProgressEvent, ProgressPhase, ProgressSink};
 
 use std::path::Path;
 
 use forgedesk_domain::git::{
-    Branch, CheckoutSpec, CloneSpec, Commit, CommitSpec, DiffReport, DiffSpec, FetchOutcome,
-    FetchSpec, InitSpec, LogQuery, MergeOutcome, MergeSpec, Page, PullOutcome, PullSpec,
-    PushOutcome, PushSpec, ReflogEntry, Remote, ReorderSpec, RepoId, RepositoryInfo, ResetSpec,
-    StageSpec, StashEntry, StashSpec, StatusReport, Tag,
+    Branch, CheckoutSpec, CloneSpec, Commit, CommitSpec, DiffReport, DiffSpec, DiscardSpec,
+    FetchOutcome, FetchSpec, InitSpec, LogQuery, MergeOutcome, MergeSpec, Page, PullOutcome,
+    PullSpec, PushOutcome, PushSpec, ReflogEntry, Remote, ReorderSpec, RepoId, RepositoryInfo,
+    ResetSpec, StageSpec, StashEntry, StashSpec, StatusQuery, StatusReport, Tag,
 };
 use forgedesk_domain::{AppError, AppResult, ErrorCode};
 
@@ -118,7 +123,16 @@ pub trait GitEngine: Send + Sync {
     fn discover(&self, path: &Path) -> AppResult<RepositoryInfo>;
 
     /// 工作区状态。
-    fn status(&self, repo: &RepoId) -> AppResult<StatusReport>;
+    ///
+    /// `query.include_ignored` 为 `true` 时返回被忽略条目并统计 `ignored_count`；
+    /// 默认忽略文件不返回（它们可能数以万计，状态面板几乎不需要）。
+    fn status(&self, repo: &RepoId, query: &StatusQuery) -> AppResult<StatusReport>;
+
+    /// 放弃指定路径的**工作区**修改（`git restore --worktree`；未跟踪文件直接删除）。
+    ///
+    /// 只影响工作区、不碰索引：对"已暂存 + 工作区又改"的文件，
+    /// 放弃工作区改动后保留已暂存的版本。这是界面"放弃"按钮的语义。
+    fn discard_worktree(&self, repo: &RepoId, spec: &DiscardSpec) -> AppResult<()>;
 
     /// 文件级变更统计（行级内容由 T1.5 填充，见 `domain::git::diff` 模块头）。
     fn diff(&self, repo: &RepoId, spec: DiffSpec) -> AppResult<DiffReport>;

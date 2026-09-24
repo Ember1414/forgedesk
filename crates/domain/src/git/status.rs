@@ -203,6 +203,16 @@ pub struct FileChange {
     pub stages: Option<ConflictStages>,
     /// 子模块状态。
     pub submodule: SubmoduleState,
+    /// 工作区文件是否为二进制（前 8KB 含 NUL 字节的启发式，与 Git 一致）。
+    /// 文件不存在（删除/重命名走了索引）时为 `false`。
+    ///
+    /// porcelain v2 不携带该信息，由引擎在解析后富化（见 `git-engine` 的 enrich）；
+    /// 解析器构造时恒为 `false`。
+    pub is_binary: bool,
+    /// 路径是否启用了 Git LFS（`filter=lfs` 属性）。同样由引擎富化。
+    pub is_lfs: bool,
+    /// 工作区文件大小（字节）。文件不存在（删除）或大小无意义时为 `None`。
+    pub size_bytes: Option<u64>,
 }
 
 impl FileChange {
@@ -244,13 +254,58 @@ impl BranchInfo {
     }
 }
 
+/// 仓库当前进行中的多步操作（由 `.git` 目录里的标记文件判定）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum OperationState {
+    /// 没有进行中的操作。
+    #[default]
+    None,
+    /// 合并进行中（`MERGE_HEAD`）。
+    Merge,
+    /// rebase 进行中（`rebase-merge` / `rebase-apply` 目录）。
+    Rebase,
+    /// 拣选进行中（`CHERRY_PICK_HEAD`）。
+    CherryPick,
+    /// 反转进行中（`REVERT_HEAD`）。
+    Revert,
+    /// 二分进行中（`BISECT_LOG`）。
+    Bisect,
+}
+
+impl OperationState {
+    /// 稳定短名（DTO 与日志用，与 `ProgressPhase::as_str` 同一约定）。
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::Merge => "merge",
+            Self::Rebase => "rebase",
+            Self::CherryPick => "cherry-pick",
+            Self::Revert => "revert",
+            Self::Bisect => "bisect",
+        }
+    }
+}
+
+/// 状态查询参数。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct StatusQuery {
+    /// 是否统计并返回被忽略的文件。默认不返回：忽略文件可能数以万计，
+    /// 而状态面板几乎从不需要它们。
+    pub include_ignored: bool,
+}
+
 /// `git status --porcelain=v2 -z --branch` 的解析结果。
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct StatusReport {
     /// 分支头信息。
     pub branch: BranchInfo,
+    /// 进行中的多步操作（由引擎根据 `.git` 标记文件判定）。
+    pub operation: OperationState,
     /// 全部变更条目，顺序与 git 输出一致（已跟踪 → 未跟踪 → 被忽略）。
     pub entries: Vec<FileChange>,
+    /// 被忽略文件的数量。仅请求 `include_ignored` 时统计，否则为 `None`
+    /// （统计它们需要一次全目录扫描，默认调用方并不需要）。
+    pub ignored_count: Option<u64>,
 }
 
 impl StatusReport {

@@ -151,17 +151,42 @@ fn invocation(
 
 // ---------------------------------------------------------------- 读操作
 
-/// `git status --porcelain=v2 -z --branch`。
+/// `git status --porcelain=v2 -z --branch [--ignored=matching]`。
 ///
-/// 这三个开关是**契约**：解析器（T1.1）就是按它们写的，少一个 `-z`
+/// 前三个开关是**契约**：解析器（T1.1）就是按它们写的，少一个 `-z`
 /// 会让重命名条目解析出错误的路径（见 `parsers::status` 模块头）。
-pub fn status_args() -> Vec<String> {
-    vec![
+/// `--ignored=matching` 只在显式请求时出现：忽略文件的枚举需要一次全目录扫描，
+/// 默认调用方并不需要（`ignored_count` 也只在此时统计）。
+pub fn status_args(include_ignored: bool) -> Vec<String> {
+    let mut args = vec![
         "status".to_owned(),
         "--porcelain=v2".to_owned(),
         "-z".to_owned(),
         "--branch".to_owned(),
-    ]
+    ];
+    if include_ignored {
+        args.push("--ignored=matching".to_owned());
+    }
+    args
+}
+
+/// `git rev-parse --absolute-git-dir`（操作状态检测需要真实 git 目录）。
+pub fn git_dir_args() -> Vec<String> {
+    vec!["rev-parse".to_owned(), "--absolute-git-dir".to_owned()]
+}
+
+/// `git restore --worktree -- <paths>`：放弃已跟踪路径的工作区修改。
+///
+/// 目标是索引内容（不是 HEAD）：对"已暂存 + 工作区又改"的文件，
+/// 放弃工作区改动后保留已暂存的版本——这是状态面板"放弃"按钮的语义。
+/// 未跟踪路径不在这条命令里（它们不在索引中，restore 会报错），
+/// 由 `write::discard_worktree` 直接从磁盘删除。
+pub fn discard_args(paths: &[RepoPath]) -> AppResult<GitInvocation> {
+    invocation(
+        vec!["restore".to_owned(), "--worktree".to_owned()],
+        &PathSpecArgs::from_paths(paths),
+        true,
+    )
 }
 
 /// `git diff --numstat -z` 加上目标与过滤条件。
@@ -599,9 +624,36 @@ mod tests {
 
     #[test]
     fn status_args_always_carry_the_machine_readable_contract() {
-        let args = status_args();
+        let args = status_args(false);
 
         assert_eq!(joined(&args), "status --porcelain=v2 -z --branch");
+    }
+
+    #[test]
+    fn status_args_append_ignored_only_when_requested() {
+        let args = status_args(true);
+
+        assert_eq!(
+            joined(&args),
+            "status --porcelain=v2 -z --branch --ignored=matching"
+        );
+    }
+
+    #[test]
+    fn discard_args_restore_the_worktree_from_the_index() {
+        let invocation = discard_args(&[RepoPath::from("a.txt")]).unwrap();
+
+        assert_eq!(joined(&invocation.args), "restore --worktree -- a.txt");
+        assert!(invocation.stdin.is_none());
+    }
+
+    #[test]
+    fn discard_args_feed_non_utf8_paths_on_stdin() {
+        // 与 stage/unstage 同一条纪律：非 UTF-8 路径必须走 stdin
+        let weird = RepoPath::from_bytes(vec![0xE4, 0xB8, 0xAD, 0x00, 0xE6, 0x96]);
+        let invocation = discard_args(&[weird]).unwrap();
+
+        assert!(invocation.stdin.is_some());
     }
 
     #[test]

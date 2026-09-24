@@ -10,8 +10,8 @@ use std::path::Path;
 
 use forgedesk_domain::git::{
     Branch, Commit, DiffChangeKind, DiffReport, DiffSpec, FileDiff, FileStat, LogQuery, Page,
-    ReflogEntry, Remote, RemoteKind, RepoId, RepositoryInfo, StashEntry, StatusReport, Tag,
-    Worktree,
+    ReflogEntry, Remote, RemoteKind, RepoId, RepositoryInfo, StashEntry, StatusQuery, StatusReport,
+    Tag, Worktree,
 };
 use forgedesk_domain::{AppError, AppResult, ErrorCode};
 
@@ -248,9 +248,52 @@ fn upstream_of(engine: &CliGitEngine, repo: &RepoId) -> Option<String> {
 // ---------------------------------------------------------------- status
 
 /// 工作区状态。
-pub(super) fn status(engine: &CliGitEngine, repo: &RepoId) -> AppResult<StatusReport> {
-    let output = run(engine, repo, GitInvocation::new(args::status_args()))?;
-    Ok(parse_status_porcelain_v2(&output.stdout))
+pub(super) fn status(
+    engine: &CliGitEngine,
+    repo: &RepoId,
+    query: &StatusQuery,
+) -> AppResult<StatusReport> {
+    let output = run(
+        engine,
+        repo,
+        GitInvocation::new(args::status_args(query.include_ignored)),
+    )?;
+    let mut report = parse_status_porcelain_v2(&output.stdout);
+
+    // 富化第一段（文件系统）+ 第二段（LFS 属性，经同一套带 stdin 的调用约定）
+    let workdir = repo.root().to_path_buf();
+    let git_dir = crate::engine::enrich::resolve_git_dir(&workdir);
+    let lfs_candidates = crate::engine::enrich::enrich_filesystem(&mut report, &workdir, &git_dir);
+
+    if !lfs_candidates.is_empty() {
+        let mut stdin = Vec::new();
+        for path in &lfs_candidates {
+            stdin.extend_from_slice(path);
+            stdin.push(0);
+        }
+        let invocation = GitInvocation::new(vec![
+            "check-attr".to_owned(),
+            "-z".to_owned(),
+            "--stdin".to_owned(),
+            "filter".to_owned(),
+        ])
+        .with_stdin(stdin);
+        let output = engine.run_at(repo.root(), invocation, super::RunKind::Read)?;
+        if output.success() {
+            crate::engine::enrich::apply_lfs(
+                &mut report,
+                &crate::engine::enrich::lfs_paths_from_check_attr(&output.stdout),
+            );
+        }
+    }
+
+    report.ignored_count = if query.include_ignored {
+        crate::engine::enrich::count_ignored(&report)
+    } else {
+        None
+    };
+
+    Ok(report)
 }
 
 // ---------------------------------------------------------------- diff

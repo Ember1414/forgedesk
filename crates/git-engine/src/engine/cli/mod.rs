@@ -21,10 +21,10 @@ use std::time::Duration;
 
 use forgedesk_diagnostics::sanitize_log;
 use forgedesk_domain::git::{
-    Branch, CheckoutSpec, CloneSpec, Commit, CommitSpec, DiffReport, DiffSpec, FetchOutcome,
-    FetchSpec, InitSpec, LogQuery, MergeOutcome, MergeSpec, Page, PullOutcome, PullSpec,
-    PushOutcome, PushSpec, ReflogEntry, Remote, ReorderSpec, RepoId, RepositoryInfo, ResetSpec,
-    StageSpec, StashEntry, StashSpec, StatusReport, Tag,
+    Branch, CheckoutSpec, CloneSpec, Commit, CommitSpec, DiffReport, DiffSpec, DiscardSpec,
+    FetchOutcome, FetchSpec, InitSpec, LogQuery, MergeOutcome, MergeSpec, Page, PullOutcome,
+    PullSpec, PushOutcome, PushSpec, ReflogEntry, Remote, ReorderSpec, RepoId, RepositoryInfo,
+    ResetSpec, StageSpec, StashEntry, StashSpec, StatusQuery, StatusReport, Tag,
 };
 use forgedesk_domain::{AppError, AppResult, ErrorCode};
 
@@ -294,8 +294,12 @@ impl GitEngine for CliGitEngine {
         read::discover(self, path)
     }
 
-    fn status(&self, repo: &RepoId) -> AppResult<StatusReport> {
-        read::status(self, repo)
+    fn status(&self, repo: &RepoId, query: &StatusQuery) -> AppResult<StatusReport> {
+        read::status(self, repo, query)
+    }
+
+    fn discard_worktree(&self, repo: &RepoId, spec: &DiscardSpec) -> AppResult<()> {
+        write::discard_worktree(self, repo, spec)
     }
 
     fn diff(&self, repo: &RepoId, spec: DiffSpec) -> AppResult<DiffReport> {

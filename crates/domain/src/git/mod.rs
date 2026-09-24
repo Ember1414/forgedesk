@@ -55,13 +55,14 @@ pub use query::{LogQuery, Page};
 pub use refs::{Branch, RefUpdate, RefUpdateKind, Remote, RemoteKind, Tag};
 pub use repository::{BranchLabel, RepoId, RepositoryInfo, Worktree};
 pub use spec::{
-    CheckoutSpec, CloneSpec, CommitSpec, FetchOutcome, FetchSpec, InitSpec, MergeKind,
+    CheckoutSpec, CloneSpec, CommitSpec, DiscardSpec, FetchOutcome, FetchSpec, InitSpec, MergeKind,
     MergeOutcome, MergeSpec, PullOutcome, PullSpec, PullStrategy, PushOutcome, PushRejection,
     PushSpec, ReflogEntry, ReorderAction, ReorderSpec, ReorderStep, ResetMode, ResetSpec,
     StageSpec, StashAction, StashSpec,
 };
 pub use stash::StashEntry;
 pub use status::{
-    BranchInfo, ChangeKind, ConflictStages, EntryKind, FileChange, StatusReport, SubmoduleState,
+    BranchInfo, ChangeKind, ConflictStages, EntryKind, FileChange, OperationState, StatusQuery,
+    StatusReport, SubmoduleState,
 };
 pub use version::{GitVersion, MINIMUM_GIT_VERSION};

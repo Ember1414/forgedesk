@@ -554,6 +554,26 @@ pub struct CheckoutSpec {
     pub create_branch: Option<String>,
 }
 
+/// 放弃指定路径的**工作区**修改（T1.4 状态面板的"放弃"操作）。
+///
+/// 两组路径分开传：已跟踪路径走 `git restore --worktree`（工作区 ← 索引），
+/// 未跟踪路径只能从磁盘删除（它们不在任何树里，git 无法恢复）。
+/// 分组由调用方（services）根据 StatusReport 判定，引擎不做二次查询。
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct DiscardSpec {
+    /// 已跟踪路径：用 `git restore --worktree --` 恢复到索引内容。
+    pub tracked: Vec<RepoPath>,
+    /// 未跟踪路径：直接删除工作区文件（**不可恢复**，调用方必须先经确认对话框）。
+    pub untracked: Vec<RepoPath>,
+}
+
+impl DiscardSpec {
+    /// 是否没有任何要放弃的路径（调用方应提前拒绝空请求）。
+    pub fn is_empty(&self) -> bool {
+        self.tracked.is_empty() && self.untracked.is_empty()
+    }
+}
+
 impl CheckoutSpec {
     /// 切换到某个分支或提交。
     pub fn new(target: impl Into<String>) -> Self {

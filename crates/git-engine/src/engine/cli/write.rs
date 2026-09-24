@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 
 use forgedesk_diagnostics::sanitize_log;
 use forgedesk_domain::git::{
-    CheckoutSpec, CloneSpec, CommitSpec, FetchOutcome, FetchSpec, InitSpec, MergeKind,
+    CheckoutSpec, CloneSpec, CommitSpec, DiscardSpec, FetchOutcome, FetchSpec, InitSpec, MergeKind,
     MergeOutcome, MergeSpec, PullOutcome, PullSpec, PushOutcome, PushRejection, PushSpec,
     RefUpdate, RefUpdateKind, RepoId, RepositoryInfo, ResetSpec, StageSpec, StashSpec,
 };
@@ -64,6 +64,58 @@ pub(super) fn stage(engine: &CliGitEngine, repo: &RepoId, spec: &StageSpec) -> A
 pub(super) fn unstage(engine: &CliGitEngine, repo: &RepoId, spec: &StageSpec) -> AppResult<()> {
     engine.run_write(repo, args::unstage_args(spec)?)?;
     Ok(())
+}
+
+/// 放弃工作区修改（T1.4"放弃"操作）。
+///
+/// 两组路径语义不同：
+/// - `tracked`：`git restore --worktree --`（工作区 ← 索引；已暂存内容保留）；
+/// - `untracked`：直接删除磁盘文件（**不可恢复**，调用方必须先经确认对话框），
+///   删除后顺手清理变空的父目录（直到仓库根为止），否则树视图里会留下
+///   一串空目录骨架。
+pub(super) fn discard_worktree(
+    engine: &CliGitEngine,
+    repo: &RepoId,
+    spec: &DiscardSpec,
+) -> AppResult<()> {
+    if !spec.tracked.is_empty() {
+        engine.run_write(repo, args::discard_args(&spec.tracked)?)?;
+    }
+
+    let root = repo.root();
+    for path in &spec.untracked {
+        let absolute = root.join(path.to_string_lossy().as_ref());
+        // NotFound 视同成功：调用方的状态数据可能已过期，"目标已经不存在"
+        // 恰好是用户想要的结果，报错反而让批量操作中断
+        match std::fs::remove_file(&absolute) {
+            Ok(()) => remove_empty_parents(root, &absolute),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => {
+                return Err(AppError::new(
+                    ErrorCode::Internal,
+                    "failed to delete the untracked file",
+                )
+                .with_detail(format!("{}: {error}", absolute.display())));
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// 删除文件后把变空的父目录一路清到仓库根为止。
+fn remove_empty_parents(root: &Path, file: &Path) {
+    let mut dir = file.parent();
+    while let Some(current) = dir {
+        if current == root {
+            return;
+        }
+        // 只清"这个文件所在的分支"，重命名/斜杠路径之外的情况随 remove_dir 失败自然终止
+        if std::fs::remove_dir(current).is_err() {
+            return;
+        }
+        dir = current.parent();
+    }
 }
 
 /// 提交，返回新提交的 oid。

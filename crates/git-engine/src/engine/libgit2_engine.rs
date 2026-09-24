@@ -26,17 +26,19 @@
 //! 因此 `services` 用 CLI 实现做 `discover`（见 `services::repository` 的说明）。
 
 use std::path::Path;
+use std::path::PathBuf;
 
 use forgedesk_domain::git::{
     Branch, BranchInfo, ChangeKind, Commit, DiffChangeKind, DiffReport, DiffSpec, DiffTarget,
-    EntryKind, FileChange, FileDiff, LogQuery, Page, ReflogEntry, Remote, RemoteKind, RepoId,
-    RepoPath, RepositoryInfo, Signature, SignatureStatus, StashEntry, StatusReport, SubmoduleState,
-    Tag, Worktree,
+    DiscardSpec, EntryKind, FileChange, FileDiff, LogQuery, OperationState, Page, ReflogEntry,
+    Remote, RemoteKind, RepoId, RepoPath, RepositoryInfo, Signature, SignatureStatus, StashEntry,
+    StatusQuery, StatusReport, SubmoduleState, Tag, Worktree,
 };
 use forgedesk_domain::{AppError, AppResult, ErrorCode};
 
 use super::progress::ProgressSink;
 use super::{unsupported, EngineId, GitEngine};
+use crate::process::GitProcess;
 
 /// libgit2 实现。
 #[derive(Debug, Default)]
@@ -224,13 +226,13 @@ impl GitEngine for Libgit2Engine {
         })
     }
 
-    fn status(&self, repo: &RepoId) -> AppResult<StatusReport> {
+    fn status(&self, repo: &RepoId, query: &StatusQuery) -> AppResult<StatusReport> {
         let repository = open(repo)?;
         let mut options = git2::StatusOptions::new();
         options
             .include_untracked(true)
             .recurse_untracked_dirs(true)
-            .include_ignored(false)
+            .include_ignored(query.include_ignored)
             .renames_head_to_index(true)
             .renames_index_to_workdir(true);
 
@@ -240,7 +242,9 @@ impl GitEngine for Libgit2Engine {
 
         let mut report = StatusReport {
             branch: branch_info(&repository)?,
+            operation: OperationState::None,
             entries: Vec::new(),
+            ignored_count: None,
         };
 
         for entry in statuses.iter() {
@@ -288,10 +292,35 @@ impl GitEngine for Libgit2Engine {
                 oid_index: None,
                 stages: None,
                 submodule: SubmoduleState::NONE,
+                // 富化字段与 CLI 路径共用同一套实现，保证展示一致
+                is_binary: false,
+                is_lfs: false,
+                size_bytes: None,
             });
         }
 
+        // 富化：文件系统（操作状态/大小/二进制）+ LFS 属性（批量 check-attr，
+        // 现场建一个 GitProcess——本引擎没有现成的进程句柄，见 bridge.rs 的成本说明）
+        let workdir = repo.root().to_path_buf();
+        let git_dir = PathBuf::from(repository.path());
+        let candidates = super::enrich::enrich_filesystem(&mut report, &workdir, &git_dir);
+        if !candidates.is_empty() {
+            let process = GitProcess::new();
+            let lfs = super::enrich::query_lfs_paths(&process, &workdir, &candidates)?;
+            super::enrich::apply_lfs(&mut report, &lfs);
+        }
+
+        report.ignored_count = if query.include_ignored {
+            super::enrich::count_ignored(&report)
+        } else {
+            None
+        };
+
         Ok(report)
+    }
+
+    fn discard_worktree(&self, _repo: &RepoId, _spec: &DiscardSpec) -> AppResult<()> {
+        Err(unsupported(EngineId::Libgit2, "discard_worktree"))
     }
 
     fn diff(&self, repo: &RepoId, spec: DiffSpec) -> AppResult<DiffReport> {

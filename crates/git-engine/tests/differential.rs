@@ -34,7 +34,8 @@ use std::collections::BTreeSet;
 use std::path::Path;
 
 use forgedesk_domain::git::{
-    Commit, DiffReport, DiffSpec, DiffTarget, EntryKind, LogQuery, Page, RepoId, StatusReport,
+    Commit, DiffReport, DiffSpec, DiffTarget, EntryKind, LogQuery, Page, RepoId, StatusQuery,
+    StatusReport,
 };
 use forgedesk_git_engine::engine::{CliGitEngine, GitEngine, Libgit2Engine, ProgressSink};
 use support::{commit_all, git_ok, init_repo, write, TempDir};
@@ -122,8 +123,15 @@ fn normalize_log(page: &Page<Commit>) -> NormLog {
 // ---------------------------------------------------------------- 对比
 
 fn compare_status(cli: &CliGitEngine, libgit2: &Libgit2Engine, repo: &RepoId, label: &str) {
-    let from_cli = normalize_status(&cli.status(repo).expect("CLI status 失败"));
-    let from_libgit2 = normalize_status(&libgit2.status(repo).expect("libgit2 status 失败"));
+    let from_cli = normalize_status(
+        &cli.status(repo, &StatusQuery::default())
+            .expect("CLI status 失败"),
+    );
+    let from_libgit2 = normalize_status(
+        &libgit2
+            .status(repo, &StatusQuery::default())
+            .expect("libgit2 status 失败"),
+    );
 
     assert_eq!(
         from_cli, from_libgit2,
@@ -403,7 +411,9 @@ fn cli_engine_drives_a_full_read_write_lifecycle() {
     assert_eq!(oid.len(), 40, "提交 oid 应当是完整哈希");
 
     // 读回
-    let status = cli.status(&repo).expect("status 失败");
+    let status = cli
+        .status(&repo, &StatusQuery::default())
+        .expect("status 失败");
     assert!(status.is_clean());
     let log = cli.log(&repo, LogQuery::new()).expect("log 失败");
     assert_eq!(log.items.len(), 1);
@@ -452,7 +462,10 @@ fn cli_engine_drives_a_full_read_write_lifecycle() {
     let stashes = cli.stash_list(&repo).expect("stash_list 失败");
     assert_eq!(stashes.len(), 1);
     assert_eq!(stashes[0].index, 0);
-    assert!(cli.status(&repo).expect("status 失败").is_clean());
+    assert!(cli
+        .status(&repo, &StatusQuery::default())
+        .expect("status 失败")
+        .is_clean());
 
     // reflog
     let reflog = cli.reflog(&repo, 10).expect("reflog 失败");
