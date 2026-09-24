@@ -23,7 +23,7 @@ use std::sync::Arc;
 
 use forgedesk_jobs::JobRunner;
 use forgedesk_services::repository::OpenRepoRegistry;
-use forgedesk_services::{GitEngines, RepositoryService};
+use forgedesk_services::{GitEngines, RepositoryService, WorkspaceService};
 use forgedesk_storage::{Database, RepositoryStore};
 
 /// 应用级共享状态。
@@ -52,6 +52,15 @@ impl AppState {
     /// "某个命令用了另一个注册表"这种极难发现的问题。
     pub fn repository_service(&self) -> RepositoryService<'_> {
         RepositoryService::new(
+            &self.engines,
+            RepositoryStore::new(&self.database),
+            &self.open_repos,
+        )
+    }
+
+    /// 绑定当前状态构造工作区用例服务（状态 / 暂存 / 放弃）。
+    pub fn workspace_service(&self) -> WorkspaceService<'_> {
+        WorkspaceService::new(
             &self.engines,
             RepositoryStore::new(&self.database),
             &self.open_repos,

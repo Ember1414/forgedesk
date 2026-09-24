@@ -35,6 +35,7 @@ pub mod repository;
 pub mod settings;
 pub mod state;
 pub mod system;
+pub mod workspace;
 
 pub use debug::{debug_panic, debug_throw_error};
 pub use error::{to_app_error, Fallible};
@@ -48,3 +49,7 @@ pub use repository::{
 pub use settings::{settings_all, settings_get, settings_set};
 pub use state::AppState;
 pub use system::{app_version, AppVersion};
+pub use workspace::{
+    workspace_discard, workspace_stage, workspace_status, workspace_unstage, StatusReportDto,
+    EVENT_REPO_CHANGED,
+};
