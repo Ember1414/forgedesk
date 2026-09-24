@@ -549,15 +549,21 @@ impl DiffHunkDto {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FileDiffDto {
+    /// 路径（重命名时是目标路径），相对仓库根。
     pub path: String,
+    /// 重命名/复制的来源路径。
     pub old_path: Option<String>,
     /// `added` / `deleted` / `modified` / `renamed` / `copied` / `typeChanged` / `unknown`。
     pub change: String,
+    /// 是否为二进制文件（无行级内容）。
     pub binary: bool,
+    /// 新增行数。
     pub additions: u64,
+    /// 删除行数。
     pub deletions: u64,
     /// 行级内容是否被截断（大文件保护；配合 forceFull 重新请求）。
     pub truncated: bool,
+    /// hunk 列表（二进制文件为空）。
     pub hunks: Vec<DiffHunkDto>,
 }
 
@@ -592,7 +598,9 @@ impl FileDiffDto {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DiffReportDto {
+    /// 变更的文件。
     pub files: Vec<FileDiffDto>,
+    /// 被截断的文件数（截断详情见各文件的 truncated 标志）。
     pub truncated_files: usize,
 }
 
