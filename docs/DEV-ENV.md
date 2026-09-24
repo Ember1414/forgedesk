@@ -171,7 +171,13 @@ failed to load manifest for workspace member `/home/runner/work/forgedesk/forged
    已在 `src/test/setup.ts` 统一补齐，**不要**在单个测试文件里各补一次；
 3. Radix 内部组件的少量 "not wrapped in act" 警告来自其自带的 presence/定时器逻辑，
    属于上游噪音；我们自己的组件若出现同类警告必须修（通常是"挂载状态下改 store"，
-   见 `src/app/shell/AppShell.test.tsx` 的 afterEach）。
+   见 `src/app/shell/AppShell.test.tsx` 的 afterEach）；
+4. **浮层（Sheet / Dialog / AlertDialog）打开时，页面其余内容会被标记 `aria-hidden`** ——
+   这是 Radix 的无障碍语义（焦点与读屏应当只在浮层内），不是 bug。后果是按角色查询
+   （Playwright 的 `getByRole`、Testing Library 的 `getByRole`）**找不到浮层外的元素**，
+   失败信息是 "element(s) not found"，很容易被误判成"功能坏了"。
+   E2E 里要断言浮层背后的界面，先关掉浮层（点关闭按钮或按 Esc）再断言
+   （见 `e2e/workspace.spec.ts` 的行级暂存用例）。
 
 ### 陷阱 10：SQLite 的 `NULL` 在唯一约束里互不相等
 
