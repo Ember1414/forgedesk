@@ -24,6 +24,7 @@
 pub mod engines;
 pub mod repository;
 pub mod templates;
+pub mod workspace;
 
 pub use engines::GitEngines;
 pub use repository::{
@@ -31,6 +32,7 @@ pub use repository::{
     RepositoryService,
 };
 pub use templates::{sanitize_holder, GitignoreTemplate, LicenseTemplate};
+pub use workspace::WorkspaceService;
 
 /// crate 名称，用于日志与诊断中标识来源。
 pub const CRATE_NAME: &str = env!("CARGO_PKG_NAME");
