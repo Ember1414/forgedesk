@@ -94,6 +94,7 @@ interface FixAction {
 | [`audit_list`](#audit_list--audit_export--audit_prune) | ReadOnly | T1.11 | 分页查询操作历史（可按仓库 / 类型 / 时间筛选） |
 | [`audit_export`](#audit_list--audit_export--audit_prune) | ReadOnly | T1.11 | 导出操作历史到临时文件（CSV / JSON），返回路径 |
 | [`audit_prune`](#audit_list--audit_export--audit_prune) | Mutating | T1.11 | 按保留策略清理旧记录 |
+| [`git_log_page`](#git_log_page) | ReadOnly | T2.1 | 提交历史分页 + 泳道布局 |
 
 ---
 
@@ -957,6 +958,103 @@ interface SnapshotDiff {
 
 - **前端封装**：`auditList / auditExport / auditPrune`；调用点：`src/features/settings/AuditHistoryPanel.tsx`
   （设置 → 高级 → 操作历史）
+
+### git_log_page
+
+分页拉取提交历史，并随每页附带**泳道布局**（每个提交落在哪条泳道、什么颜色、与父提交的边怎么连）。
+"加载下一页"需要的是（提交、图位置、边）三件套，拆成两次 IPC 会让两次调用之间拿到的数据
+不一致——因此查询与布局在**同一个调用**里完成（布局本身是 `domain::history::layout` 纯函数），
+返回值由 T2.2 的提交图渲染直接消费。
+
+现状：服务层与布局已落地（`crates/services/src/history.rs`、`crates/domain/src/history/layout.rs`），
+**命令本身尚未接线**（`crates/commands` 下无此命令，T2.2 接入）——本节按"契约先行"登记。
+
+- **能力等级**：`ReadOnly`（只读遍历提交图：不改仓库状态、不写数据库，无需快照/审计）
+- **参数**：
+
+| 参数 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `repoId` | `number` | 是 | 仓库记录 id（`repo_open` 返回的 `recordId`） |
+| `query` | `HistoryQuery` | 否 | 查询参数对象；缺省 = 第一页、每页 100 条、其余字段为空/false |
+
+`query` 的 12 个字段：
+
+| 参数 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `revision` | `string \| null` | 否 | 起始引用（分支名、tag、oid）；缺省 HEAD |
+| `allBranches` | `boolean` | 否 | 包含所有引用（`--all`） |
+| `paths` | `string[]` | 否 | 路径过滤（文件历史）；相对仓库根 |
+| `author` | `string \| null` | 否 | 作者过滤：姓名或邮箱的子串，**忽略大小写** |
+| `since` | `number \| null` | 否 | 时间下界（Unix 秒，**含**）；与 `until` 构成闭区间 |
+| `until` | `number \| null` | 否 | 时间上界（Unix 秒，**含**） |
+| `messageContains` | `string \| null` | 否 | 提交信息包含的子串；**字面匹配、区分大小写**（不做正则与模糊） |
+| `firstParentOnly` | `boolean` | 否 | 只看 first-parent 链；**同时作用于查询与布局**（两者不一致会画出断头路） |
+| `followRenames` | `boolean` | 否 | 跟随重命名（文件历史）；**必须恰好给一条 `paths`**，否则 `VALIDATION`。**仅 CLI 引擎支持**（`git --follow`），libgit2 引擎返回 `UNSUPPORTED_BY_ENGINE` |
+| `collapseMergedBranches` | `boolean` | 否 | 折叠已合并分支；缺省 `false`。**尽力而为**：仅末页生效（本轮穷尽全部提交、`nextCursor` 为 `null` 的那次调用）；窗口不完整（后面还有页）时静默回退为普通布局。`firstParentOnly` 下折叠没有呈现对象，同样不生效 |
+| `pageSize` | `number` | 否 | 每页条数；缺省 100，被夹在 `1..=500`（上限用于防止一次 IPC 拉走全部提交——PLAN §5.5 的 IPC 上限约束）。**越界是钳制，不是报错** |
+| `cursor` | `number \| null` | 否 | 游标 = 下一页第一行的全局序号（0 起始）；**首页省略**（语义见下） |
+
+- **返回**：`HistoryPage`
+
+```ts
+interface HistoryPage {
+  commits: Commit[];         // 本页提交，新 → 旧
+  layout: GraphLayout;       // 本页的泳道布局；rows 与 commits 一一对应
+  nextCursor: number | null; // 下一页游标；null = 末页（没有更多了）
+}
+
+interface GraphLayout {
+  rows: GraphRow[];   // 每个提交的图上位置；row 已由服务层平移成**全局行号**（第二页的第一行是全历史的第 cursor 行，不是本页第 0 行）
+  edges: GraphEdge[]; // 孩子 → 父的边；父不在本页窗口内（分页边界）时边照发，渲染层据此画"继续向下"的线
+  laneCount: number;  // 用到的泳道数（渲染宽度）
+}
+
+interface GraphRow {
+  oid: string;        // 提交 oid
+  lane: number;       // 泳道（0 基，左侧为 0；lane 在生命周期内不变，刷新与翻页后同分支同色）
+  row: number;        // 全局行号（0 基）；滚动、迷你地图与跨页选中都按它工作
+  colorIndex: number; // 颜色索引 = lane % 8
+  isMerge: boolean;   // 是否合并提交（父提交多于一个）
+  hidden: boolean;    // 该行属于被折叠的合并分支（默认 false）；行不删除、lane 与边不动，是否隐藏与如何呈现由前端（T2.2）决定
+  collapsed: string[]; // 本行为可折叠的 merge 时，记录被折叠分支第二父的 tip oid（默认空数组）
+}
+
+interface GraphEdge {
+  fromOid: string;  // 孩子（更新的那个，行号在上）
+  toOid: string;    // 父（更旧的那个；不在窗口内也发）
+  fromLane: number; // 孩子的泳道
+  toLane: number;   // 父的泳道
+  kind: string;     // straight（主线继续）/ merge（合并支线）/ branch（支线汇入）；serde 派生随 T2.2 接线定型
+}
+```
+
+DTO 定义在 `crates/services/src/history.rs`（`HistoryQuery` / `HistoryPage`）与
+`crates/domain/src/history/layout.rs`（`GraphLayout`）；`Commit`（oid / parents / author /
+committer / refs / signature / subject / body）定义在 `crates/domain/src/git/commit.rs`，
+本文档不重复展开。字段名按 §1 通用约定走 camelCase（`HistoryQuery` 的 serde `rename_all`
+在 T2.2 接线命令时落实——服务层类型目前不依赖 serde；`GraphRow` 已派生 serde，
+`hidden` / `collapsed` 带 `#[serde(default)]`，旧调用方缺这两个字段时向后兼容）。
+
+**游标语义**：`cursor` 是下一页第一行的**全局序号**（0 起始），首页省略（后端按 0 处理）。
+用序号而不是 oid 的真正价值在**增量刷新**：新提交到达时只有序号变化的区间需要局部重排
+（T2.9 的布局缓存）。代价要如实说明：**深分页的代价是 O(已加载行数)**（`git log --skip=N`
+与 libgit2 的 walk 都如此——git 本身的行为，任何客户端都绕不开）。`nextCursor === null`
+即末页。
+
+**折叠已合并分支**：`collapseMergedBranches` 开启且本次返回为末页时，服务层对每个 merge
+判定“第二父的全部严格祖先是否都在第一父的可达集内”，通过的 merge 做折叠标记：
+merge 行的 `collapsed` 记录第二父（被折叠分支的 tip）的 oid；tip 行置 `hidden`——
+重复合并里 tip 已可从主线到达时不置 `hidden`，只记 `collapsed`。**后端只做标记**——
+行不删除、lane 与边不动（全局行号与游标语义都建立在“行不删”上），是否隐藏、如何呈现
+由前端（T2.2）决定；窗口不完整或 `firstParentOnly` 模式下整体放弃，静默回退为普通布局。
+
+- **错误**：
+  - `NOT_FOUND`：repoId 无效（记录不存在）；
+  - `VALIDATION`：`followRenames` 开启但路径数 ≠ 1。`pageSize` 越界**不**返回
+    `VALIDATION`——由服务层直接钳制到 `1..=500`（见 `pageSize` 参数行）；
+  - `STORAGE`：仓库读取失败。
+- **前端封装**：未接线（T2.2 接入；`src/lib/queryKeys.ts` 已预留 `LOG_QUERY_KEY` 占位）
+- **调用点**：未接线（T2.2 接入）
 
 ### 文件监听与设置键（T1.10）
 

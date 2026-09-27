@@ -6,4 +6,6 @@
 
 mod layout;
 
-pub use layout::{layout, EdgeKind, GraphEdge, GraphLayout, GraphRow, LayoutMode, PALETTE_SIZE};
+pub use layout::{
+    layout, EdgeKind, GraphEdge, GraphLayout, GraphRow, LayoutMode, LayoutOptions, PALETTE_SIZE,
+};

@@ -93,6 +93,11 @@ fn fixture(label: &str, commits: usize) -> Fixture {
         commit_at(dir.path(), index);
     }
 
+    build_service(dir)
+}
+
+/// 把准备好的仓库接到 `HistoryService` 上（与 `fixture` 共用的接线）。
+fn build_service(dir: TempDir) -> Fixture {
     let engines: &'static GitEngines =
         Box::leak(Box::new(GitEngines::new().expect("创建引擎失败")));
     let database: &'static Database = Box::leak(Box::new(memory_database()));
@@ -110,6 +115,51 @@ fn fixture(label: &str, commits: usize) -> Fixture {
         repo_id: opened.record_id,
         service,
     }
+}
+
+/// 一个"分支并回主线"夹具：
+///
+/// ```text
+/// merge feature   ← merge 提交（时间戳最晚）
+/// feature work    ← 分支提交（从 main tip 分出，单提交）
+/// main tip
+/// base commit
+/// ```
+///
+/// 分支 tip 的祖先 = {main tip, base} 全在第一父（main tip）的祖先集里，
+/// 因此在完整窗口上可折叠。
+fn merge_fixture(label: &str) -> Fixture {
+    let dir = TempDir::new(label);
+    init_repo(dir.path());
+
+    write(dir.path(), "base.txt", b"base\n");
+    support::git_ok(dir.path(), &["add", "-A"]);
+    commit_with(dir.path(), "base commit", 1_700_000_000 - 60);
+
+    write(dir.path(), "main.txt", b"main\n");
+    support::git_ok(dir.path(), &["add", "-A"]);
+    commit_with(dir.path(), "main tip", 1_700_000_000);
+
+    // 分支从 main tip 分出，提交一次
+    support::git_ok(dir.path(), &["checkout", "-q", "-b", "feature"]);
+    write(dir.path(), "feature.txt", b"feature\n");
+    support::git_ok(dir.path(), &["add", "-A"]);
+    commit_with(dir.path(), "feature work", 1_700_000_000 + 60);
+
+    // 回 main 合并。feature 基于 main tip，可快进，必须 --no-ff 才会产生
+    // merge 提交；merge 的时间戳必须晚于它的两个父
+    support::git_ok(dir.path(), &["checkout", "-q", "main"]);
+    let stamp = format!("{} +0000", 1_700_000_000 + 120);
+    let status = std::process::Command::new("git")
+        .current_dir(dir.path())
+        .args(["merge", "--no-ff", "-q", "-m", "merge feature", "feature"])
+        .env("GIT_AUTHOR_DATE", &stamp)
+        .env("GIT_COMMITTER_DATE", &stamp)
+        .output()
+        .expect("git 运行失败");
+    assert!(status.status.success(), "git merge 失败");
+
+    build_service(dir)
 }
 
 #[test]
@@ -237,4 +287,90 @@ fn follow_renames_requires_exactly_one_path() {
         .expect_err("没有路径时必须拒绝");
 
     assert_eq!(error.code, forgedesk_domain::ErrorCode::Validation);
+}
+
+#[test]
+fn collapsing_merged_branches_marks_merged_side_commits_hidden_on_a_complete_window() {
+    let fixture = merge_fixture("history-collapse");
+
+    // 一页取完 → has_more == false → 完整窗口，折叠生效
+    let page = fixture
+        .service
+        .page(
+            fixture.repo_id,
+            &HistoryQuery {
+                collapse_merged_branches: true,
+                page_size: 10,
+                ..Default::default()
+            },
+        )
+        .expect("完整历史一页取完");
+
+    assert_eq!(page.next_cursor, None, "一页取完才是完整窗口");
+    let layout = &page.layout;
+    assert_eq!(
+        layout.rows.len(),
+        4,
+        "merge + feature work + main tip + base"
+    );
+
+    let feature_oid = page
+        .commits
+        .iter()
+        .find(|commit| commit.subject == "feature work")
+        .expect("分支提交存在")
+        .oid
+        .clone();
+    let merge_row = layout
+        .rows
+        .iter()
+        .find(|row| row.is_merge)
+        .expect("merge 行存在");
+
+    assert_eq!(
+        merge_row.collapsed,
+        vec![feature_oid.clone()],
+        "merge 行记录被折叠的分支 tip"
+    );
+    assert!(
+        layout.row_of(&feature_oid).expect("分支行存在").hidden,
+        "分支提交被标记 hidden"
+    );
+    for row in &layout.rows {
+        if row.oid != feature_oid {
+            assert!(!row.hidden, "{} 不应被隐藏", row.oid);
+        }
+    }
+}
+
+#[test]
+fn an_incomplete_window_does_not_collapse_merged_branches() {
+    let fixture = merge_fixture("history-collapse-partial");
+
+    // 首页（含 merge 行）与中间页都处于 has_more == true 的不完整窗口：
+    // 祖先可能落在窗外，"第二父祖先 ⊆ 第一父祖先集"会误判，
+    // 因此服务层必须静默回退为不折叠。
+    for cursor in [0_u32, 1] {
+        let page = fixture
+            .service
+            .page(
+                fixture.repo_id,
+                &HistoryQuery {
+                    collapse_merged_branches: true,
+                    page_size: 2,
+                    cursor: Some(cursor),
+                    ..Default::default()
+                },
+            )
+            .expect("不完整窗口的页");
+
+        assert_eq!(page.next_cursor, Some(cursor + 2), "两页都还有后续");
+        assert!(
+            page.layout
+                .rows
+                .iter()
+                .all(|row| !row.hidden && row.collapsed.is_empty()),
+            "cursor {cursor}：窗口不完整时不得出现任何折叠标记"
+        );
+    }
 }

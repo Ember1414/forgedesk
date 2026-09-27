@@ -35,10 +35,10 @@ use std::path::Path;
 
 use forgedesk_domain::git::{
     Commit, CommitSpec, DiffReport, DiffSpec, DiffTarget, EntryKind, LogQuery, Page, RepoId,
-    StageSpec, StatusQuery, StatusReport,
+    RepoPath, StageSpec, StatusQuery, StatusReport,
 };
 use forgedesk_git_engine::engine::{CliGitEngine, GitEngine, Libgit2Engine, ProgressSink};
-use support::{commit_all, git_ok, init_repo, write, TempDir};
+use support::{commit_all, git_ok, git_with_env, init_repo, write, TempDir};
 
 /// 两个引擎。
 fn engines() -> (CliGitEngine, Libgit2Engine) {
@@ -383,6 +383,356 @@ fn an_empty_repository_is_consistent_across_engines() {
     let (cli, libgit2) = engines();
 
     compare_all(&cli, &libgit2, dir.path(), "empty");
+}
+
+// ------------------------------------------------- LogQuery 过滤器（T2.1）
+
+/// 在指定时间戳上提交（`commit_all` 的日期只有"一分钟内的秒序号"一个维度，
+/// 跨时段的夹具需要完整的日期字符串）。日期必须彼此不同：同秒提交在两个
+/// 引擎里的排序平局规则不同（见文件头"夹具的确定性"）。
+fn commit_all_at(dir: &Path, message: &str, date: &str) {
+    git_ok(dir, &["add", "--all"]);
+    let output = git_with_env(
+        dir,
+        &["commit", "-q", "-m", message],
+        &[("GIT_AUTHOR_DATE", date), ("GIT_COMMITTER_DATE", date)],
+    );
+    assert!(output.success(), "commit 失败: {}", output.stderr_lossy());
+}
+
+/// 带正文的提交（`commit_all` 只能传单行 message，而 `message_contains`
+/// 的语义是"全文含正文"，需要正文命中的样本来钉住它）。
+fn commit_all_with_body(dir: &Path, subject: &str, body: &str, sequence: u32) {
+    git_ok(dir, &["add", "--all"]);
+    let date = format!("2024-01-02T03:04:{sequence:02}+00:00");
+    let output = git_with_env(
+        dir,
+        &["commit", "-q", "-m", subject, "-m", body],
+        &[
+            ("GIT_AUTHOR_DATE", date.as_str()),
+            ("GIT_COMMITTER_DATE", date.as_str()),
+        ],
+    );
+    assert!(output.success(), "commit 失败: {}", output.stderr_lossy());
+}
+
+/// 重命名**已提交**的仓库。`shape_rename_delete` 只把重命名留在索引里，
+/// 历史上没有 new.txt，`--follow` 无事可做。
+fn shape_committed_rename(dir: &Path) {
+    init_repo(dir);
+    write(
+        dir,
+        "old.txt",
+        b"one\ntwo\nthree\nfour\nfive\nsix\nseven\neight\n",
+    );
+    commit_all(dir, "add old.txt", 1);
+
+    std::fs::rename(dir.join("old.txt"), dir.join("new.txt")).unwrap();
+    git_ok(dir, &["add", "--all"]);
+    commit_all(dir, "rename old.txt to new.txt", 2);
+
+    write(
+        dir,
+        "new.txt",
+        b"one\ntwo\nthree\nfour\nfive\nsix\nseven\neight\nnine\n",
+    );
+    commit_all(dir, "edit new.txt", 3);
+}
+
+/// 多分支 + merge + 一条**未合并**的旁支。`--all` 相对 HEAD 遍历的增量只有
+/// 旁支可见（merge 会把 feature 分支带回 HEAD 历史，体现不出 `--all`）。
+/// 全部日期固定且严格递增，排序没有平局。
+fn shape_all_branches(dir: &Path) {
+    init_repo(dir);
+    write(dir, "base.txt", b"base\n");
+    commit_all(dir, "base", 1);
+
+    git_ok(dir, &["checkout", "-q", "-b", "feature"]);
+    write(dir, "feature.txt", b"feature\n");
+    commit_all(dir, "feature work", 2);
+
+    git_ok(dir, &["checkout", "-q", "main"]);
+    write(dir, "main.txt", b"main\n");
+    commit_all(dir, "main work", 3);
+
+    // merge 的提交日期也要固定：默认取"现在"会让夹具依赖测试运行的时刻
+    let merge_date = "2024-01-02T03:04:05+00:00";
+    let output = git_with_env(
+        dir,
+        &["merge", "-q", "--no-ff", "-m", "merge feature", "feature"],
+        &[
+            ("GIT_AUTHOR_DATE", merge_date),
+            ("GIT_COMMITTER_DATE", merge_date),
+        ],
+    );
+    assert!(output.success(), "merge 失败: {}", output.stderr_lossy());
+
+    // 未合并的旁支从 merge 前的 main 长出来，日期排在 merge 之前
+    git_ok(dir, &["checkout", "-q", "-b", "side", "main~1"]);
+    write(dir, "side.txt", b"side\n");
+    commit_all(dir, "side work", 4);
+    git_ok(dir, &["checkout", "-q", "main"]);
+}
+
+#[test]
+fn log_message_contains_is_consistent_across_engines() {
+    let dir = TempDir::new("diff-msg-contains");
+    init_repo(dir.path());
+    write(dir.path(), "base.txt", b"base\n");
+    commit_all(dir.path(), "base setup", 1);
+    write(dir.path(), "readme.md", b"# ReadmePipeline\n");
+    commit_all(dir.path(), "Add ReadmePipeline", 2);
+    write(dir.path(), "build.txt", b"build\n");
+    commit_all_with_body(
+        dir.path(),
+        "tweak build script",
+        "Refs ReadmePipeline for details",
+        3,
+    );
+    let (cli, libgit2) = engines();
+    let repo = RepoId::new(dir.path());
+
+    // 命中词：subject 与正文里的出现都算数（--grep 是全文匹配）
+    let hit = LogQuery {
+        message_contains: Some("ReadmePipeline".to_owned()),
+        ..LogQuery::new().with_limit(100)
+    };
+    let from_cli = normalize_log(&cli.log(&repo, hit.clone()).expect("CLI log 失败"));
+    let from_libgit2 = normalize_log(&libgit2.log(&repo, hit).expect("libgit2 log 失败"));
+    assert_eq!(
+        from_cli, from_libgit2,
+        "[message_contains] 命中查询两侧不一致\nCLI:     {from_cli:?}\nlibgit2: {from_libgit2:?}"
+    );
+    assert_eq!(from_cli.len(), 2, "subject 与正文中的命中都应算数");
+    assert!(
+        !from_cli
+            .iter()
+            .any(|(_, _, subject, _)| subject == "base setup"),
+        "没有命中的提交必须被过滤掉"
+    );
+
+    // 大小写不同的变体：两侧都必须零命中（语义是区分大小写）
+    let miss = LogQuery {
+        message_contains: Some("readmepipeline".to_owned()),
+        ..LogQuery::new().with_limit(100)
+    };
+    let from_cli = normalize_log(&cli.log(&repo, miss.clone()).expect("CLI log 失败"));
+    let from_libgit2 = normalize_log(&libgit2.log(&repo, miss).expect("libgit2 log 失败"));
+    assert_eq!(
+        from_cli, from_libgit2,
+        "[message_contains] 大小写变体两侧不一致\nCLI:     {from_cli:?}\nlibgit2: {from_libgit2:?}"
+    );
+    assert!(
+        from_cli.is_empty(),
+        "message_contains 区分大小写，全小写变体不应命中：{from_cli:?}"
+    );
+}
+
+#[test]
+fn log_since_and_until_bounds_are_inclusive_and_consistent_across_engines() {
+    let dir = TempDir::new("diff-since-until");
+    init_repo(dir.path());
+    for (name, date) in [
+        ("a.txt", "2024-01-02T01:00:00+00:00"),
+        ("b.txt", "2024-01-02T06:00:00+00:00"),
+        ("c.txt", "2024-01-02T12:00:00+00:00"),
+        ("d.txt", "2024-01-02T18:00:00+00:00"),
+        ("e.txt", "2024-01-03T00:00:00+00:00"),
+    ] {
+        write(dir.path(), name, format!("{name}\n").as_bytes());
+        commit_all_at(dir.path(), &format!("add {name}"), date);
+    }
+    let (cli, libgit2) = engines();
+    let repo = RepoId::new(dir.path());
+
+    // 先不带过滤器读一遍：拿到 oid↔时间的对应关系，也自检夹具日期严格递增
+    let all = cli
+        .log(&repo, LogQuery::new().with_limit(100))
+        .expect("CLI log 失败");
+    let items = &all.items;
+    assert_eq!(items.len(), 5, "夹具应有 5 个提交");
+    for pair in items.windows(2) {
+        assert!(
+            pair[0].committer.time.unwrap() > pair[1].committer.time.unwrap(),
+            "夹具日期必须严格递增（此处按新→旧遍历），否则排序有平局"
+        );
+    }
+    // 线性历史、新→旧：items[0] 最新、items[4] 最旧
+    let newest = &items[0];
+    let until_commit = &items[1]; // == until 的边界提交
+    let since_commit = &items[3]; // == since 的边界提交
+    let oldest = &items[4];
+
+    let window = LogQuery {
+        since: Some(since_commit.committer.time.unwrap()),
+        until: Some(until_commit.committer.time.unwrap()),
+        ..LogQuery::new().with_limit(100)
+    };
+    let from_cli = normalize_log(&cli.log(&repo, window.clone()).expect("CLI log 失败"));
+    let from_libgit2 = normalize_log(&libgit2.log(&repo, window).expect("libgit2 log 失败"));
+    assert_eq!(
+        from_cli, from_libgit2,
+        "[since/until] 窗口查询两侧不一致\nCLI:     {from_cli:?}\nlibgit2: {from_libgit2:?}"
+    );
+
+    // 闭区间：恰好落在边界上的两个提交都必须出现，窗口外的两个必须缺席
+    assert_eq!(from_cli.len(), 3, "窗口应恰好框住 3 个提交");
+    assert!(
+        from_cli.iter().any(|(oid, ..)| oid == &until_commit.oid),
+        "== until 的提交必须包含（闭区间）"
+    );
+    assert!(
+        from_cli.iter().any(|(oid, ..)| oid == &since_commit.oid),
+        "== since 的提交必须包含（闭区间）"
+    );
+    assert!(!from_cli.iter().any(|(oid, ..)| oid == &newest.oid));
+    assert!(!from_cli.iter().any(|(oid, ..)| oid == &oldest.oid));
+}
+
+#[test]
+fn log_first_parent_only_is_consistent_across_engines() {
+    let dir = TempDir::new("diff-first-parent");
+    shape_forked(dir.path());
+    let (cli, libgit2) = engines();
+    let repo = RepoId::new(dir.path());
+
+    // 基线：不裁剪时 merge 把 feature 分支的提交也带进 HEAD 历史
+    let plain = LogQuery::new().with_limit(100);
+    let plain_from_cli = normalize_log(&cli.log(&repo, plain.clone()).expect("CLI log 失败"));
+    let plain_from_libgit2 = normalize_log(&libgit2.log(&repo, plain).expect("libgit2 log 失败"));
+    assert_eq!(
+        plain_from_cli, plain_from_libgit2,
+        "[first_parent] 基线（不裁剪）两侧就不一致"
+    );
+    assert_eq!(plain_from_cli.len(), 4, "shape_forked 应有 4 个提交");
+    let feature_oid = plain_from_cli
+        .iter()
+        .find(|(_, _, subject, _)| subject == "feature work")
+        .map(|(oid, ..)| oid.clone())
+        .expect("夹具缺少 feature work 提交");
+
+    let trimmed = LogQuery {
+        first_parent_only: true,
+        ..LogQuery::new().with_limit(100)
+    };
+    let from_cli = normalize_log(&cli.log(&repo, trimmed.clone()).expect("CLI log 失败"));
+    let from_libgit2 = normalize_log(&libgit2.log(&repo, trimmed).expect("libgit2 log 失败"));
+    assert_eq!(
+        from_cli, from_libgit2,
+        "[first_parent] 裁剪后两侧不一致\nCLI:     {from_cli:?}\nlibgit2: {from_libgit2:?}"
+    );
+
+    // 裁剪必须真的改变了序列，且只留下 merge → main work → base
+    assert_ne!(from_cli, plain_from_cli, "first-parent 必须真的改变序列");
+    assert_eq!(
+        from_cli.len(),
+        3,
+        "first-parent 链应为 merge → main work → base"
+    );
+    assert!(
+        !from_cli.iter().any(|(oid, ..)| oid == &feature_oid),
+        "支线提交不得出现在 first-parent 链上"
+    );
+}
+
+#[test]
+fn log_all_branches_is_consistent_across_engines() {
+    let dir = TempDir::new("diff-all-branches");
+    shape_all_branches(dir.path());
+    let (cli, libgit2) = engines();
+    let repo = RepoId::new(dir.path());
+
+    let all_query = LogQuery {
+        all_branches: true,
+        ..LogQuery::new().with_limit(100)
+    };
+    let from_cli = normalize_log(&cli.log(&repo, all_query.clone()).expect("CLI log 失败"));
+    let from_libgit2 = normalize_log(&libgit2.log(&repo, all_query).expect("libgit2 log 失败"));
+    assert_eq!(
+        from_cli, from_libgit2,
+        "[all_branches] --all 两侧不一致\nCLI:     {from_cli:?}\nlibgit2: {from_libgit2:?}"
+    );
+
+    // 夹具自检：`--all` 必须真的比 HEAD 遍历多出未合并的旁支，
+    // 否则这个测试退化成"两边都没看到 side work"的空对比
+    let head_only = LogQuery::new().with_limit(100);
+    let head_from_cli = normalize_log(&cli.log(&repo, head_only.clone()).expect("CLI log 失败"));
+    let head_from_libgit2 =
+        normalize_log(&libgit2.log(&repo, head_only).expect("libgit2 log 失败"));
+    assert_eq!(
+        head_from_cli, head_from_libgit2,
+        "HEAD 遍历的基线两侧不一致"
+    );
+    assert!(
+        from_cli.len() > head_from_cli.len(),
+        "--all 必须比 HEAD 遍历多出旁支提交，夹具可能坏了"
+    );
+    assert!(
+        from_cli
+            .iter()
+            .any(|(_, _, subject, _)| subject == "side work"),
+        "--all 应能看到未合并的 side work"
+    );
+    assert!(
+        !head_from_cli
+            .iter()
+            .any(|(_, _, subject, _)| subject == "side work"),
+        "HEAD 遍历不应看到未合并的 side work"
+    );
+}
+
+#[test]
+fn log_follow_renames_is_unsupported_by_libgit2() {
+    let dir = TempDir::new("diff-follow");
+    shape_committed_rename(dir.path());
+    let (cli, libgit2) = engines();
+    let repo = RepoId::new(dir.path());
+
+    // 对照组：不带 --follow 时，重命名前的历史（old.txt 的诞生）不可见
+    let plain = LogQuery {
+        paths: vec![RepoPath::from("new.txt")],
+        ..LogQuery::new().with_limit(100)
+    };
+    let plain_from_cli = cli.log(&repo, plain).expect("CLI log 失败");
+    assert_eq!(
+        plain_from_cli.items.len(),
+        2,
+        "new.txt 的直接历史只有 rename 与 edit 两个提交"
+    );
+
+    let follow = LogQuery {
+        paths: vec![RepoPath::from("new.txt")],
+        follow_renames: true,
+        ..LogQuery::new().with_limit(100)
+    };
+
+    // CLI 正常返回，并把重命名前的历史也带了回来（--follow 的存在意义）
+    let from_cli = cli
+        .log(&repo, follow.clone())
+        .expect("CLI log --follow 失败");
+    assert!(!from_cli.items.is_empty(), "--follow 必须返回非空历史");
+    assert_eq!(
+        from_cli.items.len(),
+        3,
+        "--follow 应带回 old.txt 的诞生提交"
+    );
+    assert!(
+        from_cli
+            .items
+            .iter()
+            .any(|commit| commit.subject == "add old.txt"),
+        "--follow 必须带回重命名前的历史"
+    );
+
+    // libgit2 明确拒绝：装作支持等于悄悄漏掉重命名前的历史（宁报错不给错）
+    let error = libgit2
+        .log(&repo, follow)
+        .expect_err("libgit2 必须拒绝 --follow");
+    assert_eq!(
+        error.code,
+        forgedesk_domain::ErrorCode::UnsupportedByEngine,
+        "必须报 UNSUPPORTED_BY_ENGINE 而不是静默给出不完整结果：{error:?}"
+    );
 }
 
 // ---------------------------------------------------------------- CLI 生命周期

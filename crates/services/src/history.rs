@@ -8,7 +8,7 @@
 use std::path::PathBuf;
 
 use forgedesk_domain::git::{Commit, LogQuery, Page, RepoId, RepoPath};
-use forgedesk_domain::history::{GraphLayout, LayoutMode};
+use forgedesk_domain::history::{GraphLayout, LayoutMode, LayoutOptions};
 use forgedesk_domain::{AppError, AppResult, ErrorCode};
 use forgedesk_git_engine::engine::GitEngine;
 
@@ -31,6 +31,7 @@ impl Default for HistoryQuery {
             message_contains: None,
             first_parent_only: false,
             follow_renames: false,
+            collapse_merged_branches: false,
             page_size: 100,
             cursor: None,
         }
@@ -70,6 +71,12 @@ pub struct HistoryQuery {
     pub first_parent_only: bool,
     /// 跟随重命名（文件历史；恰好一条路径时有效）。
     pub follow_renames: bool,
+    /// 折叠已合并分支（T2.1 第 4 条；判定与标记形状见
+    /// `forgedesk_domain::history::LayoutOptions`）。
+    ///
+    /// 本开关是"尽力而为"：折叠只在**完整窗口**上提供，窗口不完整
+    /// （后面还有页）时静默回退为不折叠——见 [`HistoryService::page`]。
+    pub collapse_merged_branches: bool,
     /// 每页条数（1..=500；缺省 100）。
     pub page_size: usize,
     /// 游标（下一页第一行的序号）。
@@ -150,10 +157,20 @@ impl<'a> HistoryService<'a> {
         } else {
             LayoutMode::AllBranches
         };
+        // 折叠只在**完整窗口**上提供：has_more == true 时祖先可能落在窗外，
+        // "第二父祖先 ⊆ 第一父祖先集"会误判（窗外祖先看不见），因此静默回退。
+        // has_more 在取页后就已知，而 layout 需要页内容——先取页、再判定、后布局。
+        let collapse = query.collapse_merged_branches && !page.has_more;
         // 布局器的 row 是"输入数组下标"（0 起始）；服务层把它平移成**全局行号**：
         // 渲染层的滚动、迷你地图与跨页选中都按全局行号工作，第二页的第一行
         // 必须是全历史的第 cursor 行，而不是"本页的第 0 行"。
-        let mut layout = forgedesk_domain::history::layout(&page.items, mode);
+        let mut layout = forgedesk_domain::history::layout(
+            &page.items,
+            LayoutOptions {
+                mode,
+                collapse_merged_branches: collapse,
+            },
+        );
         for row in &mut layout.rows {
             row.row = row.row.saturating_add(cursor);
         }

@@ -44,8 +44,18 @@
 //! - 同一条分支在刷新后同色（PLAN M2 验收项）；
 //! - 分页加载更多不会改变已加载行的颜色 —— 前向扫描天然满足这条，
 //!   这正是"分页一致性"断言要保护的性质。
+//!
+//! # 折叠已合并分支（可选的第三遍）
+//!
+//! `LayoutOptions::collapse_merged_branches` 打开且模式为 `AllBranches` 时，
+//! 在两遍扫描之后追加一次**只标记、不重排**的折叠：对每个 merge，若其第二父的
+//! 所有祖先都在第一父的祖先集中，则该 merge 可折叠为汇总节点——被折叠分支的
+//! tip 行置 `hidden`，merge 行的 `collapsed` 记录 tip oid。行不删、lane 与边
+//! 不动的取舍与判定细节见 [`LayoutOptions::collapse_merged_branches`] 的文档。
 
 use std::collections::HashMap;
+
+use serde::{Deserialize, Serialize};
 
 use crate::git::Commit;
 
@@ -67,6 +77,66 @@ pub enum LayoutMode {
     FirstParentOnly,
 }
 
+/// 布局选项。
+///
+/// 把"模式"与"呈现开关"收进一个结构，避免每加一个开关就给 [`layout()`]
+/// 加一个位置参数（旧调用点可用 [`LayoutMode::into`] 构造，见 `From` 实现）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct LayoutOptions {
+    /// 布局模式（默认 [`LayoutMode::AllBranches`]）。
+    pub mode: LayoutMode,
+    /// 折叠已合并分支（默认关闭；T2.1 第 4 条，设计先写在文档注释）。
+    ///
+    /// # 判定
+    ///
+    /// 对每个合并提交 M（去重后父数 ≥ 2），设第一父为 F、第二父为 S：若
+    /// **S 的所有祖先都在 F 的祖先集中**（祖先闭包含自身，即
+    /// `reach(S) ∖ {S} ⊆ reach(F)`），则 M 可折叠为汇总节点——S 这条分支
+    /// 没有引入任何主线没有的历史（S 自己除外）。典型场景：分支从主线
+    /// tip 分出后只提交了一次就并回；或同一分支被合并多次时的重复合并。
+    ///
+    /// # 标记形状（保守：行不删、lane 与边不动）
+    ///
+    /// 判定通过时：
+    /// - M 行的 `collapsed` 记录被折叠分支的 tip oid（前端据此显示
+    ///   "已折叠"徽标）；
+    /// - S 行置 `hidden = true`——仅当 S 不经由 F 可达；重复合并里 S 已经
+    ///   在 F 的可达集里，经由更早的合并仍然可见，隐藏它会凭空丢一行。
+    ///
+    /// **行不删**是刻意的：服务层把行号平移成全局行号、游标语义建立在
+    /// "行不删"上（`services/history.rs`）；折叠只提供标记，是否隐藏、
+    /// 如何呈现由前端（T2.2）决定。lane 与边同样不动：折叠是叠加信息，
+    /// 关闭时两份布局逐行逐边一致（property 测试保证）。
+    ///
+    /// # 边界
+    ///
+    /// - 仅在 [`LayoutMode::AllBranches`] 下生效：`FirstParentOnly` 已裁掉
+    ///   非第一父的边，折叠没有呈现对象。
+    /// - 仅在**完整窗口**上生效：输入中任一提交引用的父 oid 不在输入集合
+    ///   （分页边界）时，祖先闭包不完整，"⊆"会把窗外祖先误判为不存在，
+    ///   因此整体放弃折叠。不做部分折叠：部分折叠会让同一 merge 在不同页
+    ///   得到不同结论，前端无法一致呈现。
+    /// - v1 只判定第二父；octopus 的第三父及以后保守地不折叠。
+    ///
+    /// # 复杂度
+    ///
+    /// 可达集用 `u64` 位集、利用"父下标 > 孩子下标"的输入前提自旧向新
+    /// 动态规划：时间 O((V+E)·⌈V/64⌉)，内存 O(V·⌈V/64⌉)。5000 节点时
+    /// 每提交约 79 个字、总计约百万次字运算，远低于任务书 200ms 的基准
+    /// 门槛；服务层只在最后一页（≤ 500 行）启用，位集更小。
+    pub collapse_merged_branches: bool,
+}
+
+impl From<LayoutMode> for LayoutOptions {
+    /// 用布局模式构造选项（折叠关闭）——旧调用点的等价写法。
+    fn from(mode: LayoutMode) -> Self {
+        Self {
+            mode,
+            collapse_merged_branches: false,
+        }
+    }
+}
+
 /// 边的类型（渲染层用不同样式区分）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum EdgeKind {
@@ -79,7 +149,7 @@ pub enum EdgeKind {
 }
 
 /// 一个提交在图上的位置。
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GraphRow {
     /// 提交 oid。
     pub oid: String,
@@ -91,6 +161,16 @@ pub struct GraphRow {
     pub color_index: u16,
     /// 是否是合并提交（父提交多于一个）。
     pub is_merge: bool,
+    /// 该行是否被"折叠已合并分支"标记为隐藏（默认 `false`）。
+    ///
+    /// 行本身不删除：服务层的全局行号平移与游标语义建立在"行不删"上，
+    /// 是否隐藏、如何呈现由前端决定（见
+    /// [`LayoutOptions::collapse_merged_branches`]）。
+    #[serde(default)]
+    pub hidden: bool,
+    /// 该行折叠掉的分支提交 oid（默认空；仅可折叠的 merge 行非空）。
+    #[serde(default)]
+    pub collapsed: Vec<String>,
 }
 
 /// 一条边（孩子 → 父）。
@@ -134,7 +214,12 @@ impl GraphLayout {
 /// `commits` 必须按新 → 旧排序，且父提交要么在数组里更靠后，要么不在数组里
 /// （分页边界）。**不满足这个前提时结果未定义**——排序是调用方的责任
 /// （`git log` 保证它），布局器不重复检查：那会把 O(n) 的纯计算变成两遍扫描。
-pub fn layout(commits: &[Commit], mode: LayoutMode) -> GraphLayout {
+///
+/// `options.collapse_merged_branches` 打开时追加折叠标记（只在 `AllBranches`
+/// 模式与完整窗口上生效，见 [`LayoutOptions::collapse_merged_branches`]）：
+/// 只做标记——行数、lane 与边与关闭时完全一致。
+pub fn layout(commits: &[Commit], options: LayoutOptions) -> GraphLayout {
+    let mode = options.mode;
     let mut slots: Vec<Option<String>> = Vec::new();
     let mut placements: Vec<GraphRow> = Vec::with_capacity(commits.len());
     // 第一遍的结果：孩子 → (父, 预留槽位, 是否 first-parent)
@@ -188,6 +273,8 @@ pub fn layout(commits: &[Commit], mode: LayoutMode) -> GraphLayout {
             row,
             color_index: lane % PALETTE_SIZE,
             is_merge: unique_parents.len() > 1,
+            hidden: false,
+            collapsed: Vec::new(),
         });
 
         // ④ 为父提交预留槽位（并记下待定边）。
@@ -259,6 +346,20 @@ pub fn layout(commits: &[Commit], mode: LayoutMode) -> GraphLayout {
         }
     }
 
+    // 第三遍（可选）：折叠已合并分支。只做标记，不改行、不改 lane、不改边：
+    // 服务层的全局行号平移与游标语义建立在"行不删"上，隐藏呈现由前端（T2.2）
+    // 决定（取舍详见 `LayoutOptions::collapse_merged_branches` 的文档）。
+    if options.collapse_merged_branches && mode == LayoutMode::AllBranches {
+        if let Some((hidden, collapsed)) = collapse_marks(commits) {
+            for (placement, is_hidden) in placements.iter_mut().zip(hidden) {
+                placement.hidden = is_hidden;
+            }
+            for (placement, collapsed_tips) in placements.iter_mut().zip(collapsed) {
+                placement.collapsed = collapsed_tips;
+            }
+        }
+    }
+
     let lane_count = placements
         .iter()
         .map(|row| row.lane)
@@ -279,6 +380,106 @@ fn allocate(slots: &mut Vec<Option<String>>) -> u16 {
     }
     slots.push(None);
     u16::try_from(slots.len() - 1).unwrap_or(u16::MAX)
+}
+
+/// 位集的字宽（`u64`）。
+const WORD_BITS: usize = 64;
+
+/// 把 `index` 位置 1。
+fn set_bit(bits: &mut [u64], index: usize) {
+    bits[index / WORD_BITS] |= 1 << (index % WORD_BITS);
+}
+
+/// `bits` 的 `index` 位是否为 1。
+fn has_bit(bits: &[u64], index: usize) -> bool {
+    bits[index / WORD_BITS] & (1 << (index % WORD_BITS)) != 0
+}
+
+/// `subset` 去掉 `except` 这一位之后是否 ⊆ `superset`。
+fn subset_except(subset: &[u64], superset: &[u64], except: usize) -> bool {
+    subset
+        .iter()
+        .zip(superset)
+        .enumerate()
+        .all(|(word, (sub, sup))| {
+            let mut diff = sub & !sup;
+            if word == except / WORD_BITS {
+                diff &= !(1 << (except % WORD_BITS));
+            }
+            diff == 0
+        })
+}
+
+/// 计算折叠标记（纯函数，T2.1 第 4 条：设计先写在文档注释）。
+///
+/// 返回 `(hidden, collapsed)`：前者是每行的 hidden 标记，后者是每行的被折叠
+/// 分支 tip 列表（只有判定通过的 merge 行非空）。窗口不完整（任一父 oid 不在
+/// 输入里）时返回 `None`，调用方整体回退为不折叠。
+///
+/// # 判定
+///
+/// 对每个合并提交（去重后父数 ≥ 2）：设第一父 F、第二父 S，若
+/// `reach(S) ∖ {S} ⊆ reach(F)`（S 的所有祖先都能从 F 到达）则可折叠。
+///
+/// # 算法
+///
+/// 可达集用 `u64` 位集表示，利用"父下标 > 孩子下标"的输入前提自旧向新
+/// 动态规划：`reach[i] = {i} ∪ ⋃ reach[parent]`。时间 O((V+E)·⌈V/64⌉)、
+/// 内存 O(V·⌈V/64⌉)——5000 节点时每提交约 79 个字、总计约百万次字运算，
+/// 对 200ms 的基准门槛无感；服务层只在最后一页（≤ 500 行）启用，位集更小。
+fn collapse_marks(commits: &[Commit]) -> Option<(Vec<bool>, Vec<Vec<String>>)> {
+    let index_of: HashMap<&str, usize> = commits
+        .iter()
+        .enumerate()
+        .map(|(index, commit)| (commit.oid.as_str(), index))
+        .collect();
+
+    // 窗口完整性在下面的 DP 里顺带完成：DP 遍历每个提交的每条父边，遇到
+    // 窗口外的父 oid 就返回 `None` 整体回退（祖先闭包不完整会让"⊆"把窗外
+    // 祖先误判为不存在，因此不做部分折叠）。
+    let word_count = commits.len().div_ceil(WORD_BITS);
+    let mut reach: Vec<Vec<u64>> = vec![Vec::new(); commits.len()];
+    for index in (0..commits.len()).rev() {
+        let mut bits = vec![0_u64; word_count];
+        set_bit(&mut bits, index);
+        for parent in &commits[index].parents {
+            let parent_index = *index_of.get(parent.as_str())?;
+            for (word, parent_word) in bits.iter_mut().zip(&reach[parent_index]) {
+                *word |= *parent_word;
+            }
+        }
+        reach[index] = bits;
+    }
+
+    let mut hidden = vec![false; commits.len()];
+    let mut collapsed: Vec<Vec<String>> = vec![Vec::new(); commits.len()];
+    for (row, commit) in commits.iter().enumerate() {
+        // 与布局同一套父去重规则：重复的父在图上只有一条线，也不参与判定
+        let mut unique: Vec<&String> = Vec::with_capacity(commit.parents.len());
+        for parent in &commit.parents {
+            if !unique.contains(&parent) {
+                unique.push(parent);
+            }
+        }
+        // v1 只判定第二父：octopus 的第三父及以后保守地不折叠
+        if unique.len() < 2 {
+            continue;
+        }
+        let first = *index_of.get(unique[0].as_str())?;
+        let second = *index_of.get(unique[1].as_str())?;
+
+        // S 的所有祖先 ⊆ F 的祖先集 ⇔ reach(S) 去掉 S 自己 ⊆ reach(F)
+        if subset_except(&reach[second], &reach[first], second) {
+            collapsed[row].push(commits[second].oid.clone());
+            // 仅当 S 不经由 F 可达时才隐藏：重复合并里 S 已在主线可达集里，
+            // 经由更早的合并仍然可见，隐藏它会凭空丢一行
+            if !has_bit(&reach[first], second) {
+                hidden[second] = true;
+            }
+        }
+    }
+
+    Some((hidden, collapsed))
 }
 
 #[cfg(test)]
@@ -310,7 +511,7 @@ mod tests {
     #[test]
     fn a_linear_history_stays_on_the_first_lane() {
         let commits = chain(&[("c", &["b"]), ("b", &["a"]), ("a", &[])]);
-        let graph = layout(&commits, LayoutMode::AllBranches);
+        let graph = layout(&commits, LayoutMode::AllBranches.into());
 
         assert_eq!(
             graph.rows.iter().map(|row| row.lane).collect::<Vec<_>>(),
@@ -336,7 +537,7 @@ mod tests {
             ("b", &["base"]),
             ("base", &[]),
         ]);
-        let graph = layout(&commits, LayoutMode::AllBranches);
+        let graph = layout(&commits, LayoutMode::AllBranches.into());
 
         let lane_of = |oid: &str| graph.row_of(oid).map(|row| row.lane);
         assert_eq!(lane_of("m"), Some(0));
@@ -372,7 +573,7 @@ mod tests {
     #[test]
     fn two_tips_sharing_a_parent_converge_on_one_lane() {
         let commits = chain(&[("tip-a", &["base"]), ("tip-b", &["base"]), ("base", &[])]);
-        let graph = layout(&commits, LayoutMode::AllBranches);
+        let graph = layout(&commits, LayoutMode::AllBranches.into());
 
         // tip 是"没人等它"的提交，因此必然各占一条 lane（画成并排的两个尖端）；
         // base 只能落在其中一个 lane 上（最左的预留），另一个 tip 的边汇入它。
@@ -409,7 +610,7 @@ mod tests {
             ("c", &[]),
             ("d", &[]),
         ]);
-        let graph = layout(&commits, LayoutMode::AllBranches);
+        let graph = layout(&commits, LayoutMode::AllBranches.into());
 
         let merges = graph
             .edges
@@ -424,7 +625,7 @@ mod tests {
     #[test]
     fn a_duplicated_parent_produces_a_single_edge() {
         let commits = chain(&[("m", &["a", "a"]), ("a", &[])]);
-        let graph = layout(&commits, LayoutMode::AllBranches);
+        let graph = layout(&commits, LayoutMode::AllBranches.into());
 
         assert_eq!(graph.lane_count, 1);
         let duplicates = graph
@@ -444,7 +645,7 @@ mod tests {
     #[test]
     fn unrelated_roots_reuse_the_same_lane() {
         let commits = chain(&[("a", &[]), ("b", &[]), ("c", &[])]);
-        let graph = layout(&commits, LayoutMode::AllBranches);
+        let graph = layout(&commits, LayoutMode::AllBranches.into());
 
         // 根提交没有父提交可预留，lane 立刻回到空闲池——三个根都落在 lane 0，
         // 行区间互不重叠，这正是"泳道数应尽量少"的体现
@@ -465,7 +666,7 @@ mod tests {
             ("b", &["base"]),
             ("base", &[]),
         ]);
-        let graph = layout(&commits, LayoutMode::FirstParentOnly);
+        let graph = layout(&commits, LayoutMode::FirstParentOnly.into());
 
         // 行数不变：同一份输入在两种模式下必须给出同样的行号（选中/跳转的下标一致）
         assert_eq!(graph.rows.len(), 4);
@@ -485,7 +686,7 @@ mod tests {
     #[test]
     fn edges_leave_the_window_at_a_page_boundary() {
         let commits = chain(&[("b", &["a"]), ("a", &["unknown-parent"])]);
-        let graph = layout(&commits, LayoutMode::AllBranches);
+        let graph = layout(&commits, LayoutMode::AllBranches.into());
 
         let dangling = graph
             .edges
@@ -505,7 +706,7 @@ mod tests {
             ("b", &["base"]),
             ("base", &[]),
         ]);
-        let graph = layout(&commits, LayoutMode::AllBranches);
+        let graph = layout(&commits, LayoutMode::AllBranches.into());
 
         for row in &graph.rows {
             assert_eq!(row.color_index, row.lane % PALETTE_SIZE);
@@ -518,12 +719,154 @@ mod tests {
         }
     }
 
+    // ---------------------------------------------------------------- 折叠已合并分支
+
+    /// 可折叠 merge：分支从主线 tip 分出、单提交后并回 → 分支行被标记
+    /// `hidden`，merge 行的 `collapsed` 记录分支 tip；行数与 lane 不变
+    /// （折叠只做标记，不重排）。
+    #[test]
+    fn a_collapsible_merge_hides_the_merged_branch_tip() {
+        // f 从 a（当时的主线 tip）分出、提交一次后由 m 并回：
+        // f 的祖先 = {a, base} 全在第一父 a 的祖先集里 → 可折叠
+        let commits = chain(&[
+            ("m", &["a", "f"]),
+            ("f", &["a"]),
+            ("a", &["base"]),
+            ("base", &[]),
+        ]);
+        let graph = layout(
+            &commits,
+            LayoutOptions {
+                collapse_merged_branches: true,
+                ..LayoutOptions::default()
+            },
+        );
+
+        assert_eq!(graph.rows.len(), 4, "行不删除");
+        let row_of = |oid: &str| graph.row_of(oid).expect("行存在");
+        assert!(row_of("f").hidden, "分支 tip 是被折叠的那一行");
+        assert_eq!(
+            row_of("m").collapsed,
+            vec!["f".to_owned()],
+            "merge 行记录被折叠的分支 tip"
+        );
+        assert!(!row_of("m").hidden, "merge 行自己是汇总节点，不隐藏");
+        assert!(
+            !row_of("a").hidden && !row_of("base").hidden,
+            "主线照常可见"
+        );
+        // lane 分配与边不受折叠影响
+        assert_eq!(graph.lane_count, 2);
+    }
+
+    /// 跨分支 merge（第二父基于更早的第三方提交）：第二父有祖先不在第一父的
+    /// 祖先集里 → 不可折叠，所有行保持可见。
+    #[test]
+    fn a_cross_branch_merge_is_not_collapsed() {
+        // b 基于主线之外的 third：third ∉ reach(a) → 不可折叠
+        let commits = chain(&[
+            ("m", &["a", "b"]),
+            ("a", &["base"]),
+            ("b", &["third"]),
+            ("third", &["base"]),
+            ("base", &[]),
+        ]);
+        let graph = layout(
+            &commits,
+            LayoutOptions {
+                collapse_merged_branches: true,
+                ..LayoutOptions::default()
+            },
+        );
+
+        assert!(graph.rows.iter().all(|row| !row.hidden), "没有行可折叠");
+        assert!(graph.rows.iter().all(|row| row.collapsed.is_empty()));
+    }
+
+    /// 嵌套 merge：每一层各自折叠自己的分支 tip（里层折叠后，外层第二父的
+    /// 祖先已经全部可从里层 merge 到达）。
+    #[test]
+    fn nested_merges_collapse_each_branch_tip_at_its_own_merge() {
+        // m1 合并 f1（f1 基于 a）；m2 再合并 f2（f2 基于 f1）
+        let commits = chain(&[
+            ("m2", &["m1", "f2"]),
+            ("f2", &["f1"]),
+            ("m1", &["a", "f1"]),
+            ("f1", &["a"]),
+            ("a", &["base"]),
+            ("base", &[]),
+        ]);
+        let graph = layout(
+            &commits,
+            LayoutOptions {
+                collapse_merged_branches: true,
+                ..LayoutOptions::default()
+            },
+        );
+
+        assert_eq!(graph.rows.len(), 6);
+        let row_of = |oid: &str| graph.row_of(oid).expect("行存在");
+        assert!(row_of("f1").hidden, "f1 的祖先 {{a, base}} ⊆ reach(a)");
+        assert_eq!(row_of("m1").collapsed, vec!["f1".to_owned()]);
+        assert!(
+            row_of("f2").hidden,
+            "f2 的祖先 {{f1, a, base}} ⊆ reach(m1)（m1 已并入 f1）"
+        );
+        assert_eq!(row_of("m2").collapsed, vec!["f2".to_owned()]);
+        assert!(
+            !row_of("m1").hidden && !row_of("m2").hidden,
+            "两个 merge 行都是汇总节点"
+        );
+    }
+
+    /// FirstParentOnly 下折叠没有呈现对象（非第一父的边已被裁掉）：
+    /// 即使开关打开也不产生任何折叠标记。
+    #[test]
+    fn collapsing_is_skipped_in_first_parent_only_mode() {
+        let commits = chain(&[
+            ("m", &["a", "f"]),
+            ("f", &["a"]),
+            ("a", &["base"]),
+            ("base", &[]),
+        ]);
+        let graph = layout(
+            &commits,
+            LayoutOptions {
+                mode: LayoutMode::FirstParentOnly,
+                collapse_merged_branches: true,
+            },
+        );
+
+        assert!(graph.rows.iter().all(|row| !row.hidden));
+        assert!(graph.rows.iter().all(|row| row.collapsed.is_empty()));
+    }
+
+    /// 窗口不完整（任一父 oid 不在输入里）：祖先闭包不完整会让"⊆"把窗外
+    /// 祖先误判为不存在（本例若无回退，f 会被误判为可折叠），因此整体放弃
+    /// 折叠——不做部分折叠。
+    #[test]
+    fn an_incomplete_window_disables_collapsing() {
+        // 与可折叠用例同形，但 base 不在输入里（分页边界）
+        let commits = chain(&[("m", &["a", "f"]), ("f", &["a"]), ("a", &["base"])]);
+        let graph = layout(
+            &commits,
+            LayoutOptions {
+                collapse_merged_branches: true,
+                ..LayoutOptions::default()
+            },
+        );
+
+        assert!(graph.rows.iter().all(|row| !row.hidden));
+        assert!(graph.rows.iter().all(|row| row.collapsed.is_empty()));
+    }
+
     // ---------------------------------------------------------------- 性质测试
     //
     // T2.1 要求用 proptest 做属性测试。本环境**无法离线引入 proptest**
     // （不在 Cargo.lock、本地 registry 也没有），因此这里用固定种子的
-    // xorshift 生成随机 DAG 并断言同样的四条性质。
-    // 差异记在 `docs/acceptance/M2.md`：性质没有打折，只是生成器是自带的。
+    // xorshift 生成随机 DAG 并断言同样的性质。差异（自带的生成器）记录在
+    // 本模块的文档注释与各 property 用例的注释里，不再另立验收文档：
+    // 性质没有打折，只是生成器是自带的。
 
     /// 固定种子随机数（可复现；不引入依赖）。
     struct Rng(u64);
@@ -587,7 +930,7 @@ mod tests {
     fn property_every_parent_relation_has_an_edge_with_matching_lanes() {
         for seed in 1..=40_u64 {
             let commits = random_history(seed, 60, 3);
-            let graph = layout(&commits, LayoutMode::AllBranches);
+            let graph = layout(&commits, LayoutMode::AllBranches.into());
 
             let lane_of = |oid: &str| graph.row_of(oid).map(|row| row.lane).unwrap_or_default();
 
@@ -628,8 +971,8 @@ mod tests {
         for seed in 1..=20_u64 {
             let commits = random_history(seed * 7, 80, 4);
             assert_eq!(
-                layout(&commits, LayoutMode::AllBranches),
-                layout(&commits, LayoutMode::AllBranches),
+                layout(&commits, LayoutMode::AllBranches.into()),
+                layout(&commits, LayoutMode::AllBranches.into()),
                 "seed {seed}"
             );
         }
@@ -643,7 +986,7 @@ mod tests {
     fn property_edges_in_one_lane_never_overlap() {
         for seed in 1..=40_u64 {
             let commits = random_history(seed * 13, 70, 3);
-            let graph = layout(&commits, LayoutMode::AllBranches);
+            let graph = layout(&commits, LayoutMode::AllBranches.into());
             let row_of = |oid: &str| graph.row_of(oid).map(|row| row.row).unwrap_or_default();
 
             let mut spans: HashMap<u16, Vec<(u32, u32, String)>> = HashMap::new();
@@ -684,8 +1027,8 @@ mod tests {
     fn property_lane_assignment_is_stable_across_page_sizes() {
         for seed in 1..=30_u64 {
             let commits = random_history(seed * 31, 200, 2);
-            let short = layout(&commits[..100], LayoutMode::AllBranches);
-            let long = layout(&commits, LayoutMode::AllBranches);
+            let short = layout(&commits[..100], LayoutMode::AllBranches.into());
+            let long = layout(&commits, LayoutMode::AllBranches.into());
 
             assert_eq!(short.rows.len(), 100);
             for (index, row) in short.rows.iter().enumerate() {
@@ -719,13 +1062,162 @@ mod tests {
     fn property_lane_count_stays_within_the_commit_count() {
         for seed in 1..=20_u64 {
             let commits = random_history(seed * 17, 50, 4);
-            let graph = layout(&commits, LayoutMode::AllBranches);
+            let graph = layout(&commits, LayoutMode::AllBranches.into());
             assert!(graph.lane_count >= 1);
             assert!(
                 usize::from(graph.lane_count) <= commits.len(),
                 "seed {seed}"
             );
         }
+    }
+
+    /// P5（折叠）：hidden 的行与 collapsed 列表里的 oid，必然落在某个 merge
+    /// 第二父的可达集里（折叠只可能标记第二父那条线上的提交）。
+    #[test]
+    fn property_hidden_rows_are_within_the_merged_sides_reachable_sets() {
+        for seed in 1..=30_u64 {
+            let commits = random_history(seed * 19, 80, 3);
+            let graph = layout(
+                &commits,
+                LayoutOptions {
+                    collapse_merged_branches: true,
+                    ..LayoutOptions::default()
+                },
+            );
+
+            // 测试侧独立重算可达闭包（含起点自身；父下标 > 孩子下标）
+            let mut parents_of: HashMap<&str, Vec<&str>> = HashMap::new();
+            for commit in &commits {
+                parents_of
+                    .entry(commit.oid.as_str())
+                    .or_default()
+                    .extend(commit.parents.iter().map(String::as_str));
+            }
+            let mut union: Vec<&str> = Vec::new();
+            for commit in &commits {
+                // 与布局同一套去重规则：重复的父在图上只有一条线
+                let mut unique: Vec<&str> = Vec::new();
+                for parent in &commit.parents {
+                    if !unique.contains(&parent.as_str()) {
+                        unique.push(parent.as_str());
+                    }
+                }
+                if unique.len() < 2 {
+                    continue;
+                }
+                for oid in reachable_from(&parents_of, unique[1]) {
+                    if !union.contains(&oid) {
+                        union.push(oid);
+                    }
+                }
+            }
+
+            for row in &graph.rows {
+                if row.hidden {
+                    assert!(
+                        union.contains(&row.oid.as_str()),
+                        "seed {seed}：hidden 的 {} 必须在某个 merge 第二父的可达集里",
+                        row.oid
+                    );
+                }
+                for collapsed in &row.collapsed {
+                    assert!(
+                        union.contains(&collapsed.as_str()),
+                        "seed {seed}：collapsed 的 {collapsed} 必须在某个 merge 第二父的可达集里"
+                    );
+                }
+            }
+        }
+    }
+
+    /// P6（折叠）：折叠只做标记——rows 总数、位置字段（lane/row/color/is_merge）、
+    /// edges 与 lane_count 与关闭折叠时完全一致；hidden 之外唯一允许的差异是
+    /// merge 行的 collapsed 列表（重复合并里 tip 已在主线可达集，不置 hidden
+    /// 但仍记录 tip）。
+    #[test]
+    fn property_collapsing_only_marks_rows_and_never_moves_them() {
+        for seed in 1..=30_u64 {
+            let commits = random_history(seed * 23, 80, 3);
+            let plain = layout(&commits, LayoutOptions::default());
+            let marked = layout(
+                &commits,
+                LayoutOptions {
+                    collapse_merged_branches: true,
+                    ..LayoutOptions::default()
+                },
+            );
+
+            assert_eq!(marked.rows.len(), plain.rows.len(), "seed {seed}：行数不变");
+            for (index, marked_row) in marked.rows.iter().enumerate() {
+                let plain_row = &plain.rows[index];
+                // 关闭折叠时永远没有折叠标记
+                assert!(
+                    !plain_row.hidden && plain_row.collapsed.is_empty(),
+                    "seed {seed}：第 {index} 行"
+                );
+                // 位置字段不变：折叠只做标记，不重排
+                assert_eq!(marked_row.oid, plain_row.oid, "seed {seed}：第 {index} 行");
+                assert_eq!(
+                    marked_row.lane, plain_row.lane,
+                    "seed {seed}：第 {index} 行"
+                );
+                assert_eq!(marked_row.row, plain_row.row, "seed {seed}：第 {index} 行");
+                assert_eq!(
+                    marked_row.color_index, plain_row.color_index,
+                    "seed {seed}：第 {index} 行"
+                );
+                assert_eq!(
+                    marked_row.is_merge, plain_row.is_merge,
+                    "seed {seed}：第 {index} 行"
+                );
+                // hidden 只有折叠开启才可能置位
+                if !marked_row.hidden {
+                    assert_eq!(
+                        plain_row.hidden, marked_row.hidden,
+                        "seed {seed}：第 {index} 行"
+                    );
+                }
+            }
+            assert_eq!(marked.edges, plain.edges, "seed {seed}：边不变");
+            assert_eq!(marked.lane_count, plain.lane_count, "seed {seed}");
+        }
+    }
+
+    /// P7（折叠）：确定性 —— 同输入两次折叠布局结果完全相同。
+    #[test]
+    fn property_collapsing_is_deterministic() {
+        for seed in 1..=20_u64 {
+            let commits = random_history(seed * 29, 80, 3);
+            let options = LayoutOptions {
+                collapse_merged_branches: true,
+                ..LayoutOptions::default()
+            };
+            assert_eq!(
+                layout(&commits, options),
+                layout(&commits, options),
+                "seed {seed}"
+            );
+        }
+    }
+
+    /// 测试版可达闭包（含起点自身）：沿父边向下收集直到没有新提交。
+    fn reachable_from<'a>(
+        parents_of: &HashMap<&'a str, Vec<&'a str>>,
+        tip: &'a str,
+    ) -> Vec<&'a str> {
+        let mut seen = vec![tip];
+        let mut queue = vec![tip];
+        while let Some(oid) = queue.pop() {
+            if let Some(parents) = parents_of.get(oid) {
+                for parent in parents {
+                    if !seen.contains(parent) {
+                        seen.push(parent);
+                        queue.push(parent);
+                    }
+                }
+            }
+        }
+        seen
     }
 
     /// T2.1 的性能门槛：5000 个节点的布局 < 200ms。
@@ -739,7 +1231,7 @@ mod tests {
     fn layout_of_5000_nodes_stays_under_200ms() {
         let commits = random_history(0xDEAD_BEEF, 5_000, 3);
         let started = std::time::Instant::now();
-        let graph = layout(&commits, LayoutMode::AllBranches);
+        let graph = layout(&commits, LayoutMode::AllBranches.into());
         let elapsed = started.elapsed();
 
         println!(

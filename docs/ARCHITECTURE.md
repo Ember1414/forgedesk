@@ -154,6 +154,9 @@ pr_detail(owner, repo, number)
 
 - **不做 AI 推理**（红线 R1）：仓库里没有模型、没有推理服务；AI 只用于开发阶段写代码。
 - **前端不做 Git**：任何 Git 语义（分支、状态判定、rebase 计划）都在 Rust 侧，前端只呈现。
+- **DAG 泳道布局在 Rust 侧**（T2.1，与 PLAN §6.2.3"布局用 D3 计算"是有意差异）：
+  布局是纯计算，落在 `crates/domain/history/layout`（可缓存、可属性测试、不卡 UI 线程），
+  D3 只留给 M3 的 rebase 拖拽面板；"折叠已合并分支"的判定同样在这一层完成，前端只负责隐藏呈现。
 - **不在 `commands` 里写业务**：命令层只做参数校验、DTO 与错误转换（见 `crates/commands/src/lib.rs` 的职责说明）。
 - **不把 Git 状态放进 Zustand**：Git 状态是"服务端状态"，走 TanStack Query；
   Zustand 只放 UI 状态（侧栏、主题、面板位置、当前仓库 id）。

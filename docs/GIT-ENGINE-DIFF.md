@@ -8,7 +8,7 @@
 > 因此"同一份状态经两条路径必须得到同一个结论"。差异不会报错，只会让界面
 > 时而显示 A、时而显示 B——那是用户无法自助排查的一类问题。
 >
-> 配套测试：`crates/git-engine/tests/differential.rs`（10 项通过、1 项 `#[ignore]`）
+> 配套测试：`crates/git-engine/tests/differential.rs`（16 项通过、1 项 `#[ignore]`）
 > 与 `crates/git-engine/tests/discover.rs`（15 项通过）。
 
 ---
@@ -90,6 +90,7 @@
 | `Tag.message` | 附注标签有值 | 附注标签有值 | 一致（轻量标签两边都不填：`%(contents:subject)` 给的是提交标题，不是标签信息） |
 | `RepositoryInfo.worktrees`（T1.3） | 完整列表（主 + 关联工作区，含路径 / HEAD / 分支 / locked / prunable） | **只有主工作区** | `git2::Repository::worktrees` 返回的是 `StringArray`（只有工作区**名称**），既没有路径也没有 HEAD，而 `git2` 没有暴露 `git_worktree_lookup` |
 | `remote_refs_containing`（T1.8） | 已实现（`for-each-ref --contains HEAD refs/remotes`） | 返回 `UNSUPPORTED_BY_ENGINE` | 与 `commit` 同族：它服务的是"这次改写会不会影响远端"这个**写路径**判断，而 libgit2 侧要自己遍历 refs 做可达性计算（还要单独处理"相等"这一 libgit2 API 不覆盖的边界），收益不抵两套实现之间产生分歧的风险 |
+| `LogQuery.follow_renames`（T2.1，`--follow`） | 支持（`paths` 恰好一条时传 `--follow`） | 返回 `UNSUPPORTED_BY_ENGINE` | libgit2 没有 `--follow` 等价物；装作支持等于悄悄给出**错误结果**（漏掉重命名前的历史），宁可明确拒绝。由 `log_follow_renames_is_unsupported_by_libgit2` 钉住 |
 
 **给 `services` 层的约束**：需要上述字段的功能，必须走 CLI 引擎，
 或者由 CLI 引擎补一次查询；不得假设"换个引擎也有这些值"。
@@ -119,7 +120,12 @@
 - **T1.5（diff 解析）**：行级内容（`DiffHunk` / `DiffLine`）在两个实现里都还是空的。
   届时需要把 libgit2 的 `Patch::from_diff` 行回调与 CLI 的 unified diff 解析器
   也纳入差分对比——那是本次没有覆盖的最大一块。
-- **M2（DAG）**：`log` 目前只比较了默认的 HEAD 遍历。`--all` 与拓扑排序的
-  一致性需要在 M2 补测（多 ref 下的排序平局规则更容易分叉）。
+- **M2（DAG）**：`log` 的 `--all` 与过滤器一致性已在 M2 补测（2026-09 批次：
+  `log_all_branches_is_consistent_across_engines`、
+  `log_since_and_until_bounds_are_inclusive_and_consistent_across_engines`、
+  `log_message_contains_is_consistent_across_engines`、
+  `log_first_parent_only_is_consistent_across_engines` 四项对拍，外加
+  `log_follow_renames_is_unsupported_by_libgit2` 钉住能力边界，见 §4）；
+  仍待补测的是拓扑排序一致性（多 ref 下的排序平局规则更容易分叉）。
 - **M5（诊断）**：`map_error` 目前复用 `ErrorCode::classify`，两个引擎对同一类
   失败给出同一个错误码。新增诊断规则时要在两边的错误路径上都验证一遍。
