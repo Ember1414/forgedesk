@@ -20,5 +20,6 @@
 
 pub mod error;
 pub mod git;
+pub mod history;
 
 pub use error::{AppError, AppResult, ErrorCode, FixAction};
