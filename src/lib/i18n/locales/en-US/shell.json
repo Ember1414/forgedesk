@@ -5,7 +5,8 @@
       "none": "No repository open",
       "menuLabel": "Choose a repository",
       "empty": "No recently opened repository",
-      "placeholderNote": "Placeholder data: the real recent-repository list arrives with local storage in T0.7"
+      "opened": "Open",
+      "openPending": "Opening, cloning and initialising repositories has no interface yet; for now this list switches between repositories you have already opened."
     },
     "search": {
       "label": "Global search",

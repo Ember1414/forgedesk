@@ -3,7 +3,7 @@ import { NavLink, Outlet, useParams } from 'react-router-dom';
 
 import { DETAIL_PANEL_POSITIONS, useUiStore } from '@/stores/uiStore';
 import type { DetailPanelPosition } from '@/stores/uiStore';
-import { findRecentRepo } from '@/features/repo/recentRepos';
+import { useRepoById } from '@/features/repo/recentRepos';
 import { ToggleGroup } from '@/ui/components/toggle-group';
 import { cn } from '@/lib/utils';
 
@@ -34,7 +34,8 @@ export function RepoLayout() {
   const detailPanel = useUiStore((state) => state.detailPanel);
   const setDetailPanel = useUiStore((state) => state.setDetailPanel);
 
-  const repo = findRecentRepo(repoId ?? null);
+  // 名称与路径来自本地记录（与顶栏切换器同一份缓存）；查不到就退回路由段本身
+  const repo = useRepoById(repoId);
 
   return (
     <section className="flex h-full flex-col gap-3">

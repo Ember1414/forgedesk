@@ -43,8 +43,15 @@ export async function expectHitTarget(locator: Locator): Promise<void> {
 }
 
 /** Open the repository switcher and pick the sample repository. */
-export async function openSampleRepo(page: Page): Promise<void> {
+/**
+ * 从顶栏的仓库切换器里选第一个仓库（表单来自 `repo_recent_list` 的 mock）。
+ *
+ * 返回被选中的记录 id（字符串形式）：调用方用它拼后续的 URL 断言。
+ * 曾经这里点的是写死的示例仓库 `example-forgedesk`——那种"测试依赖占位数据"
+ * 的写法会让测试在数据源换成真实记录时一起失效（本轮就是这样）。
+ */
+export async function openSampleRepo(page: Page, repoId = '1'): Promise<void> {
   await page.getByRole('button', { name: '当前仓库' }).click();
-  await page.getByRole('menuitem', { name: /forgedesk/ }).click();
-  await expect(page).toHaveURL(/#\/repo\/example-forgedesk\/status/);
+  await page.getByRole('menuitem').first().click();
+  await expect(page).toHaveURL(new RegExp(`#\\/repo\\/${repoId}\\/status`));
 }

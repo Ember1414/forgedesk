@@ -20,6 +20,13 @@ export const LOG_QUERY_KEY = 'log';
 export const BRANCHES_QUERY_KEY = 'branches';
 /** 快照列表（T1.9）。 */
 export const SNAPSHOTS_QUERY_KEY = 'snapshots';
+/**
+ * 最近打开的仓库（T1.3 的本地记录）。
+ *
+ * 放在这里而不是某个页面里：顶栏切换器、底部状态栏、仪表盘、仓库页标题都读它，
+ * 而"关闭/移出仓库之后列表必须跟着变"这件事只能靠键的形状统一来保证。
+ */
+export const RECENT_REPOS_QUERY_KEY = 'recent-repositories';
 
 /** 某个仓库的状态查询键。 */
 export function statusKey(repoId: number): readonly [string, number] {

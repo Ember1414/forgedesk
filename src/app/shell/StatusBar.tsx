@@ -1,8 +1,7 @@
 import { useTranslation } from 'react-i18next';
 
-import { findRecentRepo } from '@/features/repo/recentRepos';
+import { useCurrentRepo } from '@/features/repo/recentRepos';
 import { countActiveJobs, useJobStore } from '@/stores/jobStore';
-import { useUiStore } from '@/stores/uiStore';
 
 /**
  * 底部状态栏：当前仓库 / 分支 / 操作状态 / 后台任务。
@@ -13,16 +12,17 @@ import { useUiStore } from '@/stores/uiStore';
  * 放在固定位置（而不是会因文案长度跳动的位置）能减少视觉噪音。
  *
  * 数据来源：
- *   - 仓库与分支：M0 来自占位数据；分支名将在 T1.x 由 git status 提供。
- *   - 操作状态：M0 恒为"空闲"；M1 接入 JobRunner 后反映真实的排队/执行状态。
+ *   - 仓库：最近打开列表里的当前仓库（`features/repo/recentRepos`）；
+ *   - 分支：记录里的默认分支（真实分支由工作区状态给出，状态栏只做"我在哪个仓库"
+ *     这一层提示）；
+ *   - 操作状态：恒为"空闲"（真正的进行中操作由仓库页的操作横幅展示）；
  *   - 任务数：来自 jobStore（后端事件接入后自动生效）。
  */
 export function StatusBar() {
   const { t } = useTranslation('shell');
-  const currentRepoId = useUiStore((state) => state.currentRepoId);
   const jobs = useJobStore((state) => state.jobs);
 
-  const repo = findRecentRepo(currentRepoId);
+  const repo = useCurrentRepo();
   const activeJobs = countActiveJobs(jobs);
 
   return (
@@ -43,6 +43,8 @@ export function StatusBar() {
         <span className="text-fg-subtle">{t('statusBar.branch')}</span>
         <span className="font-mono">{repo?.defaultBranch ?? t('statusBar.branchUnknown')}</span>
       </span>
+
+      {/* 状态栏只到"哪个仓库"这一层：真正的分支与操作状态属于工作区页 */}
 
       <span className="ml-auto flex items-center gap-1.5">
         <span aria-hidden="true" className="size-1.5 rounded-full bg-success" />

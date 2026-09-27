@@ -1,11 +1,13 @@
-import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 
-import { repoRecentList } from '@/lib/ipc';
+import { repoIdOf, useRecentRepos } from '@/features/repo/recentRepos';
 import { useJobStore } from '@/stores/jobStore';
 import { useUiStore } from '@/stores/uiStore';
 import { Skeleton } from '@/ui/components/skeleton';
+
+/** 仪表盘上展示几条（缓存里是 20 条，这里只是少显示几个）。 */
+const DASHBOARD_RECENT_LIMIT = 12;
 
 /**
  * 仪表盘。
@@ -26,12 +28,8 @@ export function DashboardPage() {
   const jobs = useJobStore((state) => state.jobs);
   const setCurrentRepoId = useUiStore((state) => state.setCurrentRepoId);
 
-  const recentQuery = useQuery({
-    queryKey: ['recent-repositories', 12],
-    queryFn: () => repoRecentList(12),
-  });
-
-  const recent = recentQuery.data ?? [];
+  const { repos, isPending } = useRecentRepos();
+  const recent = repos.slice(0, DASHBOARD_RECENT_LIMIT);
 
   return (
     <section className="flex flex-col gap-4">
@@ -66,7 +64,7 @@ export function DashboardPage() {
 
         <article className="rounded-lg border border-line bg-surface p-4">
           <h2 className="text-14 font-medium">{t('dashboard.recentTitle')}</h2>
-          {recentQuery.isPending ? (
+          {isPending ? (
             <div className="mt-2 flex flex-col gap-2">
               <Skeleton className="h-9" />
               <Skeleton className="h-9" />
@@ -84,9 +82,10 @@ export function DashboardPage() {
                     type="button"
                     onClick={() => {
                       // 路由参数是字符串，而存储层的记录 id 是数字：
-                      // 在这里显式转换，别指望两边恰好能互相赋值
-                      setCurrentRepoId(String(repo.id));
-                      void navigate(`/repo/${repo.id}/status`);
+                      // 转换只在 `repoIdOf` 里做一处，别处不要再各自转换
+                      const id = repoIdOf(repo);
+                      setCurrentRepoId(id);
+                      void navigate(`/repo/${id}/status`);
                     }}
                     className="fd-transition flex w-full items-center justify-between gap-2 rounded-sm px-2 py-1.5 text-left hover:bg-surface-sunken"
                   >

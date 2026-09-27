@@ -1,8 +1,31 @@
 import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { repoRecentList } from '@/lib/ipc';
 import { initialUiState, useUiStore } from '@/stores/uiStore';
 import { renderApp } from '@/test/renderApp';
+
+/**
+ * 顶栏的仓库切换器读的是 `repo_recent_list`（本地记录）：
+ * 外壳测试因此必须提供它，否则列表永远是空的，而"选一个仓库"这一步就无从发生。
+ *
+ * 用 `importOriginal` 展开真实模块再覆盖这一个函数：整模块替换会让
+ * 外壳里其它 `@/lib/ipc` 的引用变成 undefined，测试失败的原因会跑偏。
+ */
+vi.mock('@/lib/ipc', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  repoRecentList: vi.fn(),
+}));
+
+const RECENT_REPO = {
+  id: 1,
+  path: 'E:\\Projects\\ForgeDesk',
+  name: 'ForgeDesk',
+  defaultBranch: 'main',
+  lastOpenedAt: 1_700_000_000_000,
+  createdAt: 1_700_000_000_000,
+  isOpen: true,
+};
 
 /**
  * 应用外壳的交互级测试（T0.4 验收项）。
@@ -15,6 +38,7 @@ beforeEach(() => {
   window.localStorage.clear();
   document.documentElement.removeAttribute('data-theme');
   useUiStore.setState(initialUiState);
+  vi.mocked(repoRecentList).mockResolvedValue([RECENT_REPO]);
 });
 
 afterEach(() => {
@@ -84,10 +108,11 @@ describe('导航可用性', () => {
     renderApp('/');
 
     openRepoSwitcher();
-    const menu = screen.getByRole('menu');
-    fireEvent.click(within(menu).getByRole('menuitem', { name: /forgedesk/ }));
+    // 列表来自 repo_recent_list：等它加载完再点（键是记录 id 的字符串形式）
+    const menu = await screen.findByRole('menu');
+    fireEvent.click(await within(menu).findByRole('menuitem', { name: /ForgeDesk/ }));
 
-    expect(useUiStore.getState().currentRepoId).toBe('example-forgedesk');
+    expect(useUiStore.getState().currentRepoId).toBe('1');
 
     // 侧栏里的条目已从「禁用按钮」变成「可用链接」（用导航容器限定，避免与仓库内标签页重名）
     const sidebar = screen.getByRole('navigation', { name: '主导航' });

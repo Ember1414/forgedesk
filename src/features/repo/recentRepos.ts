@@ -1,42 +1,72 @@
+import { useQuery } from '@tanstack/react-query';
+
+import { repoRecentList } from '@/lib/ipc';
+import type { RecentRepository } from '@/lib/ipc';
+import { RECENT_REPOS_QUERY_KEY } from '@/lib/queryKeys';
+import { useUiStore } from '@/stores/uiStore';
+
 /**
- * 最近打开的仓库（M0 占位数据）。
+ * 最近打开的仓库（真实数据源）。
  *
- * 为什么现在就有这个模块：外壳的仓库切换器、状态栏、导航的可用性都依赖
- * "当前仓库"，而真实的仓库列表要等 T0.7（SQLite + 迁移框架）落地。
- * 与其在各处塞 `'demo'` 这类魔法字符串，不如把占位数据集中一处，
- * 后续把数据源换成 TanStack Query 查询即可，调用方无需改动。
+ * M0 时这里是一份**写死的占位列表**，因为当时还没有本地存储。T1.3 之后有了
+ * `repo_recent_list`（本地记录，含打开时间、当前分支、是否已打开），因此
+ * 外壳的三个使用者——顶栏的仓库切换器、底部状态栏、仓库页的标题——都读这一处。
  *
- * 注意：这是**示例数据**，界面上会明确标注（见 shell.titleBar.repoSwitcher.placeholderNote），
- * 不能让用户误以为真的打开过这些仓库。
+ * 三条约定：
+ *
+ * 1. **只有一个缓存条目**（键里不带 limit）：切换器要 20 条、仪表盘只显示 12 条，
+ *    但它们读的是同一份数据。带 limit 的键会分裂成两个缓存，失效时得记得失效两处；
+ * 2. **失败不抛给界面**：拿不到列表时当作空列表（切换器显示"还没有打开过仓库"）。
+ *    一个读不到最近记录的仓库切换器不该把整条外壳拖成错误页；
+ * 3. **id 是字符串**：路由段与 store 里都是字符串，而存储层的记录 id 是数字，
+ *    转换只在这一个模块里做（`String(repo.id)`），别处不要再各自转换。
  */
-export interface RecentRepo {
-  readonly id: string;
-  readonly name: string;
-  /** 仓库路径（Windows 下为盘符路径，其他平台为 POSIX 路径）。 */
-  readonly path: string;
-  /** 上次已知的当前分支；真实值由 git 读取（T1.x）。 */
-  readonly defaultBranch: string;
+export const RECENT_REPOS_LIMIT = 20;
+
+export interface RecentReposState {
+  readonly repos: readonly RecentRepository[];
+  /** 首次加载中（骨架屏用）。 */
+  readonly isPending: boolean;
+  /** 读取失败（界面用空态 + 说明，不弹错误）。 */
+  readonly isError: boolean;
 }
 
-export const PLACEHOLDER_RECENT_REPOS: readonly RecentRepo[] = [
-  {
-    id: 'example-forgedesk',
-    name: 'forgedesk',
-    path: 'E:\\Projects\\ForgeDesk',
-    defaultBranch: 'main',
-  },
-  {
-    id: 'example-notes',
-    name: 'notes',
-    path: '~/Documents/notes',
-    defaultBranch: 'trunk',
-  },
-];
+/** 最近打开的仓库；失败时返回空列表。 */
+export function useRecentRepos(): RecentReposState {
+  const query = useQuery({
+    queryKey: [RECENT_REPOS_QUERY_KEY],
+    queryFn: () => repoRecentList(RECENT_REPOS_LIMIT),
+  });
 
-/** 按 id 查占位仓库；未找到返回 undefined。 */
-export function findRecentRepo(repoId: string | null): RecentRepo | undefined {
-  if (repoId === null) {
+  return {
+    repos: query.data ?? [],
+    isPending: query.isPending,
+    isError: query.isError,
+  };
+}
+
+/**
+ * 按 id 查一个仓库（id 是路由段/ store 里的字符串形式）。
+ *
+ * 找不到时返回 `undefined`：可能是深链指向一个已被移出列表的仓库，
+ * 也可能列表还在加载。界面在两种情况下都只少一个名字，不该因此报错。
+ */
+export function useRepoById(repoId: string | undefined): RecentRepository | undefined {
+  const { repos } = useRecentRepos();
+
+  if (repoId === undefined) {
     return undefined;
   }
-  return PLACEHOLDER_RECENT_REPOS.find((repo) => repo.id === repoId);
+  return repos.find((repo) => String(repo.id) === repoId);
+}
+
+/** 当前选中的仓库（store 里的 id）。 */
+export function useCurrentRepo(): RecentRepository | undefined {
+  const currentRepoId = useUiStore((state) => state.currentRepoId);
+  return useRepoById(currentRepoId ?? undefined);
+}
+
+/** 仓库记录 id → 路由段/存储里用的字符串 id。 */
+export function repoIdOf(repo: RecentRepository): string {
+  return String(repo.id);
 }
