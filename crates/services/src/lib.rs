@@ -24,6 +24,7 @@
 pub mod audit;
 pub mod commit;
 pub mod engines;
+pub mod history;
 pub mod repository;
 pub mod staging;
 pub mod templates;
@@ -38,6 +39,9 @@ pub use commit::{
     AmendContext, CommitOutcome, CommitPlanRegistry, CommitService, MessageHint, PrepareRequest,
 };
 pub use engines::GitEngines;
+pub use history::{
+    HistoryPage, HistoryQuery, HistoryService, MAX_PAGE_SIZE as MAX_HISTORY_PAGE_SIZE,
+};
 pub use repository::{
     InitExtras, LicenseSpec, MillisClock, OpenRepoRegistry, OpenedRepository, RecentRepository,
     RepositoryService,

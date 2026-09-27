@@ -277,6 +277,29 @@ pub fn log_args(query: &LogQuery, format: &str) -> AppResult<GitInvocation> {
     if let Some(author) = &query.author {
         args.push(format!("--author={author}"));
     }
+    // `@<unix>` 是 git 认可的"原始时间戳"写法：不用它就得把秒数格式化成日期字符串，
+    // 那会引入时区与解析两处新的出错点。
+    if let Some(since) = query.since {
+        args.push(format!("--since=@{since}"));
+    }
+    if let Some(until) = query.until {
+        args.push(format!("--until=@{until}"));
+    }
+    if let Some(term) = &query.message_contains {
+        // 字面匹配而非正则：界面上"搜提交"找的是一句话，正则的转义负担
+        // 会变成"搜不出来但不知道为什么"。`--fixed-strings` 同时也明确
+        // 了大小写敏感（不传 `-i`），与 libgit2 侧的子串比较语义一致。
+        args.push("--fixed-strings".to_owned());
+        args.push(format!("--grep={term}"));
+    }
+    if query.first_parent_only {
+        args.push("--first-parent".to_owned());
+    }
+    if query.follow_renames && query.paths.len() == 1 {
+        // 调用方（services 层）负责校验"恰好一条路径"；这里只是防御性地
+        // 不把 `--follow` 发给 git（--follow 配 0 或多条路径时 git 直接报错）。
+        args.push("--follow".to_owned());
+    }
     if let Some(revision) = &query.revision {
         args.push(revision.clone());
     }

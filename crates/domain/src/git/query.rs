@@ -17,6 +17,20 @@ pub struct LogQuery {
     pub paths: Vec<RepoPath>,
     /// 作者过滤（匹配姓名或邮箱的子串）。
     pub author: Option<String>,
+    /// 只返回该时间（Unix 秒）**之后**的提交（`--since`）。
+    pub since: Option<i64>,
+    /// 只返回该时间（Unix 秒）**之前**的提交（`--until`）。
+    pub until: Option<i64>,
+    /// 提交信息（**含正文**）包含的子串：字面匹配、区分大小写（`--grep --fixed-strings`）。
+    ///
+    /// 刻意不支持正则：界面上"搜提交"几乎总是找一句话，正则的转义负担
+    /// 会变成"搜不出来但不知道为什么"。
+    pub message_contains: Option<String>,
+    /// 只沿 first-parent 链走（`--first-parent`）。
+    pub first_parent_only: bool,
+    /// 跟随重命名（`--follow`）。仅在 `paths` 恰好是一条时有意义；
+    /// libgit2 不支持该选项，置位时会返回 `UnsupportedByEngine`。
+    pub follow_renames: bool,
 }
 
 /// 默认分页大小。
@@ -34,6 +48,11 @@ impl Default for LogQuery {
             all_branches: false,
             paths: Vec::new(),
             author: None,
+            since: None,
+            until: None,
+            message_contains: None,
+            first_parent_only: false,
+            follow_renames: false,
         }
     }
 }

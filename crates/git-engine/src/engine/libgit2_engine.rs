@@ -430,6 +430,12 @@ impl GitEngine for Libgit2Engine {
     }
 
     fn log(&self, repo: &RepoId, query: LogQuery) -> AppResult<Page<Commit>> {
+        // `--follow` 是 CLI 独有的能力（libgit2 没有等价物）：装作支持等于
+        // 悄悄给出**错误结果**（漏掉重命名前的历史），宁可明确拒绝。
+        if query.follow_renames {
+            return Err(unsupported(EngineId::Libgit2, "log --follow"));
+        }
+
         let repository = open(repo)?;
         let mut revwalk = repository
             .revwalk()
@@ -437,6 +443,11 @@ impl GitEngine for Libgit2Engine {
         revwalk
             .set_sorting(git2::Sort::TIME)
             .map_err(|error| map_error(&error, "sorting"))?;
+        if query.first_parent_only {
+            revwalk
+                .simplify_first_parent()
+                .map_err(|error| map_error(&error, "simplify_first_parent"))?;
+        }
 
         if query.all_branches {
             for reference in repository
@@ -463,7 +474,11 @@ impl GitEngine for Libgit2Engine {
         }
 
         let mut commits = Vec::new();
-        for oid in revwalk.skip(query.skip).take(query.limit.saturating_add(1)) {
+        // 过滤必须发生在"凑满一页"之前，而不是 take(limit+1) 之后：
+        // 否则作者/时间/关键词过滤会吃掉本页的配额，页面变短、has_more 误报，
+        // 与 CLI 的行为（--author/--grep 之后再数 max-count）不一致。
+        // 这是差分测试在作者过滤上抓到过的形状，新过滤器从一开始就按正确顺序写。
+        for oid in revwalk.skip(query.skip) {
             let oid = oid.map_err(|error| map_error(&error, "revwalk"))?;
             let commit = repository
                 .find_commit(oid)
@@ -484,7 +499,30 @@ impl GitEngine for Libgit2Engine {
                 }
             }
 
+            if let Some(since) = query.since {
+                if commit.time().seconds() < since {
+                    continue;
+                }
+            }
+            if let Some(until) = query.until {
+                if commit.time().seconds() > until {
+                    continue;
+                }
+            }
+            if let Some(term) = &query.message_contains {
+                // 与 CLI 的 `--grep --fixed-strings` 同语义：全文（含正文）、字面、区分大小写
+                let matched = std::str::from_utf8(commit.message_bytes())
+                    .map(|text| text.contains(term.as_str()))
+                    .unwrap_or(false);
+                if !matched {
+                    continue;
+                }
+            }
+
             commits.push(to_commit(&commit));
+            if commits.len() >= query.limit.saturating_add(1) {
+                break;
+            }
         }
 
         Ok(Page::from_over_fetch(commits, query.limit))
