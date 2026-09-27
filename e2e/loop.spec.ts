@@ -326,7 +326,9 @@ test('闭环 3：钩子拒绝时展示输出且不留半成品提交', async ({ 
   // 确实发起了提交（否则下面的"没有半成品"就是空断言）
   await expect
     .poll(async () =>
-      page.evaluate(() => (window.__loop?.calls ?? []).filter((c) => c.command === 'commit_execute').length),
+      page.evaluate(
+        () => (window.__loop?.calls ?? []).filter((c) => c.command === 'commit_execute').length,
+      ),
     )
     .toBe(1);
 
