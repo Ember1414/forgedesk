@@ -27,6 +27,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod audit;
 pub mod commit;
 pub mod debug;
 pub mod error;
@@ -40,6 +41,10 @@ pub mod system;
 pub mod watch;
 pub mod workspace;
 
+pub use audit::{
+    audit_export, audit_list, audit_prune, AuditEntryDto, AuditExportDto, AuditPageDto,
+    AuditPruneDto,
+};
 pub use commit::{
     commit_amend_context, commit_execute, commit_hooks_list, commit_message_hint, commit_prepare,
     AmendContextDto, CommitOutcomeDto, CommitPlanDto, HookEntryDto, IdentityDto, IdentityRequest,

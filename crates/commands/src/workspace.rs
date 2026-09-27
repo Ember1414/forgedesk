@@ -23,7 +23,8 @@ use forgedesk_domain::git::{
 };
 use forgedesk_domain::{AppError, AppResult, ErrorCode};
 use forgedesk_platform::watcher::WatchKind;
-use forgedesk_services::PatchView;
+use forgedesk_services::audit::op_type;
+use forgedesk_services::{AuditArgs, AuditEntry, PatchView};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
 
@@ -460,19 +461,23 @@ pub fn workspace_stage(
         return Ok(());
     }
 
-    match &scope {
+    // 审计（T1.11）：暂存是最高频的写操作，更必须有记录
+    let operation = state
+        .audit_service()
+        .begin(&AuditEntry::new(repo_id, op_type::STAGE).with_args(scope_args(&scope)));
+
+    let result = match &scope {
         // 文件粒度刻意不走补丁：`git add` 更快，也能处理未跟踪文件与模式变更
-        StageScope::Files(domain_paths) => {
-            state.workspace_service().stage(repo_id, domain_paths)?;
-        }
-        _ => {
-            state.staging_service().stage(
-                repo_id,
-                &scope,
-                view.unwrap_or_default().into_domain(),
-            )?;
-        }
+        StageScope::Files(domain_paths) => state.workspace_service().stage(repo_id, domain_paths),
+        _ => state
+            .staging_service()
+            .stage(repo_id, &scope, view.unwrap_or_default().into_domain()),
+    };
+
+    if let Some(operation) = operation {
+        operation.finish(&result, None);
     }
+    result?;
 
     emit_changed(&app, repo_id, WatchKind::Workspace, paths);
     Ok(())
@@ -493,18 +498,23 @@ pub fn workspace_unstage(
         return Ok(());
     }
 
-    match &scope {
-        StageScope::Files(domain_paths) => {
-            state.workspace_service().unstage(repo_id, domain_paths)?;
-        }
+    let operation = state
+        .audit_service()
+        .begin(&AuditEntry::new(repo_id, op_type::UNSTAGE).with_args(scope_args(&scope)));
+
+    let result = match &scope {
+        StageScope::Files(domain_paths) => state.workspace_service().unstage(repo_id, domain_paths),
         _ => {
-            state.staging_service().unstage(
-                repo_id,
-                &scope,
-                view.unwrap_or_default().into_domain(),
-            )?;
+            state
+                .staging_service()
+                .unstage(repo_id, &scope, view.unwrap_or_default().into_domain())
         }
+    };
+
+    if let Some(operation) = operation {
+        operation.finish(&result, None);
     }
+    result?;
 
     emit_changed(&app, repo_id, WatchKind::Workspace, paths);
     Ok(())
@@ -524,27 +534,87 @@ pub fn workspace_discard(
 ) -> AppResult<()> {
     let (paths, scope) = spec.into_domain()?;
 
-    match scope {
-        DiscardScope::Files(discard) => {
-            if discard.is_empty() {
-                return Ok(());
-            }
-            state.workspace_service().discard(repo_id, discard)?;
-        }
-        DiscardScope::Patch(scope) => {
-            if scope.is_empty() {
-                return Ok(());
-            }
-            state.staging_service().discard(
-                repo_id,
-                &scope,
-                view.unwrap_or_default().into_domain(),
-            )?;
-        }
+    // 空选择不是错误，但也不该留下一条"放弃了 0 个文件"的记录
+    let empty = match &scope {
+        DiscardScope::Files(discard) => discard.is_empty(),
+        DiscardScope::Patch(inner) => inner.is_empty(),
+    };
+    if empty {
+        return Ok(());
     }
+
+    let operation = state
+        .audit_service()
+        .begin(&AuditEntry::new(repo_id, op_type::DISCARD).with_args(discard_args(&scope)));
+
+    // 放弃是**破坏性**操作：记录里必须留下"放弃了什么"，否则事后无法回答
+    // "我那次到底丢了多少东西"（这也是前端必须弹确认框的原因，红线 R7）
+    let result = match scope {
+        DiscardScope::Files(discard) => state.workspace_service().discard(repo_id, discard),
+        DiscardScope::Patch(inner) => {
+            state
+                .staging_service()
+                .discard(repo_id, &inner, view.unwrap_or_default().into_domain())
+        }
+    };
+
+    if let Some(operation) = operation {
+        operation.finish(&result, None);
+    }
+    result?;
 
     emit_changed(&app, repo_id, WatchKind::Workspace, paths);
     Ok(())
+}
+
+/// 暂存 / 取消暂存的参数摘要。
+///
+/// 只记"粒度 + 数量 + 文件"：行级选择可能上千个下标，全记下来既没人读，
+/// 也会把 2KB 的额度用光（`AuditArgs` 会在超限时截断并保留总数）。
+fn scope_args(scope: &StageScope) -> AuditArgs {
+    match scope {
+        StageScope::Files(paths) => {
+            let paths: Vec<String> = paths.iter().map(ToString::to_string).collect();
+            AuditArgs::new()
+                .text("kind", "files")
+                .paths("paths", &paths)
+        }
+        StageScope::Hunks { path, indices } => AuditArgs::new()
+            .text("kind", "hunks")
+            .text("path", &path.to_string())
+            .number("hunks", indices.len() as i64),
+        StageScope::Lines { path, selections } => AuditArgs::new()
+            .text("kind", "lines")
+            .text("path", &path.to_string())
+            .number("hunks", selections.len() as i64)
+            .number(
+                "lines",
+                selections
+                    .iter()
+                    .map(|selection| selection.lines.len() as i64)
+                    .sum(),
+            ),
+    }
+}
+
+/// 放弃修改的参数摘要（整文件粒度要区分"可恢复"与"磁盘删除"两类路径）。
+fn discard_args(scope: &DiscardScope) -> AuditArgs {
+    match scope {
+        DiscardScope::Files(discard) => {
+            let all: Vec<String> = discard
+                .tracked
+                .iter()
+                .chain(discard.untracked.iter())
+                .map(ToString::to_string)
+                .collect();
+            AuditArgs::new()
+                .text("kind", "files")
+                .number("tracked", discard.tracked.len() as i64)
+                .number("untracked", discard.untracked.len() as i64)
+                .paths("paths", &all)
+        }
+        DiscardScope::Patch(inner) => scope_args(inner),
+    }
 }
 
 /// 在系统文件管理器中显示文件（打开其所在目录）。能力等级：ReadOnly。
@@ -563,15 +633,16 @@ pub fn workspace_reveal(state: State<'_, AppState>, repo_id: i64, path: String) 
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
     use forgedesk_domain::git::{
-        BranchInfo, ChangeKind, EntryKind, FileChange, LineSelection, OperationState, RepoPath,
-        StageGranularity, StageScope, StatusReport, SubmoduleState,
+        BranchInfo, ChangeKind, DiscardSpec, EntryKind, FileChange, LineSelection, OperationState,
+        RepoPath, StageGranularity, StageScope, StatusReport, SubmoduleState,
     };
     use forgedesk_domain::ErrorCode;
     use forgedesk_services::PatchView;
 
     use super::{
-        DiscardRequest, DiscardScope, LineSelectionRequest, PatchViewRequest, StageScopeRequest,
-        StatusReportDto, EVENT_REPO_CHANGED, MAX_SELECTION_ENTRIES,
+        discard_args, scope_args, DiscardRequest, DiscardScope, LineSelectionRequest,
+        PatchViewRequest, StageScopeRequest, StatusReportDto, EVENT_REPO_CHANGED,
+        MAX_SELECTION_ENTRIES,
     };
 
     /// 构造一条目（测试专用的简写）。
@@ -672,6 +743,54 @@ mod tests {
         );
         assert!(dto.ignored.is_empty());
         assert_eq!(dto.operation, "none");
+    }
+
+    #[test]
+    fn staging_arguments_keep_the_granularity_and_the_counts() {
+        let files = scope_args(&StageScope::Files(vec![
+            RepoPath::from("a.txt"),
+            RepoPath::from("b.txt"),
+        ]));
+        let files = files.build();
+        assert!(files.contains("\"kind\":\"files\""));
+        assert!(files.contains("a.txt"));
+
+        let hunks = scope_args(&StageScope::Hunks {
+            path: RepoPath::from("src/main.rs"),
+            indices: vec![1, 3],
+        })
+        .build();
+        assert!(hunks.contains("\"kind\":\"hunks\""));
+        assert!(hunks.contains("\"hunks\":2"));
+
+        let lines = scope_args(&StageScope::Lines {
+            path: RepoPath::from("src/main.rs"),
+            selections: vec![
+                LineSelection {
+                    hunk_index: 0,
+                    lines: vec![1, 2],
+                },
+                LineSelection {
+                    hunk_index: 2,
+                    lines: vec![5],
+                },
+            ],
+        })
+        .build();
+        assert!(lines.contains("\"lines\":3"), "行数要汇总：{lines}");
+    }
+
+    #[test]
+    fn discarding_arguments_keep_tracked_and_untracked_apart() {
+        let args = discard_args(&DiscardScope::Files(DiscardSpec {
+            tracked: vec![RepoPath::from("a.txt")],
+            untracked: vec![RepoPath::from("b.txt")],
+        }))
+        .build();
+
+        // 这两个数字的差别就是"可恢复"与"已删除"的差别，事后必须能分清
+        assert!(args.contains("\"tracked\":1"), "{args}");
+        assert!(args.contains("\"untracked\":1"), "{args}");
     }
 
     #[test]

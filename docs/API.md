@@ -91,6 +91,9 @@ interface FixAction {
 | [`snapshot_diff`](#snapshot_diff) | ReadOnly | T1.9 | 快照与当前状态的差异摘要 |
 | [`snapshot_restore`](#snapshot_restore) | Mutating | T1.9 | 回滚到快照（成功后发布 repo:changed） |
 | [`snapshot_prune`](#snapshot_prune) | Mutating | T1.9 | 按保留策略清理旧快照 |
+| [`audit_list`](#audit_list--audit_export--audit_prune) | ReadOnly | T1.11 | 分页查询操作历史（可按仓库 / 类型 / 时间筛选） |
+| [`audit_export`](#audit_list--audit_export--audit_prune) | ReadOnly | T1.11 | 导出操作历史到临时文件（CSV / JSON），返回路径 |
+| [`audit_prune`](#audit_list--audit_export--audit_prune) | Mutating | T1.11 | 按保留策略清理旧记录 |
 
 ---
 
@@ -877,6 +880,83 @@ interface SnapshotDiff {
   设置项随 T3.8（连同磁盘占用阈值）一起做
 - **返回**：`number[]`（被清理的快照 id）
 - **错误**：`NOT_FOUND`、`INTERNAL`
+
+### audit_list / audit_export / audit_prune
+
+操作审计（T1.11）。每一次**写操作**都会留一条记录，这三个命令负责把它读出来、
+导出、以及按保留策略清理。
+
+- **能力等级**：`audit_list` = `ReadOnly`；`audit_export` = `ReadOnly`（**写临时文件**，
+  不改仓库、不改库表）；`audit_prune` = `Mutating`（删除本地记录）
+- **记录的形状**（`operation_records` 表）：
+
+| 字段 | 含义 |
+| --- | --- |
+| `opType` | 操作类型短名（见下表） |
+| `repoId` | 仓库 id；全局操作（克隆 / 初始化 / 导出 / 清理）为 `0` |
+| `argsJson` | 参数摘要（**已脱敏**、≤ 2KB 的 JSON） |
+| `startedAtMs` / `endedAtMs` | 开始与结束时间（Unix 毫秒） |
+| `durationMs` | 耗时（由前两者算出，界面显示用） |
+| `exitCode` | git 的退出码 |
+| `stderrSummary` | 失败摘要（**已脱敏**，优先用 git 的原始输出） |
+| `snapshotId` / `reversible` | 关联的快照；`reversible` 的判定就是"有没有快照" |
+| `result` | `ok` / `failed` / `running`。**`running` = 只有开始没有收尾**，即"应用崩在写操作中间"，界面必须能一眼看出 |
+
+- **操作类型**：`commit`、`stage`、`unstage`、`discard`、`clone`、`init`、`forget`、
+  `close`、`snapshot_restore`、`snapshot_prune`、`audit_export`、`audit_prune`。
+
+#### audit_list
+
+- **参数**：`repoId?`（缺省 = 全部仓库）、`opType?`（空白 = 不筛）、`fromMs?`、`toMs?`、
+  `limit?`（夹在 `1..=500`，缺省 100）、`offset?`
+- **返回**：`{ total: number; entries: AuditEntryDto[] }`（新 → 旧；`total` 不受分页影响）
+- **错误**：`STORAGE`
+
+#### audit_export
+
+- **参数**：`repoId?`、`opType?`、`format`（`csv` | `json`）、`fromMs?`、`toMs?`
+- **返回**：`{ path, rows, format }`
+- **文件写到**临时目录**（`forgedesk-audit-<时间戳>.<ext>`），返回路径由界面显示并允许复制。
+  "让用户选目录"需要文件对话框插件（M7）；在那之前返回临时路径比假装已保存到用户选的位置诚实。
+- **CSV 的开头写 UTF-8 BOM**：没有它 Excel 会按本地代码页解码，中文全变乱码。
+  所有字段都引号包裹并转义（`argsJson` 里有换行与逗号）。
+- 一次导出超过 50000 条会被拒绝（`VALIDATION`）：那是误点的特征，不是用法。
+- **导出本身也会被记录**（`audit_export`）：谁把历史倒出去过是审计的一部分。
+- **错误**：`VALIDATION`（格式未知 / 命中条数过多）、`STORAGE`（写文件失败）
+
+#### audit_prune
+
+- **参数**：无
+- **返回**：`{ removed, retentionDays, retentionRows }`
+- **保留策略**（可配置，缺省 90 天 / 10000 条，两个条件是"或"）：
+
+| 设置键 | 取值 | 缺省 | 后端收敛到 |
+| --- | --- | --- | --- |
+| `audit.retentionDays` | 数字（天） | `90` | `[1, 3650]` |
+| `audit.retentionMax` | 数字（条） | `10000` | `[100, 1000000]` |
+
+  `<= 0` 表示**关掉该条款**（而不是"保留 0 天"——那会清空整张表）。
+- **执行时机**：应用启动时自动执行一次（失败只记日志），以及用户点"清理旧记录"时。
+  查询路径上不做删除：看一眼历史不该是写操作。
+- **清理本身也会被记录**（`audit_prune`）：删历史的人不该是匿名的。
+- **错误**：`STORAGE`
+
+#### 拦截点（为什么能保证"每一次写操作都留痕"）
+
+写操作的记录统一发生在**命令层**（`crates/commands/src/audit.rs` 的 `record`）：
+这一层同时看得见 IPC 参数、仓库 id 与操作类型，而且每个 `#[tauri::command]`
+就是一次"用户按下按钮"。放在服务层要改十几个方法签名，还要处理"服务之间互相调用"
+（`StagingService` 会转调 `WorkspaceService`），最后必然是重复记录或者漏记。
+
+唯一的例外是 `commit_execute`：它的参数摘要（提交信息首行、文件数、钩子清单、索引指纹）
+只存在于服务内部的计划里，因此那条记录由 `CommitService` 自己写——
+但用的是**同一个** `AuditLog` 类型与同一套脱敏/截断规则，不是第二套机制。
+
+**审计失败不会让操作失败**：`begin` 写不进库时只记日志，操作照常执行。
+用户要的是提交成功，不是审计写成功。
+
+- **前端封装**：`auditList / auditExport / auditPrune`；调用点：`src/features/settings/AuditHistoryPanel.tsx`
+  （设置 → 高级 → 操作历史）
 
 ### 文件监听与设置键（T1.10）
 

@@ -20,10 +20,11 @@ use forgedesk_domain::git::{
 };
 use forgedesk_domain::{AppError, AppResult, ErrorCode};
 use forgedesk_git_engine::engine::{ProgressEvent, ProgressSink};
+use forgedesk_services::audit::op_type;
 use forgedesk_services::repository::{InitExtras, LicenseSpec, OpenedRepository};
 use forgedesk_services::templates::{GitignoreTemplate, LicenseTemplate};
-use forgedesk_services::RepositoryService;
-use forgedesk_storage::{RepositoryRecord, RepositoryStore};
+use forgedesk_services::{AuditArgs, AuditEntry, AuditLog, RepositoryService, GLOBAL_REPO_ID};
+use forgedesk_storage::{OperationStore, RepositoryRecord, RepositoryStore};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, State};
 
@@ -476,7 +477,27 @@ pub fn repo_clone(
         let opened = {
             let service =
                 RepositoryService::new(&engines, RepositoryStore::new(&database), &open_repos);
-            service.clone(&spec, &progress)?
+
+            // 审计（T1.11）：克隆是 `Network` 级操作，却在任务线程里执行，
+            // 因此记录也在这里写。仓库记录 id 要等克隆成功才存在，
+            // 所以这条记录挂在"全局"下——args 里的目标路径足以回答"克隆了什么"。
+            let operation = AuditLog::new(OperationStore::new(&database)).begin(
+                &AuditEntry::new(GLOBAL_REPO_ID, op_type::CLONE).with_args(
+                    AuditArgs::new()
+                        .text("url", &spec.url)
+                        .text("into", &spec.into.display().to_string())
+                        .number("depth", spec.depth.map_or(0, i64::from))
+                        .flag("bare", spec.bare),
+                ),
+            );
+
+            // 没有 snapshot_id：克隆的"回滚"是删掉刚建出来的目录重来一次，
+            // 而不是本地快照。审计如实写成"不可逆（无快照）"
+            let result = service.clone(&spec, &progress);
+            if let Some(operation) = operation {
+                operation.finish(&result, None);
+            }
+            result?
         };
 
         // 服务已释放，这里可以再借数据库来读监听设置
@@ -496,9 +517,17 @@ pub fn repo_clone(
 #[tauri::command]
 pub fn repo_init(state: State<'_, AppState>, spec: InitRequest) -> AppResult<OpenedRepositoryDto> {
     let (path, init_spec, extras) = spec.into_parts()?;
-    let opened = state
-        .repository_service()
-        .init(&path, &init_spec, &extras)?;
+
+    // 仓库记录 id 要等初始化成功才存在，因此这条记录挂在"全局"下（args 有路径）
+    let opened = crate::audit::record(
+        &state,
+        AuditEntry::new(GLOBAL_REPO_ID, op_type::INIT).with_args(
+            AuditArgs::new()
+                .text("path", &path.display().to_string())
+                .flag("bare", init_spec.bare),
+        ),
+        || state.repository_service().init(&path, &init_spec, &extras),
+    )?;
 
     // 与 repo_open 同一条纪律：初始化成功就顺手开始监听
     watch::start_for_repo(
@@ -538,7 +567,10 @@ pub fn repo_recent_list(
 /// 能力等级：`Mutating`（改本地登记表）。
 #[tauri::command]
 pub fn repo_forget(state: State<'_, AppState>, repo_id: i64) -> AppResult<()> {
-    state.repository_service().forget(repo_id)?;
+    // 删的是本地登记记录（磁盘上的仓库不动），但它同样是写操作，同样要留痕
+    crate::audit::record(&state, AuditEntry::new(repo_id, op_type::FORGET), || {
+        state.repository_service().forget(repo_id)
+    })?;
     // 记录被移除，监听也必须停：句柄是真实资源（操作系统监听 + 一条线程）
     state.watchers.stop(repo_id);
     Ok(())

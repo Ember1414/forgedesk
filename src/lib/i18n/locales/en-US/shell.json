@@ -248,6 +248,71 @@
       "themeHint": "Applies immediately and is remembered; System follows the OS appearance.",
       "languageLabel": "Language",
       "languageHint": "Text updates immediately (M0 already covers the shell and skeleton pages)."
+    },
+    "audit": {
+      "title": "Operation history",
+      "hint": "Every write operation (staging, committing, restoring, pruning…) leaves a record: time, result, duration and the linked snapshot. Everything stays on this machine.",
+      "loadFailed": "Could not read the operation history",
+      "loadFailedHint": "The local database may be unreachable. Retry.",
+      "retry": "Retry",
+      "empty": "No records yet. Stage or commit something and it will show up here.",
+      "durationMs": "{{ms}} ms",
+      "durationSeconds": "{{seconds}} s",
+      "filters": {
+        "repo": "Repository",
+        "allRepos": "All repositories",
+        "opType": "Operation",
+        "allOps": "All operations"
+      },
+      "column": {
+        "time": "Time",
+        "type": "Operation",
+        "result": "Result",
+        "duration": "Duration",
+        "snapshot": "Snapshot",
+        "summary": "Arguments and failures"
+      },
+      "result": {
+        "ok": "Succeeded",
+        "failed": "Failed",
+        "running": "Not finished"
+      },
+      "op": {
+        "commit": "Commit",
+        "stage": "Stage",
+        "unstage": "Unstage",
+        "discard": "Discard",
+        "clone": "Clone",
+        "init": "Init",
+        "forget": "Forget",
+        "close": "Close repository",
+        "snapshotRestore": "Restore snapshot",
+        "snapshotPrune": "Prune snapshots",
+        "auditExport": "Export history",
+        "auditPrune": "Prune history"
+      },
+      "page": {
+        "range": "{{from}}–{{to}} of {{total}}",
+        "prev": "Previous",
+        "next": "Next"
+      },
+      "export": {
+        "csv": "Export CSV",
+        "json": "Export JSON",
+        "done": "Exported {{rows}} record(s)",
+        "path": "File:",
+        "copy": "Copy path"
+      },
+      "prune": {
+        "button": "Prune old records",
+        "done": "Removed {{count}} record(s)",
+        "policy": "Retention policy: {{days}} days / {{rows}} rows"
+      },
+      "retention": {
+        "days": "Keep days",
+        "rows": "Keep rows",
+        "hint": "Records beyond either limit are pruned automatically at startup; pruning is itself recorded."
+      }
     }
   },
   "snapshots": {

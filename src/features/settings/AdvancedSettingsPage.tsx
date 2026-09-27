@@ -1,6 +1,7 @@
 import { useTranslation } from 'react-i18next';
 
 import { LogViewer } from '@/features/logs/LogViewer';
+import { AuditHistoryPanel } from '@/features/settings/AuditHistoryPanel';
 import { Button } from '@/ui/components/button';
 import { logsOpen } from '@/lib/ipc';
 import { useAppError } from '@/lib/errors';
@@ -47,6 +48,9 @@ export function AdvancedSettingsPage() {
         {/* 就地查看最近日志：高度固定，避免长日志把设置页撑成一篇文档 */}
         <LogViewer className="h-72" />
       </div>
+
+      {/* 操作历史（T1.11）：每一次写操作都留了记录，这里让用户真的看得到 */}
+      <AuditHistoryPanel />
     </section>
   );
 }

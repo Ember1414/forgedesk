@@ -47,6 +47,20 @@ export const DEBOUNCE_CHOICES_MS = [100, 300, 500, 1000] as const;
 /** 去抖动窗口的缺省值（与后端 `DEFAULT_DEBOUNCE_MS` 一致）。 */
 export const DEFAULT_DEBOUNCE_MS = 300;
 
+/**
+ * 审计保留天数（T1.11）。键名与后端 `services::audit::RETENTION_DAYS_KEY` 一致。
+ *
+ * 缺省 90 天；后端会把值收敛到 `[1, 3650]`，因此界面不必替它做边界检查。
+ */
+export const AUDIT_RETENTION_DAYS_KEY = 'audit.retentionDays';
+
+/** 审计保留条数上限（缺省 10000；后端收敛到 `[100, 1000000]`）。 */
+export const AUDIT_RETENTION_MAX_KEY = 'audit.retentionMax';
+
+/** 审计保留策略的缺省值（与后端默认值一致）。 */
+export const AUDIT_RETENTION_DEFAULT_DAYS = 90;
+export const AUDIT_RETENTION_DEFAULT_ROWS = 10_000;
+
 const DEFAULT_DENSITY: Density = 'comfortable';
 
 /**

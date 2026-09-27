@@ -13,7 +13,9 @@
 //! 一起搬回过去），因此它必须只被"用户看过差异摘要并确认"的路径调用——
 //! 确认对话框是前端的责任，后端的闸门是回滚前自动打保护点与恢复后校验。
 
-use forgedesk_domain::AppResult;
+use forgedesk_domain::{AppError, AppResult};
+use forgedesk_services::audit::op_type;
+use forgedesk_services::{AuditArgs, AuditEntry};
 use forgedesk_snapshot::{RestoreReport, RetentionPolicy, SnapshotError, SnapshotId, SnapshotMeta};
 use serde::Serialize;
 use tauri::{AppHandle, State};
@@ -131,10 +133,29 @@ pub fn snapshot_restore(
     ensure_repo_id(repo_id)?;
     ensure_snapshot_id(snapshot_id)?;
 
-    let report = state
-        .snapshots
-        .restore(repo_id, snapshot_id)
-        .map_err(snapshot_error)?;
+    // 审计（T1.11）：回滚是破坏性最强的一步，记录里必须有"回到了哪个快照"
+    // 与"有没有保护点可回"（后者是 `reversible` 的唯一依据）
+    let operation = state.audit_service().begin(
+        &AuditEntry::new(repo_id, op_type::SNAPSHOT_RESTORE)
+            .with_args(AuditArgs::new().number("snapshotId", snapshot_id)),
+    );
+
+    let result = state.snapshots.restore(repo_id, snapshot_id);
+    let report = match result {
+        Ok(report) => {
+            if let Some(operation) = operation {
+                operation.finish(&Ok::<(), AppError>(()), report.pre_restore_snapshot_id);
+            }
+            report
+        }
+        Err(error) => {
+            let error = snapshot_error(error);
+            if let Some(operation) = operation {
+                operation.finish::<()>(&Err(error.clone()), None);
+            }
+            return Err(error);
+        }
+    };
 
     // 回滚把 HEAD、索引与工作区一起搬回去了：按"引用变化"上报，
     // 让历史、分支与状态面板全部失效（工作区那一路由文件监听补上）
@@ -149,11 +170,23 @@ pub fn snapshot_restore(
 #[tauri::command]
 pub fn snapshot_prune(state: State<'_, AppState>, repo_id: i64) -> AppResult<Vec<SnapshotId>> {
     ensure_repo_id(repo_id)?;
+    let policy = RetentionPolicy::default();
 
-    state
-        .snapshots
-        .prune(repo_id, &RetentionPolicy::default())
-        .map_err(snapshot_error)
+    // 清理也要留痕：删掉的是"过去的自己"，事后要能回答"什么时候删的、按什么策略"
+    crate::audit::record(
+        &state,
+        AuditEntry::new(repo_id, op_type::SNAPSHOT_PRUNE).with_args(
+            AuditArgs::new()
+                .number("maxCount", i64::from(policy.max_count))
+                .number("maxAgeDays", i64::from(policy.max_age_days)),
+        ),
+        || {
+            state
+                .snapshots
+                .prune(repo_id, &policy)
+                .map_err(snapshot_error)
+        },
+    )
 }
 
 // ---------------------------------------------------------------- 内部

@@ -34,12 +34,15 @@ test('error states render without crashing when the IPC bridge is absent (browse
   await page.getByRole('link', { name: '高级' }).click();
   await expect(page.getByRole('heading', { level: 1, name: '高级' })).toBeVisible();
   await expect(page.getByText('读取日志失败')).toBeVisible({ timeout: 10_000 });
+  // 操作历史（T1.11）同样要有降级路径：读不到就说明原因，而不是一张空表
+  await expect(page.getByText('读取操作历史失败')).toBeVisible({ timeout: 10_000 });
 });
 
 test('retry keeps the error state stable instead of throwing', async ({ page }) => {
   await page.goto('/#/settings/advanced');
   await expect(page.getByText('读取日志失败')).toBeVisible({ timeout: 10_000 });
-  await page.getByRole('button', { name: '重试' }).click();
+  // 高级页上有两个"重试"（日志与操作历史）：这里说的是日志那一个
+  await page.getByRole('button', { name: '重试' }).first().click();
   await expect(page.getByText('读取日志失败')).toBeVisible({ timeout: 10_000 });
 });
 
@@ -82,7 +85,7 @@ test('uncaught error collection stays empty after all interactions (DoD gate)', 
 }) => {
   await page.goto('/#/settings/advanced');
   await expect(page.getByText('读取日志失败')).toBeVisible({ timeout: 10_000 });
-  await page.getByRole('button', { name: '重试' }).click();
+  await page.getByRole('button', { name: '重试' }).first().click();
   await openSampleRepoPath(page);
   await page.keyboard.press('Control+k');
   await page.keyboard.press('Escape');

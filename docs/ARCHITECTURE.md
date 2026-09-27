@@ -51,8 +51,8 @@ graph TD
 | crate | 职责（一句话） | 谁能依赖它 | 状态（M0 末） |
 | --- | --- | --- | --- |
 | `crates/domain` | 纯逻辑：领域模型、状态机、错误类型与错误码分类 | 所有 Rust crate | ✅ 错误模型与 `ErrorCode::classify` + 补丁裁剪（T1.6）+ 提交计划模型（T1.7） |
-| `crates/commands` | Tauri 命令定义、DTO 转换、能力等级校验 | `src-tauri` | ✅ 32 个命令（含 2 个仅开发构建）：仓库 / 工作区 / diff / 暂存 / 提交 / 快照；另有监听注册表（T1.10，无命令） |
-| `crates/services` | 用例编排（打开仓库、工作区状态、部分暂存、提交…） | `commands`、`plugin-host` | ✅ `RepositoryService`（T1.3）+ `WorkspaceService`（T1.4）+ `StagingService`（T1.6，含 400 组对拍测试）+ `CommitService`（T1.7/T1.8，prepare/execute 两段式 + 索引指纹 + amend 语义；提交路径已接通快照） |
+| `crates/commands` | Tauri 命令定义、DTO 转换、能力等级校验、写操作审计拦截 | `src-tauri` | ✅ 35 个命令（含 2 个仅开发构建）：仓库 / 工作区 / diff / 暂存 / 提交 / 快照 / 审计；另有监听注册表（T1.10，无命令） |
+| `crates/services` | 用例编排（打开仓库、工作区状态、部分暂存、提交、审计…） | `commands`、`plugin-host` | ✅ `RepositoryService`（T1.3）+ `WorkspaceService`（T1.4）+ `StagingService`（T1.6，含 400 组对拍测试）+ `CommitService`（T1.7/T1.8）+ `AuditLog`（T1.11：脱敏/2KB 摘要/保留策略/导出） |
 | `crates/git-engine` | `GitEngine` trait + CLI 实现 + libgit2 实现 | `services`、`snapshot`、`commands` | ✅ `GitProcess` 执行器 + 4 个解析器（T1.1）+ `GitEngine` 双实现与差分测试（T1.2）+ 统一补丁解析（T1.5）+ 补丁应用通道（T1.6） |
 | `crates/provider` | `HostProvider` trait + GitHub/GitLab/Gitea 实现 | `services`、`commands` | ⬜ 骨架（M4） |
 | `crates/snapshot` | 快照创建/列表/回滚/校验 | `services`、`commands` | ✅ ref 锚点快照（T1.9：`refs/forgedesk/snapshots/<id>` 防 gc、回滚前自动打保护点、双引擎校验、保留策略） |

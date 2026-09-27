@@ -138,6 +138,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 commit_plans: Arc::new(CommitPlanRegistry::new()),
                 watchers,
             });
+
+            // 审计的保留策略在**启动时**执行一次（T1.11）：查历史不该顺带删记录，
+            // 而第一次打开设置页也不该等一次全表删除。失败只记日志。
+            forgedesk_commands::audit::prune_on_startup(&app.state::<AppState>());
+
             app.manage(RuntimeHandles {
                 _log_guard: guard,
                 session: Mutex::new(Some(session)),
@@ -172,6 +177,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         forgedesk_commands::snapshot_diff,
         forgedesk_commands::snapshot_restore,
         forgedesk_commands::snapshot_prune,
+        forgedesk_commands::audit_list,
+        forgedesk_commands::audit_export,
+        forgedesk_commands::audit_prune,
         forgedesk_commands::logs_tail,
         forgedesk_commands::repo_discover,
         forgedesk_commands::repo_open,
@@ -206,6 +214,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         forgedesk_commands::snapshot_diff,
         forgedesk_commands::snapshot_restore,
         forgedesk_commands::snapshot_prune,
+        forgedesk_commands::audit_list,
+        forgedesk_commands::audit_export,
+        forgedesk_commands::audit_prune,
         forgedesk_commands::logs_tail,
         forgedesk_commands::repo_discover,
         forgedesk_commands::repo_open,

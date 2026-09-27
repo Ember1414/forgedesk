@@ -26,7 +26,6 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use forgedesk_diagnostics::sanitize_log;
 use forgedesk_domain::git::{
     compose_message, equivalent_command, review_message, AmendMode, ChangeKind, CommitPlan,
     CommitSpec, EntryKind, EquivalentCommandInput, LogQuery, PlannedFile, RepoId, RepoPath,
@@ -36,8 +35,9 @@ use forgedesk_domain::{AppError, AppResult, ErrorCode, FixAction};
 use forgedesk_git_engine::engine::GitEngine;
 use forgedesk_git_engine::probe::{executable_commit_hooks, list_hooks, HookEntry};
 use forgedesk_snapshot::{SnapshotKind, SnapshotManager, SnapshotRequest};
-use forgedesk_storage::{NewOperation, OperationOutcome, OperationStore, RepositoryStore};
+use forgedesk_storage::{OperationStore, RepositoryStore};
 
+use crate::audit::{self, AuditArgs, AuditEntry, AuditLog};
 use crate::engines::GitEngines;
 use crate::repository::{system_clock, MillisClock};
 
@@ -169,7 +169,9 @@ impl CommitPlanRegistry {
 pub struct CommitService<'a> {
     engines: &'a GitEngines,
     store: RepositoryStore<'a>,
-    operations: OperationStore<'a>,
+    /// 审计服务（T1.11 起统一走它）：脱敏与长度上限由它负责，
+    /// 本模块只负责"这次操作该记哪些字段"。
+    audit: AuditLog<'a>,
     snapshots: &'a dyn SnapshotManager,
     plans: &'a CommitPlanRegistry,
     clock: MillisClock,
@@ -190,7 +192,7 @@ impl<'a> CommitService<'a> {
         Self {
             engines,
             store,
-            operations,
+            audit: AuditLog::new(operations),
             snapshots,
             plans,
             clock: Arc::new(system_clock),
@@ -343,13 +345,11 @@ impl<'a> CommitService<'a> {
             )));
         }
 
-        let args_json = audit_args(&plan);
-        let operation_id = self.operations.begin(&NewOperation {
-            repo_id: plan.repo_id,
-            op_type: "commit",
-            args_json: Some(&args_json),
-            started_at_ms: now,
-        })?;
+        // 审计：先记"开始"，再干活。写不进去也不拦提交（审计是安全网，不是闸门），
+        // 因此拿到的可能是 `None`。
+        let run = self.audit.begin(
+            &AuditEntry::new(plan.repo_id, audit::op_type::COMMIT).with_args(commit_args(&plan)),
+        );
 
         let snapshot_id = self.create_snapshot(&plan, &workdir);
 
@@ -371,7 +371,9 @@ impl<'a> CommitService<'a> {
 
         match self.engines.write().commit(&repo, spec) {
             Ok(oid) => {
-                self.finish_operation(operation_id, Some(0), None, snapshot_id);
+                if let Some(run) = run {
+                    run.finish(&Ok::<(), AppError>(()), snapshot_id);
+                }
                 Ok(CommitOutcome {
                     repo_id: plan.repo_id,
                     oid,
@@ -382,11 +384,10 @@ impl<'a> CommitService<'a> {
             }
             Err(error) => {
                 let error = classify_commit_failure(error, &plan.hooks, plan.no_verify);
-                let summary = error
-                    .detail
-                    .clone()
-                    .unwrap_or_else(|| error.message.clone());
-                self.finish_operation(operation_id, Some(1), Some(&summary), snapshot_id);
+                if let Some(run) = run {
+                    // 失败摘要用 git 的原话（`detail`），审计要能回答"到底为什么没成"
+                    run.finish::<()>(&Err(error.clone()), snapshot_id);
+                }
                 Err(error)
             }
         }
@@ -526,33 +527,6 @@ impl<'a> CommitService<'a> {
             }
         }
     }
-
-    /// 给审计记录收尾；失败只记日志。
-    ///
-    /// 为什么不把错误往上抛：审计写不进去不该改变"提交到底成没成"这个事实——
-    /// 用户看到的结果必须来自 git，而不是来自本地数据库。
-    fn finish_operation(
-        &self,
-        operation_id: i64,
-        exit_code: Option<i32>,
-        stderr_summary: Option<&str>,
-        snapshot_id: Option<i64>,
-    ) {
-        let outcome = OperationOutcome {
-            ended_at_ms: self.now(),
-            exit_code,
-            stderr_summary,
-            snapshot_id,
-            reversible: snapshot_id.is_some(),
-        };
-        if let Err(error) = self.operations.finish(operation_id, &outcome) {
-            tracing::warn!(
-                operation_id,
-                error = %error,
-                "操作记录收尾失败（提交本身的结果不受影响）"
-            );
-        }
-    }
 }
 
 /// 索引侧的一次快照（一次 `status` 调用同时回答两个问题）。
@@ -576,21 +550,19 @@ fn branch_prefix(branch: &str) -> Option<String> {
     }
 }
 
-/// 审计用的参数摘要（**已脱敏**，红线 R8）。
+/// 审计用的参数摘要（脱敏与长度上限由 [`AuditArgs`] 统一负责，红线 R8）。
 ///
 /// 不含提交信息全文：审计要能一眼看出"这是什么操作"，而不是把几 KB 的信息抄一遍。
-fn audit_args(plan: &CommitPlan) -> String {
-    let summary = serde_json::json!({
-        "subject": plan.review.subject,
-        "files": plan.files.len(),
-        "amend": plan.amend,
-        "signOff": plan.sign_off,
-        "noVerify": plan.no_verify,
-        "sign": plan.sign.key(),
-        "hooks": plan.hooks,
-        "indexFingerprint": plan.index_fingerprint,
-    });
-    sanitize_log(&summary.to_string())
+fn commit_args(plan: &CommitPlan) -> AuditArgs {
+    AuditArgs::new()
+        .text("subject", &plan.review.subject)
+        .number("files", plan.files.len() as i64)
+        .flag("amend", plan.amend)
+        .flag("signOff", plan.sign_off)
+        .flag("noVerify", plan.no_verify)
+        .text("sign", plan.sign.key())
+        .paths("hooks", &plan.hooks)
+        .text("indexFingerprint", &plan.index_fingerprint)
 }
 
 /// 计划过期 / 失效。

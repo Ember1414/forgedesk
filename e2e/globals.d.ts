@@ -64,6 +64,18 @@ export interface MockCommit {
   readonly subject: string;
 }
 
+/** mock 记录的一次审计命令调用（list / export / prune）。 */
+export interface MockAuditCall {
+  readonly command: string;
+  readonly args: {
+    readonly repoId?: number;
+    readonly opType?: string;
+    readonly format?: string;
+    readonly limit?: number;
+    readonly offset?: number;
+  };
+}
+
 declare global {
   interface Window {
     /** mock 记录收到的暂存 / 取消暂存请求（断言"界面选的粒度与下标"是否原样传到后端）。 */
@@ -82,5 +94,7 @@ declare global {
      * `kind` 缺省 `workspace`；传 `large` 可以验证"大量变更"的界面说明。
      */
     __emitRepoChanged?: (paths: string[], kind?: string) => void;
+    /** mock 记录收到的审计命令（断言导出带的格式、列表带的筛选）。 */
+    __auditCalls?: MockAuditCall[];
   }
 }

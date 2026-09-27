@@ -24,7 +24,7 @@ use std::sync::Arc;
 use forgedesk_jobs::JobRunner;
 use forgedesk_services::repository::OpenRepoRegistry;
 use forgedesk_services::{
-    CommitPlanRegistry, CommitService, GitEngines, RepositoryService, StagingService,
+    AuditLog, CommitPlanRegistry, CommitService, GitEngines, RepositoryService, StagingService,
     WorkspaceService,
 };
 use forgedesk_snapshot::SnapshotManager;
@@ -93,6 +93,14 @@ impl AppState {
     /// 会变成"两个服务看到两个不同的世界"。
     pub fn staging_service(&self) -> StagingService<'_> {
         StagingService::new(self.workspace_service(), &self.engines)
+    }
+
+    /// 绑定当前状态构造审计服务（T1.11）。
+    ///
+    /// 命令层的写操作统一经它留痕；查询与导出也走同一个实例，
+    /// 保证"写"与"读"看到的是同一张表、同一套脱敏规则。
+    pub fn audit_service(&self) -> AuditLog<'_> {
+        AuditLog::new(OperationStore::new(&self.database))
     }
 
     /// 绑定当前状态构造提交用例服务（prepare / execute / 提示，T1.7）。

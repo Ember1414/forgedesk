@@ -42,6 +42,16 @@ export type {
   Worktree,
 } from './repository';
 
+export { auditExport, auditList, auditPrune } from './audit';
+export type {
+  AuditEntry,
+  AuditExportFormat,
+  AuditExportResult,
+  AuditFilter,
+  AuditPage,
+  AuditPruneResult,
+} from './audit';
+
 export {
   cancelJob,
   JOB_DONE_EVENT,

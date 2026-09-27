@@ -248,6 +248,71 @@
       "themeHint": "切换立即生效并记住选择；跟随系统会随系统外观自动变化。",
       "languageLabel": "语言",
       "languageHint": "切换后界面文案立即更新（M0 已覆盖外壳与骨架页面）。"
+    },
+    "audit": {
+      "title": "操作历史",
+      "hint": "每一次写操作（暂存、提交、回滚、清理…）都会留下一条记录：时间、结果、耗时与关联的快照。所有内容只存在本机。",
+      "loadFailed": "读取操作历史失败",
+      "loadFailedHint": "本地数据库可能无法访问，可以重试。",
+      "retry": "重试",
+      "empty": "还没有任何记录。做一次暂存或提交后，这里就会有内容。",
+      "durationMs": "{{ms}} 毫秒",
+      "durationSeconds": "{{seconds}} 秒",
+      "filters": {
+        "repo": "仓库",
+        "allRepos": "全部仓库",
+        "opType": "操作类型",
+        "allOps": "全部操作"
+      },
+      "column": {
+        "time": "时间",
+        "type": "操作",
+        "result": "结果",
+        "duration": "耗时",
+        "snapshot": "快照",
+        "summary": "参数与失败原因"
+      },
+      "result": {
+        "ok": "成功",
+        "failed": "失败",
+        "running": "未收尾"
+      },
+      "op": {
+        "commit": "提交",
+        "stage": "暂存",
+        "unstage": "取消暂存",
+        "discard": "放弃修改",
+        "clone": "克隆",
+        "init": "初始化",
+        "forget": "移出列表",
+        "close": "关闭仓库",
+        "snapshotRestore": "回滚快照",
+        "snapshotPrune": "清理快照",
+        "auditExport": "导出操作历史",
+        "auditPrune": "清理操作历史"
+      },
+      "page": {
+        "range": "第 {{from}}–{{to}} 条 / 共 {{total}} 条",
+        "prev": "上一页",
+        "next": "下一页"
+      },
+      "export": {
+        "csv": "导出 CSV",
+        "json": "导出 JSON",
+        "done": "已导出 {{rows}} 条记录",
+        "path": "文件：",
+        "copy": "复制路径"
+      },
+      "prune": {
+        "button": "清理旧记录",
+        "done": "已清理 {{count}} 条记录",
+        "policy": "按保留策略：{{days}} 天 / {{rows}} 条"
+      },
+      "retention": {
+        "days": "保留天数",
+        "rows": "保留条数",
+        "hint": "超过任一上限的记录会在应用启动时自动清理；清理本身也会被记录。"
+      }
     }
   },
   "snapshots": {

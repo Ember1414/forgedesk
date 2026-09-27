@@ -25,9 +25,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use forgedesk_domain::git::{EntryKind, RepoId, ResetMode, ResetSpec, StatusQuery};
 use forgedesk_git_engine::engine::GitEngine;
 use forgedesk_git_engine::engines::GitEngines;
-use forgedesk_storage::{
-    Database, NewSnapshot, OperationOutcome, OperationStore, RepositoryStore, SnapshotStore,
-};
+use forgedesk_storage::{Database, NewSnapshot, RepositoryStore, SnapshotStore};
 
 use crate::{
     RestoreReport, RetentionPolicy, SnapshotDiff, SnapshotError, SnapshotId, SnapshotKind,
@@ -180,40 +178,6 @@ impl RefSnapshotManager {
         })
     }
 
-    /// 审计：写操作开始记录，返回记录 id。
-    fn audit_begin(&self, repo_id: i64, snapshot_id: SnapshotId) -> Result<i64, SnapshotError> {
-        OperationStore::new(&self.database)
-            .begin(&forgedesk_storage::NewOperation {
-                repo_id,
-                op_type: "snapshot_restore",
-                args_json: Some(&format!(r#"{{"snapshotId":{snapshot_id}}}"#)),
-                started_at_ms: self.now(),
-            })
-            .map_err(|error| SnapshotError::Storage(error.message.clone()))
-    }
-
-    /// 审计：收尾。失败只记日志——操作结果来自 git，不来自审计写没写进去。
-    fn audit_finish(
-        &self,
-        operation_id: i64,
-        exit_code: i32,
-        summary: Option<&str>,
-        snapshot_id: Option<SnapshotId>,
-    ) {
-        if let Err(error) = OperationStore::new(&self.database).finish(
-            operation_id,
-            &OperationOutcome {
-                ended_at_ms: self.now(),
-                exit_code: Some(exit_code),
-                stderr_summary: summary,
-                snapshot_id,
-                reversible: snapshot_id.is_some(),
-            },
-        ) {
-            tracing::warn!(error = %error.message, "快照回滚的审计收尾失败");
-        }
-    }
-
     /// 创建之后顺手清理（超龄/超量的旧快照）。失败只记日志：
     /// 清理不成功不影响"快照已创建"这个事实。
     fn prune_silently(&self, repo_id: i64) {
@@ -344,15 +308,15 @@ impl SnapshotManager for RefSnapshotManager {
             kind: SnapshotKind::PreRestore,
         })?;
 
-        let operation_id = self.audit_begin(repo_id, snapshot_id)?;
+        // 审计不在这里写：命令层统一记录写操作（T1.11）。本层只保证
+        // "回滚结果 + 回滚前保护点 id"如实返回，让上层能记全 `snapshot_id`
+        // 与 `reversible`——**审计属于用例边界，不属于实现细节**。
         match self.apply(&record, &repo) {
             Ok(mut report) => {
                 report.pre_restore_snapshot_id = Some(pre_restore);
-                self.audit_finish(operation_id, 0, None, Some(snapshot_id));
                 Ok(report)
             }
             Err(error) => {
-                self.audit_finish(operation_id, 1, Some(&error.message()), Some(pre_restore));
                 // 绝不停在中间态：回到回滚前快照（这条恢复不再嵌套打点）
                 if let Ok((_, pre_record)) = self.snapshot_record(repo_id, pre_restore) {
                     let rollback = self.apply(&pre_record, &repo);
