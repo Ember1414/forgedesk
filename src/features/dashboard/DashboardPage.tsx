@@ -1,25 +1,37 @@
+import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 
-import { PLACEHOLDER_RECENT_REPOS } from '@/features/repo/recentRepos';
+import { repoRecentList } from '@/lib/ipc';
 import { useJobStore } from '@/stores/jobStore';
 import { useUiStore } from '@/stores/uiStore';
+import { Skeleton } from '@/ui/components/skeleton';
 
 /**
  * 仪表盘。
  *
- * M0 的定位：不做聚合卡片，只把**已经存在的数据源**接起来，
- * 用来证明"外壳 + store + 路由"三者能协同工作：
- *   · 后台任务面板读 jobStore（空态是当前的正常状态）
- *   · 最近仓库面板读占位数据，点进去会设置当前仓库并跳到工作区
+ * M0 时这里读的是**占位数据**（`PLACEHOLDER_RECENT_REPOS`），当时没有真实数据源。
+ * M1 之后不再是：最近仓库来自 `repo_recent_list`（T1.3 落地的本地记录），
+ * 点进去会设置当前仓库并跳到工作区。
  *
- * 真正的仪表盘聚合（T4.11）会加入 PR/Issue/流水线摘要与本地仓库统计。
+ * 为什么这件事必须在 M1 收尾改掉：占位数据看起来与真实数据完全一样，
+ * 用户第一眼看到的是四个不存在的仓库路径，点进去必然失败——这比空白页更难判断。
+ * 空态说清"还没有打开过仓库、去哪里打开"，是唯一诚实的画法。
+ *
+ * 真正的聚合（PR/Issue/流水线摘要、本地仓库统计）仍然属于 T4.11。
  */
 export function DashboardPage() {
   const { t } = useTranslation('shell');
   const navigate = useNavigate();
   const jobs = useJobStore((state) => state.jobs);
   const setCurrentRepoId = useUiStore((state) => state.setCurrentRepoId);
+
+  const recentQuery = useQuery({
+    queryKey: ['recent-repositories', 12],
+    queryFn: () => repoRecentList(12),
+  });
+
+  const recent = recentQuery.data ?? [];
 
   return (
     <section className="flex flex-col gap-4">
@@ -54,28 +66,42 @@ export function DashboardPage() {
 
         <article className="rounded-lg border border-line bg-surface p-4">
           <h2 className="text-14 font-medium">{t('dashboard.recentTitle')}</h2>
-          <ul className="mt-2 flex flex-col gap-1">
-            {PLACEHOLDER_RECENT_REPOS.map((repo) => (
-              <li key={repo.id}>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setCurrentRepoId(repo.id);
-                    void navigate(`/repo/${repo.id}/status`);
-                  }}
-                  className="fd-transition flex w-full items-center justify-between gap-2 rounded-sm px-2 py-1.5 text-left hover:bg-surface-sunken"
-                >
-                  <span className="min-w-0">
-                    <span className="block truncate text-13 font-medium">{repo.name}</span>
-                    <span className="block truncate font-mono text-12 text-fg-subtle">
-                      {repo.path}
+          {recentQuery.isPending ? (
+            <div className="mt-2 flex flex-col gap-2">
+              <Skeleton className="h-9" />
+              <Skeleton className="h-9" />
+            </div>
+          ) : recent.length === 0 ? (
+            <div className="mt-2 flex flex-col gap-1">
+              <p className="text-13 text-fg">{t('dashboard.recentEmpty')}</p>
+              <p className="text-12 text-fg-subtle">{t('dashboard.recentEmptyHint')}</p>
+            </div>
+          ) : (
+            <ul className="mt-2 flex flex-col gap-1">
+              {recent.map((repo) => (
+                <li key={repo.id}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      // 路由参数是字符串，而存储层的记录 id 是数字：
+                      // 在这里显式转换，别指望两边恰好能互相赋值
+                      setCurrentRepoId(String(repo.id));
+                      void navigate(`/repo/${repo.id}/status`);
+                    }}
+                    className="fd-transition flex w-full items-center justify-between gap-2 rounded-sm px-2 py-1.5 text-left hover:bg-surface-sunken"
+                  >
+                    <span className="min-w-0">
+                      <span className="block truncate text-13 font-medium">{repo.name}</span>
+                      <span className="block truncate font-mono text-12 text-fg-subtle">
+                        {repo.path}
+                      </span>
                     </span>
-                  </span>
-                  <span className="shrink-0 text-12 text-brand">{t('dashboard.openRepo')}</span>
-                </button>
-              </li>
-            ))}
-          </ul>
+                    <span className="shrink-0 text-12 text-brand">{t('dashboard.openRepo')}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
           <p className="mt-2 text-12 text-fg-subtle">{t('dashboard.recentHint')}</p>
         </article>
       </div>

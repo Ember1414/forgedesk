@@ -67,7 +67,7 @@
   },
   "placeholder": {
     "planned": "计划任务",
-    "note": "M0 只提供外壳与导航骨架，功能在后续里程碑实现。"
+    "note": "这个页面还没有实现；上方标记了它属于哪个里程碑的任务号。"
   },
   "notFound": {
     "title": "页面不存在",
@@ -91,7 +91,9 @@
     "jobsTitle": "后台任务",
     "jobsEmpty": "当前没有运行中的任务",
     "recentTitle": "最近打开的仓库",
-    "recentHint": "示例数据：真实列表在 T0.7 接入本地存储后替换",
+    "recentEmpty": "还没有打开过仓库",
+    "recentEmptyHint": "用左上角的仓库选择器打开一个本地仓库（或克隆 / 初始化一个新的）。",
+    "recentHint": "列表来自本机记录，按最近打开时间排序。",
     "openRepo": "打开"
   },
   "pages": {

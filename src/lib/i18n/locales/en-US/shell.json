@@ -67,7 +67,7 @@
   },
   "placeholder": {
     "planned": "Planned in",
-    "note": "M0 ships the shell and the navigation skeleton only; features land in later milestones."
+    "note": "This page is not implemented yet; the badge above names the milestone task it belongs to."
   },
   "notFound": {
     "title": "Page not found",
@@ -91,7 +91,9 @@
     "jobsTitle": "Background jobs",
     "jobsEmpty": "No job is running right now",
     "recentTitle": "Recently opened repositories",
-    "recentHint": "Sample data: the real list arrives with local storage in T0.7",
+    "recentEmpty": "No repository has been opened yet",
+    "recentEmptyHint": "Open a local repository with the switcher in the top left (or clone / initialise a new one).",
+    "recentHint": "The list comes from local records, most recently opened first.",
     "openRepo": "Open"
   },
   "pages": {
