@@ -30,6 +30,23 @@ export type Density = (typeof DENSITIES)[number];
 /** 界面密度的设置键。 */
 export const DENSITY_KEY = 'ui.density';
 
+/**
+ * 仓库自动刷新的开关（T1.10）。
+ *
+ * 缺省开启：文件监听是"界面自己跟上仓库"的前提；关掉之后退回 15 秒轮询
+ * （见 `WorkspaceStatusPage`）。键名与后端 `watch::AUTO_REFRESH_KEY` 一致。
+ */
+export const WATCH_AUTO_REFRESH_KEY = 'watch.autoRefresh';
+
+/** 去抖动窗口（毫秒）。后端会把它收敛到 [50, 5000]。 */
+export const WATCH_DEBOUNCE_KEY = 'watch.debounceMs';
+
+/** 去抖动窗口的可选值（设置页展示这些）。 */
+export const DEBOUNCE_CHOICES_MS = [100, 300, 500, 1000] as const;
+
+/** 去抖动窗口的缺省值（与后端 `DEFAULT_DEBOUNCE_MS` 一致）。 */
+export const DEFAULT_DEBOUNCE_MS = 300;
+
 const DEFAULT_DENSITY: Density = 'comfortable';
 
 /**

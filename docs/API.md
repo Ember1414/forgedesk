@@ -477,7 +477,31 @@ Toast → 动作按钮）是基础设施，它坏掉时不会有任何业务功�
 
 | 事件 | 载荷 | 用途 | 任务 | 状态 |
 | --- | --- | --- | --- | --- |
-| [epo:changed](#3-事件登记表) | { repoId: number, paths: string[] } | 仓库数据已变化（操作成功或文件监听触发），状态面板失效重取 | T1.4 | ✅ 已实现 |
+| `repo:changed` | `{ repoId, kind, paths }` | 仓库数据已变化（应用自己的写操作，或文件监听发现的**外部**变化） | T1.4 / T1.10 | ✅ 已实现 |
+
+**`repo:changed` 的载荷（T1.10 起带 `kind`）**：
+
+```ts
+interface RepoChangedPayload {
+  repoId: number;
+  /**
+   * 变化类别，决定前端失效哪些查询（见 `src/lib/repoChanged.ts`）：
+   *   - workspace：文件内容或暂存区变了；
+   *   - refs：HEAD / 分支 / 引用变了（提交、回滚、外部 checkout）；
+   *   - large：一个合并窗口内的变化量超过阈值，路径不再逐条列举。
+   */
+  kind: 'workspace' | 'refs' | 'large';
+  /** 涉及的路径（**相对仓库根**；`large` 时为空）。 */
+  paths: string[];
+}
+```
+
+两条纪律：
+
+- **路径是相对路径**：绝对路径里带着用户名与目录结构（隐私，红线 R8），
+  而且前端要拿它与状态面板里的路径比对；
+- **应用自己的操作与文件监听发同一个事件**：两边若各发一套，前端就得为
+  "谁发的"写两套判断。因此 `kind` 的取值也共用（`WatchKind`）。
 
 ### 计划中的事件（未实现）
 
@@ -492,7 +516,7 @@ Toast → 动作按钮）是基础设施，它坏掉时不会有任何业务功�
 | `job:progress` | `{ jobId, phase, current, total, message? }` | 长任务进度（>500ms 的操作必须走 `JobRunner`） | T1.3 / M1 | ✅ `crates/commands/src/jobs.rs` |
 | `job:done` | `{ jobId, result }` | 长任务成功结束 | T1.3 / M1 | ✅ `crates/commands/src/jobs.rs` |
 | `job:failed` | `{ jobId, error: AppError }` | 长任务失败结束（错误形状同 §1.1） | T1.3 / M1 | ✅ `crates/commands/src/jobs.rs` |
-| `repo:changed` | `{ repoId, paths: string[] }` | 文件监听触发刷新 | T1.10 / M1 | ⬜ 未实现 |
+
 | `git:state-changed` | `{ repoId, opState }` | 仓库正处于 rebase/merge/cherry-pick 中途 | T2.x / M2 | ⬜ 未实现 |
 | `term:output` | `{ termId, bytes }` | 终端输出流 | T5.x / M5 | ⬜ 未实现 |
 | `auth:expired` | `{ accountId }` | 令牌失效，提示重新登录 | T4.x / M4 | ⬜ 未实现 |
@@ -853,6 +877,34 @@ interface SnapshotDiff {
   设置项随 T3.8（连同磁盘占用阈值）一起做
 - **返回**：`number[]`（被清理的快照 id）
 - **错误**：`NOT_FOUND`、`INTERNAL`
+
+### 文件监听与设置键（T1.10）
+
+监听**没有命令**：它的生命周期跟着仓库的打开与关闭走（`repo_open` / `repo_init` /
+`repo_clone` 成功后启动，`repo_close` / `repo_forget` 停止，应用退出时全部停止）。
+多一个手动开关只会让界面能进入"仓库开着但没监听而且没人知道为什么"的状态。
+
+| 设置键 | 取值 | 缺省 | 作用 |
+| --- | --- | --- | --- |
+| `watch.autoRefresh` | `true` / `false` | `true` | 关掉后不启动监听，前端退回 15 秒轮询 |
+| `watch.debounceMs` | 数字（毫秒） | `300` | 合并窗口；后端收敛到 `[50, 5000]` |
+
+两条实现纪律：
+
+- **写入即生效**：`settings_set` 命中这两个键时会重启 / 停止正在跑的监听，
+  否则"改了设置要重启应用才生效"等同于这个设置不存在；
+- **读不到就用默认值**：这两个值在"打开仓库"的路径上被读取，一个被手工改坏的
+  设置不该让用户打不开仓库。
+
+监听的行为（过滤、去抖动、溢出）在 `crates/platform/src/watcher.rs`：
+
+| 情况 | 处理 |
+| --- | --- |
+| `.git/objects`、`.git/logs`、`.git/lfs`、`node_modules`、`target`、`dist`、`build` | 丢弃（每次 git 命令都会写，与界面无关） |
+| `.git/index` | 归入 `workspace`（它描述的正是暂存状态） |
+| `.git/HEAD`、`.git/refs/**`、`.git/packed-refs` 等 | 归入 `refs` |
+| 只读访问、仅元数据变化（权限 / mtime） | 丢弃（`touch` 不改变 git 看到的内容） |
+| 一个窗口内超过 2000 个路径 | 只发一次 `large`（不列路径），界面整体失效并说明原因 |
 
 ---
 

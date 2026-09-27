@@ -30,6 +30,8 @@ use forgedesk_services::{
 use forgedesk_snapshot::SnapshotManager;
 use forgedesk_storage::{Database, OperationStore, RepositoryStore};
 
+use crate::watch::WatcherRegistry;
+
 /// 应用级共享状态。
 #[derive(Debug)]
 pub struct AppState {
@@ -46,11 +48,14 @@ pub struct AppState {
     pub jobs: Arc<JobRunner>,
     /// 当前会话中已打开的仓库。
     pub open_repos: Arc<OpenRepoRegistry>,
-    /// 快照管理器。
-    ///
-    /// M3 / T1.9 之前注入的是"未启用"实现（`NoopSnapshotManager`）——提交链路已经
-    /// 在正确的位置调用它，只是它如实回答"没有快照"。换成真实实现不需要改上层。
+    /// 快照管理器（T1.9 起是 ref 锚点实现，由宿主注入）。
     pub snapshots: Arc<dyn SnapshotManager>,
+    /// 仓库文件监听注册表（T1.10）。
+    ///
+    /// 与 `OpenRepoRegistry` 分工不同：后者记录"哪些仓库开着"，这里持有
+    /// "每份监听句柄"。句柄是**资源**（操作系统监听 + 一条线程），
+    /// 必须全进程唯一——每个命令各建一个注册表等于每次调用都多一份监听。
+    pub watchers: Arc<WatcherRegistry>,
     /// 待执行的提交计划（进程内、带 5 分钟有效期）。
     ///
     /// 必须全进程共享：`commit_prepare` 与 `commit_execute` 是两次独立调用，

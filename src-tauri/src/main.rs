@@ -10,10 +10,11 @@
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
-use forgedesk_commands::AppState;
+use forgedesk_commands::{emit_watch_event, AppState, WatcherRegistry};
 use forgedesk_diagnostics::SanitizingMakeWriter;
 use forgedesk_jobs::JobRunner;
 use forgedesk_platform::session::{detect_previous_session, start_session, SessionMarker};
+use forgedesk_platform::watcher::NotifyFileWatcher;
 use forgedesk_platform::{install_panic_hook, non_blocking_writer, LogFlushGuard, LogPolicy};
 use forgedesk_services::repository::OpenRepoRegistry;
 use forgedesk_services::{CommitPlanRegistry, GitEngines};
@@ -111,6 +112,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let engines = Arc::new(engines);
             let database = Arc::new(database);
 
+            // 文件监听（T1.10）：注册表持有"每仓库一份句柄"，事件经 sink 变成
+            // `repo:changed`。sink 捕获的是 AppHandle 而不是 App 的借用——
+            // 它的生命周期要跟进程一样长，而事件可能在监听线程上发出。
+            let handle = app.handle().clone();
+            let watchers = Arc::new(WatcherRegistry::new(
+                Arc::new(NotifyFileWatcher),
+                Arc::new(move |repo_id, event| {
+                    emit_watch_event(&handle, repo_id, event);
+                }),
+            ));
+
             app.manage(AppState {
                 database: Arc::clone(&database),
                 log_dir,
@@ -124,6 +136,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     Arc::clone(&database),
                 )),
                 commit_plans: Arc::new(CommitPlanRegistry::new()),
+                watchers,
             });
             app.manage(RuntimeHandles {
                 _log_guard: guard,
@@ -213,6 +226,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             if let Some(state) = handle.try_state::<AppState>() {
                 state.jobs.registry().cancel_all();
                 state.open_repos.close_all();
+                // 释放监听：句柄持有操作系统级的目录监听与一条线程。
+                // 进程马上就要退出，但显式停掉能让"立刻重启应用"这条路干净，
+                // 也不给"退出时还有线程在跑"留下解释不清的日志。
+                state.watchers.stop_all();
             }
 
             // 正常退出：删除会话标记。留在这里而不是 Drop 里，是因为

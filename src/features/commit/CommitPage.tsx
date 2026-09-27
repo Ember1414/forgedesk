@@ -21,7 +21,7 @@
  * 服务端状态（工作区状态、风格提示、amend 语境、钩子清单）走 TanStack Query
  * （AGENTS.md §6：Git 状态不进 Zustand）。
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
@@ -29,10 +29,8 @@ import { Link, useParams } from 'react-router-dom';
 
 import { CommitPreviewDialog } from '@/features/commit/CommitPreviewDialog';
 import { countsOf, groupsOf } from '@/features/workspace/statusModel';
-import { STATUS_QUERY_KEY } from '@/features/workspace/WorkspaceStatusPage';
 import { normalizeError, useAppError } from '@/lib/errors';
 import type { NormalizedError } from '@/lib/errors';
-import { isTauriRuntime } from '@/lib/ipc/client';
 import {
   commitAmendContext,
   commitExecute,
@@ -41,7 +39,9 @@ import {
   commitPrepare,
 } from '@/lib/ipc/commit';
 import type { AmendContext, AmendMode, CommitPlan, CommitSignMode } from '@/lib/ipc/commit';
-import { onRepoChanged, workspaceStatus } from '@/lib/ipc/workspace';
+import { workspaceStatus } from '@/lib/ipc/workspace';
+import { STATUS_QUERY_KEY, statusKey } from '@/lib/queryKeys';
+import { useRepoChangeInvalidation } from '@/lib/repoChanged';
 import { pushToast } from '@/stores/toastStore';
 import { Button } from '@/ui/components/button';
 import { Checkbox } from '@/ui/components/checkbox';
@@ -108,35 +108,22 @@ export function CommitPage() {
   });
 
   // 本页依赖的三份服务端状态：工作区状态、风格提示、钩子清单。
-  // 只用一处失效逻辑：提交成功后与收到 repo:changed 时走的是同一条路径
+  // 提交成功后的失效走这里（与外部变化的失效共用同一套键定义）
   const invalidateRepoQueries = useCallback(() => {
-    void queryClient.invalidateQueries({ queryKey: [STATUS_QUERY_KEY, repoId] });
+    void queryClient.invalidateQueries({ queryKey: statusKey(repoId) });
     void queryClient.invalidateQueries({ queryKey: [HINT_QUERY_KEY, repoId] });
     void queryClient.invalidateQueries({ queryKey: [HOOKS_QUERY_KEY, repoId] });
   }, [queryClient, repoId]);
 
-  // 用户在别处（状态面板、终端）暂存或改文件后，本页的"已暂存 N 个文件"必须跟着变。
-  // 这个 effect 里只做失效（不 setState），因此不会引发额外的渲染回合。
-  useEffect(() => {
-    if (!isTauriRuntime() || !Number.isFinite(repoId)) return;
-    let unlisten: (() => void) | undefined;
-    let cancelled = false;
-    void onRepoChanged((payload) => {
-      if (payload.repoId === repoId) {
-        invalidateRepoQueries();
-      }
-    }).then((fn) => {
-      if (cancelled) {
-        fn();
-      } else {
-        unlisten = fn;
-      }
-    });
-    return () => {
-      cancelled = true;
-      unlisten?.();
-    };
-  }, [invalidateRepoQueries, repoId]);
+  // 用户在别处（状态面板、终端）暂存、改文件或提交之后，本页的"已暂存 N 个文件"
+  // 与"最近提交提示"都要跟着变。通用类别由 `lib/repoChanged` 统一处理，
+  // 风格提示与钩子清单是本页自己的查询，作为额外键交给它一并失效。
+  useRepoChangeInvalidation(repoId, {
+    extraKeys: [
+      [HINT_QUERY_KEY, repoId],
+      [HOOKS_QUERY_KEY, repoId],
+    ],
+  });
 
   const stagedCount = statusQuery.data ? countsOf(groupsOf(statusQuery.data)).staged : 0;
   const subjectChars = subject.trim().length;

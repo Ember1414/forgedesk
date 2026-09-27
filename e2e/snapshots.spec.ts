@@ -36,7 +36,7 @@ const MOCK_SCRIPT = `
       if (command === "snapshot_restore") {
         window.__snapshotCalls.push({ command: command, args: args });
         for (const listener of listeners) {
-          listener({ event: "repo:changed", id: 0, payload: { repoId: 1, paths: [] } });
+          listener({ event: "repo:changed", id: 0, payload: { repoId: 1, kind: "refs", paths: [] } });
         }
         return Promise.resolve({
           restoredSnapshotId: args.snapshotId,

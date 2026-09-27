@@ -38,6 +38,7 @@ use tauri::{AppHandle, State};
 
 use crate::state::AppState;
 use crate::workspace::emit_changed;
+use forgedesk_platform::watcher::WatchKind;
 
 /// 提交信息长度上限（字符）。
 ///
@@ -418,10 +419,13 @@ pub fn commit_execute(
 
     let outcome = state.commit_service().execute(plan_id)?;
 
-    // 数据变化是事实：投递失败只影响本次自动刷新（面板仍可手动刷新）
+    // 数据变化是事实：投递失败只影响本次自动刷新（面板仍可手动刷新）。
+    // 提交移动的是 HEAD 与分支，因此按"引用变化"上报：历史、分支与状态
+    // （"已暂存"是相对 HEAD 而言的）都要跟着刷新。
     emit_changed(
         &app,
         outcome.repo_id,
+        WatchKind::Refs,
         outcome
             .paths
             .iter()

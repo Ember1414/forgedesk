@@ -20,6 +20,7 @@ use tauri::{AppHandle, State};
 
 use crate::state::AppState;
 use crate::workspace::emit_changed;
+use forgedesk_platform::watcher::WatchKind;
 
 /// 列表数量的上限：一次 IPC 拉走整个历史没有意义，翻页（M2）够用。
 const MAX_LIST_LIMIT: i64 = 200;
@@ -135,7 +136,9 @@ pub fn snapshot_restore(
         .restore(repo_id, snapshot_id)
         .map_err(snapshot_error)?;
 
-    emit_changed(&app, repo_id, Vec::new());
+    // 回滚把 HEAD、索引与工作区一起搬回去了：按"引用变化"上报，
+    // 让历史、分支与状态面板全部失效（工作区那一路由文件监听补上）
+    emit_changed(&app, repo_id, WatchKind::Refs, Vec::new());
     Ok(to_report_dto(&report))
 }
 

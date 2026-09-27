@@ -76,5 +76,11 @@ declare global {
     __mockCommits?: MockCommit[];
     /** mock 记录收到的快照命令（断言回滚用的是预览的那一个快照）。 */
     __snapshotCalls?: MockSnapshotCall[];
+    /**
+     * 手动投递一次 `repo:changed`（模拟文件监听发出的外部变化，T1.10）。
+     *
+     * `kind` 缺省 `workspace`；传 `large` 可以验证"大量变更"的界面说明。
+     */
+    __emitRepoChanged?: (paths: string[], kind?: string) => void;
   }
 }

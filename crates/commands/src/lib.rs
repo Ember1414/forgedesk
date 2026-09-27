@@ -37,6 +37,7 @@ pub mod settings;
 pub mod snapshots;
 pub mod state;
 pub mod system;
+pub mod watch;
 pub mod workspace;
 
 pub use commit::{
@@ -60,6 +61,7 @@ pub use snapshots::{
 };
 pub use state::AppState;
 pub use system::{app_version, AppVersion};
+pub use watch::{emit_watch_event, WatchSettings, WatcherRegistry, AUTO_REFRESH_KEY, DEBOUNCE_KEY};
 pub use workspace::{
     workspace_diff, workspace_diff_patch, workspace_discard, workspace_reveal, workspace_stage,
     workspace_status, workspace_unstage, StatusReportDto, EVENT_REPO_CHANGED,

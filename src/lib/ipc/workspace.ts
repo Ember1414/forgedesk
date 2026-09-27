@@ -45,9 +45,21 @@ export interface WorkspaceStatus {
   readonly ignoredCount?: number | null;
 }
 
+/**
+ * 变化类别（与后端 `WatchKind` 一一对应）。
+ *
+ * - `workspace`：文件内容或暂存区变了；
+ * - `refs`：HEAD / 分支 / 引用变了；
+ * - `large`：一个窗口内的变化量超过阈值，路径不再逐条列举。
+ */
+export type RepoChangeKind = 'workspace' | 'refs' | 'large';
+
 /** `repo:changed` 事件载荷。 */
 export interface RepoChangedPayload {
   readonly repoId: number;
+  /** 变化类别：前端据此决定失效哪些查询。 */
+  readonly kind: RepoChangeKind;
+  /** 涉及的路径（相对仓库根；`large` 时为空）。 */
   readonly paths: readonly string[];
 }
 

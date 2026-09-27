@@ -34,9 +34,11 @@ const MOCK_SCRIPT = `
       ignoredCount: null,
     };
   }
-  function emitRepoChanged(paths) {
-    for (const listener of listeners) listener({ event: "repo:changed", id: 0, payload: { repoId: 1, paths } });
+  function emitRepoChanged(paths, kind) {
+    for (const listener of listeners) listener({ event: "repo:changed", id: 0, payload: { repoId: 1, kind: kind || "workspace", paths } });
   }
+  // 供用例模拟"外部变化"（真实环境里这些事件来自文件监听，T1.10）
+  window.__emitRepoChanged = emitRepoChanged;
   window.__TAURI_INTERNALS__ = {
     transformCallback: function (callback) { listeners.push(callback); return listeners.length; },
     unregisterListener: function () {},
@@ -194,6 +196,38 @@ test('hunk 头的"暂存此块"按块粒度提交', async ({ page }) => {
     command: 'workspace_stage',
     spec: { kind: 'hunks', path: 'src/dirty-1.ts', hunkIndices: [0] },
   });
+
+  const errs = await page.evaluate(() => window.__errs ?? []);
+  expect(errs, JSON.stringify(errs)).toEqual([]);
+});
+
+test('外部变化：repo:changed 驱动刷新，large 事件给出说明', async ({ page }) => {
+  await page.goto('/#/repo/1/status');
+  await expect(page.getByRole('button', { name: /未暂存 3/ })).toBeVisible();
+
+  // 模拟"用户在终端里新建了一个文件"：改夹具 + 发事件。
+  // 真实环境里这件事由文件监听完成（后端 crates/platform 的 watcher）。
+  await page.evaluate(() => {
+    window.__mockFiles?.push({
+      path: 'src/external.ts',
+      kind: 'untracked',
+      indexStatus: '.',
+      worktreeStatus: '?',
+      isBinary: false,
+      isLfs: false,
+      isSubmodule: false,
+      sizeBytes: 5,
+    });
+    window.__emitRepoChanged?.([], 'workspace');
+  });
+
+  await expect(page.getByRole('button', { name: /未跟踪 3/ })).toBeVisible({ timeout: 10_000 });
+
+  // large：一次窗口内的变化太多，界面要说明"为什么整体刷了一次"
+  await page.evaluate(() => {
+    window.__emitRepoChanged?.([], 'large');
+  });
+  await expect(page.getByTestId('workspace-large-change')).toBeVisible();
 
   const errs = await page.evaluate(() => window.__errs ?? []);
   expect(errs, JSON.stringify(errs)).toEqual([]);

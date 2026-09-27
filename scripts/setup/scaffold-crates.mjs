@@ -95,7 +95,9 @@ const CRATES = [
     doc: '平台适配层：凭据库、shell 解析、路径规范化、日志文件、文件监听、系统通知、系统集成。',
     // tracing-subscriber / tracing-appender / time：日志落盘、轮转与末尾读取（T0.8）
     // forgedesk-diagnostics：所有出境的日志与日志行必须脱敏（红线 R8）
+    // notify：仓库文件监听的原生后端（T1.10）
     deps: [
+      'notify',
       'serde',
       'serde_json',
       'thiserror',

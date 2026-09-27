@@ -11,9 +11,9 @@
 //! 3. **大数据量**：列表统一走 VirtualList（树视图展开为"目录行+文件行"序列），
 //!    基准数据见 docs/benchmarks/status-panel.md。
 
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { Copy, FolderOpen, Minus, Plus, RefreshCw, RotateCcw, Rows3 } from 'lucide-react';
 import type { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
@@ -66,7 +66,6 @@ import {
 import { ToggleGroup } from '@/ui/components/toggle-group';
 import { VirtualList } from '@/ui/components/virtual-list';
 import {
-  onRepoChanged,
   workspaceDiscard,
   workspaceReveal,
   workspaceStage,
@@ -76,39 +75,20 @@ import {
 import type { DiscardScope, PatchViewSpec, StageScope } from '@/lib/ipc/workspace';
 import { normalizeError, useAppError } from '@/lib/errors';
 import { cn } from '@/lib/utils';
-import { isTauriRuntime } from '@/lib/ipc/client';
+import { useRepoChangeInvalidation } from '@/lib/repoChanged';
+import { useSettingsStore, WATCH_AUTO_REFRESH_KEY } from '@/stores/settingsStore';
 
-/** TanStack Query 的 key 约定（T1.4 第 7 条：["status", repoId]）。 */
-export const STATUS_QUERY_KEY = 'status';
+/** TanStack Query 的 key 约定（定义在 `@/lib/queryKeys`，各页面从那里引用）。 */
+import { STATUS_QUERY_KEY } from '@/lib/queryKeys';
 
-/** 刷新间隔：无文件监听前的兜底（T1.10 之后可移除）。 */
-const STATUS_REFRESH_MS = 15_000;
-
-/** 订阅 repo:changed，失效对应仓库的状态查询。 */
-function useInvalidateOnRepoChanged(repoId: number): void {
-  const queryClient = useQueryClient();
-  useEffect(() => {
-    // 测试环境（jsdom）与浏览器预览没有 Tauri IPC：事件订阅只应在桌面运行时存在
-    if (!isTauriRuntime()) return;
-    let unlisten: (() => void) | undefined;
-    let cancelled = false;
-    void onRepoChanged((payload) => {
-      if (payload.repoId === repoId) {
-        void queryClient.invalidateQueries({ queryKey: [STATUS_QUERY_KEY, repoId] });
-      }
-    }).then((fn) => {
-      if (cancelled) {
-        fn();
-      } else {
-        unlisten = fn;
-      }
-    });
-    return () => {
-      cancelled = true;
-      unlisten?.();
-    };
-  }, [queryClient, repoId]);
-}
+/**
+ * 轮询兜底：只在**关掉自动刷新**时使用。
+ *
+ * 为什么保留：文件监听在两类环境下不可靠——网络盘 / 超大仓库，以及用户
+ * 主动关掉开关（见设置页的"自动刷新"）。没有轮询，那些情况下界面永远不会更新。
+ * 开着监听时不轮询：那是 T1.10 的性能验收（大仓库上 CPU 空闲占用接近 0）。
+ */
+const STATUS_FALLBACK_REFRESH_MS = 15_000;
 /** 单个分组的可折叠列表。 */
 function GroupSection(props: {
   readonly title: string;
@@ -353,14 +333,30 @@ export function WorkspaceStatusPage() {
     path: string;
     target: 'staged' | 'unstaged';
   } | null>(null);
+  /**
+   * "刚才发生的是一次大量变更"。
+   *
+   * 监听在变化量超过阈值时只发一个 `large` 事件（没有路径可列）。那种情况下
+   * 列表会整体刷新一次，界面上要说明原因——否则用户只会看到内容"自己跳了一下"。
+   */
+  const [largeChange, setLargeChange] = useState(false);
+  /** 自动刷新开关：关掉时退回轮询（见 `STATUS_FALLBACK_REFRESH_MS`）。 */
+  const autoRefresh = useSettingsStore((state) =>
+    state.getJson<boolean>(WATCH_AUTO_REFRESH_KEY, true),
+  );
 
   const query = useQuery({
     queryKey: [STATUS_QUERY_KEY, repoId, includeIgnored],
     queryFn: () => workspaceStatus(repoId, includeIgnored),
     enabled: Number.isFinite(repoId),
-    refetchInterval: STATUS_REFRESH_MS,
+    // 监听开着时由事件驱动刷新（T1.10）；关掉开关才退回定时轮询
+    ...(autoRefresh ? {} : { refetchInterval: STATUS_FALLBACK_REFRESH_MS }),
   });
-  useInvalidateOnRepoChanged(repoId);
+  useRepoChangeInvalidation(repoId, {
+    onLargeChange: () => {
+      setLargeChange(true);
+    },
+  });
 
   const groups = query.data ? groupsOf(query.data) : undefined;
   const counts = groups ? countsOf(groups) : undefined;
@@ -556,6 +552,24 @@ export function WorkspaceStatusPage() {
                 onClick={() => setView('tree')}
               >
                 {t('workspace.goToConflicts')}
+              </button>
+            </div>
+          ) : null}
+          {largeChange ? (
+            <div
+              className="flex flex-wrap items-center gap-2 rounded-lg border border-line bg-surface-sunken p-3 text-13"
+              data-testid="workspace-large-change"
+            >
+              {t('workspace.largeChange')}
+              <button
+                type="button"
+                className="text-brand underline"
+                onClick={() => {
+                  setLargeChange(false);
+                  void query.refetch();
+                }}
+              >
+                {t('workspace.refresh')}
               </button>
             </div>
           ) : null}

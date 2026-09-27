@@ -13,6 +13,8 @@ authors.workspace = true
 [dependencies]
 forgedesk-diagnostics.workspace = true
 forgedesk-domain.workspace = true
+# 文件监听（T1.10）用它拿到操作系统的原生事件；过滤与去抖动在 watcher 模块里做。
+notify.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true

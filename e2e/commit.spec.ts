@@ -130,7 +130,7 @@ function mockScript(files: readonly MockFile[], headPushed = false): string {
           commits.unshift({ oid: "new-oid-0001", subject: last.subject });
           for (const file of files) file.indexStatus = ".";
         }
-        emit("repo:changed", { repoId: 1, paths: paths });
+        emit("repo:changed", { repoId: 1, kind: "refs", paths: paths });
         return Promise.resolve({ oid: commits[0].oid, subject: commits[0].subject, snapshotId: null, paths: paths });
       }
       if (command === "plugin:event|unlisten") return Promise.resolve(null);

@@ -3,7 +3,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { settingsAll, settingsSet } from '@/lib/ipc';
 import { GeneralSettingsPage } from '@/features/settings/GeneralSettingsPage';
-import { DENSITY_KEY, initialSettingsState, useSettingsStore } from '@/stores/settingsStore';
+import {
+  DENSITY_KEY,
+  initialSettingsState,
+  useSettingsStore,
+  WATCH_AUTO_REFRESH_KEY,
+  WATCH_DEBOUNCE_KEY,
+} from '@/stores/settingsStore';
 
 /**
  * 通用设置页的测试重点（T0.7 验收）：
@@ -61,6 +67,50 @@ describe('GeneralSettingsPage', () => {
     render(<GeneralSettingsPage />);
 
     expect(await screen.findByText('本地数据')).toBeInTheDocument();
+  });
+
+  it('自动刷新开关写入后端，并把当前值反映到控件上（T1.10）', async () => {
+    settingsAllMock.mockResolvedValue({ [WATCH_AUTO_REFRESH_KEY]: 'false' });
+    settingsSetMock.mockResolvedValue(undefined);
+
+    render(<GeneralSettingsPage />);
+
+    const toggle = await screen.findByRole('checkbox', { name: '启用自动刷新' });
+    // 关掉状态来自后端（不是控件的默认值）
+    await waitFor(() => {
+      expect(toggle).toHaveAttribute('aria-checked', 'false');
+    });
+
+    fireEvent.click(toggle);
+
+    await waitFor(() => {
+      // 值以 JSON 形式落库；命令层会据此重启或停掉正在跑的监听
+      expect(settingsSetMock).toHaveBeenCalledWith(
+        'global',
+        WATCH_AUTO_REFRESH_KEY,
+        'true',
+        undefined,
+      );
+    });
+  });
+
+  it('去抖动窗口的选项覆盖默认值，选择后写入后端', async () => {
+    settingsAllMock.mockResolvedValue({});
+    settingsSetMock.mockResolvedValue(undefined);
+
+    render(<GeneralSettingsPage />);
+
+    // 默认 300 毫秒：控件上要能看到它被选中
+    const defaultChoice = await screen.findByRole('radio', { name: '300 毫秒' });
+    await waitFor(() => {
+      expect(defaultChoice).toHaveAttribute('data-state', 'on');
+    });
+
+    fireEvent.click(screen.getByRole('radio', { name: '1000 毫秒' }));
+
+    await waitFor(() => {
+      expect(settingsSetMock).toHaveBeenCalledWith('global', WATCH_DEBOUNCE_KEY, '1000', undefined);
+    });
   });
 
   it('读取失败时显示错误态并可重试', async () => {

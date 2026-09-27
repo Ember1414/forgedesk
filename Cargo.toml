@@ -68,6 +68,10 @@ uuid = { version = "1", features = ["v4", "serde"] }
 time = { version = "0.3", features = ["serde", "formatting", "parsing", "macros"] }
 secrecy = "0.10"
 parking_lot = "0.12"
+# notify：跨平台文件监听（T1.10）。它在三平台各自使用原生后端
+# （Windows ReadDirectoryChangesW、macOS FSEvents、Linux inotify），
+# 我们只做"过滤 + 去抖动"，不自己轮询。
+notify = "8"
 
 # ---- 本地存储 ----
 # bundled：把 SQLite 源码一起编译进产物。为什么不用系统库：

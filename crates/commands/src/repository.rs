@@ -29,6 +29,7 @@ use tauri::{AppHandle, State};
 
 use crate::jobs::reporter_for;
 use crate::state::AppState;
+use crate::watch;
 
 /// 最近列表的默认条数。
 const DEFAULT_RECENT_LIMIT: usize = 50;
@@ -433,10 +434,18 @@ pub fn repo_discover(state: State<'_, AppState>, path: String) -> AppResult<Repo
 #[tauri::command]
 pub fn repo_open(state: State<'_, AppState>, path: String) -> AppResult<OpenedRepositoryDto> {
     let path = validated_path(&path, "path")?;
-    state
-        .repository_service()
-        .open(&path)
-        .map(OpenedRepositoryDto::from)
+    let opened = state.repository_service().open(&path)?;
+
+    // 打开成功即开始监听外部变化（终端里的 git 命令、编辑器保存）。
+    // 监听失败只记日志：仓库照样能打开，只是少了自动刷新。
+    watch::start_for_repo(
+        &state.watchers,
+        &state.database,
+        opened.record_id,
+        watch_root(&opened),
+    );
+
+    Ok(OpenedRepositoryDto::from(opened))
 }
 
 /// 克隆仓库（长任务）。
@@ -458,13 +467,21 @@ pub fn repo_clone(
     let database = Arc::clone(&state.database);
     let open_repos = Arc::clone(&state.open_repos);
 
+    // 监听要在克隆**成功之后**才启动：克隆过程中目标目录还不存在，
+    // 提前 watch 只会得到一个失败
+    let watchers = Arc::clone(&state.watchers);
+
     let job_id = state.jobs.spawn(reporter_for(app), move |context| {
         let progress = progress_sink(&context);
-        let service =
-            RepositoryService::new(&engines, RepositoryStore::new(&database), &open_repos);
-        service
-            .clone(&spec, &progress)
-            .map(OpenedRepositoryDto::from)
+        let opened = {
+            let service =
+                RepositoryService::new(&engines, RepositoryStore::new(&database), &open_repos);
+            service.clone(&spec, &progress)?
+        };
+
+        // 服务已释放，这里可以再借数据库来读监听设置
+        watch::start_for_repo(&watchers, &database, opened.record_id, watch_root(&opened));
+        Ok(OpenedRepositoryDto::from(opened))
     });
 
     Ok(JobIdDto {
@@ -479,10 +496,19 @@ pub fn repo_clone(
 #[tauri::command]
 pub fn repo_init(state: State<'_, AppState>, spec: InitRequest) -> AppResult<OpenedRepositoryDto> {
     let (path, init_spec, extras) = spec.into_parts()?;
-    state
+    let opened = state
         .repository_service()
-        .init(&path, &init_spec, &extras)
-        .map(OpenedRepositoryDto::from)
+        .init(&path, &init_spec, &extras)?;
+
+    // 与 repo_open 同一条纪律：初始化成功就顺手开始监听
+    watch::start_for_repo(
+        &state.watchers,
+        &state.database,
+        opened.record_id,
+        watch_root(&opened),
+    );
+
+    Ok(OpenedRepositoryDto::from(opened))
 }
 
 /// 最近打开的仓库（按最近打开时间倒序）。
@@ -512,7 +538,10 @@ pub fn repo_recent_list(
 /// 能力等级：`Mutating`（改本地登记表）。
 #[tauri::command]
 pub fn repo_forget(state: State<'_, AppState>, repo_id: i64) -> AppResult<()> {
-    state.repository_service().forget(repo_id)
+    state.repository_service().forget(repo_id)?;
+    // 记录被移除，监听也必须停：句柄是真实资源（操作系统监听 + 一条线程）
+    state.watchers.stop(repo_id);
+    Ok(())
 }
 
 /// 关闭一个已打开的仓库（结束会话内的"已打开"状态）。
@@ -520,10 +549,26 @@ pub fn repo_forget(state: State<'_, AppState>, repo_id: i64) -> AppResult<()> {
 /// 能力等级：`ReadOnly`（不改数据库、不碰仓库，只改本进程内的会话状态）。
 #[tauri::command]
 pub fn repo_close(state: State<'_, AppState>, repo_id: i64) -> AppResult<()> {
-    state.repository_service().close(repo_id)
+    state.repository_service().close(repo_id)?;
+    // 关闭仓库即停止监听：继续监听一个用户已经关掉的仓库既是浪费，
+    // 也会让前端收到"没人在看"的事件
+    state.watchers.stop(repo_id);
+    Ok(())
 }
 
 // ---------------------------------------------------------------- 校验与转换
+
+/// 该监听哪个目录：工作区优先，裸仓库退回 `.git` 目录。
+///
+/// 裸仓库没有工作区，但它有引用与索引——有人往它 `git push` 时界面同样要刷新，
+/// 因此不能因为 `workdir` 为空就跳过监听。
+fn watch_root(opened: &OpenedRepository) -> &std::path::Path {
+    opened
+        .info
+        .workdir
+        .as_deref()
+        .unwrap_or(opened.info.git_dir.as_path())
+}
 
 /// 校验并收敛一个来自 IPC 的路径。
 ///

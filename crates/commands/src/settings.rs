@@ -17,6 +17,7 @@ use forgedesk_storage::{Scope, SettingsRepository};
 use tauri::State;
 
 use crate::state::AppState;
+use crate::watch::{self, WatchSettings};
 
 /// 校验设置值是否为合法 JSON。
 ///
@@ -63,7 +64,14 @@ pub fn settings_set(
 ) -> AppResult<()> {
     let scope = Scope::parse(&scope, repo_id)?;
     validate_json_value(&value)?;
-    SettingsRepository::new(&state.database).set(&scope, &key, &value)
+    SettingsRepository::new(&state.database).set(&scope, &key, &value)?;
+
+    // 监听类设置写完之后必须**立刻生效**：用户改了去抖动时长却要重启应用
+    // 才起作用，等同于这个设置不存在。
+    if WatchSettings::is_watch_key(&key) {
+        watch::apply_settings(&state.watchers, &state.database, &state.open_repos.ids())?;
+    }
+    Ok(())
 }
 
 /// 读取某个范围下的全部设置（返回 `key → JSON 字符串`）。

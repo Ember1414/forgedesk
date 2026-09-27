@@ -20,8 +20,9 @@ import { Trash2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useParams } from 'react-router-dom';
 
-import { STATUS_QUERY_KEY } from '@/features/workspace/WorkspaceStatusPage';
 import { normalizeError, useAppError } from '@/lib/errors';
+import { SNAPSHOTS_QUERY_KEY, STATUS_QUERY_KEY } from '@/lib/queryKeys';
+import { useRepoChangeInvalidation } from '@/lib/repoChanged';
 import { snapshotDiff, snapshotList, snapshotPrune, snapshotRestore } from '@/lib/ipc/snapshots';
 import type { SnapshotDiff, SnapshotMeta } from '@/lib/ipc/snapshots';
 import { pushToast } from '@/stores/toastStore';
@@ -39,8 +40,6 @@ import { Button } from '@/ui/components/button';
 import { EmptyState } from '@/ui/components/empty-state';
 import { ErrorState } from '@/ui/components/error-state';
 import { Skeleton } from '@/ui/components/skeleton';
-
-const SNAPSHOTS_QUERY_KEY = 'snapshots';
 
 /** kind 短名 → i18n key（只增不改的清单，见 SnapshotKind::key）。 */
 const KIND_LABEL_KEYS: Readonly<Record<string, string>> = {
@@ -71,6 +70,10 @@ export function SnapshotsPage() {
     queryFn: () => snapshotList(repoId, 50),
     enabled: Number.isFinite(repoId),
   });
+
+  // 外部提交（终端里的 git commit）同样会产生"提交前"快照：列表必须跟着更新，
+  // 否则用户会以为自己刚打的点丢了。`refs` 类别已经包含快照键，无需额外参数。
+  useRepoChangeInvalidation(repoId);
 
   const invalidate = () => {
     void queryClient.invalidateQueries({ queryKey: [SNAPSHOTS_QUERY_KEY, repoId] });

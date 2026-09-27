@@ -52,6 +52,7 @@ import { normalizeError } from '@/lib/errors';
 import { workspaceDiff, workspaceDiffPatch } from '@/lib/ipc/workspace';
 import type { DiffHunk, DiffLine, PatchViewSpec, StageScope } from '@/lib/ipc/workspace';
 import { Button } from '@/ui/components/button';
+import { DIFF_QUERY_KEY } from '@/lib/queryKeys';
 import { ErrorState } from '@/ui/components/error-state';
 import { IconButton } from '@/ui/components/icon-button';
 import { Skeleton } from '@/ui/components/skeleton';
@@ -361,7 +362,9 @@ export function DiffView({
   };
 
   const query = useQuery({
-    queryKey: ['diff', repoId, target, path, contextLines, forceFull],
+    // 键的形状由 `@/lib/queryKeys` 统一提供：`repo:changed` 的失效逻辑按同一批键
+    // 去找查询，键在这里写错（少一段、换个字面量）就会让自动刷新静默失效
+    queryKey: [DIFF_QUERY_KEY, repoId, target, path, contextLines, forceFull],
     queryFn: () => workspaceDiff(repoId, { target, paths: [path], contextLines, forceFull }),
   });
 

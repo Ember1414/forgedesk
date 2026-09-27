@@ -22,6 +22,7 @@ use forgedesk_domain::git::{
     EntryKind, LineSelection, OperationState, RepoPath, StageScope, StatusReport,
 };
 use forgedesk_domain::{AppError, AppResult, ErrorCode};
+use forgedesk_platform::watcher::WatchKind;
 use forgedesk_services::PatchView;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
@@ -37,7 +38,13 @@ pub const EVENT_REPO_CHANGED: &str = "repo:changed";
 pub struct RepoChangedPayload {
     /// 发生变化的仓库（存储层记录 id）。
     pub repo_id: i64,
-    /// 本次操作涉及的路径（相对仓库根）。
+    /// 变化类别（`workspace` / `refs` / `large`，见 `WatchKind`）。
+    ///
+    /// 前端据此决定失效哪些查询：只改了文件就没必要刷新历史列表。
+    /// 应用自己的写操作与文件监听共用同一套取值——两处若各说各话，
+    /// 前端就得为"谁发的"写两套判断。
+    pub kind: String,
+    /// 本次操作涉及的路径（相对仓库根；`large` 时为空）。
     pub paths: Vec<String>,
 }
 
@@ -194,12 +201,23 @@ fn to_repo_paths(paths: &[String]) -> Vec<RepoPath> {
         .collect()
 }
 
-pub(crate) fn emit_changed(app: &AppHandle, repo_id: i64, paths: Vec<String>) {
+/// 广播一次数据变化。
+///
+/// `kind` 用 [`WatchKind`] 而不是自定义枚举：应用自己的写操作与文件监听
+/// 描述的是同一件事（"仓库的哪一部分变了"），共用一套取值前端才好处理。
+pub(crate) fn emit_changed(app: &AppHandle, repo_id: i64, kind: WatchKind, paths: Vec<String>) {
     // 事件投递失败不该让"操作已成功"回滚成错误：数据变化是事实，
     // 面板下一次刷新自然会追上。这里只记录告警（经脱敏层）。
-    if let Err(_error) = app.emit(EVENT_REPO_CHANGED, RepoChangedPayload { repo_id, paths }) {
+    if let Err(_error) = app.emit(
+        EVENT_REPO_CHANGED,
+        RepoChangedPayload {
+            repo_id,
+            kind: kind.as_str().to_owned(),
+            paths,
+        },
+    ) {
         // 投递失败只影响本次自动刷新（操作本身已成功，用户仍可手动刷新）；
-        // T1.10 引入文件监听后，watch 事件会自然兜住这类丢失。
+        // T1.10 的文件监听也会在外部变化时补上一次事件。
     }
 }
 // ---------------------------------------------------------------- 命令
@@ -456,7 +474,7 @@ pub fn workspace_stage(
         }
     }
 
-    emit_changed(&app, repo_id, paths);
+    emit_changed(&app, repo_id, WatchKind::Workspace, paths);
     Ok(())
 }
 
@@ -488,7 +506,7 @@ pub fn workspace_unstage(
         }
     }
 
-    emit_changed(&app, repo_id, paths);
+    emit_changed(&app, repo_id, WatchKind::Workspace, paths);
     Ok(())
 }
 
@@ -525,7 +543,7 @@ pub fn workspace_discard(
         }
     }
 
-    emit_changed(&app, repo_id, paths);
+    emit_changed(&app, repo_id, WatchKind::Workspace, paths);
     Ok(())
 }
 

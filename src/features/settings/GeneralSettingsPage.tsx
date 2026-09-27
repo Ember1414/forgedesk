@@ -2,8 +2,17 @@ import { useEffect } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
-import { DENSITIES, DENSITY_KEY, useSettingsStore } from '@/stores/settingsStore';
+import {
+  DEBOUNCE_CHOICES_MS,
+  DEFAULT_DEBOUNCE_MS,
+  DENSITIES,
+  DENSITY_KEY,
+  useSettingsStore,
+  WATCH_AUTO_REFRESH_KEY,
+  WATCH_DEBOUNCE_KEY,
+} from '@/stores/settingsStore';
 import type { Density } from '@/stores/settingsStore';
+import { Checkbox } from '@/ui/components/checkbox';
 import { ErrorState } from '@/ui/components/error-state';
 import { Skeleton } from '@/ui/components/skeleton';
 import { ToggleGroup } from '@/ui/components/toggle-group';
@@ -36,6 +45,8 @@ export function GeneralSettingsPage() {
   }, [load]);
 
   const density = getJson<Density>(DENSITY_KEY, 'comfortable');
+  const autoRefresh = getJson<boolean>(WATCH_AUTO_REFRESH_KEY, true);
+  const debounceMs = getJson<number>(WATCH_DEBOUNCE_KEY, DEFAULT_DEBOUNCE_MS);
 
   return (
     <section className="flex flex-col gap-4">
@@ -79,6 +90,50 @@ export function GeneralSettingsPage() {
               }}
             />
           )}
+        </div>
+
+        {/* 自动刷新（T1.10）：文件监听的开与关，以及它的合并窗口 */}
+        <div className="flex flex-col gap-3 border-t border-line pt-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex max-w-md flex-col gap-0.5">
+              <span className="text-14 font-medium">{t('settings.general.watchLabel')}</span>
+              <span className="text-12 text-fg-subtle">{t('settings.general.watchHint')}</span>
+            </div>
+            {loading && !loaded ? (
+              <Skeleton className="h-5 w-24" />
+            ) : (
+              <Checkbox
+                label={t('settings.general.watchAutoRefresh')}
+                checked={autoRefresh}
+                onCheckedChange={(next) => {
+                  // 后端的监听类设置是"写完即生效"的：命令层会把正在跑的监听
+                  // 按新值重启或停掉，因此这里不需要额外通知
+                  void setJson(WATCH_AUTO_REFRESH_KEY, next === true).catch(show);
+                }}
+              />
+            )}
+          </div>
+
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <span className="max-w-md text-12 text-fg-subtle">
+              {t('settings.general.watchDebounceHint')}
+            </span>
+            {loading && !loaded ? (
+              <Skeleton className="h-7 w-40" />
+            ) : (
+              <ToggleGroup
+                label={t('settings.general.watchDebounceLabel')}
+                value={String(debounceMs)}
+                options={DEBOUNCE_CHOICES_MS.map((value) => ({
+                  value: String(value),
+                  label: t('settings.general.watchDebounceValue', { ms: value }),
+                }))}
+                onValueChange={(next) => {
+                  void setJson(WATCH_DEBOUNCE_KEY, Number(next)).catch(show);
+                }}
+              />
+            )}
+          </div>
         </div>
 
         <div className="flex flex-col gap-1 border-t border-line pt-4">
