@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 
 import { App } from '@/app/App';
 import { applyThemeMode, readThemeMode } from '@/app/theme';
+import { installFrontendErrorHooks } from '@/lib/frontendErrors';
 // 副作用导入：初始化 i18n（必须在首次渲染前完成，否则会先渲染出 key 原文）
 import '@/lib/i18n';
 
@@ -12,37 +13,16 @@ import '@/styles/index.css';
 applyThemeMode(readThemeMode());
 
 /**
- * 未捕获错误集合（`window.__errs`，PLAN §10 的 DoD 必过项）。
- *
- * 用途：E2E 与人工验收的**最后一道闸**——所有交互结束后断言它为空。
- * 被 React/TanStack Query 捕获的错误不会进这里（那是"已处理"）；
- * 进来的只有真正逃逸的错误：未捕获异常与没人接的 Promise 拒绝。
+ * 未捕获错误的钩子（PLAN §10 的 DoD 必过项）。
  *
  * 为什么在渲染前安装：`createRoot` 之后的渲染错误只有装了 error boundary 才会被接住，
- * 而 M0 还没有 boundary——这个钩子必须比第一行业务代码更早存在。
- * 只保留最近 50 条：错误的数量不该成为内存问题。
+ * 而这个钩子必须比第一行业务代码更早存在。被 React/TanStack Query 捕获的错误
+ * 不会进这里（那是"已处理"）；进来的只有真正逃逸的错误。
+ *
+ * 去路按构建类型分开：开发与 E2E 收进 `window.__errs`（测试结束断言为空），
+ * 生产写本地日志——生产里没人看那个数组，只有日志能把"偶发白屏"变成证据。
  */
-declare global {
-  interface Window {
-    /** 未捕获错误集合（E2E 断言其为空；仅保留最近 50 条）。 */
-    __errs?: unknown[];
-  }
-}
-
-window.__errs = [];
-const collectError = (error: unknown): void => {
-  const errors = window.__errs ?? (window.__errs = []);
-  errors.push(error);
-  if (errors.length > 50) {
-    errors.splice(0, errors.length - 50);
-  }
-};
-window.addEventListener('error', (event) => {
-  collectError(event.error ?? event.message);
-});
-window.addEventListener('unhandledrejection', (event) => {
-  collectError(event.reason);
-});
+installFrontendErrorHooks({ collect: import.meta.env.DEV });
 
 const container = document.getElementById('root');
 if (!container) {

@@ -1,3 +1,7 @@
+import { readdirSync, readFileSync } from 'node:fs';
+import { dirname, join, relative, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
 import { describe, expect, it } from 'vitest';
 
 import i18n, {
@@ -71,6 +75,91 @@ describe('i18n 资源完整性', () => {
     for (const language of SUPPORTED_LANGUAGES) {
       expect(collectEmptyValues(BUNDLES[language][namespace])).toEqual([]);
     }
+  });
+});
+
+/**
+ * 源码里引用的 key 必须真的存在。
+ *
+ * 为什么需要：中英 key 对齐（上面的用例）只能保证"两边一样"，保证不了
+ * "界面用的那个 key 存在"。T1.6 引入的 `t('common:actions.cancel')` 就漏了定义，
+ * 结果是确认框上印着 `common:actions.cancel` 原文——中英对齐检查、硬编码检查、
+ * 类型检查全都拦不住它（`t` 的签名接受任意字符串），一直到 E2E 里按按钮名
+ * 找不到元素才暴露。
+ *
+ * 判定口径（务实优先）：
+ *   - 只认**字符串字面量**调用：`t('a.b')`、`t("ns:a.b")`。模板字符串与
+ *     拼接（`t(\`errors:${code}.title\`)`）无法静态求值，跳过；
+ *   - 带命名空间前缀时按前缀查；不带前缀时**在任一命名空间里存在即可**
+ *     （文件里的 `useTranslation('errors')` 之类绑定关系用正则推断太脆，
+ *     宁可用宽口径：少一个假阳性，就少一次"把门禁关掉"的冲动）；
+ *   - 测试文件自身不参与扫描。
+ */
+function collectSourceFiles(directory: string): string[] {
+  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    const full = join(directory, entry.name);
+    if (entry.isDirectory()) {
+      return entry.name === '__tests__' || entry.name === '__mocks__'
+        ? []
+        : collectSourceFiles(full);
+    }
+    if (!/\.tsx?$/.test(entry.name) || /\.(test|spec)\.tsx?$/.test(entry.name)) {
+      return [];
+    }
+    return [full];
+  });
+}
+
+/** 从源码里抽出所有 `t('<字面量>'` 形式的 key 引用。 */
+function collectReferencedKeys(source: string): string[] {
+  const pattern = /\bt\(\s*(?:'([^'\\\n]+)'|"([^"\\\n]+)")\s*[,)]/g;
+  const keys: string[] = [];
+  for (const match of source.matchAll(pattern)) {
+    const key = match[1] ?? match[2];
+    if (key !== undefined) {
+      keys.push(key);
+    }
+  }
+  return keys;
+}
+
+describe('i18n key 引用完整性', () => {
+  const allKeys = new Set(
+    NAMESPACES.flatMap((namespace) =>
+      SUPPORTED_LANGUAGES.flatMap((language) =>
+        flattenKeys(BUNDLES[language][namespace]).map((key) => `${namespace}:${key}`),
+      ),
+    ),
+  );
+
+  it('源码里 t() 引用的 key 全部存在', () => {
+    const srcDir = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
+    const missing: string[] = [];
+
+    for (const file of collectSourceFiles(srcDir)) {
+      const source = readFileSync(file, 'utf8');
+      const relativePath = relative(srcDir, file).replace(/\\/g, '/');
+      for (const key of collectReferencedKeys(source)) {
+        const separator = key.indexOf(':');
+        const qualified =
+          separator > 0 && (NAMESPACES as readonly string[]).includes(key.slice(0, separator))
+            ? key
+            : null;
+        if (qualified !== null) {
+          if (!allKeys.has(qualified)) {
+            missing.push(`${relativePath}: ${qualified}`);
+          }
+          continue;
+        }
+        // 无前缀：任一命名空间里有就算存在
+        const found = NAMESPACES.some((namespace) => allKeys.has(`${namespace}:${key}`));
+        if (!found) {
+          missing.push(`${relativePath}: ${key}`);
+        }
+      }
+    }
+
+    expect(missing).toEqual([]);
   });
 });
 

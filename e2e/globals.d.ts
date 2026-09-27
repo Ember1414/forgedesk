@@ -76,8 +76,33 @@ export interface MockAuditCall {
   };
 }
 
+/**
+ * M1 闭环用例（`e2e/loop.spec.ts`）的 mock 状态。
+ *
+ * 与其它 spec 的钩子分开命名：闭环用例要同时断言"界面传了什么"与"仓库状态怎么变"，
+ * 因此它需要一份能读写的共享状态，而不是只记录调用的数组。
+ */
+export interface MockLoopState {
+  readonly calls: {
+    readonly command: string;
+    readonly args?: unknown;
+    readonly spec?: unknown;
+    readonly paths?: readonly string[];
+  }[];
+  readonly files: readonly {
+    readonly path: string;
+    indexStatus: string;
+    worktreeStatus: string;
+  }[];
+  readonly commits: readonly { readonly oid: string; readonly subject: string }[];
+  readonly hookRejects: boolean;
+  prepared?: string;
+}
+
 declare global {
   interface Window {
+    /** M1 闭环用例的 mock 状态（见上）。 */
+    __loop?: MockLoopState;
     /** mock 记录收到的暂存 / 取消暂存请求（断言"界面选的粒度与下标"是否原样传到后端）。 */
     __stagingCalls?: MockStagingCall[];
     /** mock 的文件夹具（断言部分暂存后的索引 / 工作区状态）。 */

@@ -77,6 +77,23 @@ export function appVersion(): Promise<AppVersion> {
   return invokeCommand<AppVersion>('app_version');
 }
 
+/**
+ * 上报一条前端未捕获错误（生产环境用；开发与 E2E 收进 `window.__errs`）。
+ *
+ * 只在没有其他选择时调用：被 React / TanStack Query 接住的错误属于"已处理"，
+ * 不该重复上报。
+ */
+export function logFrontendError(message: string, stack?: string): void {
+  // 有意不返回 Promise：调用点在错误处理路径上，没人会 await 它，
+  // 而"没人接的 Promise"本身会被 unhandledrejection 再抓一次（无限繁殖）
+  void invokeCommand<null>('log_frontend_error', {
+    message,
+    ...(stack === undefined ? {} : { stack }),
+  }).catch(() => {
+    // 上报失败就到此为止：日志写不进去时不该再抛
+  });
+}
+
 /** 设置的归属范围。 */
 export type SettingsScope = 'global' | 'repo';
 

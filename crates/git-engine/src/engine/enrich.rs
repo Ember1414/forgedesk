@@ -108,7 +108,13 @@ pub fn enrich_filesystem(
             Ok(metadata) if !metadata.is_file() => entry.size_bytes = None,
             Ok(metadata) => {
                 entry.size_bytes = Some(metadata.len());
-                entry.is_binary = is_binary_file(&worktree_file);
+                // **不做二进制嗅探**：它需要打开并读取每个文件，在"1 万个变更文件"
+                // 这种规模下就是 1 万次 open——T1.12 的性能基线在 Windows 上量到
+                // 39 秒（同一仓库 `git status --porcelain` 只要 0.05 秒，因为 git
+                // 自己也不嗅探）。二进制在真正需要它的地方判定：diff 由 CLI 给出
+                // `binary: true`，`git apply` 也自己认二进制。状态列表只需要"大小"，
+                // 而大小一次 stat 就够。
+                entry.is_binary = false;
             }
         }
 
@@ -181,6 +187,13 @@ pub fn count_ignored(report: &StatusReport) -> Option<u64> {
     Some(count)
 }
 
+/// 判断一个文件的前 8KB 里是否含 NUL（二进制嗅探）。
+///
+/// **当前没有调用点**，保留它是为了让"将来某个真的需要的调用方"不必重新发明——
+/// 但调用前请先读上面 `enrich_filesystem` 里那段说明：状态路径上每文件一次
+/// 打开，在 1 万文件的规模下是几十秒。要用它，请在**用户显式要求**的地方用
+/// （例如"这个文件是二进制的吗"的单点查询），不要放进批量路径。
+#[allow(dead_code)]
 fn is_binary_file(path: &Path) -> bool {
     let Ok(mut file) = std::fs::File::open(path) else {
         return false;

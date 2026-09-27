@@ -65,6 +65,7 @@ pub use snapshots::{
     SnapshotDiffDto, SnapshotMetaDto,
 };
 pub use state::AppState;
+pub use system::log_frontend_error;
 pub use system::{app_version, AppVersion};
 pub use watch::{emit_watch_event, WatchSettings, WatcherRegistry, AUTO_REFRESH_KEY, DEBOUNCE_KEY};
 pub use workspace::{

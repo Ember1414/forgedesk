@@ -19,6 +19,8 @@
   },
   "actions": {
     "dismiss": "关闭提示",
-    "close": "关闭"
+    "close": "关闭",
+    "cancel": "取消",
+    "retry": "重试"
   }
 }
