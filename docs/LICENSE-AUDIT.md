@@ -4,7 +4,7 @@
 > 内容刻意**不含日期与平台专属二进制包**（@img/sharp-*、@esbuild/* 等，与父包同版本，
 > 以父包审计为准）——否则本文件会随生成平台与日期漂移，Linux CI 永远对不上（真实教训）。
 
-## 汇总（Rust 依赖 477 个，npm 依赖 332 个）
+## 汇总（Rust 依赖 506 个，npm 依赖 332 个）
 
 | 许可证 | 数量 |
 | --- | --- |
@@ -13,15 +13,16 @@
 | 0BSD | 1 |
 | Apache-2.0 / MIT | 1 |
 | Apache-2.0 AND MIT | 1 |
-| Apache-2.0 OR MIT | 36 |
+| Apache-2.0 OR MIT | 41 |
 | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT | 3 |
 | Apache-2.0 WITH LLVM-exception | 1 |
 | Apache-2.0 | 25 |
 | Apache-2.0/MIT | 3 |
+| BSD-2-Clause OR Apache-2.0 OR MIT | 2 |
 | BSD-2-Clause | 8 |
 | BSD-3-Clause AND MIT | 1 |
 | BSD-3-Clause OR MIT OR Apache-2.0 | 2 |
-| BSD-3-Clause | 6 |
+| BSD-3-Clause | 7 |
 | BSD-3-Clause/MIT | 1 |
 | BlueOak-1.0.0 | 2 |
 | CC-BY-4.0 | 1 |
@@ -30,7 +31,7 @@
 | ISC | 17 |
 | MIT OR Apache-2.0 OR LGPL-2.1-or-later | 2 |
 | MIT OR Apache-2.0 OR Zlib | 1 |
-| MIT OR Apache-2.0 | 222 |
+| MIT OR Apache-2.0 | 243 |
 | MIT OR Zlib OR Apache-2.0 | 2 |
 | MIT | 390 |
 | MIT-0 | 2 |

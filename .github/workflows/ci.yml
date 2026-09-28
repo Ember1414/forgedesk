@@ -84,7 +84,10 @@ jobs:
         with:
           shared-key: quality
 
-      # src-tauri 依赖 WebKitGTK / GTK / libsecret，clippy 覆盖整个 workspace 时需要
+      # src-tauri 依赖 WebKitGTK / GTK / libsecret，clippy 覆盖整个 workspace 时需要；
+      # libdbus-1-dev 是 crates/credentials 的 keyring（Linux 走 Secret Service）在**编译期**
+      # 需要的（libdbus-sys 通过 pkg-config 找它）。运行时还需要一个 Secret Service 提供者
+      # （gnome-keyring / KWallet），没有时应用返回 KEYRING_UNAVAILABLE 并走加密文件回退。
       - name: Install Linux system dependencies
         run: |
           sudo apt-get update
@@ -94,7 +97,8 @@ jobs:
             libayatana-appindicator3-dev \
             librsvg2-dev \
             libssl-dev \
-            libsecret-1-dev
+            libsecret-1-dev \
+            libdbus-1-dev
 
       - name: Install JS dependencies
         run: pnpm install --frozen-lockfile
@@ -195,7 +199,8 @@ jobs:
             libayatana-appindicator3-dev \
             librsvg2-dev \
             libssl-dev \
-            libsecret-1-dev
+            libsecret-1-dev \
+            libdbus-1-dev
 
       - name: Install JS dependencies
         run: pnpm install --frozen-lockfile
