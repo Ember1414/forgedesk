@@ -114,6 +114,22 @@ export function commitDetailKeyPrefix(repoId: number): readonly [string, number]
 }
 
 /**
+ * 已保存的凭据列表（T2.7，全局）。
+ *
+ * 与仓库无关（令牌按 host 存，不属于某个仓库），因此键里没有 `repoId`，
+ * 也不进 `repoChanged.ts` 的失效映射——`repo:changed` 不会改变"我保存过哪些账号"。
+ */
+export const CREDENTIALS_QUERY_KEY = 'credentials';
+
+/** 凭据状态（后端种类、数量、系统凭据库可用性；T2.7，全局）。 */
+export const CREDENTIALS_STATUS_QUERY_KEY = 'credentialsStatus';
+
+/** 凭据状态的查询键。 */
+export function credentialsStatusKey(): readonly [string] {
+  return [CREDENTIALS_STATUS_QUERY_KEY];
+}
+
+/**
  * 同步状态（T2.6）：当前分支、上游名、ahead/behind。
  *
  * 单独一个键而不是复用 `[BRANCHES_QUERY_KEY, repoId]`：它是**两次查询的合成**

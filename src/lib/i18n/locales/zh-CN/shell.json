@@ -221,6 +221,38 @@
     "close": "关闭"
   },
   "settings": {
+    "credentials": {
+      "title": "已保存的凭据",
+      "description": "令牌与密码保存在系统凭据库（Windows 凭据管理器 / macOS 钥匙串 / Linux Secret Service）；列表里只显示账号标识，密文不会回到界面。",
+      "status": "存放位置：{{backend}} · 已保存 {{count}} 条",
+      "backend": {
+        "systemKeyring": "系统凭据库",
+        "encryptedVault": "加密文件（回退）",
+        "memory": "仅本次会话（内存）"
+      },
+      "keyringUnavailable": "系统凭据库不可用，凭据无法安全保存。原因",
+      "empty": "还没有保存任何凭据。需要访问私有仓库时，在这里添加访问令牌。",
+      "addTitle": "添加或覆盖凭据",
+      "provider": "平台",
+      "host": "主机",
+      "login": "账号",
+      "kindLabel": "类型",
+      "kind": {
+        "pat": "访问令牌",
+        "oauth": "OAuth 令牌",
+        "password": "用户名 + 密码"
+      },
+      "secret": "令牌 / 密码",
+      "secretHint": "明文只写入系统凭据库，不会出现在日志、审计记录或本界面里。",
+      "save": "保存",
+      "saved": "凭据已保存",
+      "testConnection": "测试连接",
+      "probeOk": "连接成功：远端有 {{refs}} 条引用",
+      "deleteTitle": "删除这条凭据？",
+      "deleteImpactLabel": "会发生什么",
+      "deleteImpact": "系统凭据库里的密文会被删除，之后的网络操作需要重新输入。远端仓库与已经推送的内容不受影响。",
+      "todoT44": "还没做的部分（T4.4）：用 GitHub 登录（OAuth 设备码）、多账号切换与身份同步。当前版本需要手动粘贴访问令牌。"
+    },
     "general": {
       "densityLabel": "界面密度",
       "densityHint": "紧凑模式会收紧列表与页面的留白，适合小屏幕，或想在一屏里看到更多内容时使用。",

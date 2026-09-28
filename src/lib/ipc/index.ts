@@ -82,6 +82,24 @@ export type {
 } from './branches';
 
 export {
+  credentialTestRemote,
+  credentialsDelete,
+  credentialsList,
+  credentialsSave,
+  credentialsStatus,
+  probeUrlFor,
+} from './credentials';
+export type {
+  CredentialBackend,
+  CredentialInput,
+  CredentialKind,
+  CredentialMeta,
+  CredentialRef,
+  CredentialsStatus,
+  RemoteProbe,
+} from './credentials';
+
+export {
   changedUpdates,
   gitFetch,
   gitPull,

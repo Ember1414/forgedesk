@@ -221,6 +221,38 @@
     "close": "Close"
   },
   "settings": {
+    "credentials": {
+      "title": "Saved credentials",
+      "description": "Tokens and passwords live in the system credential store (Windows Credential Manager / macOS Keychain / Linux Secret Service). The list shows identifiers only; ciphertext never travels back to the UI.",
+      "status": "Stored in: {{backend}} · {{count}} saved",
+      "backend": {
+        "systemKeyring": "the system credential store",
+        "encryptedVault": "an encrypted file (fallback)",
+        "memory": "memory only (this session)"
+      },
+      "keyringUnavailable": "The system credential store is unavailable, so credentials cannot be saved securely. Reason",
+      "empty": "No credentials saved yet. Add an access token here when you need to reach a private repository.",
+      "addTitle": "Add or replace a credential",
+      "provider": "Provider",
+      "host": "Host",
+      "login": "Account",
+      "kindLabel": "Kind",
+      "kind": {
+        "pat": "Access token",
+        "oauth": "OAuth token",
+        "password": "Username + password"
+      },
+      "secret": "Token / password",
+      "secretHint": "The plaintext goes straight into the system credential store; it never appears in logs, audit records or this screen.",
+      "save": "Save",
+      "saved": "Credential saved",
+      "testConnection": "Test connection",
+      "probeOk": "Connected: the remote has {{refs}} refs",
+      "deleteTitle": "Delete this credential?",
+      "deleteImpactLabel": "What happens",
+      "deleteImpact": "The ciphertext is removed from the system credential store, so later network operations will ask for it again. The remote repository and anything already pushed are unaffected.",
+      "todoT44": "Still to come (T4.4): signing in with GitHub (OAuth device flow), switching between accounts and syncing your profile. This version expects a pasted access token."
+    },
     "general": {
       "densityLabel": "Interface density",
       "densityHint": "Compact tightens list and page padding - useful on small screens or to fit more on one screen.",
