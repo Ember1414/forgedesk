@@ -227,6 +227,11 @@ pub trait GitEngine: Send + Sync {
     /// （见 `docs/GIT-ENGINE-DIFF.md` §4 的能力边界表）。
     fn remote_refs_containing(&self, repo: &RepoId, revision: &str) -> AppResult<Vec<String>>;
 
+    /// 列出仓库作者（按邮箱去重，提交数降序；T2.3 的作者筛选列表）。
+    ///
+    /// 范围与 `--all` 一致：作者筛选作用于全仓库，而不是当前分支。
+    fn authors(&self, repo: &RepoId) -> AppResult<Vec<forgedesk_domain::git::AuthorSummary>>;
+
     // ---------------------------------------------------------------- 快照（T1.9）
 
     /// 把一个 ref 指到指定提交（快照的防 gc 锚点）。

@@ -459,7 +459,8 @@
       "discard": "放弃修改",
       "openEditor": "在编辑器打开（M5 可用）",
       "reveal": "在文件管理器显示",
-      "copyPath": "复制路径"
+      "copyPath": "复制路径",
+      "fileHistory": "查看文件历史"
     },
     "clean": {
       "title": "工作区是干净的",
@@ -520,11 +521,43 @@
     "loadedCount": "已加载 {{count}} 个提交",
     "filter": {
       "label": "筛选",
-      "placeholder": "筛选（分支、作者、路径、时间）将在 T2.3 提供"
+      "placeholder": "筛选（分支、作者、路径、时间）将在 T2.3 提供",
+      "searchPlaceholder": "搜索提交信息…",
+      "searchLabel": "搜索提交",
+      "caseToggle": "切换大小写敏感",
+      "searchNav": "搜索导航",
+      "matchCount": "{{current}} / {{total}}",
+      "prevMatch": "上一处",
+      "nextMatch": "下一处",
+      "branches": "分支",
+      "allBranches": "全部分支",
+      "headMark": "HEAD",
+      "noBranches": "没有分支",
+      "authors": "作者",
+      "anyAuthor": "全部作者",
+      "noAuthors": "没有作者",
+      "time": "时间范围",
+      "since": "起始日期",
+      "until": "截止日期",
+      "preset": {
+        "today": "今天",
+        "week": "近 7 天",
+        "month": "近 30 天",
+        "quarter": "近 90 天",
+        "all": "全部"
+      },
+      "mergesOnly": "仅显示合并提交",
+      "myCommitsOnly": "仅显示我的提交",
+      "removeChip": "移除该筛选"
     },
     "empty": {
       "title": "还没有提交",
       "hint": "这个仓库没有可显示的提交历史；创建首次提交后，这里会出现提交图。"
+    },
+    "emptyFiltered": {
+      "title": "没有匹配的提交",
+      "description": "当前筛选条件下没有提交；清除筛选可以回到完整历史。",
+      "clear": "清除筛选"
     },
     "error": {
       "title": "读取提交历史失败",

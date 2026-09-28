@@ -374,3 +374,162 @@ fn an_incomplete_window_does_not_collapse_merged_branches() {
         );
     }
 }
+
+// ---------------------------------------------------------------- T2.3 筛选
+
+/// "仅显示我的提交"按仓库 user.email 翻译成 author 过滤；未配置身份时 VALIDATION。
+#[test]
+fn my_commits_only_uses_the_configured_identity_and_requires_one() {
+    let fx = fixture("my-commits", 2);
+
+    // 未配置本地身份：config 走全局链，夹具提交的作者就是这台机器的全局身份，
+    // 因此开关应命中全部提交（2 条）
+    let all = fx
+        .service
+        .page(
+            fx.repo_id,
+            &HistoryQuery {
+                my_commits_only: true,
+                ..HistoryQuery::default()
+            },
+        )
+        .expect("默认身份下查询失败");
+    assert_eq!(all.commits.len(), 3, "夹具(base+2)提交都出自当前身份");
+
+    // 配置一个别的身份：开关应过滤掉全部提交
+    support::git_ok(
+        fx._dir.path(),
+        &["config", "user.email", "someone-else@example.com"],
+    );
+    let none = fx
+        .service
+        .page(
+            fx.repo_id,
+            &HistoryQuery {
+                my_commits_only: true,
+                ..HistoryQuery::default()
+            },
+        )
+        .expect("他人身份下查询失败");
+    assert!(none.commits.is_empty(), "身份不匹配应零命中");
+    assert_eq!(none.next_cursor, None);
+
+    // 身份被清空（本地配置为空串）：如实 VALIDATION，而不是静默变成"全部提交"
+    support::git_ok(fx._dir.path(), &["config", "user.email", ""]);
+    let error = fx
+        .service
+        .page(
+            fx.repo_id,
+            &HistoryQuery {
+                my_commits_only: true,
+                ..HistoryQuery::default()
+            },
+        )
+        .expect_err("无身份时应报错");
+    assert_eq!(error.code, forgedesk_domain::ErrorCode::Validation);
+}
+
+/// 分支多选 = 多 tip 并集（未合并的双分支夹具，并集才会真的比单分支多）。
+#[test]
+fn revisions_union_spans_independent_branches() {
+    let dir = TempDir::new("revisions-union");
+    init_repo(dir.path());
+    write(dir.path(), "base.txt", b"base\n");
+    support::git_ok(dir.path(), &["add", "-A"]);
+    commit_with(dir.path(), "base commit", 1_700_000_000 - 60);
+
+    support::git_ok(dir.path(), &["checkout", "-q", "-b", "feature"]);
+    write(dir.path(), "feature.txt", b"feature\n");
+    support::git_ok(dir.path(), &["add", "-A"]);
+    commit_with(dir.path(), "feature work", 1_700_000_000);
+
+    support::git_ok(dir.path(), &["checkout", "-q", "main"]);
+    write(dir.path(), "main.txt", b"main\n");
+    support::git_ok(dir.path(), &["add", "-A"]);
+    commit_with(dir.path(), "main work", 1_700_000_060);
+
+    let fx = build_service(dir);
+
+    let union = fx
+        .service
+        .page(
+            fx.repo_id,
+            &HistoryQuery {
+                revisions: vec!["main".to_owned(), "feature".to_owned()],
+                ..HistoryQuery::default()
+            },
+        )
+        .expect("并集查询失败");
+    assert_eq!(union.commits.len(), 3, "并集应覆盖 base/feature/main 三条");
+
+    let single = fx
+        .service
+        .page(
+            fx.repo_id,
+            &HistoryQuery {
+                revision: Some("main".to_owned()),
+                ..HistoryQuery::default()
+            },
+        )
+        .expect("单分支查询失败");
+    assert_eq!(single.commits.len(), 2, "单分支不含 feature 侧提交");
+}
+
+/// 关键词 + 忽略大小写：小写变体命中；关掉开关恢复字面匹配。
+#[test]
+fn case_insensitive_keyword_matches_case_variants() {
+    let dir = TempDir::new("case-insensitive");
+    init_repo(dir.path());
+    write(dir.path(), "base.txt", b"base\n");
+    support::git_ok(dir.path(), &["add", "-A"]);
+    commit_with(dir.path(), "base commit", 1_700_000_000 - 60);
+    write(dir.path(), "a.txt", b"a\n");
+    support::git_ok(dir.path(), &["add", "-A"]);
+    commit_with(dir.path(), "Add ReadmePipeline", 1_700_000_000);
+
+    let fx = build_service(dir);
+
+    let hit = fx
+        .service
+        .page(
+            fx.repo_id,
+            &HistoryQuery {
+                message_contains: Some("readmepipeline".to_owned()),
+                case_insensitive: true,
+                ..HistoryQuery::default()
+            },
+        )
+        .expect("忽略大小写查询失败");
+    assert_eq!(hit.commits.len(), 1, "小写变体应命中");
+
+    let miss = fx
+        .service
+        .page(
+            fx.repo_id,
+            &HistoryQuery {
+                message_contains: Some("readmepipeline".to_owned()),
+                ..HistoryQuery::default()
+            },
+        )
+        .expect("区分大小写查询失败");
+    assert!(miss.commits.is_empty(), "关掉开关恢复区分大小写");
+}
+
+/// 仅显示合并提交：merge 夹具只回那条 merge。
+#[test]
+fn merges_only_returns_only_merge_commits() {
+    let fx = merge_fixture("merges-only");
+    let page = fx
+        .service
+        .page(
+            fx.repo_id,
+            &HistoryQuery {
+                merges_only: true,
+                ..HistoryQuery::default()
+            },
+        )
+        .expect("仅合并查询失败");
+    assert_eq!(page.commits.len(), 1, "夹具只有一条合并提交");
+    assert!(page.commits[0].parents.len() >= 2);
+    assert!(page.layout.rows.iter().all(|row| row.is_merge));
+}

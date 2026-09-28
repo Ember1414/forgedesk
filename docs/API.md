@@ -991,6 +991,10 @@ interface SnapshotDiff {
 | `firstParentOnly` | `boolean` | 否 | 只看 first-parent 链；**同时作用于查询与布局**（两者不一致会画出断头路） |
 | `followRenames` | `boolean` | 否 | 跟随重命名（文件历史）；**必须恰好给一条 `paths`**，否则 `VALIDATION`。**仅 CLI 引擎支持**（`git --follow`），libgit2 引擎返回 `UNSUPPORTED_BY_ENGINE` |
 | `collapseMergedBranches` | `boolean` | 否 | 折叠已合并分支；缺省 `false`。**尽力而为**：仅末页生效（本轮穷尽全部提交、`nextCursor` 为 `null` 的那次调用）；窗口不完整（后面还有页）时静默回退为普通布局。`firstParentOnly` 下折叠没有呈现对象，同样不生效 |
+| `revisions` | `string[]` | 否 | 分支多选（T2.3）：遍历这些 tip 的**并集**；非空时 `revision` 与 `allBranches` 被忽略（前端把三者建模成互斥选项）。修订可以是分支短名或 oid |
+| `caseInsensitive` | `boolean` | 否 | `messageContains` 忽略大小写；缺省 `false`（与旧契约一致） |
+| `mergesOnly` | `boolean` | 否 | 只显示合并提交（`--merges` 口径） |
+| `myCommitsOnly` | `boolean` | 否 | 只显示"我的提交"：服务层把仓库身份（`user.email`，跟随 local→global 解析链）翻译成 author 过滤；**未配置身份时返回 `VALIDATION`**（静默当成"全部提交"会让用户以为开关坏了）。与显式 `author` 同设时本开关**优先**（两个 author 过滤器在 git 里是 OR 关系，叠加会产生意外并集） |
 | `pageSize` | `number` | 否 | 每页条数；缺省 100，被夹在 `1..=500`（上限用于防止一次 IPC 拉走全部提交——PLAN §5.5 的 IPC 上限约束）。**越界是钳制，不是报错** |
 | `cursor` | `number \| null` | 否 | 游标 = 下一页第一行的全局序号（0 起始）；**首页省略**（语义见下） |
 
@@ -1052,7 +1056,8 @@ merge 行的 `collapsed` 记录第二父（被折叠分支的 tip）的 oid；ti
 
 - **错误**：
   - `NOT_FOUND`：repoId 无效（记录不存在）；
-  - `VALIDATION`：`followRenames` 开启但路径数 ≠ 1。`pageSize` 越界**不**返回
+  - `VALIDATION`：`followRenames` 开启但路径数 ≠ 1；`myCommitsOnly` 开启但仓库
+    未配置 `user.email`。`pageSize` 越界**不**返回
     `VALIDATION`——由服务层直接钳制到 `1..=500`（见 `pageSize` 参数行）；
   - `STORAGE`：仓库读取失败。
 - **前端封装**：由前端代理回填（`src/lib/ipc/history.ts`）
@@ -1134,6 +1139,43 @@ interface CommitDetail {
   前缀失效（`isHead` / `isPushed` / refs 都会随引用移动而变化）。
 - **前端封装**：由前端代理回填（`src/lib/ipc/commitDetail.ts`）
 - **调用点**：由前端代理回填（`src/features/history/CommitDetailPanel.tsx`）
+
+### git_log_authors
+
+列出仓库作者（T2.3 的作者筛选下拉）：按**邮箱**去重（git 身份里稳定的是邮箱），
+组内姓名取出现最多者（并列取字典序），输出按提交数降序、并列按邮箱升序。
+范围与 `--all` 一致——作者筛选作用于全仓库。
+
+现状：服务层已落地（`crates/services/src/history.rs` 的 `HistoryService::authors`），
+**命令已接线**（`crates/commands/src/history.rs`，已注册到 `src-tauri/src/main.rs`）。
+汇总逻辑是纯函数（`domain::git::summarize_authors`，含单测）。
+
+- **能力等级**：`ReadOnly`
+- **参数**：`repoId`（`number`，必填）
+- **返回**：`AuthorSummary[]`
+
+```ts
+interface AuthorSummary {
+  name: string;        // 组内出现最多的姓名
+  email: string;       // 去重键
+  commitCount: number; // --all 范围内的提交数
+}
+```
+
+**引擎路由**：只走 CLI（`git log --all --format=%an%x1f%ae%x1e -z`，上限 1 万条记录）；
+libgit2 侧未实现该读取（与 `remote_refs_containing` 同一先例），差分测试钉住
+"CLI 解析正确 + libgit2 如实拒绝"。
+
+- **错误**：`NOT_FOUND`（repoId 无效）。
+- **前端封装**：由前端代理回填（`src/lib/ipc/history.ts`）
+- **调用点**：由前端代理回填（`src/features/history/HistoryPage.tsx` 的筛选栏）
+
+#### 与任务书 `git_log_search` 的关系（有意偏差）
+
+任务书 T2.3 第 2 条要求独立的 `git_log_search` 命令。实现上**不设**第二对命令：
+关键词搜索 = `git_log_page` 的 `messageContains` + `caseInsensitive`（同一份分页
+数据、同一个游标语义，避免"同一份数据两个入口"）。"高亮匹配 / 上一处 / 下一处"
+是纯前端行为（在已加载行里定位），不涉及后端。
 
 ### 文件监听与设置键（T1.10）
 

@@ -343,3 +343,22 @@ test('T1.5 基准：3000 行 diff 渲染与滚动', async ({ page }) => {
   const errs2 = await page.evaluate(() => window.__errs ?? []);
   expect(errs2, JSON.stringify(errs2)).toEqual([]);
 });
+
+// ---------------------------------------------------------------- T2.3 文件历史入口
+
+test('T2.3: 文件行的"查看文件历史"跳到历史页并带路径筛选', async ({ page }) => {
+  await page.goto('/#/repo/1/status');
+  await expect(page.getByRole('heading', { name: '工作区' })).toBeVisible();
+
+  // 文件行悬浮出"查看文件历史"按钮（夹具的第一条变更文件）
+  const entry = page.getByTestId('workspace-file-history').first();
+  await expect(entry).toBeVisible();
+  await entry.click();
+
+  // 路由进入历史页，URL 携带 path + follow（筛选状态以 URL 为真相源）
+  await expect(page).toHaveURL(/\/repo\/1\/history\?path=.+&follow=1/);
+  await expect(page.getByRole('heading', { name: '历史' })).toBeVisible();
+
+  const errs = await page.evaluate(() => window.__errs ?? []);
+  expect(errs, JSON.stringify(errs)).toEqual([]);
+});

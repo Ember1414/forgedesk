@@ -38,7 +38,9 @@ use forgedesk_domain::git::{
     RepoPath, StageSpec, StatusQuery, StatusReport,
 };
 use forgedesk_git_engine::engine::{CliGitEngine, GitEngine, Libgit2Engine, ProgressSink};
-use support::{commit_all, git_ok, git_with_env, init_repo, write, TempDir};
+use support::{
+    commit_all, commit_all_with_author, git_ok, git_with_env, init_repo, write, TempDir,
+};
 
 /// 两个引擎。
 fn engines() -> (CliGitEngine, Libgit2Engine) {
@@ -1042,4 +1044,177 @@ fn commit_detail_inputs_are_consistent_across_engines() {
         DiffTarget::Commit(root.oid.clone()),
         "root commit",
     );
+}
+
+// ---------------------------------------------------------------- T2.3 筛选
+
+/// 作者过滤 × 跳页：`--skip` 数的是**过滤后**的第 N 条（CLI），libgit2 侧
+/// 同样必须"先过滤再跳"。这条测试是 T2.3 修掉的 skip-前置缺陷的回归护栏
+/// （此前 `revwalk.skip()` 在过滤前跳行，翻第二页时与 CLI 给出不同的窗口）。
+#[test]
+fn log_author_filter_with_skip_is_consistent_across_engines() {
+    let dir = TempDir::new("diff-author-skip");
+    init_repo(dir.path());
+    write(dir.path(), "a.txt", b"one\n");
+    commit_all_with_author(dir.path(), "alice one", "Alice", "alice@example.com", 1);
+    write(dir.path(), "b.txt", b"two\n");
+    commit_all_with_author(dir.path(), "bob one", "Bob", "bob@example.com", 2);
+    write(dir.path(), "c.txt", b"three\n");
+    commit_all_with_author(dir.path(), "alice two", "Alice", "alice@example.com", 3);
+    write(dir.path(), "d.txt", b"four\n");
+    commit_all_with_author(dir.path(), "alice three", "Alice", "alice@example.com", 4);
+    let (cli, libgit2) = engines();
+    let repo = RepoId::new(dir.path());
+
+    // 第 3 页（skip=2）：Alice 有 3 条，walk 新→旧，跳过最新两条后只剩最旧一条
+    let query = LogQuery {
+        author: Some("alice".to_owned()),
+        skip: 2,
+        ..LogQuery::new().with_limit(2)
+    };
+    let from_cli = normalize_log(&cli.log(&repo, query.clone()).expect("CLI log 失败"));
+    let from_libgit2 = normalize_log(&libgit2.log(&repo, query).expect("libgit2 log 失败"));
+    assert_eq!(
+        from_cli, from_libgit2,
+        "作者过滤 × skip 两侧不一致\nCLI:     {from_cli:?}\nlibgit2: {from_libgit2:?}"
+    );
+    assert_eq!(from_cli.len(), 1, "skip=2 后第三页只剩 alice three");
+    assert_eq!(
+        from_cli[0].2, "alice one",
+        "walk 新→旧：skip=2 跳过最新两条，剩最旧的 alice one"
+    );
+}
+
+/// 仅显示合并提交：两侧一致，且非合并提交必须被过滤掉。
+#[test]
+fn log_merges_only_is_consistent_across_engines() {
+    let dir = TempDir::new("diff-merges");
+    shape_forked(dir.path());
+    let (cli, libgit2) = engines();
+    let repo = RepoId::new(dir.path());
+
+    let query = LogQuery {
+        merges_only: true,
+        ..LogQuery::new().with_limit(100)
+    };
+    let from_cli = normalize_log(&cli.log(&repo, query.clone()).expect("CLI log 失败"));
+    let from_libgit2 = normalize_log(&libgit2.log(&repo, query).expect("libgit2 log 失败"));
+    assert_eq!(
+        from_cli, from_libgit2,
+        "[merges_only] 两侧不一致\nCLI:     {from_cli:?}\nlibgit2: {from_libgit2:?}"
+    );
+    assert_eq!(from_cli.len(), 1, "夹具只有一个合并提交");
+}
+
+/// 关键词忽略大小写（`-i` 口径）：大小写变体也要命中，且两侧一致。
+#[test]
+fn log_case_insensitive_search_is_consistent_across_engines() {
+    let dir = TempDir::new("diff-grep-i");
+    init_repo(dir.path());
+    write(dir.path(), "a.txt", b"one\n");
+    commit_all(dir.path(), "Add ReadmePipeline", 1);
+    write(dir.path(), "b.txt", b"two\n");
+    commit_all(dir.path(), "unrelated", 2);
+    let (cli, libgit2) = engines();
+    let repo = RepoId::new(dir.path());
+
+    let query = LogQuery {
+        message_contains: Some("readmepipeline".to_owned()),
+        case_insensitive: true,
+        ..LogQuery::new().with_limit(100)
+    };
+    let from_cli = normalize_log(&cli.log(&repo, query.clone()).expect("CLI log 失败"));
+    let from_libgit2 = normalize_log(&libgit2.log(&repo, query).expect("libgit2 log 失败"));
+    assert_eq!(
+        from_cli, from_libgit2,
+        "[case_insensitive] 两侧不一致\nCLI:     {from_cli:?}\nlibgit2: {from_libgit2:?}"
+    );
+    assert_eq!(from_cli.len(), 1, "忽略大小写后小写变体应命中");
+}
+
+/// 分支多选：并集语义（两个 tip 的提交都在结果里），且两侧一致。
+///
+/// 夹具刻意**不合并**：两个分支各有一个对方拿不到的提交，并集才会真的
+/// 比单分支多（forked+merge 夹具里 feature 的提交已经是 main 的祖先，
+/// 证明不了并集）。
+#[test]
+fn log_multi_revision_is_consistent_across_engines() {
+    let dir = TempDir::new("diff-multi-rev");
+    init_repo(dir.path());
+    write(
+        dir.path(),
+        "base.txt",
+        b"base
+",
+    );
+    commit_all(dir.path(), "base", 1);
+    git_ok(dir.path(), &["checkout", "-q", "-b", "feature"]);
+    write(
+        dir.path(),
+        "feature.txt",
+        b"feature
+",
+    );
+    commit_all(dir.path(), "feature work", 2);
+    git_ok(dir.path(), &["checkout", "-q", "main"]);
+    write(
+        dir.path(),
+        "main.txt",
+        b"main
+",
+    );
+    commit_all(dir.path(), "main work", 3);
+    let (cli, libgit2) = engines();
+    let repo = RepoId::new(dir.path());
+
+    let query = LogQuery {
+        revisions: vec!["main".to_owned(), "feature".to_owned()],
+        ..LogQuery::new().with_limit(100)
+    };
+    let from_cli = normalize_log(&cli.log(&repo, query.clone()).expect("CLI log 失败"));
+    let from_libgit2 = normalize_log(&libgit2.log(&repo, query).expect("libgit2 log 失败"));
+    assert_eq!(
+        from_cli, from_libgit2,
+        "[revisions] 两侧不一致
+CLI:     {from_cli:?}
+libgit2: {from_libgit2:?}"
+    );
+    assert_eq!(from_cli.len(), 3, "并集应覆盖 base/C/B 三条提交");
+
+    // 对照：只看 main 时 feature 侧的提交不在结果里（两侧都要过——
+    // libgit2 的单 revision 路径历史上只认完整引用名，短名会报 not valid）
+    let single = LogQuery::new().with_revision("main").with_limit(100);
+    let from_cli = normalize_log(&cli.log(&repo, single.clone()).expect("CLI log 失败"));
+    let from_libgit2 = normalize_log(&libgit2.log(&repo, single).expect("libgit2 log 失败"));
+    assert_eq!(from_cli, from_libgit2, "单分支查询两侧不一致");
+    assert_eq!(from_cli.len(), 2, "单分支只应有 base/B 两条");
+}
+
+/// 作者列表：CLI 按（邮箱）去重并计数排序；libgit2 侧如实拒绝（先例：
+/// `remote_refs_containing`）。
+#[test]
+fn authors_are_summarized_by_cli_and_refused_by_libgit2() {
+    let dir = TempDir::new("diff-authors");
+    init_repo(dir.path());
+    write(dir.path(), "a.txt", b"one\n");
+    commit_all_with_author(dir.path(), "one", "Alice", "alice@example.com", 1);
+    write(dir.path(), "b.txt", b"two\n");
+    commit_all_with_author(dir.path(), "two", "Bob", "bob@example.com", 2);
+    write(dir.path(), "c.txt", b"three\n");
+    // 同一邮箱换名字：按邮箱去重后应归并到出现最多（这里并列，取字典序）的名字
+    commit_all_with_author(dir.path(), "three", "Alicia", "alice@example.com", 3);
+    let (cli, libgit2) = engines();
+    let repo = RepoId::new(dir.path());
+
+    let authors = cli.authors(&repo).expect("CLI authors 失败");
+    assert_eq!(authors.len(), 2, "两个邮箱 → 两个作者");
+    assert_eq!(authors[0].email, "alice@example.com", "提交数多者排前");
+    assert_eq!(authors[0].commit_count, 2);
+    assert_eq!(authors[1].email, "bob@example.com");
+    assert_eq!(authors[1].name, "Bob");
+
+    let error = libgit2
+        .authors(&repo)
+        .expect_err("libgit2 未实现 authors，应返回 Unsupported");
+    assert_eq!(error.code, forgedesk_domain::ErrorCode::UnsupportedByEngine);
 }

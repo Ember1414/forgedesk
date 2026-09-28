@@ -127,6 +127,17 @@ export interface HistoryQuery {
   readonly followRenames?: boolean;
   /** 折叠已合并分支；只在末页且 `allBranches` 时生效，否则静默回退。 */
   readonly collapseMergedBranches?: boolean;
+  /**
+   * 分支多选（T2.3）：遍历这些 tip 的并集；非空时 `revision` 与
+   * `allBranches` 被忽略（前端把三者建模成互斥选项）。
+   */
+  readonly revisions?: readonly string[];
+  /** `messageContains` 忽略大小写；缺省 false（与旧契约一致）。 */
+  readonly caseInsensitive?: boolean;
+  /** 只显示合并提交（`--merges` 口径）。 */
+  readonly mergesOnly?: boolean;
+  /** 只显示"我的提交"（服务层按仓库 user.email 翻译成 author 过滤）。 */
+  readonly myCommitsOnly?: boolean;
   /** 每页条数；缺省 100，后端钳制到 `1..=500`。 */
   readonly pageSize?: number;
   /** 下一页第一行的全局序号（0 基）；缺省表示首页。 */
@@ -162,6 +173,10 @@ const HISTORY_QUERY_FIELDS = [
   'firstParentOnly',
   'followRenames',
   'collapseMergedBranches',
+  'revisions',
+  'caseInsensitive',
+  'mergesOnly',
+  'myCommitsOnly',
   'pageSize',
   'cursor',
 ] as const satisfies readonly (keyof HistoryQuery)[];
@@ -176,6 +191,46 @@ function toWireQuery(query: HistoryQuery): Record<string, unknown> {
     }
   }
   return wire;
+}
+
+/** 一个分支（镜像 `domain::git::refs::Branch`；筛选下拉只用到名字与标记）。 */
+export interface Branch {
+  readonly name: string;
+  readonly isRemote: boolean;
+  readonly isHead: boolean;
+  readonly target: string;
+  readonly upstream: string | null;
+  readonly ahead: number | null;
+  readonly behind: number | null;
+  readonly upstreamGone: boolean;
+}
+
+/**
+ * 列出分支（T2.3 的分支多选下拉）。
+ *
+ * 错误：`NOT_FOUND`（repoId 无效）。
+ */
+export function gitBranchList(repoId: number, includeRemote?: boolean): Promise<readonly Branch[]> {
+  return invokeCommand<readonly Branch[]>('git_branch_list', {
+    repoId,
+    ...(includeRemote === undefined ? {} : { includeRemote }),
+  });
+}
+
+/** 一个提交作者（按邮箱去重；T2.3 的作者筛选下拉）。 */
+export interface AuthorSummary {
+  readonly name: string;
+  readonly email: string;
+  readonly commitCount: number;
+}
+
+/**
+ * 列出仓库作者（按邮箱去重、提交数降序；范围与 `--all` 一致）。
+ *
+ * 错误：`NOT_FOUND`（repoId 无效）。
+ */
+export function gitLogAuthors(repoId: number): Promise<readonly AuthorSummary[]> {
+  return invokeCommand<readonly AuthorSummary[]>('git_log_authors', { repoId });
 }
 
 /**

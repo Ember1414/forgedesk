@@ -609,6 +609,43 @@ pub(super) fn remote_refs_containing(
         .collect())
 }
 
+/// 列出作者（T2.3 的作者筛选）：`git log --all --format=%an%x1f%ae%x1e -z`，
+/// 汇总（去重、计数、排序）是纯函数（domain::git::summarize_authors），这里
+/// 只负责取流与解析。上限 1 万条记录：作者数超过它已经不是"列表"而是
+/// "爬虫仓库"，界面也不该渲染这么长。
+pub(super) fn authors(
+    engine: &CliGitEngine,
+    repo: &RepoId,
+) -> AppResult<Vec<forgedesk_domain::git::AuthorSummary>> {
+    const MAX_RECORDS: usize = 10_000;
+
+    let invocation = GitInvocation::new(vec![
+        "log".to_owned(),
+        "--all".to_owned(),
+        "-z".to_owned(),
+        "--format=%an%x1f%ae%x1e".to_owned(),
+    ]);
+    let output = run(engine, repo, invocation)?;
+    let text = String::from_utf8_lossy(&output.stdout);
+
+    let mut records = Vec::new();
+    for record in text.split('') {
+        let record = record.trim_start_matches(' ');
+        let record = record.trim();
+        if record.is_empty() {
+            continue;
+        }
+        let mut fields = record.splitn(2, '');
+        let Some(name) = fields.next() else { continue };
+        let Some(email) = fields.next() else { continue };
+        records.push((name.to_owned(), email.to_owned()));
+        if records.len() >= MAX_RECORDS {
+            break;
+        }
+    }
+    Ok(forgedesk_domain::git::summarize_authors(records))
+}
+
 /// 远端列表。
 pub(super) fn remote_list(engine: &CliGitEngine, repo: &RepoId) -> AppResult<Vec<Remote>> {
     let output = run(engine, repo, GitInvocation::new(args::remote_args()))?;

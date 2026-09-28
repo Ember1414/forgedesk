@@ -63,8 +63,10 @@ export type {
   CommitStats,
 } from './commitDetail';
 
-export { gitLogPage } from './history';
+export { gitBranchList, gitLogAuthors, gitLogPage } from './history';
 export type {
+  AuthorSummary,
+  Branch,
   Commit,
   CommitSignature,
   GraphEdge,

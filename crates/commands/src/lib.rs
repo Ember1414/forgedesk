@@ -55,7 +55,7 @@ pub use commit::{
 pub use commit_detail::git_commit_detail;
 pub use debug::{debug_panic, debug_throw_error};
 pub use error::{to_app_error, Fallible};
-pub use history::git_log_page;
+pub use history::{git_branch_list, git_log_authors, git_log_page};
 pub use jobs::{job_cancel, TauriJobReporter};
 pub use logs::{logs_open, logs_tail};
 pub use repository::{

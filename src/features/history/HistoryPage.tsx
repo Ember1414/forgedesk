@@ -14,13 +14,14 @@
 //! 共享的外壳。本页面通过 `graphSelectionStore.detailOid` 驱动它（选中即打开详情），
 //! 面板自己从 Query 缓存里按 oid 取提交（见 `CommitDetailPanel.tsx`）。
 //! 离开本页时清掉 `detailOid`，避免陈旧提交泄漏到别的仓库页的详情位。
-import { useCallback, useEffect, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 
+import { useQuery } from '@tanstack/react-query';
 import {
   Activity,
   ChevronDown,
-  Filter,
+  ChevronUp,
   List,
   Map,
   Maximize2,
@@ -29,10 +30,13 @@ import {
   ZoomOut,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { useParams } from 'react-router-dom';
+import { useSearchParams, useParams } from 'react-router-dom';
 
 import { normalizeError } from '@/lib/errors';
+import { settingsGet, settingsSet } from '@/lib/ipc';
+import { gitBranchList, gitLogAuthors } from '@/lib/ipc';
 import { useRepoChangeInvalidation } from '@/lib/repoChanged';
+import { AUTHORS_QUERY_KEY, BRANCHES_QUERY_KEY } from '@/lib/queryKeys';
 import { cn } from '@/lib/utils';
 
 import { PlaceholderPage } from '@/ui/PlaceholderPage';
@@ -45,10 +49,27 @@ import { Skeleton } from '@/ui/components/skeleton';
 
 import { buildRowTexts } from '@/features/history/commitMeta';
 import type { RowTextFormat } from '@/features/history/commitMeta';
+import {
+  EMPTY_FILTERS_STATE,
+  filtersFromSearchParams,
+  filtersFromSettingValue,
+  filtersToQuery,
+  filtersToSearchParams,
+  filtersToSettingValue,
+  hasActiveFilters,
+  HISTORY_FILTERS_SETTING_KEY,
+  searchParamsHaveFilters,
+} from '@/features/history/historyFilters';
+import type { HistoryFiltersState } from '@/features/history/historyFilters';
+import { HistoryFilterBar } from '@/features/history/HistoryFilterBar';
 import { GraphListMode } from '@/features/history/GraphListMode';
 import { GraphOverlay } from '@/features/history/GraphOverlay';
 import { useGraphPerfStore } from '@/features/history/graphPerfStore';
-import { useGraphSelectionStore, ZOOM_STEP } from '@/features/history/graphSelectionStore';
+import {
+  NO_MODIFIERS,
+  useGraphSelectionStore,
+  ZOOM_STEP,
+} from '@/features/history/graphSelectionStore';
 import { useGraphQuery } from '@/features/history/useGraphQuery';
 
 /**
@@ -65,9 +86,131 @@ export function HistoryPage() {
   const params = useParams();
   const repoId = Number(params.repoId);
 
-  const graph = useGraphQuery(repoId);
+  // 筛选状态的真相源是 URL（可分享 / 刷新保持）；repo 级 settings 是它的
+  // 持久化副本——URL 没带参数时用设置回填，变化时防抖写回。
+  const [searchParams, setSearchParams] = useSearchParams();
+  const filterState = useMemo(() => filtersFromSearchParams(searchParams), [searchParams]);
+  const filters = useMemo(() => filtersToQuery(filterState), [filterState]);
+
+  const graph = useGraphQuery(repoId, filters);
   // 引用 / 大量变更时按类别失效历史页（`refs` 与 `large` 已覆盖 `[LOG_QUERY_KEY, repoId]` 前缀）
   useRepoChangeInvalidation(repoId);
+
+  // 作者与分支列表（筛选下拉的数据源；低频数据，60s 新鲜期足够）
+  const authorsQuery = useQuery({
+    queryKey: [AUTHORS_QUERY_KEY, repoId],
+    queryFn: () => gitLogAuthors(repoId),
+    enabled: Number.isFinite(repoId),
+    staleTime: 60_000,
+  });
+  const branchesQuery = useQuery({
+    queryKey: [BRANCHES_QUERY_KEY, repoId],
+    queryFn: () => gitBranchList(repoId),
+    enabled: Number.isFinite(repoId),
+    staleTime: 60_000,
+  });
+
+  const applyFilters = useCallback(
+    (next: HistoryFiltersState) => {
+      setSearchParams(filtersToSearchParams(next), { replace: true });
+    },
+    [setSearchParams],
+  );
+
+  // 初始化：每个仓库只做一次；URL 没带筛选参数时用 repo 设置回填
+  const settingsQuery = useQuery({
+    queryKey: ['settings', 'repo', repoId, HISTORY_FILTERS_SETTING_KEY],
+    queryFn: () => settingsGet('repo', HISTORY_FILTERS_SETTING_KEY, repoId),
+    enabled: Number.isFinite(repoId),
+    staleTime: Number.POSITIVE_INFINITY,
+  });
+  const initializedRepoRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (!Number.isFinite(repoId) || settingsQuery.data === undefined) {
+      return;
+    }
+    if (initializedRepoRef.current === repoId) {
+      return;
+    }
+    initializedRepoRef.current = repoId;
+    if (!searchParamsHaveFilters(searchParams)) {
+      const stored = filtersFromSettingValue(settingsQuery.data);
+      if (hasActiveFilters(stored)) {
+        setSearchParams(filtersToSearchParams(stored), { replace: true });
+      }
+    }
+  }, [repoId, settingsQuery.data, searchParams, setSearchParams]);
+
+  // 写回：筛选变化后防抖持久化（settings 写失败不阻塞界面——它只是便利副本）
+  useEffect(() => {
+    if (!Number.isFinite(repoId) || initializedRepoRef.current !== repoId) {
+      return;
+    }
+    const value = filtersToSettingValue(filterState);
+    const timer = setTimeout(() => {
+      settingsSet('repo', HISTORY_FILTERS_SETTING_KEY, value, repoId).catch(() => undefined);
+    }, 500);
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [filterState, repoId]);
+
+  // 搜索命中（T2.3）：在**已加载**的行里找 subject 命中（列表查询不带正文，
+  // 正文命中只能靠后端 grep 的结果集反映——高亮与跳转的范围是已加载部分）。
+  const keyword = filterState.keyword.trim();
+  const matchOids = useMemo(() => {
+    const set = new Set<string>();
+    if (keyword === '') {
+      return set;
+    }
+    const needle = filterState.caseInsensitive ? keyword.toLowerCase() : keyword;
+    for (const commit of graph.model.commits) {
+      const haystack = filterState.caseInsensitive ? commit.subject.toLowerCase() : commit.subject;
+      if (haystack.includes(needle)) {
+        set.add(commit.oid);
+      }
+    }
+    return set;
+  }, [graph.model.commits, keyword, filterState.caseInsensitive]);
+
+  // 行序的命中列表（跳转的"上一处 / 下一处"沿它循环）；当前命中记 oid 而不是
+  // 下标——关键词变化后下标会错位，oid 天然稳定（不在列表里就从头开始）。
+  const matchOrder = useMemo(() => {
+    const rows = [...graph.model.rows].sort((left, right) => left.row - right.row);
+    return rows.filter((row) => matchOids.has(row.oid)).map((row) => row.oid);
+  }, [graph.model.rows, matchOids]);
+  const [jumpOid, setJumpOid] = useState<string | null>(null);
+  const [scrollRequest, setScrollRequest] = useState<{ row: number; token: number } | null>(null);
+  const scrollTokenRef = useRef(0);
+
+  const select = useGraphSelectionStore((state) => state.select);
+  const order = useMemo(
+    () => [...graph.model.rows].sort((left, right) => left.row - right.row).map((row) => row.oid),
+    [graph.model.rows],
+  );
+
+  const jumpToMatch = useCallback(
+    (delta: 1 | -1) => {
+      if (matchOrder.length === 0) {
+        return;
+      }
+      const current = jumpOid === null ? -1 : matchOrder.indexOf(jumpOid);
+      const nextIndex = (current + delta + matchOrder.length) % matchOrder.length;
+      const oid = matchOrder[nextIndex];
+      if (oid === undefined) {
+        return;
+      }
+      setJumpOid(oid);
+      // 跳转 = 选中并打开详情（跟随模式），画布滚动到该行
+      select(oid, NO_MODIFIERS, order);
+      const row = graph.model.index.get(oid);
+      if (row !== undefined) {
+        scrollTokenRef.current += 1;
+        setScrollRequest({ row: row.row, token: scrollTokenRef.current });
+      }
+    },
+    [graph.model.index, jumpOid, matchOrder, order, select],
+  );
 
   const viewMode = useGraphSelectionStore((state) => state.viewMode);
   const setViewMode = useGraphSelectionStore((state) => state.setViewMode);
@@ -150,7 +293,26 @@ export function HistoryPage() {
       </div>
     );
   } else if (graph.model.rowCount === 0) {
-    body = <EmptyState title={t('history.empty.title')} description={t('history.empty.hint')} />;
+    body = hasActiveFilters(filterState) ? (
+      <EmptyState
+        title={t('history.emptyFiltered.title')}
+        description={t('history.emptyFiltered.description')}
+        action={
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => {
+              applyFilters(EMPTY_FILTERS_STATE);
+            }}
+            data-testid="history-clear-filters"
+          >
+            {t('history.emptyFiltered.clear')}
+          </Button>
+        }
+      />
+    ) : (
+      <EmptyState title={t('history.empty.title')} description={t('history.empty.hint')} />
+    );
   } else {
     body = (
       <div className="flex min-h-0 flex-1 flex-col gap-2">
@@ -159,11 +321,18 @@ export function HistoryPage() {
             <GraphOverlay
               model={graph.model}
               texts={texts}
+              matchOids={matchOids}
+              scrollToRow={scrollRequest}
               onNeedMore={handleNeedMore}
               className="h-full"
             />
           ) : (
-            <GraphListMode texts={texts} className="h-full" />
+            <GraphListMode
+              texts={texts}
+              matchOids={matchOids}
+              focusOid={jumpOid}
+              className="h-full"
+            />
           )}
         </div>
         <div className="flex shrink-0 items-center justify-between gap-2 text-12 text-fg-subtle">
@@ -290,18 +459,58 @@ export function HistoryPage() {
               <Map aria-hidden="true" className="size-4" />
             </IconButton>
 
-            {/* 筛选入口：T2.3 才接通（分支/作者/路径/时间）。如实标注为禁用而不是藏起来，
-                否则用户会以为"没有筛选功能"。 */}
-            <Button
-              size="sm"
-              variant="secondary"
-              disabled
-              title={t('history.filter.placeholder')}
-              data-testid="history-filter"
-            >
-              <Filter aria-hidden="true" className="size-3.5" />
-              {t('history.filter.label')}
-            </Button>
+            {/* 搜索导航：有关键词时提供"上一处 / 下一处"跳转（T2.3） */}
+            {keyword !== '' ? (
+              <div
+                role="group"
+                aria-label={t('history.filter.searchNav')}
+                className="flex items-center gap-1"
+                data-testid="history-search-nav"
+              >
+                <span
+                  className="min-w-14 text-center font-mono text-11 text-fg-subtle"
+                  data-testid="history-search-count"
+                >
+                  {t('history.filter.matchCount', {
+                    current:
+                      matchOrder.indexOf(jumpOid ?? '') + 1 > 0
+                        ? matchOrder.indexOf(jumpOid ?? '') + 1
+                        : 0,
+                    total: matchOrder.length,
+                  })}
+                </span>
+                <IconButton
+                  label={t('history.filter.prevMatch')}
+                  size="sm"
+                  disabled={matchOrder.length === 0}
+                  onClick={() => {
+                    jumpToMatch(-1);
+                  }}
+                  data-testid="history-search-prev"
+                >
+                  <ChevronUp aria-hidden="true" className="size-4" />
+                </IconButton>
+                <IconButton
+                  label={t('history.filter.nextMatch')}
+                  size="sm"
+                  disabled={matchOrder.length === 0}
+                  onClick={() => {
+                    jumpToMatch(1);
+                  }}
+                  data-testid="history-search-next"
+                >
+                  <ChevronDown aria-hidden="true" className="size-4" />
+                </IconButton>
+              </div>
+            ) : null}
+
+            {/* 筛选栏（T2.3）：关键词搜索 + 分支多选 / 作者 / 时间 / 开关 */}
+            <HistoryFilterBar
+              state={filterState}
+              onChange={applyFilters}
+              authors={authorsQuery.data ?? []}
+              branches={branchesQuery.data ?? []}
+            />
 
             {/* dev 性能面板开关（生产构建里这个分支被静态替换掉） */}
             {import.meta.env.DEV ? (

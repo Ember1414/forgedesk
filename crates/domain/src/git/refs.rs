@@ -94,7 +94,7 @@ impl Remote {
 }
 
 /// 一个本地或远程跟踪分支。
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct Branch {
     /// 分支短名。远程跟踪分支形如 `origin/main`（不含 `refs/remotes/`）。
     pub name: String,

@@ -161,6 +161,42 @@ impl CliGitEngine {
             .collect())
     }
 
+    /// 读取一条配置值（跟随 git 默认解析链：local → global → system）。
+    ///
+    /// 与 [`Self::repository_config`] 的区别：那条**只读 `--local`**，用于把
+    /// "仓库自带的危险配置"展示给用户（全局配置不是仓库带来的风险）；本方法
+    /// 读的是"我是谁"这类**用户身份**（T2.3 的"仅显示我的提交"要用 user.email），
+    /// 必须走完整解析链才找得到全局身份。`user.email` 不是凭据（红线 R8 的
+    /// 范围是 token / 密码 / 私钥），因此不需要脱敏。
+    ///
+    /// `key` 只接受 `[A-Za-z0-9.-]`：key 会进参数数组（注入本就被防住），
+    /// 这道校验防的是调用方把任意子命令拼进 key 的手滑。取不到时返回 `None`
+    /// （git 对未设置的键以退出码 1 结束，是"没有"而不是"错误"）。
+    pub fn config_value(&self, repo: &RepoId, key: &str) -> AppResult<Option<String>> {
+        if key.is_empty()
+            || !key
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'.' || byte == b'-')
+        {
+            return Err(forgedesk_domain::AppError::new(
+                forgedesk_domain::ErrorCode::Validation,
+                "the config key contains unsupported characters",
+            )
+            .with_detail(format!("key: {key}")));
+        }
+        let invocation = args::GitInvocation::new(vec![
+            "config".to_owned(),
+            "--get".to_owned(),
+            key.to_owned(),
+        ]);
+        let output = self.run_at(repo.root(), invocation, RunKind::Read)?;
+        if !output.success() {
+            return Ok(None);
+        }
+        let value = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+        Ok(if value.is_empty() { None } else { Some(value) })
+    }
+
     /// 在指定目录执行一条命令，返回原始结果（不判退出码）。
     pub(crate) fn run_at(
         &self,
@@ -379,6 +415,10 @@ impl GitEngine for CliGitEngine {
 
     fn remote_refs_containing(&self, repo: &RepoId, revision: &str) -> AppResult<Vec<String>> {
         read::remote_refs_containing(self, repo, revision)
+    }
+
+    fn authors(&self, repo: &RepoId) -> AppResult<Vec<forgedesk_domain::git::AuthorSummary>> {
+        read::authors(self, repo)
     }
 
     fn update_ref(&self, repo: &RepoId, name: &str, oid: &str) -> AppResult<()> {

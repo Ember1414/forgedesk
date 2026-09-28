@@ -7,7 +7,7 @@
 
 use std::path::PathBuf;
 
-use forgedesk_domain::git::{Commit, LogQuery, Page, RepoId, RepoPath};
+use forgedesk_domain::git::{AuthorSummary, Branch, Commit, LogQuery, Page, RepoId, RepoPath};
 use forgedesk_domain::history::{GraphLayout, LayoutMode, LayoutOptions};
 use forgedesk_domain::{AppError, AppResult, ErrorCode};
 use forgedesk_git_engine::engine::GitEngine;
@@ -50,6 +50,10 @@ impl Default for HistoryQuery {
             first_parent_only: false,
             follow_renames: false,
             collapse_merged_branches: false,
+            revisions: Vec::new(),
+            case_insensitive: false,
+            merges_only: false,
+            my_commits_only: false,
             page_size: 100,
             cursor: None,
         }
@@ -106,6 +110,21 @@ pub struct HistoryQuery {
     /// （后面还有页）时静默回退为不折叠——见 [`HistoryService::page`]。
     #[serde(default)]
     pub collapse_merged_branches: bool,
+    /// 分支多选（T2.3）：遍历这些 tip 的并集；非空时 `revision` 与
+    /// `all_branches` 被忽略（前端把三者建模成互斥选项）。
+    #[serde(default)]
+    pub revisions: Vec<String>,
+    /// 关键词匹配忽略大小写（配合 `messageContains`；缺省 false = 与旧契约一致）。
+    #[serde(default)]
+    pub case_insensitive: bool,
+    /// 只显示合并提交（`--merges` 口径）。
+    #[serde(default)]
+    pub merges_only: bool,
+    /// 只显示"我的提交"：服务层把当前身份（仓库 `user.email`，跟随
+    /// local→global 解析链）翻译成 author 过滤。未配置身份时返回
+    /// `VALIDATION`——静默当成"全部提交"会让用户以为开关坏了。
+    #[serde(default)]
+    pub my_commits_only: bool,
     /// 每页条数（1..=500；缺省 100）。
     #[serde(default = "default_page_size")]
     pub page_size: usize,
@@ -168,6 +187,22 @@ impl<'a> HistoryService<'a> {
         let workdir = self.resolve_workdir(repo_id)?;
         let repo = RepoId::new(workdir);
 
+        // "仅显示我的提交"在服务层翻译成 author 过滤：身份的真相源是仓库的
+        // user.email（跟随 local→global 解析链）。与显式 author 同设时本开关
+        // 优先——两个作者过滤器在 git 里是 OR 关系（交集做不到），叠加会
+        // 产生"既不是我、又是那个人"的意外并集。
+        let mut author = query.author.clone();
+        if query.my_commits_only {
+            let email = self.engines.write().config_value(&repo, "user.email")?;
+            let Some(email) = email else {
+                return Err(AppError::new(
+                    ErrorCode::Validation,
+                    "my_commits_only requires user.email to be configured",
+                ));
+            };
+            author = Some(email);
+        }
+
         let log_query = LogQuery {
             revision: query.revision.clone(),
             limit: page_size,
@@ -175,12 +210,15 @@ impl<'a> HistoryService<'a> {
             skip: usize::try_from(cursor).unwrap_or(usize::MAX),
             all_branches: query.all_branches,
             paths: query.paths.clone(),
-            author: query.author.clone(),
+            author,
             since: query.since,
             until: query.until,
             message_contains: query.message_contains.clone(),
             first_parent_only: query.first_parent_only,
             follow_renames: query.follow_renames,
+            revisions: query.revisions.clone(),
+            case_insensitive: query.case_insensitive,
+            merges_only: query.merges_only,
         };
 
         let page: Page<Commit> = self.engines.read().log(&repo, log_query)?;
@@ -218,5 +256,30 @@ impl<'a> HistoryService<'a> {
             layout,
             next_cursor,
         })
+    }
+
+    /// 列出分支（T2.3 的分支多选下拉；`include_remote` 控制是否带远端跟踪分支）。
+    ///
+    /// 读取走 libgit2（分支列表是纯引用读取）。**T2.5 的分支管理会把这条
+    /// 能力搬进专门的分支服务**——现在挂在历史服务上是因为筛选栏是它唯一
+    /// 的消费者，先满足"单一消费者、最小接线"。
+    pub fn branches(&self, repo_id: i64, include_remote: bool) -> AppResult<Vec<Branch>> {
+        let workdir = self.resolve_workdir(repo_id)?;
+        let mut branches = self.engines.read().branch_list(&RepoId::new(workdir))?;
+        if !include_remote {
+            // trait 的 branch_list 不带开关（分支列表是整体读取的）；远端过滤
+            // 在这里做——is_remote 是引擎给出的结构化标记，不是名字前缀猜测
+            branches.retain(|branch| !branch.is_remote);
+        }
+        Ok(branches)
+    }
+
+    /// 列出仓库作者（T2.3 的作者筛选下拉）。范围与 `--all` 一致。
+    ///
+    /// 只走 CLI 引擎（libgit2 侧未实现该读取，与 `remote_refs_containing`
+    /// 同一先例）；作者列表是低频低量数据（去重后通常 < 100 行）。
+    pub fn authors(&self, repo_id: i64) -> AppResult<Vec<AuthorSummary>> {
+        let workdir = self.resolve_workdir(repo_id)?;
+        self.engines.write().authors(&RepoId::new(workdir))
     }
 }

@@ -79,8 +79,65 @@ const MOCK_SCRIPT = `
     transformCallback: function (callback) { listeners.push(callback); return listeners.length; },
     unregisterListener: function () {},
     invoke: function (command, args) {
+      if (command === 'git_log_authors') {
+        var authors = [];
+        for (var ai = 0; ai < 20; ai++) {
+          authors.push({ name: 'Author ' + ai, email: 'author' + ai + '@test.dev', commitCount: 1 });
+        }
+        return Promise.resolve(authors);
+      }
+      if (command === 'git_branch_list') {
+        var zeroOid = ('000000000000000000000000000000000000000' + 0).slice(-40);
+        return Promise.resolve([
+          { name: 'main', isRemote: false, isHead: true, target: zeroOid, upstream: null, ahead: null, behind: null, upstreamGone: false },
+          { name: 'feature/xyz', isRemote: false, isHead: false, target: zeroOid, upstream: null, ahead: null, behind: null, upstreamGone: false },
+        ]);
+      }
       if (command === 'git_log_page') {
         var cursor = (args && args.query && args.query.cursor) || 0;
+        var q = (args && args.query) || {};
+        // 让筛选真实生效（E2E 断言 filtered 数量）：author 子串 + 关键词大小写口径
+        var activeAuthor = q.author ? String(q.author) : null;
+        var term = q.messageContains ? String(q.messageContains) : null;
+        var ci = q.caseInsensitive === undefined ? false : !!q.caseInsensitive;
+        var filteredIdx = [];
+        for (var fi2 = 0; fi2 < 20; fi2++) {
+          var c = window.__historyFixture.commits[fi2];
+          if (activeAuthor !== null
+            && c.author.name.indexOf(activeAuthor) < 0
+            && c.author.email.indexOf(activeAuthor) < 0) {
+            continue;
+          }
+          if (term !== null) {
+            var hay = ci ? c.subject.toLowerCase() : c.subject;
+            var needle = ci ? term.toLowerCase() : term;
+            if (hay.indexOf(needle) < 0) {
+              continue;
+            }
+          }
+          filteredIdx.push(fi2);
+        }
+        if (activeAuthor !== null || term !== null) {
+          // 筛选态：一次回完整结果（避免 fixture 的分页语义与筛选叠加）
+          // 行号按筛选后的流重排（与后端契约一致：cursor 是筛选结果里的全局序号）
+          var rowsF = filteredIdx.map(function (i2, newRow) {
+            var row = window.__historyFixture.layout.rows[i2];
+            return { oid: row.oid, row: newRow, lane: row.lane, colorIndex: row.colorIndex, isMerge: row.isMerge, hidden: row.hidden, collapsed: row.collapsed };
+          });
+          var oidToRow = {};
+          for (var ri = 0; ri < rowsF.length; ri++) oidToRow[rowsF[ri].oid] = rowsF[ri].row;
+          var edgesF = window.__historyFixture.layout.edges.filter(function (e2) {
+            return oidToRow[e2.fromOid] !== undefined && oidToRow[e2.toOid] !== undefined;
+          }).map(function (e2) {
+            var kind = oidToRow[e2.fromOid] === oidToRow[e2.toOid] ? 'straight' : 'branch';
+            return { fromOid: e2.fromOid, toOid: e2.toOid, fromLane: e2.fromLane, toLane: e2.toLane, kind: kind };
+          });
+          return Promise.resolve({
+            commits: filteredIdx.map(function (i2) { return window.__historyFixture.commits[i2]; }),
+            layout: { rows: rowsF, edges: edgesF, laneCount: 3 },
+            nextCursor: null,
+          });
+        }
         if (cursor === 0) {
           // 首页返回前 15 个
           var page1 = window.__historyFixture;
@@ -514,6 +571,76 @@ test('详情面板：钉住后点击其他行不跟随', async ({ page }) => {
   await page.locator('#fd-history-list-row-7').click();
   await expect(panel).toContainText('feat: commit message 2');
   await expect(panel).not.toContainText('feat: commit message 7');
+
+  const errs = await page.evaluate(() => window.__errs ?? []);
+  expect(errs, JSON.stringify(errs)).toEqual([]);
+});
+
+// ---------------------------------------------------------------- T2.3 筛选与搜索
+
+test('筛选：按作者过滤生效并同步到 URL', async ({ page }) => {
+  await page.goto('/#/repo/1/history');
+  await expect(page.getByTestId('graph-overlay')).toBeVisible();
+  await expect(page.getByTestId('history-loaded-count')).toContainText('15');
+
+  // 打开筛选面板，选一个作者（fixture 里每个作者恰有一条提交）
+  await page.getByTestId('history-filter-open').click();
+  await page.getByTestId('history-filter-author').selectOption('author3@test.dev');
+
+  // 筛选生效：mock 按作者过滤 → 只剩 1 条；URL 同步出 author 参数
+  await expect(page.getByTestId('history-loaded-count')).toContainText('1');
+  await expect(page).toHaveURL(/author=author3%40test\.dev/);
+  // chip 可见且可单独移除
+  await expect(page.getByTestId('history-chip-author')).toBeVisible();
+
+  const errs = await page.evaluate(() => window.__errs ?? []);
+  expect(errs, JSON.stringify(errs)).toEqual([]);
+});
+
+test('筛选后为空时给出空态与清除筛选按钮', async ({ page }) => {
+  await page.goto('/#/repo/1/history?q=不存在的关键词');
+  await expect(page.getByTestId('history-clear-filters')).toBeVisible();
+  await page.getByTestId('history-clear-filters').click();
+  // 清除后 URL 上的筛选参数消失，回到完整列表
+  await expect(page.getByTestId('history-loaded-count')).toContainText('15');
+  await expect(page).not.toHaveURL(/q=/);
+
+  const errs = await page.evaluate(() => window.__errs ?? []);
+  expect(errs, JSON.stringify(errs)).toEqual([]);
+});
+
+test('搜索：关键词高亮 + 上一处/下一处跳转 + 选中', async ({ page }) => {
+  await page.goto('/#/repo/1/history');
+  await expect(page.getByTestId('graph-overlay')).toBeVisible();
+
+  // "message 1" 命中提交 1、10–19（共 11 条）；防抖 300ms 后请求发出
+  await page.getByTestId('history-search-input').fill('message 1');
+  await expect(page.getByTestId('history-search-nav')).toBeVisible();
+  await expect(page.getByTestId('history-search-count')).toHaveText('0 / 11');
+
+  // 下一处：滚动 + 选中（count 前进，且图模式里出现选中）
+  await page.getByTestId('history-search-next').click();
+  await expect(page.getByTestId('history-search-count')).toHaveText('1 / 11');
+  await page.getByTestId('history-search-next').click();
+  await expect(page.getByTestId('history-search-count')).toHaveText('2 / 11');
+  await page.getByTestId('history-search-prev').click();
+  await expect(page.getByTestId('history-search-count')).toHaveText('1 / 11');
+
+  const errs = await page.evaluate(() => window.__errs ?? []);
+  expect(errs, JSON.stringify(errs)).toEqual([]);
+});
+
+test('筛选状态刷新后保持（URL 为真相源）', async ({ page }) => {
+  await page.goto('/#/repo/1/history');
+  await expect(page.getByTestId('graph-overlay')).toBeVisible();
+  await page.getByTestId('history-search-input').fill('message 1');
+  await expect(page.getByTestId('history-search-nav')).toBeVisible();
+
+  await page.reload();
+  // 关键词还在输入框里，导航与计数仍在（URL ?q=… 复现了筛选）
+  await expect(page.getByTestId('history-search-input')).toHaveValue('message 1');
+  await expect(page.getByTestId('history-search-nav')).toBeVisible();
+  await expect(page).toHaveURL(/q=message(\+|%20)1/);
 
   const errs = await page.evaluate(() => window.__errs ?? []);
   expect(errs, JSON.stringify(errs)).toEqual([]);

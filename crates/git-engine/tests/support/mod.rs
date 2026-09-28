@@ -114,6 +114,31 @@ pub fn write(dir: &std::path::Path, relative: &str, content: &[u8]) {
 ///
 /// 时间戳必须**逐个递增**：同一秒内的多个提交在 git 与 libgit2 里的排序平局
 /// 规则可能不同，那会让差分测试在"提交顺序"上产生假阳性。
+/// 指定作者身份提交（T2.3 的作者过滤 / 作者列表夹具）。
+pub fn commit_all_with_author(
+    dir: &std::path::Path,
+    message: &str,
+    name: &str,
+    email: &str,
+    sequence: u32,
+) {
+    git_ok(dir, &["add", "--all"]);
+    let date = format!("2024-01-02T03:04:{sequence:02}+00:00");
+    let output = git_with_env(
+        dir,
+        &["commit", "-q", "-m", message],
+        &[
+            ("GIT_AUTHOR_DATE", date.as_str()),
+            ("GIT_COMMITTER_DATE", date.as_str()),
+            ("GIT_AUTHOR_NAME", name),
+            ("GIT_AUTHOR_EMAIL", email),
+            ("GIT_COMMITTER_NAME", name),
+            ("GIT_COMMITTER_EMAIL", email),
+        ],
+    );
+    assert!(output.success(), "commit 失败: {}", output.stderr_lossy());
+}
+
 pub fn commit_all(dir: &std::path::Path, message: &str, sequence: u32) {
     git_ok(dir, &["add", "--all"]);
     let date = format!("2024-01-02T03:04:{sequence:02}+00:00");

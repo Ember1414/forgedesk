@@ -532,6 +532,8 @@ export interface DynamicLayerInput {
   readonly hoverOid: string | null;
   /** 与 hover 提交同属一条分支链路的提交（`GraphOverlay` 沿边遍历算出）。 */
   readonly chainOids: ReadonlySet<string>;
+  /** 搜索命中的提交（T2.3：琥珀点线环；空集时不进入绘制分支）。 */
+  readonly matchOids?: ReadonlySet<string> | undefined;
   /** 已加载的总行数（超出范围的行不画 hover 带）。 */
   readonly rowCount: number;
 }
@@ -543,7 +545,7 @@ export interface DynamicLayerInput {
  * hover 每帧都在变，若连节点一起重画就等于放弃了分层的全部意义。
  */
 export function drawDynamicLayer(input: DynamicLayerInput): void {
-  const { frame, index, selectedOids, hoverOid, chainOids, rowCount } = input;
+  const { frame, index, selectedOids, hoverOid, chainOids, matchOids, rowCount } = input;
   const { ctx, theme, metrics, scrollY, width, height } = frame;
   clearLayer(ctx, width, height);
 
@@ -577,6 +579,26 @@ export function drawDynamicLayer(input: DynamicLayerInput): void {
       const centerX = laneCenterX(metrics, row.lane);
       ctx.fillRect(centerX - barWidth / 2, rowTop(metrics, row.row), barWidth, metrics.rowHeight);
     }
+    ctx.restore();
+  }
+
+  // 2.5 搜索匹配环：警示琥珀点线。三种环的通道各不相同——选中=实线、
+  //     hover=虚线、匹配=点线——任何一种单独看都可分辨，叠加时也不会互换。
+  if (matchOids !== undefined && matchOids.size > 0) {
+    ctx.save();
+    ctx.strokeStyle = theme.match;
+    ctx.lineWidth = Math.max(1.25, 1.5 * metrics.scale);
+    ctx.setLineDash([1.5 * metrics.scale, 2.5 * metrics.scale]);
+    for (const oid of matchOids) {
+      const row = index.get(oid);
+      if (row === undefined) {
+        continue;
+      }
+      const ring = selectionRingRect(metrics, nodeRect(metrics, row));
+      roundedRectPath(ctx, ring, nodeRadius(ring));
+      ctx.stroke();
+    }
+    ctx.setLineDash([]);
     ctx.restore();
   }
 

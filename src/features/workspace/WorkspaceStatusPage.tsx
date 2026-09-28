@@ -14,10 +14,10 @@
 import { useMemo, useState } from 'react';
 
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { Copy, FolderOpen, Minus, Plus, RefreshCw, RotateCcw, Rows3 } from 'lucide-react';
+import { Copy, FolderOpen, Minus, Plus, RefreshCw, RotateCcw, Rows3, History } from 'lucide-react';
 import type { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
-import { useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 
 import {
   buildRows,
@@ -101,7 +101,7 @@ function GroupSection(props: {
   readonly onToggleDir: (dir: string) => void;
   readonly onToggleSelect: (path: string, additive: boolean) => void;
   readonly onRowAction: (
-    action: 'stage' | 'unstage' | 'discard' | 'reveal' | 'copy',
+    action: 'stage' | 'unstage' | 'discard' | 'reveal' | 'copy' | 'history',
     entry: WorkspaceFileChange,
   ) => void;
   /** 点击文件名打开 diff（T1.5）。 */
@@ -196,7 +196,7 @@ function FileRow(props: {
   readonly selected: boolean;
   readonly onToggleSelect: (path: string, additive: boolean) => void;
   readonly onAction: (
-    action: 'stage' | 'unstage' | 'discard' | 'reveal' | 'copy',
+    action: 'stage' | 'unstage' | 'discard' | 'reveal' | 'copy' | 'history',
     entry: WorkspaceFileChange,
   ) => void;
   /** 点击文件名打开 diff（T1.5）。 */
@@ -291,6 +291,14 @@ function FileRow(props: {
         >
           <Copy aria-hidden="true" className="size-3.5" />
         </IconButton>
+        <IconButton
+          label={t('workspace.actions.fileHistory')}
+          size="sm"
+          onClick={() => onAction('history', entry)}
+          data-testid="workspace-file-history"
+        >
+          <History aria-hidden="true" className="size-3.5" />
+        </IconButton>
       </div>
     </div>
   );
@@ -299,6 +307,7 @@ function FileRow(props: {
 export function WorkspaceStatusPage() {
   const { t } = useTranslation('shell');
   const params = useParams();
+  const navigate = useNavigate();
   const repoId = Number(params.repoId);
   const { show } = useAppError();
   const [includeIgnored, setIncludeIgnored] = useState(false);
@@ -419,7 +428,7 @@ export function WorkspaceStatusPage() {
   });
 
   function handleRowAction(
-    action: 'stage' | 'unstage' | 'discard' | 'reveal' | 'copy',
+    action: 'stage' | 'unstage' | 'discard' | 'reveal' | 'copy' | 'history',
     entry: WorkspaceFileChange,
   ): void {
     switch (action) {
@@ -440,6 +449,11 @@ export function WorkspaceStatusPage() {
         break;
       case 'copy':
         void navigator.clipboard.writeText(entry.path).catch(show);
+        break;
+      case 'history':
+        // 文件历史（T2.3）：路径过滤 + 跟随重命名经 URL 进入历史页
+        // （筛选状态以 URL 为真相源，刷新 / 分享都能复现）
+        navigate(`/repo/${repoId}/history?path=${encodeURIComponent(entry.path)}&follow=1`);
         break;
     }
   }

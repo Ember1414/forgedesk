@@ -191,6 +191,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         forgedesk_commands::repo_close,
         forgedesk_commands::job_cancel,
         forgedesk_commands::git_log_page,
+        forgedesk_commands::git_log_authors,
+        forgedesk_commands::git_branch_list,
         forgedesk_commands::debug_throw_error,
         forgedesk_commands::debug_panic,
     ]);
@@ -230,6 +232,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         forgedesk_commands::repo_close,
         forgedesk_commands::job_cancel,
         forgedesk_commands::git_log_page,
+        forgedesk_commands::git_log_authors,
+        forgedesk_commands::git_branch_list,
         forgedesk_commands::git_commit_detail,
     ]);
 

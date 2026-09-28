@@ -449,7 +449,17 @@ impl GitEngine for Libgit2Engine {
                 .map_err(|error| map_error(&error, "simplify_first_parent"))?;
         }
 
-        if query.all_branches {
+        if !query.revisions.is_empty() {
+            // 分支多选（T2.3）：push 多个 tip 的并集。revision 可能是名字也可能是
+            // oid，统一走 revparse（与 CLI 的位置参数解析一致）；名字解析失败
+            // 时报错（与单 revision 路径同一原则：不掩盖调用方的拼写错误）。
+            for revision in &query.revisions {
+                let commit = find_commit(&repository, revision)?;
+                revwalk
+                    .push(commit.id())
+                    .map_err(|error| map_error(&error, "push"))?;
+            }
+        } else if query.all_branches {
             for reference in repository
                 .references()
                 .map_err(|error| map_error(&error, "references"))?
@@ -468,17 +478,33 @@ impl GitEngine for Libgit2Engine {
                 return Ok(Page::empty());
             }
 
-            revwalk
-                .push_ref(query.revision.as_deref().unwrap_or("HEAD"))
-                .map_err(|error| map_error(&error, "push_ref"))?;
+            match query.revision.as_deref() {
+                Some(revision) => {
+                    // 修订可能是短名（main / v1.0）也可能是 oid：`push_ref` 只认
+                    // 完整引用名（短名会报 "not valid"），统一走 revparse→push，
+                    // 与 CLI 位置参数的解析能力保持一致。
+                    let commit = find_commit(&repository, revision)?;
+                    revwalk
+                        .push(commit.id())
+                        .map_err(|error| map_error(&error, "push"))?;
+                }
+                None => {
+                    revwalk
+                        .push_ref("HEAD")
+                        .map_err(|error| map_error(&error, "push_ref"))?;
+                }
+            }
         }
 
         let mut commits = Vec::new();
-        // 过滤必须发生在"凑满一页"之前，而不是 take(limit+1) 之后：
-        // 否则作者/时间/关键词过滤会吃掉本页的配额，页面变短、has_more 误报，
-        // 与 CLI 的行为（--author/--grep 之后再数 max-count）不一致。
-        // 这是差分测试在作者过滤上抓到过的形状，新过滤器从一开始就按正确顺序写。
-        for oid in revwalk.skip(query.skip) {
+        // 过滤与 skip 都必须发生在"凑满一页"的计数之前：CLI 的 `--author` /
+        // `--grep` / `--merges` / `--skip` 全部作用在**过滤后的流**上（`--skip N`
+        // 跳过的是第 N 条**匹配**，不是第 N 条提交）。这里逐条走过滤器、过滤器
+        // 全通过后再决定"这条用于跳过还是计入本页"——T2.3 之前 skip 走的是
+        // `revwalk.skip()`（过滤前跳行），带筛选翻第二页时会与 CLI 给出不同的
+        // 窗口，这正是差分测试（作者过滤 × skip）抓到的形状。
+        let mut skipped = 0_usize;
+        for oid in revwalk {
             let oid = oid.map_err(|error| map_error(&error, "revwalk"))?;
             let commit = repository
                 .find_commit(oid)
@@ -509,14 +535,29 @@ impl GitEngine for Libgit2Engine {
                     continue;
                 }
             }
+            if query.merges_only && commit.parent_count() < 2 {
+                continue;
+            }
             if let Some(term) = &query.message_contains {
-                // 与 CLI 的 `--grep --fixed-strings` 同语义：全文（含正文）、字面、区分大小写
+                // 与 CLI 的 `--grep --fixed-strings` 同语义：全文（含正文）、字面；
+                // `case_insensitive` 对应 CLI 的 `-i`（不区分大小写的字面匹配）
                 let matched = std::str::from_utf8(commit.message_bytes())
-                    .map(|text| text.contains(term.as_str()))
+                    .map(|text| {
+                        if query.case_insensitive {
+                            text.to_lowercase().contains(&term.to_lowercase())
+                        } else {
+                            text.contains(term.as_str())
+                        }
+                    })
                     .unwrap_or(false);
                 if !matched {
                     continue;
                 }
+            }
+
+            if skipped < query.skip {
+                skipped += 1;
+                continue;
             }
 
             commits.push(to_commit(&commit));
@@ -819,6 +860,10 @@ impl GitEngine for Libgit2Engine {
         // 而 libgit2 侧要遍历 refs 自己做可达性计算。能力边界见
         // docs/GIT-ENGINE-DIFF.md §4。
         Err(unsupported(EngineId::Libgit2, "remote_refs_containing"))
+    }
+
+    fn authors(&self, _repo: &RepoId) -> AppResult<Vec<forgedesk_domain::git::AuthorSummary>> {
+        Err(unsupported(EngineId::Libgit2, "authors"))
     }
 
     fn commit(

@@ -58,7 +58,7 @@ pub use diff::{
 };
 pub use index::{StageEntry, UnmergedEntry, UnmergedStage};
 pub use path::RepoPath;
-pub use query::{LogQuery, Page};
+pub use query::{summarize_authors, AuthorSummary, LogQuery, Page};
 pub use refs::{Branch, RefUpdate, RefUpdateKind, Remote, RemoteKind, Tag};
 pub use repository::{BranchLabel, RepoId, RepositoryInfo, Worktree};
 pub use spec::{

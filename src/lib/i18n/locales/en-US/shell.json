@@ -459,7 +459,8 @@
       "discard": "Discard changes",
       "openEditor": "Open in editor (available in M5)",
       "reveal": "Reveal in file manager",
-      "copyPath": "Copy path"
+      "copyPath": "Copy path",
+      "fileHistory": "View file history"
     },
     "clean": {
       "title": "Working tree is clean",
@@ -520,11 +521,43 @@
     "loadedCount": "{{count}} commits loaded",
     "filter": {
       "label": "Filter",
-      "placeholder": "Filters (branch, author, path, date) arrive in T2.3"
+      "placeholder": "Filters (branch, author, path, date) arrive in T2.3",
+      "searchPlaceholder": "Search commit messages…",
+      "searchLabel": "Search commits",
+      "caseToggle": "Toggle case sensitivity",
+      "searchNav": "Search navigation",
+      "matchCount": "{{current}} / {{total}}",
+      "prevMatch": "Previous match",
+      "nextMatch": "Next match",
+      "branches": "Branches",
+      "allBranches": "All branches",
+      "headMark": "HEAD",
+      "noBranches": "No branches",
+      "authors": "Author",
+      "anyAuthor": "All authors",
+      "noAuthors": "No authors",
+      "time": "Time range",
+      "since": "From",
+      "until": "Until",
+      "preset": {
+        "today": "Today",
+        "week": "Last 7 days",
+        "month": "Last 30 days",
+        "quarter": "Last 90 days",
+        "all": "All"
+      },
+      "mergesOnly": "Merge commits only",
+      "myCommitsOnly": "My commits only",
+      "removeChip": "Remove this filter"
     },
     "empty": {
       "title": "No commits yet",
       "hint": "This repository has no commit history to show; the graph appears after the first commit."
+    },
+    "emptyFiltered": {
+      "title": "No matching commits",
+      "description": "No commit matches the current filters; clear the filters to see the full history.",
+      "clear": "Clear filters"
     },
     "error": {
       "title": "Failed to load commit history",

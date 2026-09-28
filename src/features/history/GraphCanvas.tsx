@@ -160,6 +160,17 @@ export interface GraphCanvasProps {
   readonly onHoverTarget: (target: HoverTarget | null) => void;
   /** 滚到底部附近时请求下一页。 */
   readonly onNeedMore: () => void;
+  /**
+   * 搜索命中的提交（T2.3）：动态层为它们画琥珀点线环。
+   * 引用稳定由调用方保证（useMemo），空集 = 无高亮。
+   */
+  readonly matchOids?: ReadonlySet<string> | undefined;
+  /**
+   * 滚动跳转请求（T2.3 的"上一处 / 下一处"）。`token` 递增以保证同一行
+   * 重复请求也能再次触发 effect；行会被滚到视口中部（不是顶端，上下文
+   * 可见）。画布与列表模式各自处理自己的滚动，这里只管画布。
+   */
+  readonly scrollToRow?: { readonly row: number; readonly token: number } | null | undefined;
   readonly className?: string;
 }
 
@@ -336,6 +347,8 @@ function GraphCanvasInner(props: GraphCanvasProps): ReactNode {
     onSelectAll,
     onHoverTarget,
     onNeedMore,
+    matchOids,
+    scrollToRow,
     className,
   } = props;
 
@@ -533,6 +546,7 @@ function GraphCanvasInner(props: GraphCanvasProps): ReactNode {
         selectedOids,
         hoverOid,
         chainOids: chain,
+        matchOids,
         rowCount: model.rowCount,
       });
       dirty.dynamic = false;
@@ -580,6 +594,7 @@ function GraphCanvasInner(props: GraphCanvasProps): ReactNode {
     renderIndex,
     adjacency,
     selectedOids,
+    matchOids,
     refAreaWidth,
     formatCollapsed,
     minimapBlocks,
@@ -1062,24 +1077,65 @@ function GraphCanvasInner(props: GraphCanvasProps): ReactNode {
     ],
   );
 
+  // ------------------------------------------------------------ 滚动跳转（T2.3 搜索）
+
+  // token 变化即触发：同一行重复请求也要滚（用户可能连按两次"下一处"中间
+  // 手动挪了滚动条）。滚到**视口中部**——顶端对齐会让目标行贴着上边框，
+  // 看不到它的上下文。
+  useEffect(() => {
+    if (scrollToRow === null || scrollToRow === undefined) {
+      return;
+    }
+    const container = containerRef.current;
+    if (container === null) {
+      return;
+    }
+    const top = scrollToRow.row * metrics.rowHeight;
+    container.scrollTop = Math.max(0, top - Math.max(0, viewport.height - metrics.rowHeight) / 2);
+  }, [scrollToRow, metrics.rowHeight, viewport.height]);
+
   // ------------------------------------------------------------ 迷你地图
 
-  const handleMinimapPointerDown = useCallback(
-    (event: ReactPointerEvent<HTMLCanvasElement>) => {
+  /** 把指针在迷你地图上的 y 换算成滚动位置（按下与拖动共用）。 */
+  const scrollToMinimapRatio = useCallback(
+    (clientY: number) => {
       const container = containerRef.current;
       const canvas = minimapCanvasRef.current;
       if (container === null || canvas === null || model.rowCount <= 0) {
         return;
       }
-      event.preventDefault();
       const rect = canvas.getBoundingClientRect();
-      const ratio = Math.min(1, Math.max(0, (event.clientY - rect.top) / Math.max(1, rect.height)));
+      const ratio = Math.min(1, Math.max(0, (clientY - rect.top) / Math.max(1, rect.height)));
       container.scrollTop = Math.max(
         0,
         ratio * model.rowCount * metrics.rowHeight - viewport.height / 2,
       );
     },
     [model.rowCount, metrics.rowHeight, viewport.height],
+  );
+
+  // 按下即跳 + 按住拖动跟随（T2.3：可拖动跳转）。setPointerCapture 让指针
+  // 移出画布后 move 事件仍打到画布上，松手才停止。
+  const handleMinimapPointerDown = useCallback(
+    (event: ReactPointerEvent<HTMLCanvasElement>) => {
+      if (model.rowCount <= 0) {
+        return;
+      }
+      event.preventDefault();
+      event.currentTarget.setPointerCapture(event.pointerId);
+      scrollToMinimapRatio(event.clientY);
+    },
+    [model.rowCount, scrollToMinimapRatio],
+  );
+
+  const handleMinimapPointerMove = useCallback(
+    (event: ReactPointerEvent<HTMLCanvasElement>) => {
+      // 只在按住主键拖动时跟随；悬停（无按键）不滚动
+      if (event.buttons & 1) {
+        scrollToMinimapRatio(event.clientY);
+      }
+    },
+    [scrollToMinimapRatio],
   );
 
   // ------------------------------------------------------------ 渲染
@@ -1168,6 +1224,7 @@ function GraphCanvasInner(props: GraphCanvasProps): ReactNode {
                 height: MINIMAP_HEIGHT,
               }}
               onPointerDown={handleMinimapPointerDown}
+              onPointerMove={handleMinimapPointerMove}
             />
           ) : null}
         </div>

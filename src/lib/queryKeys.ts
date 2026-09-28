@@ -73,6 +73,14 @@ export function logKeyPrefix(repoId: number): readonly [string, number] {
   return [LOG_QUERY_KEY, repoId];
 }
 
+/** 仓库作者列表（`git_log_authors`，T2.3 的作者筛选下拉）。 */
+export const AUTHORS_QUERY_KEY = 'authors';
+
+/** 某仓库作者列表的查询键。 */
+export function authorsKey(repoId: number): readonly [string, number] {
+  return [AUTHORS_QUERY_KEY, repoId];
+}
+
 /** 单次提交详情（`git_commit_detail`，T2.4）。 */
 export const COMMIT_DETAIL_QUERY_KEY = 'commitDetail';
 

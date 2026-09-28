@@ -30,6 +30,7 @@ import { onRepoChanged } from '@/lib/ipc/workspace';
 import type { RepoChangeKind } from '@/lib/ipc/workspace';
 import {
   BRANCHES_QUERY_KEY,
+  AUTHORS_QUERY_KEY,
   COMMIT_DETAIL_QUERY_KEY,
   DIFF_KEY_PATH_INDEX,
   DIFF_QUERY_KEY,
@@ -68,6 +69,7 @@ export function queryKeysForChange(
         [BRANCHES_QUERY_KEY, repoId],
         [SNAPSHOTS_QUERY_KEY, repoId],
         [COMMIT_DETAIL_QUERY_KEY, repoId],
+        [AUTHORS_QUERY_KEY, repoId],
       ];
     case 'large':
       return [
@@ -77,6 +79,7 @@ export function queryKeysForChange(
         [BRANCHES_QUERY_KEY, repoId],
         [SNAPSHOTS_QUERY_KEY, repoId],
         [COMMIT_DETAIL_QUERY_KEY, repoId],
+        [AUTHORS_QUERY_KEY, repoId],
       ];
     default:
       // 认不出的类别（例如载荷来自更早的版本）按"大量变更"处理：
@@ -88,6 +91,7 @@ export function queryKeysForChange(
         [BRANCHES_QUERY_KEY, repoId],
         [SNAPSHOTS_QUERY_KEY, repoId],
         [COMMIT_DETAIL_QUERY_KEY, repoId],
+        [AUTHORS_QUERY_KEY, repoId],
       ];
   }
 }

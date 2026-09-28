@@ -37,6 +37,8 @@ export interface GraphTheme {
   readonly selected: string;
   /** hover 环（品牌靛蓝，虚线）。 */
   readonly hover: string;
+  /** 搜索匹配环（警示琥珀，点线）：与选中/hover 三者虚实不同，见 drawDynamicLayer。 */
+  readonly match: string;
   /** 画布底色。 */
   readonly canvas: string;
   /** 行带底色（hover 整行高亮）。 */
@@ -86,6 +88,9 @@ export function readGraphTheme(read: CssVarReader): GraphTheme {
     refTag: pick('fd-graph-ref-tag'),
     selected: pick('fd-graph-selected'),
     hover: pick('fd-graph-hover'),
+    // 匹配高亮借用语义层的警示琥珀：canvas 专用色不必再开一批 token，
+    // 而“搜索命中”与“警示”共享同一色相对用户的直觉是自洽的
+    match: pick('fd-warning'),
     canvas: pick('fd-canvas'),
     rowBand: pick('fd-surface-sunken'),
     line: pick('fd-line'),

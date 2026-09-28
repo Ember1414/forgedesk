@@ -77,6 +77,10 @@ export interface GraphOverlayProps {
   readonly model: GraphModel;
   /** 与 `model.rows` 同序同长的 DOM 文案（由 `HistoryPage` 注入 i18n 后算好）。 */
   readonly texts: readonly RowText[];
+  /** 搜索命中的提交（T2.3：琥珀点线环；透传给画布动态层）。 */
+  readonly matchOids?: ReadonlySet<string> | undefined;
+  /** 滚动跳转请求（T2.3 的"上一处 / 下一处"；透传给画布）。 */
+  readonly scrollToRow?: { readonly row: number; readonly token: number } | null | undefined;
   /** 滚到底部附近时请求下一页。 */
   readonly onNeedMore: () => void;
   readonly className?: string;
@@ -128,7 +132,14 @@ function HoverCardBody({
   );
 }
 
-export function GraphOverlay({ model, texts, onNeedMore, className }: GraphOverlayProps) {
+export function GraphOverlay({
+  model,
+  texts,
+  matchOids,
+  scrollToRow,
+  onNeedMore,
+  className,
+}: GraphOverlayProps) {
   const { t } = useTranslation('shell');
   const { show } = useAppError();
 
@@ -250,6 +261,8 @@ export function GraphOverlay({ model, texts, onNeedMore, className }: GraphOverl
             onSelectAll={handleSelectAll}
             onHoverTarget={setHoverTarget}
             onNeedMore={onNeedMore}
+            matchOids={matchOids}
+            scrollToRow={scrollToRow ?? null}
           />
 
           {hoverTarget === null ? null : (

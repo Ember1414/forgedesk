@@ -287,21 +287,38 @@ pub fn log_args(query: &LogQuery, format: &str) -> AppResult<GitInvocation> {
     }
     if let Some(term) = &query.message_contains {
         // 字面匹配而非正则：界面上"搜提交"找的是一句话，正则的转义负担
-        // 会变成"搜不出来但不知道为什么"。`--fixed-strings` 同时也明确
-        // 了大小写敏感（不传 `-i`），与 libgit2 侧的子串比较语义一致。
+        // 会变成"搜不出来但不知道为什么"。`--fixed-strings` 排除正则语义，
+        // `case_insensitive` 决定要不要 `-i`，与 libgit2 侧的子串比较语义一致。
         args.push("--fixed-strings".to_owned());
+        if query.case_insensitive {
+            args.push("-i".to_owned());
+        }
         args.push(format!("--grep={term}"));
     }
     if query.first_parent_only {
         args.push("--first-parent".to_owned());
+    }
+    if query.merges_only {
+        args.push("--merges".to_owned());
     }
     if query.follow_renames && query.paths.len() == 1 {
         // 调用方（services 层）负责校验"恰好一条路径"；这里只是防御性地
         // 不把 `--follow` 发给 git（--follow 配 0 或多条路径时 git 直接报错）。
         args.push("--follow".to_owned());
     }
-    if let Some(revision) = &query.revision {
-        args.push(revision.clone());
+    if !query.revisions.is_empty() {
+        // 分支多选：遍历多个 tip 的并集（git 的位置参数天然就是这个语义）。
+        // `--all` 与单 revision 在此被忽略——界面把两者与多选建模成互斥。
+        for revision in &query.revisions {
+            args.push(revision.clone());
+        }
+    } else {
+        if query.all_branches {
+            args.push("--all".to_owned());
+        }
+        if let Some(revision) = &query.revision {
+            args.push(revision.clone());
+        }
     }
 
     invocation(args, &PathSpecArgs::from_paths(&query.paths), false)

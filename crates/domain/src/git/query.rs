@@ -31,6 +31,13 @@ pub struct LogQuery {
     /// 跟随重命名（`--follow`）。仅在 `paths` 恰好是一条时有意义；
     /// libgit2 不支持该选项，置位时会返回 `UnsupportedByEngine`。
     pub follow_renames: bool,
+    /// 分支多选（T2.3）：非空时遍历这些 tip 的**并集**，此时 `revision` 与
+    /// `all_branches` 被忽略（界面把"全部分支"与"多选分支"建模成互斥选项）。
+    pub revisions: Vec<String>,
+    /// 关键词匹配忽略大小写（配合 `message_contains`；CLI 侧即 `--grep -i`）。
+    pub case_insensitive: bool,
+    /// 只显示合并提交（CLI `--merges`；libgit2 按 parent_count 过滤）。
+    pub merges_only: bool,
 }
 
 /// 默认分页大小。
@@ -53,6 +60,9 @@ impl Default for LogQuery {
             message_contains: None,
             first_parent_only: false,
             follow_renames: false,
+            revisions: Vec::new(),
+            case_insensitive: false,
+            merges_only: false,
         }
     }
 }
@@ -204,5 +214,94 @@ mod tests {
         assert!(page.items.is_empty());
         assert!(!page.has_more);
         assert_eq!(page.total, Some(0));
+    }
+}
+
+/// 一个提交作者（按邮箱去重后的身份；T2.3 的作者筛选列表）。
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AuthorSummary {
+    /// 姓名：同一邮箱出现多个名字时取提交数最多者（并列取字典序）。
+    pub name: String,
+    /// 邮箱（去重键：git 身份里稳定的是邮箱，名字随时会改）。
+    pub email: String,
+    /// 提交数（`--all` 范围内）。
+    pub commit_count: u64,
+}
+
+/// 把 (姓名, 邮箱) 记录流汇总成去重的作者列表（纯函数，导出供单测）。
+///
+/// 规则：按邮箱分组（git 身份里稳定的是邮箱，名字随时会改）；组内姓名取
+/// 出现最多者（并列取字典序，保证同一份输入永远得到同一个结果）；输出按
+/// 提交数降序、数量并列时按邮箱升序。
+pub fn summarize_authors(
+    records: impl IntoIterator<Item = (String, String)>,
+) -> Vec<AuthorSummary> {
+    use std::collections::HashMap;
+
+    // email -> (name -> 次数, 总提交数)
+    let mut groups: HashMap<String, (HashMap<String, u64>, u64)> = HashMap::new();
+    for (name, email) in records {
+        let entry = groups.entry(email).or_default();
+        *entry.0.entry(name).or_insert(0) += 1;
+        entry.1 += 1;
+    }
+
+    let mut out: Vec<AuthorSummary> = groups
+        .into_iter()
+        .map(|(email, (names, total))| {
+            let (name, _) = names
+                .into_iter()
+                .max_by(|left, right| left.1.cmp(&right.1).then_with(|| right.0.cmp(&left.0)))
+                .unwrap_or_default();
+            AuthorSummary {
+                name,
+                email,
+                commit_count: total,
+            }
+        })
+        .collect();
+    out.sort_by(|left, right| {
+        right
+            .commit_count
+            .cmp(&left.commit_count)
+            .then_with(|| left.email.cmp(&right.email))
+    });
+    out
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod author_tests {
+    use super::summarize_authors;
+
+    #[test]
+    fn authors_are_grouped_by_email_and_sorted_by_count() {
+        let out = summarize_authors([
+            ("Alice".to_owned(), "a@x.dev".to_owned()),
+            ("Bob".to_owned(), "b@x.dev".to_owned()),
+            ("Alice".to_owned(), "a@x.dev".to_owned()),
+            ("Carol".to_owned(), "c@x.dev".to_owned()),
+        ]);
+        assert_eq!(out.len(), 3);
+        assert_eq!(out[0].email, "a@x.dev");
+        assert_eq!(out[0].name, "Alice");
+        assert_eq!(out[0].commit_count, 2);
+    }
+
+    #[test]
+    fn one_email_with_many_names_takes_the_most_frequent_then_lexicographic() {
+        let out = summarize_authors([
+            ("Zed".to_owned(), "x@x.dev".to_owned()),
+            ("Amy".to_owned(), "x@x.dev".to_owned()),
+            ("Amy".to_owned(), "x@x.dev".to_owned()),
+        ]);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].name, "Amy", "并列时取字典序：Amy < Zed");
+    }
+
+    #[test]
+    fn empty_input_yields_an_empty_list() {
+        assert!(summarize_authors([]).is_empty());
     }
 }

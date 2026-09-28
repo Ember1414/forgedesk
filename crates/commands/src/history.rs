@@ -9,6 +9,7 @@
 //! `query.paths` 的 JSON 形状是 `string[]`（与 `DiffRequest.paths` 的先例一致）；
 //! 前端传相对仓库根的路径字符串，后端经 `RepoPath::from(String)` 转换。
 
+use forgedesk_domain::git::{AuthorSummary, Branch};
 use forgedesk_domain::AppResult;
 use forgedesk_services::{HistoryPage, HistoryQuery};
 use tauri::State;
@@ -33,6 +34,26 @@ pub fn git_log_page(
     query: HistoryQuery,
 ) -> AppResult<HistoryPage> {
     state.history_service().page(repo_id, &query)
+}
+
+/// 列出分支（T2.3 的分支多选下拉）。能力等级：`ReadOnly`。
+#[tauri::command]
+pub fn git_branch_list(
+    state: State<'_, AppState>,
+    repo_id: i64,
+    include_remote: Option<bool>,
+) -> AppResult<Vec<Branch>> {
+    state
+        .history_service()
+        .branches(repo_id, include_remote.unwrap_or(false))
+}
+
+/// 列出仓库作者（T2.3 的作者筛选下拉）。能力等级：`ReadOnly`。
+///
+/// 按邮箱去重、提交数降序；范围与 `--all` 一致（作者筛选作用于全仓库）。
+#[tauri::command]
+pub fn git_log_authors(state: State<'_, AppState>, repo_id: i64) -> AppResult<Vec<AuthorSummary>> {
+    state.history_service().authors(repo_id)
 }
 
 #[cfg(test)]

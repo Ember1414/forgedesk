@@ -57,6 +57,10 @@ const GRID_COLUMNS =
 export interface GraphListModeProps {
   /** 与图模式同序同长的行文案（由 `HistoryPage` 注入 i18n 后算好）。 */
   readonly texts: readonly RowText[];
+  /** 搜索命中的行（T2.3：淡琥珀底色标记；空集 = 无高亮）。 */
+  readonly matchOids?: ReadonlySet<string> | undefined;
+  /** 跳转目标（T2.3 的"上一处 / 下一处"）：把它设为焦点行并滚进可视区。 */
+  readonly focusOid?: string | null | undefined;
   readonly className?: string;
 }
 
@@ -74,7 +78,7 @@ function rowId(index: number): string {
   return `fd-history-list-row-${index}`;
 }
 
-export function GraphListMode({ texts, className }: GraphListModeProps) {
+export function GraphListMode({ texts, matchOids, focusOid, className }: GraphListModeProps) {
   const { t } = useTranslation('shell');
 
   const select = useGraphSelectionStore((state) => state.select);
@@ -132,6 +136,18 @@ export function GraphListMode({ texts, className }: GraphListModeProps) {
       element.scrollTop = bottom - effectiveHeight;
     }
   }, [activeIndex, effectiveHeight, total]);
+
+  // 跳转目标（T2.3）：焦点行切到目标 oid，随后的"滚进可视区"既有 effect
+  // 跟着生效。用"props 变化时调整状态"的渲染期模式（有守卫），而不是
+  // effect 里 setState（react-hooks 直接禁掉）。
+  const [focusedOidApplied, setFocusedOidApplied] = useState<string | null>(null);
+  if (focusOid !== null && focusOid !== undefined && focusOid !== focusedOidApplied && total > 0) {
+    const index = texts.findIndex((text) => text.oid === focusOid);
+    if (index >= 0) {
+      setFocusedOidApplied(focusOid);
+      setRawActiveIndex(index);
+    }
+  }
 
   const firstVisible = Math.floor(scrollTop / ROW_HEIGHT);
   const start = Math.max(0, firstVisible - OVERSCAN_ROWS);
@@ -251,6 +267,7 @@ export function GraphListMode({ texts, className }: GraphListModeProps) {
               const index = start + offset;
               const isSelected = selected.has(text.oid);
               const isActive = index === activeIndex;
+              const isMatch = matchOids !== undefined && matchOids.has(text.oid);
               return (
                 <div
                   key={text.oid}
@@ -267,6 +284,7 @@ export function GraphListMode({ texts, className }: GraphListModeProps) {
                   className={cn(
                     'fd-transition absolute inset-x-0 grid grid-cols-[1rem_5rem_minmax(0,1fr)_7rem_6rem_9rem] items-center gap-2 px-2 text-13',
                     isSelected ? 'bg-brand-subtle' : 'hover:bg-surface-sunken',
+                    isMatch && !isSelected ? 'bg-warning/15' : undefined,
                     isActive ? 'outline outline-1 -outline-offset-1 outline-brand' : undefined,
                     text.hidden ? 'text-fg-muted' : undefined,
                   )}
