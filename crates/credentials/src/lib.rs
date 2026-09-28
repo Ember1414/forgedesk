@@ -31,6 +31,7 @@
 #![forbid(unsafe_code)]
 
 /// 本 crate 的实现模块（对外只通过下面的重导出使用）。
+pub mod askpass;
 pub mod backend;
 /// 凭据层的错误类型与 IPC 映射。
 pub mod error;
@@ -42,18 +43,32 @@ pub mod keyring_backend;
 pub mod model;
 /// 明文凭据的内存包装（防泄漏）。
 pub mod secret;
+/// SSH 密钥盘点（不读私钥内容）。
+pub mod ssh;
 /// 用例层的凭据存储接口与"后端 + 索引"组合实现。
 pub mod store;
+/// 远端 URL 解析（取 host 与 provider）。
+pub mod url;
 /// 加密文件回退（Argon2id + AES-256-GCM）。
 pub mod vault;
 
+pub use askpass::{
+    answer_for, classify_prompt, is_askpass_invocation, prompt_from_args, write_answer,
+    AskpassPlan, AskpassPrompt, FLAG as ASKPASS_FLAG, SECRET_ENV as ASKPASS_SECRET_ENV,
+    USERNAME_ENV as ASKPASS_USERNAME_ENV,
+};
 pub use backend::{BackendKind, CredentialBackend, MemoryBackend};
 pub use error::CredentialsError;
 pub use index::{CredentialIndex, FileIndex, IndexEntry, MemoryIndex};
 pub use keyring_backend::{probe, probe_default, KeyringAvailability, KeyringBackend};
 pub use model::{CredentialKind, CredentialMeta, CredentialRef, SERVICE_NAME};
 pub use secret::Secret;
+pub use ssh::{
+    default_ssh_dir, parse_agent_listing, parse_public_key, scan_keys, AgentKey, AgentStatus,
+    SshInventory, SshKey,
+};
 pub use store::{system_clock, Clock, CredentialStore, IndexedCredentialStore};
+pub use url::{parse_remote_url, provider_for_host, RemoteEndpoint, RemoteScheme};
 pub use vault::{Vault, VaultBackend, VaultParams};
 
 /// "系统 keyring + 文件索引"的默认组合。
