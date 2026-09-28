@@ -31,6 +31,7 @@ pub mod audit;
 pub mod commit;
 pub mod debug;
 pub mod error;
+pub mod history;
 pub mod jobs;
 pub mod logs;
 pub mod repository;
@@ -52,6 +53,7 @@ pub use commit::{
 };
 pub use debug::{debug_panic, debug_throw_error};
 pub use error::{to_app_error, Fallible};
+pub use history::git_log_page;
 pub use jobs::{job_cancel, TauriJobReporter};
 pub use logs::{logs_open, logs_tail};
 pub use repository::{

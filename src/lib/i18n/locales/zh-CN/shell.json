@@ -493,5 +493,128 @@
       "untracked": "未跟踪",
       "unknown": "未知"
     }
+  },
+  "history": {
+    "title": "历史",
+    "description": "浏览提交图：分支、合并与引用一目了然。",
+    "loading": "正在读取提交历史…",
+    "mode": {
+      "label": "视图模式",
+      "graph": "图",
+      "list": "列表"
+    },
+    "zoom": {
+      "label": "缩放",
+      "in": "放大",
+      "out": "缩小",
+      "reset": "重置视图",
+      "level": "{{percent}}%"
+    },
+    "minimap": {
+      "toggle": "迷你地图",
+      "open": "显示迷你地图",
+      "close": "隐藏迷你地图"
+    },
+    "loadMore": "加载更多提交",
+    "loadingMore": "正在加载更多…",
+    "loadedCount": "已加载 {{count}} 个提交",
+    "filter": {
+      "label": "筛选",
+      "placeholder": "筛选（分支、作者、路径、时间）将在 T2.3 提供"
+    },
+    "empty": {
+      "title": "还没有提交",
+      "hint": "这个仓库没有可显示的提交历史；创建首次提交后，这里会出现提交图。"
+    },
+    "error": {
+      "title": "读取提交历史失败",
+      "hint": "仓库可能不可访问；可以重试，或重新打开仓库。"
+    },
+    "collapsed": "+{{count}}",
+    "rowLabel": "{{subject}}，作者 {{author}}，{{time}}，提交 {{oid}}",
+    "canvasLabel": "提交图，共 {{rows}} 行 {{lanes}} 条泳道",
+    "listLabel": "提交图（文本列表）",
+    "minimapLabel": "迷你地图",
+    "pending": "加载中…",
+    "time": {
+      "justNow": "刚刚",
+      "minutes": "{{count}} 分钟前",
+      "hours": "{{count}} 小时前",
+      "days": "{{count}} 天前",
+      "months": "{{count}} 个月前",
+      "years": "{{count}} 年前"
+    },
+    "menu": {
+      "selectedCount": "已选中 {{count}} 个提交",
+      "copyOid": "复制提交哈希",
+      "copyMessage": "复制提交信息",
+      "compareBaseSet": "设为比较基准",
+      "compareBaseClear": "取消比较基准",
+      "createTag": "创建标签（T2.8）",
+      "createBranch": "创建分支（T2.8）",
+      "cherryPick": "Cherry-pick（T2.8）",
+      "revert": "还原提交（T2.8）",
+      "reset": "重置到此处（T2.8）"
+    },
+    "list": {
+      "gridLabel": "提交列表",
+      "empty": "没有匹配的提交",
+      "column": {
+        "oid": "提交",
+        "subject": "摘要",
+        "author": "作者",
+        "time": "时间",
+        "refs": "引用"
+      }
+    },
+    "detail": {
+      "title": "提交详情",
+      "empty": "选择一个提交以查看详情。",
+      "close": "关闭详情",
+      "oid": "提交哈希",
+      "copyOid": "复制",
+      "copied": "已复制",
+      "author": "作者",
+      "committer": "提交者",
+      "authoredAt": "编写于",
+      "committedAt": "提交于",
+      "message": "提交信息",
+      "noBody": "（无正文）",
+      "parents": "父提交",
+      "noParents": "初始提交（没有父提交）",
+      "collapsed": "此行折叠了 {{count}} 个已合并分支",
+      "compareBase": "比较基准",
+      "compareBaseSet": "已设为比较基准",
+      "clearCompareBase": "取消比较基准",
+      "signature": "签名"
+    },
+    "signature": {
+      "good": "有效签名",
+      "bad": "签名无效",
+      "untrustedGood": "签名有效但密钥不受信任",
+      "expired": "签名已过期",
+      "expiredKey": "密钥已过期",
+      "revokedKey": "密钥已吊销",
+      "missingKey": "缺少公钥",
+      "unsigned": "未签名",
+      "unknown": "签名状态未知"
+    },
+    "perf": {
+      "title": "提交图性能（DEV）",
+      "toggle": "性能面板",
+      "close": "关闭性能面板",
+      "nodesLoaded": "已加载节点 {{count}}",
+      "nodesDrawn": "已绘制节点 {{count}}",
+      "edges": "边 {{count}}",
+      "lanes": "泳道 {{count}}",
+      "scale": "缩放 {{percent}}%",
+      "layoutMs": "IPC 往返 {{ms}} ms",
+      "staticDrawMs": "静态层 {{ms}} ms",
+      "dynamicDrawMs": "动态层 {{ms}} ms",
+      "fps": "{{fps}} fps",
+      "heapMb": "堆内存 {{mb}} MB",
+      "heapUnavailable": "堆内存 n/a",
+      "note": "布局耗时是前端实测的 IPC 往返时间，不是 Rust 全量布局耗时。"
+    }
   }
 }

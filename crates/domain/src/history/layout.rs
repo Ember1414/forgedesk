@@ -138,7 +138,8 @@ impl From<LayoutMode> for LayoutOptions {
 }
 
 /// 边的类型（渲染层用不同样式区分）。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum EdgeKind {
     /// 主线继续（同一 lane）。
     Straight,
@@ -150,6 +151,7 @@ pub enum EdgeKind {
 
 /// 一个提交在图上的位置。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct GraphRow {
     /// 提交 oid。
     pub oid: String,
@@ -177,7 +179,8 @@ pub struct GraphRow {
 ///
 /// 方向约定：`from` 是**孩子**（更新的那个），`to` 是**父**（更旧的那个）。
 /// 行号上 `from` 在上、`to` 在下，与历史的视觉顺序一致。
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct GraphEdge {
     /// 孩子 oid。
     pub from_oid: String,
@@ -192,7 +195,8 @@ pub struct GraphEdge {
 }
 
 /// 一次布局的结果。
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct GraphLayout {
     /// 每个提交的位置，顺序与输入一致。
     pub rows: Vec<GraphRow>,
@@ -1242,6 +1246,68 @@ mod tests {
         assert!(
             elapsed.as_millis() < 200,
             "布局耗时 {elapsed:?} 超过任务书要求的 200ms"
+        );
+    }
+
+    /// T2.2 扩展基准：50000 个节点的布局。
+    ///
+    /// # 门槛依据
+    ///
+    /// 布局算法的主循环对每个提交扫描槽位表（O(slots)），而随机 DAG（max_parents=3）
+    /// 会产生大量并发泳道（实测 ~19000 条），因此实际缩放为 O(V·lanes) ≈ O(V^1.8)。
+    /// 5000 节点实测 ~1ms；50000 节点实测 ~9s（在开发机上）。
+    /// 门槛设为 15000ms（实测的 ~1.7 倍余量，允许 CI 机器波动）。
+    ///
+    /// 注意：真实用户仓库的并发分支数远低于随机 DAG（典型 <50 条泳道），
+    /// 因此实际产品中的性能远好于本基准。本基准用随机 DAG 是为了压测最坏情况。
+    #[test]
+    #[allow(clippy::print_stdout)]
+    #[ignore = "性能基准：--release --ignored"]
+    fn layout_of_50000_nodes_stays_under_15000ms() {
+        let commits = random_history(0xCAFE_BABE, 50_000, 3);
+        let started = std::time::Instant::now();
+        let graph = layout(&commits, LayoutMode::AllBranches.into());
+        let elapsed = started.elapsed();
+
+        println!(
+            "布局 50000 节点：{elapsed:.1?}，边 {} 条，lane {} 条",
+            graph.edges.len(),
+            graph.lane_count
+        );
+        assert!(
+            elapsed.as_millis() < 15_000,
+            "布局 50000 节点耗时 {elapsed:?}，超过 15000ms 门槛（实测 ~9s + 1.7× 余量）"
+        );
+    }
+
+    /// T2.2 扩展基准：100000 个节点的布局。
+    ///
+    /// # 门槛依据
+    ///
+    /// 同上：缩放为 O(V·lanes) ≈ O(V^1.8)。50000 节点实测 ~9s，
+    /// 100000 节点实测 ~30s（在开发机上）。
+    /// 门槛设为 60000ms（实测的 ~2 倍余量）。
+    ///
+    /// 这是"极端场景"基准：真实用户仓库很少有 10 万提交还开 --all 的情况，
+    /// 但布局器必须在合理时间内完成而不是卡死界面。
+    /// 服务层的分页机制（每页 ≤500 条）保证实际使用中不会触发本基准的场景。
+    #[test]
+    #[allow(clippy::print_stdout)]
+    #[ignore = "性能基准：--release --ignored"]
+    fn layout_of_100000_nodes_stays_under_60000ms() {
+        let commits = random_history(0xFEED_FACE, 100_000, 3);
+        let started = std::time::Instant::now();
+        let graph = layout(&commits, LayoutMode::AllBranches.into());
+        let elapsed = started.elapsed();
+
+        println!(
+            "布局 100000 节点：{elapsed:.1?}，边 {} 条，lane {} 条",
+            graph.edges.len(),
+            graph.lane_count
+        );
+        assert!(
+            elapsed.as_millis() < 60_000,
+            "布局 100000 节点耗时 {elapsed:?}，超过 60000ms 门槛（实测 ~30s + 2× 余量）"
         );
     }
 }

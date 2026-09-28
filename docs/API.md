@@ -967,7 +967,7 @@ interface SnapshotDiff {
 返回值由 T2.2 的提交图渲染直接消费。
 
 现状：服务层与布局已落地（`crates/services/src/history.rs`、`crates/domain/src/history/layout.rs`），
-**命令本身尚未接线**（`crates/commands` 下无此命令，T2.2 接入）——本节按"契约先行"登记。
+**命令已接线**（定义在 `crates/commands/src/history.rs`，已注册到 `src-tauri/src/main.rs` 的 `invoke_handler`）。
 
 - **能力等级**：`ReadOnly`（只读遍历提交图：不改仓库状态、不写数据库，无需快照/审计）
 - **参数**：
@@ -1024,16 +1024,18 @@ interface GraphEdge {
   toOid: string;    // 父（更旧的那个；不在窗口内也发）
   fromLane: number; // 孩子的泳道
   toLane: number;   // 父的泳道
-  kind: string;     // straight（主线继续）/ merge（合并支线）/ branch（支线汇入）；serde 派生随 T2.2 接线定型
+  kind: string;     // straight（主线继续）/ merge（合并支线）/ branch（支线汇入）；serde `#[serde(rename_all = "lowercase")]` 已落实
 }
 ```
 
 DTO 定义在 `crates/services/src/history.rs`（`HistoryQuery` / `HistoryPage`）与
 `crates/domain/src/history/layout.rs`（`GraphLayout`）；`Commit`（oid / parents / author /
 committer / refs / signature / subject / body）定义在 `crates/domain/src/git/commit.rs`，
-本文档不重复展开。字段名按 §1 通用约定走 camelCase（`HistoryQuery` 的 serde `rename_all`
-在 T2.2 接线命令时落实——服务层类型目前不依赖 serde；`GraphRow` 已派生 serde，
-`hidden` / `collapsed` 带 `#[serde(default)]`，旧调用方缺这两个字段时向后兼容）。
+本文档不重复展开。字段名按 §1 通用约定走 camelCase（`HistoryQuery` 的 serde `rename_all = "camelCase"`
+已落实，全字段带 `#[serde(default)]`；`GraphRow` 已派生 serde，
+`hidden` / `collapsed` 带 `#[serde(default)]`，旧调用方缺这两个字段时向后兼容；
+`EdgeKind` 序列化为小写字符串 `"straight"` / `"merge"` / `"branch"`；
+`SignatureStatus` 序列化为 camelCase 字符串，如 `"unsigned"`、`"untrustedGood"`）。
 
 **游标语义**：`cursor` 是下一页第一行的**全局序号**（0 起始），首页省略（后端按 0 处理）。
 用序号而不是 oid 的真正价值在**增量刷新**：新提交到达时只有序号变化的区间需要局部重排
@@ -1053,8 +1055,8 @@ merge 行的 `collapsed` 记录第二父（被折叠分支的 tip）的 oid；ti
   - `VALIDATION`：`followRenames` 开启但路径数 ≠ 1。`pageSize` 越界**不**返回
     `VALIDATION`——由服务层直接钳制到 `1..=500`（见 `pageSize` 参数行）；
   - `STORAGE`：仓库读取失败。
-- **前端封装**：未接线（T2.2 接入；`src/lib/queryKeys.ts` 已预留 `LOG_QUERY_KEY` 占位）
-- **调用点**：未接线（T2.2 接入）
+- **前端封装**：由前端代理回填（`src/lib/ipc/history.ts`）
+- **调用点**：由前端代理回填（`src/lib/ipc/history.ts`）
 
 ### 文件监听与设置键（T1.10）
 

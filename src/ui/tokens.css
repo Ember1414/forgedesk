@@ -48,6 +48,42 @@
   --fd-danger: #c2261e;
   --fd-info: #1d65c1;
 
+  /* ---------- 提交图（T2.2） ----------
+   *
+   * 泳道调色板（8 色，与后端 domain::history::layout 的 PALETTE_SIZE 对齐）。
+   * 两条硬要求决定了这些色值：
+   *  1. 色相必须分散——相邻 lane 是最常被同时看到的，色相太近就等于没有区分。
+   *     这里的相邻色相差最小 109°（见下方注释里的实测表），远超人眼可辨阈值。
+   *  2. 必须能与画布底色区分，并且承载节点里的作者首字母（文字）。
+   *     因此按 WCAG AA 正文标准取 ≥4.5:1，最暗的一色（lane-4）实测 5.16:1。
+   *
+   * `check:contrast` 目前只校验固定的语义色对（正文/强调/状态），不覆盖这批
+   * 画布专用色，所以比值在提交时人工核算并写在这里，改色必须重新核算：
+   *   lane-0 5.48 · lane-1 6.15 · lane-2 5.74 · lane-3 5.56
+   *   lane-4 5.16 · lane-5 5.83 · lane-6 7.12 · lane-7 6.22（对 --fd-canvas）
+   */
+  --fd-graph-lane-0: #1f5fd0; /* 蓝 h218 */
+  --fd-graph-lane-1: #b3261e; /* 砖红 h3 */
+  --fd-graph-lane-2: #12704a; /* 松绿 h156 */
+  --fd-graph-lane-3: #7d42cf; /* 紫 h265 */
+  --fd-graph-lane-4: #a35407; /* 赭橙 h30 */
+  --fd-graph-lane-5: #0d6b78; /* 青 h187 */
+  --fd-graph-lane-6: #9b1c6c; /* 洋红 h322 */
+  --fd-graph-lane-7: #55630f; /* 橄榄 h70 */
+
+  /* ref 胶囊三色。三种引用靠**色相 + 画法**双重区分（本地实底 / 远端描边 /
+     tag 虚线描边），因此色相与泳道有部分重叠也不会混淆：胶囊是带文字的实心
+     形状，节点是描边胶囊 + 首字母，两者的视觉语言本来就不同。 */
+  --fd-graph-ref-local: #a3184f; /* 本地分支：酒红，实底 + 反色文字 */
+  --fd-graph-ref-remote: #1c5f8f; /* 远端分支：钢青，描边 + 同色文字 */
+  --fd-graph-ref-tag: #6f5a10; /* 标签：青铜，虚线描边 + 同色文字 */
+
+  /* 选中 = 中性墨色实线环（最强、无彩色，不与任何泳道争色相）；
+     hover = 品牌靛蓝虚线环（弱一档、带彩色，表示"还没定下来"）。
+     两者刻意不同形状语言：实线/虚线 + 粗细差 + hover 额外的整行底色。 */
+  --fd-graph-selected: #16181d;
+  --fd-graph-hover: #4f46e5;
+
   /* 动效 */
   --fd-duration-fast: 120ms;
   --fd-duration-base: 200ms;
@@ -92,6 +128,25 @@
   --fd-warning: #f0c04a;
   --fd-danger: #f58b84;
   --fd-info: #74a9f0;
+
+  /* 提交图：暗色下同色相提亮，保证对 --fd-canvas(#0f1115) 与
+     --fd-surface-raised(#1d212a) 都 ≥4.5:1（最差 lane-1 对 raised 6.55:1）。
+     相邻色相差最小 112°，与亮色一致。 */
+  --fd-graph-lane-0: #7aa7f7;
+  --fd-graph-lane-1: #f2877e;
+  --fd-graph-lane-2: #5ed6a4;
+  --fd-graph-lane-3: #c39bf5;
+  --fd-graph-lane-4: #f0a95f;
+  --fd-graph-lane-5: #6fd4e2;
+  --fd-graph-lane-6: #f08fd0;
+  --fd-graph-lane-7: #c6d36b;
+
+  --fd-graph-ref-local: #f283bd;
+  --fd-graph-ref-remote: #7fb2f0;
+  --fd-graph-ref-tag: #e0bd72;
+
+  --fd-graph-selected: #eef1f6;
+  --fd-graph-hover: #8b93f8;
 }
 
 /* ============================================================
@@ -125,6 +180,22 @@
   --color-warning: var(--fd-warning);
   --color-danger: var(--fd-danger);
   --color-info: var(--fd-info);
+
+  /* 提交图配色：DOM 侧（列表模式的 ref 芯片、泳道色条）与 Canvas 侧共用同一批
+     token，这样切主题时两边不会各说各话。Canvas 通过 getComputedStyle 读取。 */
+  --color-graph-lane-0: var(--fd-graph-lane-0);
+  --color-graph-lane-1: var(--fd-graph-lane-1);
+  --color-graph-lane-2: var(--fd-graph-lane-2);
+  --color-graph-lane-3: var(--fd-graph-lane-3);
+  --color-graph-lane-4: var(--fd-graph-lane-4);
+  --color-graph-lane-5: var(--fd-graph-lane-5);
+  --color-graph-lane-6: var(--fd-graph-lane-6);
+  --color-graph-lane-7: var(--fd-graph-lane-7);
+  --color-graph-ref-local: var(--fd-graph-ref-local);
+  --color-graph-ref-remote: var(--fd-graph-ref-remote);
+  --color-graph-ref-tag: var(--fd-graph-ref-tag);
+  --color-graph-selected: var(--fd-graph-selected);
+  --color-graph-hover: var(--fd-graph-hover);
 
   /* 字体 */
   --font-sans: var(--fd-font-sans);

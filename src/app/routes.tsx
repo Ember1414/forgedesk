@@ -41,12 +41,14 @@ import { GitHubSettingsPage } from '@/features/settings/GitHubSettingsPage';
 import { SettingsLayout } from '@/features/settings/SettingsLayout';
 import { ComponentsPage } from '@/ui/__dev__/ComponentsPage';
 import { DesignSystemPage } from '@/ui/__dev__/DesignSystemPage';
+import { GraphPerfRoute } from '@/ui/__dev__/GraphPerfPanel';
 
-/** 开发专用路由（生产构建不包含这两个预览页）。 */
+/** 开发专用路由（生产构建不包含这几个预览页）。 */
 const devRoutes: RouteObject[] = import.meta.env.DEV
   ? [
       { path: '__dev__/design', element: <DesignSystemPage /> },
       { path: '__dev__/components', element: <ComponentsPage /> },
+      { path: '__dev__/graph-perf', element: <GraphPerfRoute /> },
     ]
   : [];
 

@@ -14,7 +14,7 @@
 export const STATUS_QUERY_KEY = 'status';
 /** 单文件 diff（`workspace_diff`）。 */
 export const DIFF_QUERY_KEY = 'diff';
-/** 提交历史（M2 起有真实查询；现在先占位，避免 M2 再加一处需要同步的清单）。 */
+/** 提交历史（`git_log_page`，T2.2 起有真实查询）。 */
 export const LOG_QUERY_KEY = 'log';
 /** 分支列表（同上）。 */
 export const BRANCHES_QUERY_KEY = 'branches';
@@ -40,3 +40,35 @@ export function diffKeyPrefix(repoId: number): readonly [string, number] {
 
 /** diff 查询键里路径所在的下标（0=类别，1=repoId，2=target，3=path…）。 */
 export const DIFF_KEY_PATH_INDEX = 3;
+
+/**
+ * 某一页提交历史的查询键。
+ *
+ * # 为什么把 cursor 与筛选条件都写进键
+ *
+ * 历史是**分页追加**而不是"整表替换"：滚动到底部加载下一页时，上一页的数据
+ * 必须还在缓存里（否则界面会闪一下"空列表"）。把 cursor 编进键，每一页就是
+ * 一条独立的缓存记录，TanStack Query 天然帮我们保存与失效。
+ *
+ * `filters` 是一个**稳定的签名字符串**（由 `@/features/history/useGraphQuery`
+ * 的 `filtersSignature` 生成，字段排序后序列化）。为什么不是对象：
+ * Query 的键按**结构化相等**比较，对象里字段顺序不同就会被当成两个键，
+ * 结果是同一份数据被请求两次、失效时又只能命中其中一份。
+ *
+ * # 为什么前两位必须是 LOG_QUERY_KEY + repoId
+ *
+ * `repo:changed` 按 `[LOG_QUERY_KEY, repoId]` 前缀失效**所有页**
+ * （见 `src/lib/repoChanged.ts`）。改这个前缀会让失效静默地只命中第一页。
+ */
+export function logKey(
+  repoId: number,
+  cursor: number,
+  filters: string,
+): readonly [string, number, number, string] {
+  return [LOG_QUERY_KEY, repoId, cursor, filters];
+}
+
+/** 某个仓库全部历史页的键前缀（整表失效时用；与 `repoChanged.ts` 的口径一致）。 */
+export function logKeyPrefix(repoId: number): readonly [string, number] {
+  return [LOG_QUERY_KEY, repoId];
+}

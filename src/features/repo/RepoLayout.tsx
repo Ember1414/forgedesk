@@ -4,6 +4,7 @@ import { NavLink, Outlet, useParams } from 'react-router-dom';
 import { DETAIL_PANEL_POSITIONS, useUiStore } from '@/stores/uiStore';
 import type { DetailPanelPosition } from '@/stores/uiStore';
 import { useRepoById } from '@/features/repo/recentRepos';
+import { CommitDetailPanel } from '@/features/history/CommitDetailPanel';
 import { ToggleGroup } from '@/ui/components/toggle-group';
 import { cn } from '@/lib/utils';
 
@@ -97,8 +98,20 @@ export function RepoLayout() {
               detailPanel === 'right' ? 'w-72' : 'h-28',
             )}
           >
-            <h2 className="text-13 font-medium">{t('panel.title')}</h2>
-            <p className="mt-1 text-12 text-fg-subtle">{t('panel.placeholder')}</p>
+            {/*
+              详情位由提交详情面板接管（T2.2）：选中历史页的某个提交即在此展示元数据。
+              没有选中提交时退回原来的占位说明——面板挂在所有仓库子页共享的外壳上，
+              因此必须对"当前不在历史页 / 没选提交"这两种情况给出合理默认。
+            */}
+            <CommitDetailPanel
+              repoId={Number(repoId)}
+              fallback={
+                <>
+                  <h2 className="text-13 font-medium">{t('panel.title')}</h2>
+                  <p className="mt-1 text-12 text-fg-subtle">{t('panel.placeholder')}</p>
+                </>
+              }
+            />
           </aside>
         ) : null}
       </div>

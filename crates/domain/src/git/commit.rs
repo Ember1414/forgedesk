@@ -1,12 +1,15 @@
 //! 提交模型（`git log --format=...` 的语义）。
 
+use serde::{Deserialize, Serialize};
+
 /// 作者 / 提交者身份。
 ///
 /// 嵌套而不是把 `author_name`/`author_email`/`author_time` 平铺在 [`Commit`] 上：
 /// PLAN §5.4 的数据模型就是 `author{name,email,time}`，而且"给谁署名"在
 /// [`super::spec::CommitSpec`] 里也要用同一组字段（amend 保留原作者）。
 /// 平铺会让同一组语义出现两种形状。
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Signature {
     /// 姓名。
     pub name: String,
@@ -43,7 +46,8 @@ impl Signature {
 ///
 /// T1.1 只做**占位解析**（把字符映射成枚举）；真正的校验与展示（可信度、
 /// 密钥来源、撤销状态）属于 M2 的提交详情面板。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum SignatureStatus {
     /// `G`：签名有效且可信。
     Good,
@@ -95,7 +99,8 @@ impl SignatureStatus {
 /// 元数据字段（作者名、邮箱、subject）是 **lossy** 的：Git 允许提交信息使用任意编码，
 /// 界面无法渲染任意编码，而这些字段也不参与文件系统操作（与路径相反，见
 /// [`super::path`] 的说明）。
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Commit {
     /// 提交 oid（十六进制字符串）。
     pub oid: String,

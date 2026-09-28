@@ -11,12 +11,30 @@ use forgedesk_domain::git::{Commit, LogQuery, Page, RepoId, RepoPath};
 use forgedesk_domain::history::{GraphLayout, LayoutMode, LayoutOptions};
 use forgedesk_domain::{AppError, AppResult, ErrorCode};
 use forgedesk_git_engine::engine::GitEngine;
+use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::engines::GitEngines;
 use forgedesk_storage::RepositoryStore;
 
 /// 每页大小的上限（PLAN §5.5 的 IPC 上限约束）。
 pub const MAX_PAGE_SIZE: usize = 500;
+
+/// 缺省每页大小（与 `Default` impl 一致）。
+fn default_page_size() -> usize {
+    100
+}
+
+/// 反序列化 `paths`：JSON 形状是 `string[]`，转为 `Vec<RepoPath>`。
+///
+/// 与 `crates/commands/src/workspace.rs` 中 `DiffRequest.paths` 的先例一致：
+/// 前端传 `string[]`，后端用 `RepoPath::from(String)` 转换。
+fn deserialize_paths<'de, D>(deserializer: D) -> Result<Vec<RepoPath>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let strings: Vec<String> = Vec::deserialize(deserializer)?;
+    Ok(strings.into_iter().map(RepoPath::from).collect())
+}
 
 /// 缺省查询：第一页、每页 100 条。
 impl Default for HistoryQuery {
@@ -51,40 +69,54 @@ impl Default for HistoryQuery {
 /// 代价要如实说明：**深分页的代价是 O(已加载行数)**（`git log --skip=N` 与
 /// libgit2 的 walk 都一样），这是 git 本身的行为，任何客户端都绕不开；
 /// "完全不重扫"要靠按 `(repo_id, tips, mode)` 缓存布局（T2.9）。
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct HistoryQuery {
     /// 起始引用（分支名、tag、oid）；`None` = HEAD。
+    #[serde(default)]
     pub revision: Option<String>,
     /// 包含所有引用（`--all`）。
+    #[serde(default)]
     pub all_branches: bool,
     /// 路径过滤（文件历史）。
+    #[serde(default, deserialize_with = "deserialize_paths")]
     pub paths: Vec<RepoPath>,
     /// 作者过滤（姓名或邮箱子串，忽略大小写）。
+    #[serde(default)]
     pub author: Option<String>,
     /// 时间下界（Unix 秒，含）。
+    #[serde(default)]
     pub since: Option<i64>,
     /// 时间上界（Unix 秒，含）。
+    #[serde(default)]
     pub until: Option<i64>,
     /// 提交信息包含的子串（字面、区分大小写）。
+    #[serde(default)]
     pub message_contains: Option<String>,
     /// 只看 first-parent 链。
+    #[serde(default)]
     pub first_parent_only: bool,
     /// 跟随重命名（文件历史；恰好一条路径时有效）。
+    #[serde(default)]
     pub follow_renames: bool,
     /// 折叠已合并分支（T2.1 第 4 条；判定与标记形状见
     /// `forgedesk_domain::history::LayoutOptions`）。
     ///
     /// 本开关是"尽力而为"：折叠只在**完整窗口**上提供，窗口不完整
     /// （后面还有页）时静默回退为不折叠——见 [`HistoryService::page`]。
+    #[serde(default)]
     pub collapse_merged_branches: bool,
     /// 每页条数（1..=500；缺省 100）。
+    #[serde(default = "default_page_size")]
     pub page_size: usize,
     /// 游标（下一页第一行的序号）。
+    #[serde(default)]
     pub cursor: Option<u32>,
 }
 
 /// 一页历史：提交 + 这一段的图布局 + 下一页游标。
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct HistoryPage {
     /// 本页提交（新 → 旧）。
     pub commits: Vec<Commit>,

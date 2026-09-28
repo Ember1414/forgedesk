@@ -493,5 +493,128 @@
       "untracked": "Untracked",
       "unknown": "Unknown"
     }
+  },
+  "history": {
+    "title": "History",
+    "description": "Browse the commit graph: branches, merges and refs at a glance.",
+    "loading": "Loading commit history…",
+    "mode": {
+      "label": "View mode",
+      "graph": "Graph",
+      "list": "List"
+    },
+    "zoom": {
+      "label": "Zoom",
+      "in": "Zoom in",
+      "out": "Zoom out",
+      "reset": "Reset view",
+      "level": "{{percent}}%"
+    },
+    "minimap": {
+      "toggle": "Minimap",
+      "open": "Show minimap",
+      "close": "Hide minimap"
+    },
+    "loadMore": "Load more commits",
+    "loadingMore": "Loading more…",
+    "loadedCount": "{{count}} commits loaded",
+    "filter": {
+      "label": "Filter",
+      "placeholder": "Filters (branch, author, path, date) arrive in T2.3"
+    },
+    "empty": {
+      "title": "No commits yet",
+      "hint": "This repository has no commit history to show; the graph appears after the first commit."
+    },
+    "error": {
+      "title": "Failed to load commit history",
+      "hint": "The repository may be unreachable; retry, or reopen the repository."
+    },
+    "collapsed": "+{{count}}",
+    "rowLabel": "{{subject}}, by {{author}}, {{time}}, commit {{oid}}",
+    "canvasLabel": "Commit graph, {{rows}} rows across {{lanes}} lanes",
+    "listLabel": "Commit graph (text list)",
+    "minimapLabel": "Minimap",
+    "pending": "Loading…",
+    "time": {
+      "justNow": "just now",
+      "minutes": "{{count}} minutes ago",
+      "hours": "{{count}} hours ago",
+      "days": "{{count}} days ago",
+      "months": "{{count}} months ago",
+      "years": "{{count}} years ago"
+    },
+    "menu": {
+      "selectedCount": "{{count}} commits selected",
+      "copyOid": "Copy commit hash",
+      "copyMessage": "Copy commit message",
+      "compareBaseSet": "Set as compare base",
+      "compareBaseClear": "Clear compare base",
+      "createTag": "Create tag (T2.8)",
+      "createBranch": "Create branch (T2.8)",
+      "cherryPick": "Cherry-pick (T2.8)",
+      "revert": "Revert commit (T2.8)",
+      "reset": "Reset to here (T2.8)"
+    },
+    "list": {
+      "gridLabel": "Commit list",
+      "empty": "No matching commits",
+      "column": {
+        "oid": "Commit",
+        "subject": "Summary",
+        "author": "Author",
+        "time": "Time",
+        "refs": "Refs"
+      }
+    },
+    "detail": {
+      "title": "Commit detail",
+      "empty": "Select a commit to view its details.",
+      "close": "Close details",
+      "oid": "Commit hash",
+      "copyOid": "Copy",
+      "copied": "Copied",
+      "author": "Author",
+      "committer": "Committer",
+      "authoredAt": "Authored",
+      "committedAt": "Committed",
+      "message": "Commit message",
+      "noBody": "(no body)",
+      "parents": "Parents",
+      "noParents": "Initial commit (no parents)",
+      "collapsed": "This row collapses {{count}} merged branches",
+      "compareBase": "Compare base",
+      "compareBaseSet": "Set as compare base",
+      "clearCompareBase": "Clear compare base",
+      "signature": "Signature"
+    },
+    "signature": {
+      "good": "Valid signature",
+      "bad": "Invalid signature",
+      "untrustedGood": "Valid but untrusted key",
+      "expired": "Signature expired",
+      "expiredKey": "Key expired",
+      "revokedKey": "Key revoked",
+      "missingKey": "Public key missing",
+      "unsigned": "Unsigned",
+      "unknown": "Signature status unknown"
+    },
+    "perf": {
+      "title": "Graph perf (DEV)",
+      "toggle": "Perf panel",
+      "close": "Close perf panel",
+      "nodesLoaded": "{{count}} nodes loaded",
+      "nodesDrawn": "{{count}} nodes drawn",
+      "edges": "{{count}} edges",
+      "lanes": "{{count}} lanes",
+      "scale": "Zoom {{percent}}%",
+      "layoutMs": "IPC round-trip {{ms}} ms",
+      "staticDrawMs": "Static layer {{ms}} ms",
+      "dynamicDrawMs": "Dynamic layer {{ms}} ms",
+      "fps": "{{fps}} fps",
+      "heapMb": "Heap {{mb}} MB",
+      "heapUnavailable": "Heap n/a",
+      "note": "Layout time is the front-end measured IPC round-trip, not the Rust full-layout cost."
+    }
   }
 }
