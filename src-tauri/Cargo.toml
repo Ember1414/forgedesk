@@ -20,6 +20,9 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 forgedesk-domain.workspace = true
 forgedesk-diagnostics.workspace = true
+# 凭据（T2.7）：宿主需要它在 Tauri 初始化之前处理 `--askpass` 调用
+# （git 会把本进程当作凭据提示的应答者拉起）
+forgedesk-credentials.workspace = true
 forgedesk-commands.workspace = true
 forgedesk-jobs.workspace = true
 forgedesk-platform.workspace = true

@@ -1275,6 +1275,43 @@ interface SyncJobResult {
   pull / push 完成后还需失效 `[STATUS_QUERY_KEY, repoId]` 与 `[LOG_QUERY_KEY, repoId]`
   （HEAD 与提交图变了）。键的唯一来源是 `src/lib/queryKeys.ts`。
 
+### 凭据与认证诊断（T2.7）
+
+密文存在**系统凭据库**（Windows Credential Manager / macOS Keychain / Linux Secret Service，
+runtime 需要 gnome-keyring/KWallet 之类的提供者）；本地只留一份**索引**
+（`<应用数据目录>/credentials.index.json`：provider / host / login / 类型 / 时间，**不含密文**）。
+系统凭据库没有统一的枚举接口，"我保存过哪些账号"只能靠索引（红线 R8）。
+固定 keyring service 名为 `org.forgedesk.app`，条目名（account）为 `<provider>:<host>:<login>`。
+
+**网络操作怎样拿到凭据**：`git_fetch` / `git_pull` / `git_push` 发起前按"本次实际会联系的远端"
+（显式 `remote` → 当前分支的上游远端 → `origin`）解析凭据，并以**应用自身作为 `GIT_ASKPASS`
+辅助程序**注入：`<应用可执行文件> --askpass "<git 的提示语>"`，答案经环境变量
+`FORGEDESK_ASKPASS_USERNAME` / `FORGEDESK_ASKPASS_SECRET` 交给**那一次**子进程。
+`GIT_ASKPASS` 的默认值是空串（禁止任何 askpass 接管，防环境注入），只有这条通道能覆盖它；
+`GIT_TERMINAL_PROMPT=0` 始终生效——答案缺失时 git 直接失败，不会把应用挂住。
+SSH 远端（`git@host:path` / `ssh://`）与本地路径**永不**注入令牌（认证走密钥与 agent）。
+
+**连续失败保护**：同一 host 连续 3 次认证失败后，后端在发起网络操作**之前**直接返回
+`AUTH_REQUIRED`（`message` 说明不再自动重试，`hint` 是 host），直到用户保存/更新该 host 的凭据
+（`credentials_save` 成功即清零计数）。`clone` 尚未接入本通道（已知缺口，见 T2.7 交接说明）。
+
+| 命令 | 能力 | 参数 | 返回 / 说明 |
+| --- | --- | --- | --- |
+| `credentials_list` | ReadOnly | — | `CredentialMeta[]`：`{ key: { provider, host, login }, kind, createdAtMs }`，**不含密文** |
+| `credentials_save` | Mutating | `provider, host, login, kind, secret` | `CredentialMeta`；`kind ∈ "pat" \| "oauth" \| "password"`；provider/login 非空且不含 `:`，空 `secret` → `VALIDATION` |
+| `credentials_delete` | Mutating | `provider, host, login` | `()`；幂等（删不存在的条目也成功） |
+| `credentials_status` | ReadOnly | — | `{ backend, count, indexPath?, keyringUnavailableReason? }`；`backend ∈ "systemKeyring" \| "encryptedVault" \| "memory"`；写-读-删一条哨兵来探测系统凭据库 |
+| `credential_test_remote` | ReadOnly | `url?` 或 `repoId + remote?` | `{ refs }`（远端引用条数，空仓库为 0）；`git ls-remote`，超时 5s；失败按 stderr 分类（见下） |
+
+**认证与网络失败的错误码**（§1.1 已登记）：`AUTH_REQUIRED` / `AUTH_EXPIRED`（HTTPS 凭据）、
+`SSH_HOST_KEY_UNVERIFIED`（主机指纹未信任或已变化）、`SSH_KEY_REJECTED`（公钥被拒 / 找不到
+identity 文件）、`TLS_CERTIFICATE_REJECTED`（自签名或证书链不完整）、`PROXY_FAILED`（代理
+拒绝连接或 407）。分类在 `ErrorCode::classify`（纯字符串逻辑，有 ≥ 10 条真实 stderr 样本的单测），
+顺序上 SSH/TLS/代理**先于**通用的认证与网络规则——因为 `Permission denied (publickey)`
+里也含 `permission denied`。这四类码各带一个"测试连接"动作（`command = "credential_test_remote"`）。
+
+> 尚未接线：`auth_login_device_*`（OAuth 设备码）与多账号模型属于 T4.4，会复用本节的存储层。
+
 ### 文件监听与设置键（T1.10）
 
 监听**没有命令**：它的生命周期跟着仓库的打开与关闭走（`repo_open` / `repo_init` /

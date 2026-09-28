@@ -52,6 +52,59 @@ pub const SLOW_COMMAND_THRESHOLD: Duration = Duration::from_millis(500);
 /// 在几分钟内涨到几十 MB，反而把有用的信息淹没。
 const LOG_SNIPPET_LIMIT: usize = 4096;
 
+/// 一次网络操作（fetch / pull / push）的凭据注入方式。
+///
+/// # 为什么是"程序 + 环境变量"，而不是把明文放进 spec
+///
+/// 引擎层**不认识**凭据库：凭据存储在 `forgedesk-credentials`，而
+/// `docs/ARCHITECTURE.md` §3 只允许 `git-engine → diagnostics` 这一条 infra→infra 依赖
+/// （理由同样是"输出里可能有凭据"）。因此这里只表达与子进程有关的两件事：
+/// 用哪个程序回答 git 的提示、给这个子进程带哪些环境变量。
+/// 由**服务层**把凭据方案翻译成本类型（它同时能看到两边）。
+///
+/// # 明文只在这里存在
+///
+/// `env` 里可能有令牌。`Debug` 手写、不打印值，就是为了让"顺手 `{:?}` 一下"
+/// 不会把令牌写进日志（红线 R8）。
+#[derive(Clone, Default)]
+pub struct NetworkAuth {
+    /// askpass 辅助程序；`None` 表示不注入（匿名访问或走 SSH agent）。
+    pub askpass_program: Option<PathBuf>,
+    /// 注入给该子进程的环境变量（**可能含明文**，只允许出现在这一次调用里）。
+    pub env: Vec<(String, String)>,
+}
+
+impl std::fmt::Debug for NetworkAuth {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("NetworkAuth")
+            .field("askpass_program", &self.askpass_program)
+            // 只报个数：键名也可能泄露实现细节，值更不能打印
+            .field("env_vars", &self.env.len())
+            .finish()
+    }
+}
+
+impl NetworkAuth {
+    /// 不使用凭据。
+    pub fn none() -> Self {
+        Self::default()
+    }
+
+    /// 用 askpass 程序回答 git 的提示，并注入所需的环境变量。
+    pub fn askpass(program: impl Into<PathBuf>, env: Vec<(String, String)>) -> Self {
+        Self {
+            askpass_program: Some(program.into()),
+            env,
+        }
+    }
+
+    /// 是否什么都不注入（服务层据此跳过装配）。
+    pub fn is_none(&self) -> bool {
+        self.askpass_program.is_none() && self.env.is_empty()
+    }
+}
+
 /// stderr 逐行回调。
 ///
 /// 类型别名不只是为了好看：`Option<Box<dyn Fn(&str) + Send + Sync>>` 直接写在字段上
@@ -64,13 +117,18 @@ pub type StderrLineHandler = Box<dyn Fn(&str) + Send + Sync>;
 /// 而 `emit_lines` 需要接受借用局部变量的闭包（测试里就是这么用的）。
 type StderrLineSink<'a> = dyn Fn(&str) + Send + Sync + 'a;
 
-/// 固定注入的环境变量。调用方**无法**覆盖它们（见模块头）。
+/// 固定注入的环境变量。调用方**无法**通过 [`GitRunOpts::with_env`] 覆盖它们。
+///
+/// 唯一的例外是 `GIT_ASKPASS`：它在这里是"默认禁止"，但可以用
+/// [`GitRunOpts::with_askpass`] 显式覆盖（T2.7 的凭据注入）。理由见该方法的文档。
 const FIXED_ENV: &[(&str, &str)] = &[
     // locale 固定为 C：输出才是稳定的英文与机器可读格式
     ("LC_ALL", "C"),
     ("LANG", "C"),
     // 禁止 git 交互式索要凭据：桌面应用没有终端，一旦进入提示就会永久挂住
     ("GIT_TERMINAL_PROMPT", "0"),
+    // 默认**禁止**任何 askpass 机制：环境里若有别人塞进来的 askpass 程序，
+    // git 会把凭据提示交给它。只有 `with_askpass` 能改这一条。
     ("GIT_ASKPASS", ""),
     // 禁止分页器：分页器会让 git 等待终端输入
     ("GIT_PAGER", "cat"),
@@ -130,6 +188,10 @@ pub struct GitRunOpts {
     /// 读操作保持关闭：git 会为了"顺手刷新索引"去抢锁，既可能与用户终端里的 git
     /// 互相等待，也会在大仓库上产生可感知的延迟。
     pub optional_locks: bool,
+    /// askpass 辅助程序（`GIT_ASKPASS`）；`None` 表示禁止 askpass（默认）。
+    ///
+    /// 见 [`GitRunOpts::with_askpass`]：这是设置该变量的唯一入口。
+    pub askpass: Option<PathBuf>,
 }
 
 impl GitRunOpts {
@@ -144,7 +206,25 @@ impl GitRunOpts {
             stdin: None,
             on_stderr_line: None,
             optional_locks: false,
+            askpass: None,
         }
+    }
+
+    /// 用指定的辅助程序回答 git 的凭据提示（`GIT_ASKPASS`）。
+    ///
+    /// # 为什么要有这个显式的入口
+    ///
+    /// `GIT_ASKPASS` 在 [`FIXED_ENV`] 里是**空串**：桌面应用一旦被环境里的
+    /// askpass 程序接管，凭据提示就会交给一个我们不知道的程序。但 T2.7 需要
+    /// 反过来——把提示交给**应用自己**（`--askpass` 模式）以便用 keyring 里的令牌
+    /// 回答。因此这里把"默认禁止"与"调用方刻意开启"分成两件事：
+    ///
+    /// - 用 `with_env("GIT_ASKPASS", …)` 覆盖**无效**（固定项在最后写入）；
+    /// - 只有本方法能改它，调用点在 code review 里一 grep 就能看全。
+    #[must_use]
+    pub fn with_askpass(mut self, program: impl Into<PathBuf>) -> Self {
+        self.askpass = Some(program.into());
+        self
     }
 
     /// 追加一个环境变量。
@@ -392,6 +472,11 @@ fn apply_environment(command: &mut Command, opts: &GitRunOpts) {
     }
     for (key, value) in FIXED_ENV {
         command.env(key, value);
+    }
+    // askpass 放在固定项**之后**：`GIT_ASKPASS=""`（默认禁止）必须能被这次
+    // 刻意的注入覆盖。写法与 GIT_INDEX_FILE 同理——默认值防事故，显式入口表意图。
+    if let Some(program) = &opts.askpass {
+        command.env("GIT_ASKPASS", program);
     }
     command.env(
         "GIT_OPTIONAL_LOCKS",

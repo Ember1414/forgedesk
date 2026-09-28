@@ -192,6 +192,39 @@ async fn optional_locks_can_be_enabled_for_write_operations() {
 }
 
 #[tokio::test]
+async fn deleting_a_variable_from_the_child_environment_also_applies_to_forgedesk_askpass() {
+    // 回归类断言：`GIT_TERMINAL_PROMPT` 必须始终为 0——即使启用了 askpass，
+    // git 也不该在 askpass 答不上来时退回终端提示（应用没有终端，会永久挂住）
+    let dir = TempDir::new("process-askpass");
+    let env = dump_environment(
+        GitRunOpts::new(dir.path())
+            .with_askpass("/opt/forgedesk/forgedesk")
+            .with_env("GIT_TERMINAL_PROMPT", "1"),
+    )
+    .await;
+
+    assert_eq!(
+        env.get("GIT_ASKPASS").map(String::as_str),
+        Some("/opt/forgedesk/forgedesk")
+    );
+    assert_eq!(
+        env.get("GIT_TERMINAL_PROMPT").map(String::as_str),
+        Some("0")
+    );
+}
+
+#[tokio::test]
+async fn an_askpass_program_cannot_be_installed_through_the_generic_env_override() {
+    // 这条是"默认禁止、显式开启"的另一半：普通 `with_env` 改不动 GIT_ASKPASS，
+    // 否则任何调用方（含将来读配置的代码路径）都能悄悄替换凭据提示的接管者
+    let dir = TempDir::new("process-askpass-guard");
+    let env =
+        dump_environment(GitRunOpts::new(dir.path()).with_env("GIT_ASKPASS", "/tmp/evil")).await;
+
+    assert_eq!(env.get("GIT_ASKPASS").map(String::as_str), Some(""));
+}
+
+#[tokio::test]
 async fn repository_redirect_variables_cannot_be_injected() {
     let dir = TempDir::new("process-redirect");
     let env = dump_environment(

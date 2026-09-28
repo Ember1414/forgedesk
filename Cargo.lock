@@ -968,6 +968,7 @@ name = "forgedesk"
 version = "0.0.1"
 dependencies = [
  "forgedesk-commands",
+ "forgedesk-credentials",
  "forgedesk-diagnostics",
  "forgedesk-domain",
  "forgedesk-jobs",
@@ -988,6 +989,7 @@ name = "forgedesk-commands"
 version = "0.0.1"
 dependencies = [
  "anyhow",
+ "forgedesk-credentials",
  "forgedesk-diagnostics",
  "forgedesk-domain",
  "forgedesk-git-engine",

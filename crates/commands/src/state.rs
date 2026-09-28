@@ -24,8 +24,9 @@ use std::sync::Arc;
 use forgedesk_jobs::JobRunner;
 use forgedesk_services::repository::OpenRepoRegistry;
 use forgedesk_services::{
-    AuditLog, BranchService, CommitDetailService, CommitPlanRegistry, CommitService, GitEngines,
-    HistoryService, RepositoryService, StagingService, SyncService, WorkspaceService,
+    AuditLog, BranchService, CommitDetailService, CommitPlanRegistry, CommitService,
+    CredentialGate, CredentialsService, GitEngines, HistoryService, RepositoryService,
+    StagingService, SyncService, WorkspaceService,
 };
 use forgedesk_snapshot::SnapshotManager;
 use forgedesk_storage::{Database, OperationStore, RepositoryStore};
@@ -61,6 +62,16 @@ pub struct AppState {
     /// 必须全进程共享：`commit_prepare` 与 `commit_execute` 是两次独立调用，
     /// 各自 new 一个注册表会让 `execute` 永远找不到 `prepare` 放进去的计划。
     pub commit_plans: Arc<CommitPlanRegistry>,
+    /// 凭据存储（T2.7）：密文在系统凭据库，索引在数据目录。
+    ///
+    /// 与 `credential_gate` 共享**同一份**存储实例：分成两个实例会让"刚保存的凭据"
+    /// 在下一次网络操作里查不到（索引各写各的）。
+    pub credentials: Arc<CredentialsService>,
+    /// 凭据门（T2.7）：网络操作前解析注入方案，并记住连续认证失败次数。
+    ///
+    /// `None` 表示拿不到自身可执行文件路径（无法充当 askpass 程序）——
+    /// 此时不做注入，网络操作退化为匿名/SSH。
+    pub credential_gate: Option<Arc<CredentialGate>>,
 }
 
 impl AppState {
@@ -130,11 +141,21 @@ impl AppState {
     /// 快照管理器与提交/分支路径共享同一个实例：pull 的 `PreSync` 快照
     /// 落在同一份历史里。
     pub fn sync_service(&self) -> SyncService<'_> {
-        SyncService::new(
+        let service = SyncService::new(
             &self.engines,
             RepositoryStore::new(&self.database),
             self.snapshots.as_ref(),
-        )
+        );
+        // 有凭据门就接上（T2.7）：fetch/pull/push 才会带上保存过的凭据
+        match self.credential_gate.as_deref() {
+            Some(gate) => service.with_credentials(gate),
+            None => service,
+        }
+    }
+
+    /// 凭据存储（T2.7）：设置页的账号面板直接用它。
+    pub fn credentials_service(&self) -> &CredentialsService {
+        &self.credentials
     }
 
     /// 绑定当前状态构造分支/标签管理服务（T2.5）。

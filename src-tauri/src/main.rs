@@ -17,7 +17,7 @@ use forgedesk_platform::session::{detect_previous_session, start_session, Sessio
 use forgedesk_platform::watcher::NotifyFileWatcher;
 use forgedesk_platform::{install_panic_hook, non_blocking_writer, LogFlushGuard, LogPolicy};
 use forgedesk_services::repository::OpenRepoRegistry;
-use forgedesk_services::{CommitPlanRegistry, GitEngines};
+use forgedesk_services::{CommitPlanRegistry, CredentialGate, CredentialsService, GitEngines};
 use forgedesk_snapshot::RefSnapshotManager;
 use forgedesk_storage::{migrate, Database};
 use tauri::{Manager, RunEvent};
@@ -28,6 +28,12 @@ use tracing_subscriber::EnvFilter;
 
 /// 数据库文件名（位于应用数据目录）。
 const DATABASE_FILE: &str = "forgedesk.db";
+
+/// 凭据索引文件名（位于应用数据目录）。
+///
+/// 只存"我们保存过哪些凭据"（provider/host/login/类型/时间），**密文在系统凭据库**
+/// （红线 R8）。系统凭据库没有统一的枚举接口，因此这份索引是列表功能的唯一来源。
+const CREDENTIALS_INDEX_FILE: &str = "credentials.index.json";
 
 /// 应用版本（编译期注入，用于日志、会话标记与 panic 报告）。
 const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -45,7 +51,32 @@ struct RuntimeHandles {
     session: Mutex<Option<SessionMarker>>,
 }
 
+/// askpass 模式（T2.7）：git 把本进程当成凭据提示的应答者拉起时，把答案写到 stdout。
+///
+/// 返回 `true` 表示"本次启动就是一次 askpass 调用，已处理完毕"。
+/// 为什么放在宿主而不是命令层：它发生在任何 Tauri 与数据库初始化**之前**，
+/// 而那两者都是命令层的前提条件。协议细节见 `forgedesk_credentials::askpass`。
+fn handle_askpass_invocation() -> bool {
+    let args: Vec<String> = std::env::args().collect();
+    if !forgedesk_credentials::is_askpass_invocation(&args) {
+        return false;
+    }
+    let prompt = forgedesk_credentials::prompt_from_args(&args);
+    let answer = forgedesk_credentials::answer_for(&prompt, &|key| std::env::var(key).ok());
+    forgedesk_credentials::write_answer(answer.as_deref());
+    if answer.is_none() {
+        // 认不出的提示语不回答：让 git 直接报认证失败，而不是拿到一个空答案继续
+        std::process::exit(1);
+    }
+    true
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // askpass 模式（T2.7）：见 handle_askpass_invocation。
+    if handle_askpass_invocation() {
+        return Ok(());
+    }
+
     let builder = tauri::Builder::default()
         // 日志、panic hook、数据库都在 setup 中初始化：
         // 因为 `app_log_dir()` / `app_data_dir()` 只有在拿到 App 句柄后才可用。
@@ -123,6 +154,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }),
             ));
 
+            // 凭据（T2.7）：密文进系统凭据库，索引落在数据目录。
+            // askpass 程序是**应用自身**（`current_exe`）；拿不到自身路径时
+            // `with_app_askpass` 返回 None，网络操作退化为匿名/SSH（如实降级）。
+            let credentials = Arc::new(CredentialsService::keyring(
+                data_dir.join(CREDENTIALS_INDEX_FILE),
+            ));
+            let credential_gate =
+                CredentialGate::with_app_askpass(credentials.store()).map(Arc::new);
+
             app.manage(AppState {
                 database: Arc::clone(&database),
                 log_dir,
@@ -136,6 +176,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     Arc::clone(&database),
                 )),
                 commit_plans: Arc::new(CommitPlanRegistry::new()),
+                credentials,
+                credential_gate,
                 watchers,
             });
 
@@ -210,6 +252,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         forgedesk_commands::git_branch_set_upstream,
         forgedesk_commands::git_tag_create,
         forgedesk_commands::git_tag_delete,
+        forgedesk_commands::credentials_list,
+        forgedesk_commands::credentials_save,
+        forgedesk_commands::credentials_delete,
+        forgedesk_commands::credentials_status,
+        forgedesk_commands::credential_test_remote,
         forgedesk_commands::debug_throw_error,
         forgedesk_commands::debug_panic,
     ]);
@@ -269,6 +316,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         forgedesk_commands::git_tag_create,
         forgedesk_commands::git_tag_delete,
         forgedesk_commands::git_commit_detail,
+        forgedesk_commands::credentials_list,
+        forgedesk_commands::credentials_save,
+        forgedesk_commands::credentials_delete,
+        forgedesk_commands::credentials_status,
+        forgedesk_commands::credential_test_remote,
     ]);
 
     let app = builder.build(tauri::generate_context!())?;

@@ -32,7 +32,7 @@ use forgedesk_domain::{AppError, AppResult, ErrorCode};
 
 use super::progress::ProgressSink;
 use super::{not_implemented, EngineId, GitEngine};
-use crate::process::{GitOutput, GitProcess, GitRunOpts};
+use crate::process::{GitOutput, GitProcess, GitRunOpts, NetworkAuth};
 
 /// 本地操作的超时。
 ///
@@ -46,6 +46,13 @@ const LOCAL_TIMEOUT: Duration = crate::process::DEFAULT_TIMEOUT;
 /// 一个正常的仓库推送在慢网络下也就几分钟。卡死的连接必须被杀掉，
 /// 否则用户只能强杀应用。
 const NETWORK_TIMEOUT: Duration = Duration::from_secs(15 * 60);
+
+/// 远端探活（`git ls-remote`）的超时。
+///
+/// 5 秒是"测试连接"这个动作的合理等待窗口：用户点按钮是为了**立刻**知道
+/// 通不通，而不是等一个可能永远不来的回答。慢网络下会误报失败——这是刻意的
+/// 取舍：探活是排错工具，不是传输通道（真正的 fetch/push 有 15 分钟）。
+const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// 错误详情里保留的 stderr 长度上限。
 const ERROR_DETAIL_LIMIT: usize = 8192;
@@ -246,8 +253,9 @@ impl CliGitEngine {
         invocation: args::GitInvocation,
         progress: &ProgressSink,
         cancel: &tokio_util::sync::CancellationToken,
+        auth: &NetworkAuth,
     ) -> AppResult<GitOutput> {
-        let output = self.run_network_raw(cwd, invocation, progress, cancel)?;
+        let output = self.run_network_raw(cwd, invocation, progress, cancel, auth)?;
         ensure_success(&output)?;
         Ok(output)
     }
@@ -264,6 +272,7 @@ impl CliGitEngine {
         invocation: args::GitInvocation,
         progress: &ProgressSink,
         cancel: &tokio_util::sync::CancellationToken,
+        auth: &NetworkAuth,
     ) -> AppResult<GitOutput> {
         // 与 run_at_with_timeout 相同的装配，只多一个取消令牌：
         // 取消 = 进程层的 kill_on_drop 生效（含 fetch/pull/push 拉起的孙进程语义见 process.rs）
@@ -280,10 +289,61 @@ impl CliGitEngine {
         if progress.is_active() {
             opts = opts.with_stderr_line_handler(progress.handler());
         }
+        // 凭据注入（T2.7）：环境变量在前、askpass 程序在后（后者要覆盖 FIXED_ENV 的默认空值）
+        for (key, value) in &auth.env {
+            opts = opts.with_env(key.clone(), value.clone());
+        }
+        if let Some(program) = &auth.askpass_program {
+            opts = opts.with_askpass(program.clone());
+        }
         let output = self
             .bridge
             .block_on(self.process.run(&invocation.args, opts))??;
         Ok(output)
+    }
+
+    /// 探活远端（`git ls-remote`，只读）。
+    ///
+    /// 超时短（[`PROBE_TIMEOUT`]）：这是界面上"测试连接"按钮的等待窗口，
+    /// 让用户等 15 分钟去确认一根线通不通是不可接受的。
+    ///
+    /// 名字带 `impl` 后缀是为了避开与 trait 方法同名带来的解析歧义
+    /// （`fn probe_remote` 里再写 `self.probe_remote(…)` 读起来像递归）。
+    pub(crate) fn probe_remote_impl(
+        &self,
+        cwd: &Path,
+        url: &str,
+        auth: &NetworkAuth,
+    ) -> AppResult<usize> {
+        let mut opts = GitRunOpts::new(cwd)
+            .with_timeout(PROBE_TIMEOUT)
+            .with_optional_locks(false);
+        for (key, value) in &auth.env {
+            opts = opts.with_env(key.clone(), value.clone());
+        }
+        if let Some(program) = &auth.askpass_program {
+            opts = opts.with_askpass(program.clone());
+        }
+
+        // `--` 把 URL 与选项隔开：远端 URL 来自用户输入，不加分隔符时
+        // 一个 `--upload-pack=...` 形状的"URL"会被 git 当成选项执行
+        let args = vec!["ls-remote".to_owned(), "--".to_owned(), url.to_owned()];
+        let output = self.bridge.block_on(self.process.run(&args, opts))??;
+
+        if !output.success() {
+            // 按 stderr 分类：SSH 主机指纹 / 公钥被拒 / 证书 / 代理各自成码（T2.7）
+            let stderr = output.stderr_lossy();
+            let code = ErrorCode::classify(&stderr);
+            return Err(
+                AppError::new(code, "git ls-remote failed").with_detail(sanitize_log(&stderr))
+            );
+        }
+
+        Ok(output
+            .stdout_lossy()
+            .lines()
+            .filter(|line| !line.trim().is_empty())
+            .count())
     }
 
     /// 在指定目录执行写命令并断言成功（用于 `init` 这类目标目录还不是仓库的场景）。
@@ -548,8 +608,9 @@ impl GitEngine for CliGitEngine {
         spec: FetchSpec,
         progress: &ProgressSink,
         cancel: &tokio_util::sync::CancellationToken,
+        auth: &NetworkAuth,
     ) -> AppResult<FetchOutcome> {
-        write::fetch(self, repo, &spec, progress, cancel)
+        write::fetch(self, repo, &spec, progress, cancel, auth)
     }
 
     fn pull(
@@ -558,8 +619,9 @@ impl GitEngine for CliGitEngine {
         spec: PullSpec,
         progress: &ProgressSink,
         cancel: &tokio_util::sync::CancellationToken,
+        auth: &NetworkAuth,
     ) -> AppResult<PullOutcome> {
-        write::pull(self, repo, &spec, progress, cancel)
+        write::pull(self, repo, &spec, progress, cancel, auth)
     }
 
     fn push(
@@ -568,8 +630,13 @@ impl GitEngine for CliGitEngine {
         spec: PushSpec,
         progress: &ProgressSink,
         cancel: &tokio_util::sync::CancellationToken,
+        auth: &NetworkAuth,
     ) -> AppResult<PushOutcome> {
-        write::push(self, repo, &spec, progress, cancel)
+        write::push(self, repo, &spec, progress, cancel, auth)
+    }
+
+    fn probe_remote(&self, cwd: &Path, url: &str, auth: &NetworkAuth) -> AppResult<usize> {
+        self.probe_remote_impl(cwd, url, auth)
     }
 
     fn remote_add(&self, repo: &RepoId, name: &str, url: &str) -> AppResult<()> {

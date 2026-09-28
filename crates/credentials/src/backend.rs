@@ -17,7 +17,11 @@ use crate::error::CredentialsError;
 use crate::secret::Secret;
 
 /// 后端种类（日志与设置页展示用；不含任何密文）。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+///
+/// 可序列化：设置页要如实告诉用户"凭据存在系统凭据库还是加密文件里"，
+/// 这是把安全性差异讲清楚的前提。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum BackendKind {
     /// 系统凭据库（Windows Credential Manager / macOS Keychain / Linux Secret Service）。
     SystemKeyring,

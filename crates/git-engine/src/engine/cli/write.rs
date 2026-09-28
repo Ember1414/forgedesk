@@ -27,7 +27,7 @@ use super::args::{self, GitInvocation};
 use super::{read, CliGitEngine, RunKind};
 use crate::engine::progress::ProgressSink;
 use crate::parsers::parse_ls_files_stage;
-use crate::process::GitOutput;
+use crate::process::{GitOutput, NetworkAuth};
 
 /// `git init`。
 pub(super) fn init(
@@ -55,11 +55,15 @@ pub(super) fn clone(
     // 克隆（T1.9）尚未接取消令牌：传一个永不触发的令牌保持行为不变；
     // T2.6 的 fetch/pull/push 全部真取消
     let never = tokio_util::sync::CancellationToken::new();
+    // 克隆也走网络，但**尚未**接凭据注入：克隆是"还没有仓库"的路径，
+    // 凭据要在仓库与远端建立之后才有宿主（账号模型见 T4.4）。
+    // 现状：私有仓库的克隆仍会以 AUTH_REQUIRED 失败（已知缺口，见 T2.7 交接说明）。
     engine.run_network(
         &cwd,
         GitInvocation::new(args::clone_args(spec)),
         progress,
         &never,
+        &NetworkAuth::none(),
     )?;
     read::discover(engine, &spec.into)
 }
@@ -465,12 +469,14 @@ pub(super) fn fetch(
     spec: &FetchSpec,
     progress: &ProgressSink,
     cancel: &tokio_util::sync::CancellationToken,
+    auth: &NetworkAuth,
 ) -> AppResult<FetchOutcome> {
     let output = engine.run_network(
         repo.root(),
         GitInvocation::new(args::fetch_args(spec)),
         progress,
         cancel,
+        auth,
     )?;
     Ok(FetchOutcome {
         remote: spec.remote.clone().unwrap_or_else(|| "origin".to_owned()),
@@ -485,6 +491,7 @@ pub(super) fn pull(
     spec: &PullSpec,
     progress: &ProgressSink,
     cancel: &tokio_util::sync::CancellationToken,
+    auth: &NetworkAuth,
 ) -> AppResult<PullOutcome> {
     // 同样用 raw：合并冲突时 git 以非零退出码结束，但冲突是**要交给用户的
     // 结果**（PullOutcome::Conflicted），不是错误——压成错误会让界面失去
@@ -494,6 +501,7 @@ pub(super) fn pull(
         GitInvocation::new(args::pull_args(spec)),
         progress,
         cancel,
+        auth,
     )?;
     let stderr = output.stderr_lossy();
     let fetch = FetchOutcome {
@@ -551,6 +559,7 @@ pub(super) fn push(
     spec: &PushSpec,
     progress: &ProgressSink,
     cancel: &tokio_util::sync::CancellationToken,
+    auth: &NetworkAuth,
 ) -> AppResult<PushOutcome> {
     // 这里刻意用 run_network_raw：被拒绝时 git 以非零退出码结束，但那是可修复的
     // 业务结果（界面要按引用给出三条修复路径），不该在进程层被压成错误。
@@ -559,6 +568,7 @@ pub(super) fn push(
         GitInvocation::new(args::push_args(spec)),
         progress,
         cancel,
+        auth,
     )?;
     let stderr = output.stderr_lossy();
     let updates = parse_ref_updates(&stderr);

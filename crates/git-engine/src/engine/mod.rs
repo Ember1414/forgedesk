@@ -42,6 +42,7 @@ pub use progress::{parse_progress_line, ProgressEvent, ProgressPhase, ProgressSi
 
 use std::path::Path;
 
+use crate::process::NetworkAuth;
 use forgedesk_domain::git::{
     ApplyPatchSpec, Branch, CheckoutSpec, CloneSpec, Commit, CommitSpec, DiffReport, DiffSpec,
     DiscardSpec, FetchOutcome, FetchSpec, InitSpec, LogQuery, MergeOutcome, MergeSpec, Page,
@@ -339,6 +340,7 @@ pub trait GitEngine: Send + Sync {
         spec: FetchSpec,
         progress: &ProgressSink,
         cancel: &tokio_util::sync::CancellationToken,
+        auth: &NetworkAuth,
     ) -> AppResult<FetchOutcome>;
 
     /// 拉取并合并 / 变基。
@@ -348,6 +350,7 @@ pub trait GitEngine: Send + Sync {
         spec: PullSpec,
         progress: &ProgressSink,
         cancel: &tokio_util::sync::CancellationToken,
+        auth: &NetworkAuth,
     ) -> AppResult<PullOutcome>;
 
     /// 推送。
@@ -357,7 +360,17 @@ pub trait GitEngine: Send + Sync {
         spec: PushSpec,
         progress: &ProgressSink,
         cancel: &tokio_util::sync::CancellationToken,
+        auth: &NetworkAuth,
     ) -> AppResult<PushOutcome>;
+
+    /// 探活一个远端（`git ls-remote`）：返回远端上的引用条数（空仓库为 0）。
+    ///
+    /// 用途：设置页的"测试连接"——用户改完凭据/密钥后需要一个**不改动任何东西**
+    /// 的动作来确认"现在能不能连上"。`ls-remote` 只读远端、不写引用、不动工作区。
+    ///
+    /// 失败时返回的 `AppError` 已经过 [`ErrorCode::classify`]：SSH 主机指纹、
+    /// 公钥被拒、证书、代理这些情况各自成为可区分的错误码（T2.7 的验收要求）。
+    fn probe_remote(&self, cwd: &Path, url: &str, auth: &NetworkAuth) -> AppResult<usize>;
 
     /// 添加远端（`git remote add`）。名称与 URL 先经 services 校验。
     fn remote_add(&self, repo: &RepoId, name: &str, url: &str) -> AppResult<()>;

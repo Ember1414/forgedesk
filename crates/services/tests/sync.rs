@@ -221,6 +221,45 @@ fn push_initial(service: &SyncService<'_>, repo_id: i64) {
     );
 }
 
+// ---------------------------------------------------------------- 测试连接（T2.7）
+
+/// "测试连接"必须是**只读**的排错工具：能报出引用条数，也能把不可达分类出来。
+#[test]
+fn probing_a_remote_reports_its_refs_and_classifies_an_unreachable_one() {
+    let (_remote, url) = bare_remote("sync-probe-remote");
+    let (_local, repo_id, service, _snapshots) = local_with_origin("sync-probe-local", &url);
+
+    // 空远端：0 条引用，而不是"远端不存在"的错误
+    assert_eq!(
+        service
+            .probe_remote(Some(repo_id), None, None)
+            .expect("探活失败"),
+        0
+    );
+
+    push_initial(&service, repo_id);
+
+    // 推送之后：至少一条（main）。这里不断言具体数字：git 版本不同会给不同的附加引用
+    assert!(
+        service
+            .probe_remote(Some(repo_id), None, None)
+            .expect("探活失败")
+            >= 1
+    );
+
+    // 不可达地址：与 fetch 的断网用例同一套分类（NETWORK），而不是 Unknown
+    let error = service
+        .probe_remote(None, None, Some("https://127.0.0.1:1/nope.git"))
+        .expect_err("不可达地址必须失败");
+    assert_eq!(error.code, ErrorCode::Network, "{error:?}");
+
+    // 两个入参都不给：VALIDATION（而不是 panic 或静默成功）
+    let error = service
+        .probe_remote(None, None, None)
+        .expect_err("缺少目标必须失败");
+    assert_eq!(error.code, ErrorCode::Validation);
+}
+
 // ---------------------------------------------------------------- 场景 1：正常
 
 #[test]

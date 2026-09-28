@@ -31,6 +31,7 @@ pub mod audit;
 pub mod branch;
 pub mod commit;
 pub mod commit_detail;
+pub mod credentials;
 pub mod debug;
 pub mod error;
 pub mod history;
@@ -59,6 +60,10 @@ pub use commit::{
     MessageHintDto, PlannedFileDto, PrepareCommitRequest,
 };
 pub use commit_detail::git_commit_detail;
+pub use credentials::{
+    credential_test_remote, credentials_delete, credentials_list, credentials_save,
+    credentials_status, CredentialKindDto, CredentialsStatusDto, RemoteProbeDto,
+};
 pub use debug::{debug_panic, debug_throw_error};
 pub use error::{to_app_error, Fallible};
 pub use history::{git_branch_list, git_log_authors, git_log_page};

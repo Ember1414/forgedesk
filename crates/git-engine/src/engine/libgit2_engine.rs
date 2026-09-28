@@ -1023,6 +1023,7 @@ impl GitEngine for Libgit2Engine {
         _spec: forgedesk_domain::git::FetchSpec,
         _progress: &ProgressSink,
         _cancel: &tokio_util::sync::CancellationToken,
+        _auth: &crate::process::NetworkAuth,
     ) -> AppResult<forgedesk_domain::git::FetchOutcome> {
         Err(unsupported(EngineId::Libgit2, "fetch"))
     }
@@ -1033,8 +1034,18 @@ impl GitEngine for Libgit2Engine {
         _spec: forgedesk_domain::git::PullSpec,
         _progress: &ProgressSink,
         _cancel: &tokio_util::sync::CancellationToken,
+        _auth: &crate::process::NetworkAuth,
     ) -> AppResult<forgedesk_domain::git::PullOutcome> {
         Err(unsupported(EngineId::Libgit2, "pull"))
+    }
+
+    fn probe_remote(
+        &self,
+        _cwd: &std::path::Path,
+        _url: &str,
+        _auth: &crate::process::NetworkAuth,
+    ) -> AppResult<usize> {
+        Err(unsupported(EngineId::Libgit2, "probe_remote"))
     }
 
     fn push(
@@ -1043,6 +1054,7 @@ impl GitEngine for Libgit2Engine {
         _spec: forgedesk_domain::git::PushSpec,
         _progress: &ProgressSink,
         _cancel: &tokio_util::sync::CancellationToken,
+        _auth: &crate::process::NetworkAuth,
     ) -> AppResult<forgedesk_domain::git::PushOutcome> {
         Err(unsupported(EngineId::Libgit2, "push"))
     }

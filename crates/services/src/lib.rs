@@ -25,6 +25,7 @@ pub mod audit;
 pub mod branch;
 pub mod commit;
 pub mod commit_detail;
+pub mod credentials;
 pub mod engines;
 pub mod history;
 pub mod repository;
@@ -44,6 +45,10 @@ pub use commit::{
 };
 pub use commit_detail::{
     CommitDetail, CommitDetailService, CommitFileChange, CommitMeta, CommitStats, FULL_OID_LENGTH,
+};
+pub use credentials::{
+    remote_host, remote_provider, remote_url, CredentialGate, CredentialsService,
+    CredentialsStatus, MAX_CONSECUTIVE_AUTH_FAILURES,
 };
 pub use engines::GitEngines;
 pub use history::{

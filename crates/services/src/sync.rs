@@ -21,7 +21,7 @@
 //! fetch/pull/push 把 `CancellationToken` 透传到进程层：取消 = kill 子进程
 //! （`kill_on_drop`），返回 `ErrorCode::Cancelled`。
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use tokio_util::sync::CancellationToken;
 
@@ -32,15 +32,20 @@ use forgedesk_domain::{AppError, AppResult, ErrorCode};
 use forgedesk_git_engine::engine::progress::ProgressSink;
 use forgedesk_git_engine::engine::GitEngine;
 use forgedesk_git_engine::engines::GitEngines;
+use forgedesk_git_engine::process::NetworkAuth;
 use forgedesk_snapshot::{SnapshotKind, SnapshotManager, SnapshotRequest};
 
 use forgedesk_storage::RepositoryStore;
+
+use crate::credentials::{remote_host, resolve_remote_url, CredentialGate};
 
 /// 远端同步服务。
 pub struct SyncService<'a> {
     engines: &'a GitEngines,
     store: RepositoryStore<'a>,
     snapshots: &'a dyn SnapshotManager,
+    /// 凭据门（T2.7）。为 `None` 时不做注入：网络操作只有匿名与 SSH 两条路。
+    credentials: Option<&'a CredentialGate>,
 }
 
 impl<'a> SyncService<'a> {
@@ -54,7 +59,15 @@ impl<'a> SyncService<'a> {
             engines,
             store,
             snapshots,
+            credentials: None,
         }
+    }
+
+    /// 接上凭据门（T2.7）：fetch/pull/push 会为远端解析并注入凭据。
+    #[must_use]
+    pub fn with_credentials(mut self, credentials: &'a CredentialGate) -> Self {
+        self.credentials = Some(credentials);
+        self
     }
 
     fn resolve_workdir(&self, repo_id: i64) -> AppResult<PathBuf> {
@@ -63,6 +76,51 @@ impl<'a> SyncService<'a> {
                 .with_detail(format!("repo_id: {repo_id}")),
         )?;
         Ok(PathBuf::from(record.path))
+    }
+
+    /// 解析这次操作要用的注入方案，并顺带做"连续失败上限"的闸门判断。
+    ///
+    /// 返回 `(方案, host)`：`host` 供成功后清零计数使用。
+    fn auth_context(
+        &self,
+        workdir: &Path,
+        remote: Option<&str>,
+    ) -> AppResult<(NetworkAuth, Option<String>)> {
+        let Some(gate) = self.credentials else {
+            return Ok((NetworkAuth::none(), None));
+        };
+        let Some(url) = resolve_remote_url(self.engines, workdir, remote)? else {
+            // 远端名不存在：交给 git 报"远端不存在"，比我们编一个错误更准确
+            return Ok((NetworkAuth::none(), None));
+        };
+        let host = remote_host(&url);
+        if let Some(host) = host.as_deref() {
+            if gate.is_exhausted(host) {
+                // 连续失败到上限：**不再**发起网络操作。继续重试只会把账号刷到锁定，
+                // 而用户需要的是"去检查凭据"这条明确的下一步。
+                return Err(AppError::new(
+                    ErrorCode::AuthRequired,
+                    "authentication has failed repeatedly; not retrying until the credential is updated",
+                )
+                .with_hint(host.to_owned()));
+            }
+        }
+        Ok((gate.auth_for(&url, None)?, host))
+    }
+
+    /// 把认证类失败交给凭据门处理（计数 + 达到上限时换文案）。
+    fn describe_auth_failure(&self, host: Option<&str>, error: AppError) -> AppError {
+        match (self.credentials, host) {
+            (Some(gate), Some(host)) => gate.describe_failure(host, error),
+            _ => error,
+        }
+    }
+
+    /// 成功一次即清零该 host 的连续失败计数。
+    fn note_success(&self, host: Option<&str>) {
+        if let (Some(gate), Some(host)) = (self.credentials, host) {
+            gate.note_success(host);
+        }
     }
 
     // ------------------------------------------------------------ 同步
@@ -76,8 +134,18 @@ impl<'a> SyncService<'a> {
         cancel: &CancellationToken,
     ) -> AppResult<FetchOutcome> {
         let workdir = self.resolve_workdir(repo_id)?;
+        let (auth, host) = self.auth_context(&workdir, spec.remote.as_deref())?;
         let repo = RepoId::new(workdir);
-        self.engines.write().fetch(&repo, spec, progress, cancel)
+        let outcome = match self
+            .engines
+            .write()
+            .fetch(&repo, spec, progress, cancel, &auth)
+        {
+            Ok(outcome) => outcome,
+            Err(error) => return Err(self.describe_auth_failure(host.as_deref(), error)),
+        };
+        self.note_success(host.as_deref());
+        Ok(outcome)
     }
 
     /// 拉取并合并/变基。**先打 `PreSync` 快照**（会移动 HEAD）。
@@ -89,9 +157,19 @@ impl<'a> SyncService<'a> {
         cancel: &CancellationToken,
     ) -> AppResult<PullOutcome> {
         let workdir = self.resolve_workdir(repo_id)?;
+        let (auth, host) = self.auth_context(&workdir, spec.remote.as_deref())?;
         self.snapshot_before(repo_id, &workdir, "pull");
         let repo = RepoId::new(workdir);
-        self.engines.write().pull(&repo, spec, progress, cancel)
+        let outcome = match self
+            .engines
+            .write()
+            .pull(&repo, spec, progress, cancel, &auth)
+        {
+            Ok(outcome) => outcome,
+            Err(error) => return Err(self.describe_auth_failure(host.as_deref(), error)),
+        };
+        self.note_success(host.as_deref());
+        Ok(outcome)
     }
 
     /// 推送。non-fast-forward 拒绝时转成带 actions 的 `PUSH_REJECTED`。
@@ -103,8 +181,17 @@ impl<'a> SyncService<'a> {
         cancel: &CancellationToken,
     ) -> AppResult<PushOutcome> {
         let workdir = self.resolve_workdir(repo_id)?;
+        let (auth, host) = self.auth_context(&workdir, spec.remote.as_deref())?;
         let repo = RepoId::new(workdir);
-        let outcome = self.engines.write().push(&repo, spec, progress, cancel)?;
+        let outcome = match self
+            .engines
+            .write()
+            .push(&repo, spec, progress, cancel, &auth)
+        {
+            Ok(outcome) => outcome,
+            Err(error) => return Err(self.describe_auth_failure(host.as_deref(), error)),
+        };
+        self.note_success(host.as_deref());
         if let Some(rejection) = outcome.rejections.iter().find(|r| r.non_fast_forward) {
             // 任务书要求 4：non-ff 拒绝转成带 actions 的结构化错误。
             // label_key 走 errors 命名空间的既有键（"重试"类文案由前端 i18n 渲染），
@@ -128,6 +215,65 @@ impl<'a> SyncService<'a> {
             .with_action(FixAction::new("cancel", "errors:actions.cancel", "noop")));
         }
         Ok(outcome)
+    }
+
+    /// 探活远端（"测试连接"）：返回远端引用条数。
+    ///
+    /// 入参二选一（设置页两种用法都要支持）：
+    /// - `url`：直接测一个手填的地址（还没保存的远端）；
+    /// - `repo_id`（+ 可选 `remote`）：测某个仓库的远端（缺省当前分支的上游远端 → `origin`）。
+    ///
+    /// 这是**只读**操作：`ls-remote` 不写引用、不动工作区，因此它也是
+    /// "改完凭据后确认一下"的安全动作。失败走与同步操作同一套凭据门逻辑
+    /// （认证类失败计数 + 达到上限换文案）。
+    pub fn probe_remote(
+        &self,
+        repo_id: Option<i64>,
+        remote: Option<&str>,
+        url: Option<&str>,
+    ) -> AppResult<usize> {
+        let (target_url, cwd) = match url {
+            Some(url) => {
+                if url.trim().is_empty() {
+                    return Err(AppError::new(
+                        ErrorCode::Validation,
+                        "the remote URL must not be empty",
+                    ));
+                }
+                // 只给了 URL 时没有仓库上下文：`ls-remote` 不需要仓库，
+                // 但需要一个工作目录（git 会从这里读配置，例如 insteadOf 改写）
+                let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+                (url.to_owned(), cwd)
+            }
+            None => {
+                let repo_id = repo_id.ok_or_else(|| {
+                    AppError::new(
+                        ErrorCode::Validation,
+                        "either a remote URL or a repository id is required",
+                    )
+                })?;
+                let workdir = self.resolve_workdir(repo_id)?;
+                let resolved = resolve_remote_url(self.engines, &workdir, remote)?;
+                let url = resolved.ok_or_else(|| {
+                    AppError::new(ErrorCode::NotFound, "the remote does not exist")
+                        .with_hint(remote.unwrap_or("origin").to_owned())
+                })?;
+                (url, workdir)
+            }
+        };
+
+        let auth = match self.credentials {
+            Some(gate) => gate.auth_for(&target_url, None)?,
+            None => NetworkAuth::none(),
+        };
+        let host = remote_host(&target_url);
+        match self.engines.write().probe_remote(&cwd, &target_url, &auth) {
+            Ok(refs) => {
+                self.note_success(host.as_deref());
+                Ok(refs)
+            }
+            Err(error) => Err(self.describe_auth_failure(host.as_deref(), error)),
+        }
     }
 
     // ------------------------------------------------------------ 远端管理
