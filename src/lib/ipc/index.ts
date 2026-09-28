@@ -11,7 +11,8 @@
  * - `client.ts`：底层入口（`invokeCommand` / `listenEvent` / `isTauriRuntime`）；
  * - `repository.ts`：仓库生命周期命令（`repo_*`）；
  * - `jobs.ts`：长任务事件与取消（`job:*`）；
- * - `history.ts`：提交历史分页查询（`git_log_page`）。
+ * - `history.ts`：提交历史分页查询（`git_log_page`）；
+ * - `commitDetail.ts`：提交详情（`git_commit_detail`）。
  *
  * 约定：本文件中的类型必须与 Rust 侧 DTO 的 `serde(rename_all = "camelCase")`
  * 一一对应。
@@ -52,6 +53,15 @@ export type {
   AuditPage,
   AuditPruneResult,
 } from './audit';
+
+export { gitCommitDetail } from './commitDetail';
+export type {
+  CommitDetail,
+  CommitFileChange,
+  CommitFileChangeKind,
+  CommitMeta,
+  CommitStats,
+} from './commitDetail';
 
 export { gitLogPage } from './history';
 export type {

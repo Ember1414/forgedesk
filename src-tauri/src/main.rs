@@ -230,6 +230,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         forgedesk_commands::repo_close,
         forgedesk_commands::job_cancel,
         forgedesk_commands::git_log_page,
+        forgedesk_commands::git_commit_detail,
     ]);
 
     let app = builder.build(tauri::generate_context!())?;

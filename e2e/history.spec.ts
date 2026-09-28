@@ -98,6 +98,89 @@ const MOCK_SCRIPT = `
         var page2 = window.__historyPage2;
         return Promise.resolve(page2);
       }
+      if (command === 'git_commit_detail') {
+        var detailOid = (args && args.oid) || '';
+        var detailIdx = parseInt(detailOid.slice(-1), 10);
+        var zeroPad = function (n) {
+          return ('000000000000000000000000000000000000000' + n).slice(-40);
+        };
+        var isMergeCommit = detailIdx === 5;
+        var parents = detailIdx === 0
+          ? []
+          : (isMergeCommit ? [zeroPad(4), zeroPad(99)] : [zeroPad(detailIdx - 1)]);
+        var parentIndex = (args && args.parentIndex) || 0;
+        var detailFiles = isMergeCommit && parentIndex === 1
+          ? [
+              { path: 'main/b.txt', oldPath: null, kind: 'modified', binary: false, additions: 2, deletions: 1, truncated: false },
+            ]
+          : (isMergeCommit
+              ? [
+                  { path: 'feature/c.txt', oldPath: null, kind: 'added', binary: false, additions: 3, deletions: 0, truncated: false },
+                  { path: 'feature/d.txt', oldPath: null, kind: 'added', binary: false, additions: 5, deletions: 0, truncated: false },
+                ]
+              : detailIdx === 0
+                ? [{ path: 'base.txt', oldPath: null, kind: 'added', binary: false, additions: 1, deletions: 0, truncated: false }]
+                : [{ path: 'file' + detailIdx + '.txt', oldPath: null, kind: 'modified', binary: false, additions: 2, deletions: 1, truncated: false }]);
+        var insertions = 0;
+        var deletions = 0;
+        for (var fi = 0; fi < detailFiles.length; fi++) {
+          insertions += detailFiles[fi].additions;
+          deletions += detailFiles[fi].deletions;
+        }
+        var baseCommit = window.__historyFixture.commits[detailIdx] || window.__historyFixture.commits[0];
+        return Promise.resolve({
+          meta: {
+            oid: detailOid,
+            shortOid: detailOid.slice(-7),
+            parents: parents,
+            author: baseCommit.author,
+            committer: baseCommit.committer,
+            subject: baseCommit.subject,
+            body: 'Detailed body for commit ' + detailIdx + '.',
+            signature: 'unsigned',
+          },
+          refs: baseCommit.refs,
+          stats: { filesChanged: detailFiles.length, insertions: insertions, deletions: deletions },
+          files: detailFiles,
+          isMerge: isMergeCommit,
+          isHead: detailIdx === 0,
+          isPushed: detailIdx === 0,
+          webUrl: null,
+          parentIndex: parentIndex,
+        });
+      }
+      if (command === 'workspace_diff') {
+        var spec = (args && args.spec) || {};
+        var diffPath = (spec.paths && spec.paths[0]) || 'unknown.txt';
+        return Promise.resolve({
+          files: [
+            {
+              path: diffPath,
+              oldPath: null,
+              change: 'modified',
+              binary: false,
+              additions: 1,
+              deletions: 0,
+              truncated: false,
+              hunks: [
+                {
+                  oldStart: 1,
+                  oldLines: 1,
+                  newStart: 1,
+                  newLines: 2,
+                  header: '',
+                  lines: [
+                    { kind: 'context', content: 'before' },
+                    { kind: 'added', content: 'after' },
+                  ],
+                },
+              ],
+            },
+          ],
+          truncatedFiles: 0,
+        });
+      }
+      if (command === 'workspace_diff_patch') return Promise.resolve([]);
       if (command === 'repo_recent_list') return Promise.resolve([{ record: { id: 1, path: '/tmp/repo', name: 'repo' }, isOpen: true }]);
       if (command === 'app_version') return Promise.resolve({ version: '0.0.1', gitDescribe: null });
       if (command === 'settings_get') return Promise.resolve(null);
@@ -346,6 +429,91 @@ test('暗色主题截图', async ({ page }) => {
   await page
     .getByTestId('history-page')
     .screenshot({ path: join(VISUAL_DIR, '06-dark-theme.png') });
+
+  const errs = await page.evaluate(() => window.__errs ?? []);
+  expect(errs, JSON.stringify(errs)).toEqual([]);
+});
+
+// ---------------------------------------------------------------- T2.4 提交详情
+
+test('详情面板：列表模式点行后展示元数据、统计与文件清单', async ({ page }) => {
+  await page.goto('/#/repo/1/history');
+  await expect(page.getByTestId('graph-overlay')).toBeVisible();
+
+  // 切到列表模式，点第 1 行（面板默认在右侧详情位）
+  await page.getByTestId('history-mode-list').click();
+  await page.locator('#fd-history-list-row-1').click();
+
+  const panel = page.getByTestId('commit-detail-panel');
+  await expect(panel).toBeVisible();
+  // 元数据与标记（提交 1 非 HEAD → 只有未推送标记）
+  await expect(panel).toContainText('feat: commit message 1');
+  await expect(panel).toContainText('Detailed body for commit 1.');
+  await expect(panel).toContainText('未推送');
+  // 统计行 + 文件清单
+  await expect(panel).toContainText('1 个文件');
+  await expect(panel).toContainText('file1.txt');
+
+  const errs = await page.evaluate(() => window.__errs ?? []);
+  expect(errs, JSON.stringify(errs)).toEqual([]);
+});
+
+test('详情面板：点击文件行展开行级 diff', async ({ page }) => {
+  await page.goto('/#/repo/1/history');
+  await expect(page.getByTestId('graph-overlay')).toBeVisible();
+
+  await page.getByTestId('history-mode-list').click();
+  await page.locator('#fd-history-list-row-1').click();
+
+  const fileRow = page.getByRole('button', { name: /file1\.txt/ });
+  await expect(fileRow).toBeVisible();
+  await expect(fileRow).toHaveAttribute('aria-expanded', 'false');
+  await fileRow.click();
+  await expect(fileRow).toHaveAttribute('aria-expanded', 'true');
+  // DiffView 渲染出了行级内容（mock 的补丁行）
+  await expect(page.getByText('after')).toBeVisible();
+
+  const errs = await page.evaluate(() => window.__errs ?? []);
+  expect(errs, JSON.stringify(errs)).toEqual([]);
+});
+
+test('详情面板：合并提交可切换双父 diff（验收项）', async ({ page }) => {
+  await page.goto('/#/repo/1/history');
+  await expect(page.getByTestId('graph-overlay')).toBeVisible();
+
+  await page.getByTestId('history-mode-list').click();
+  // 第 5 行是合并提交（fixture 里 i === 5 标记 isMerge）
+  await page.locator('#fd-history-list-row-5').click();
+
+  const panel = page.getByTestId('commit-detail-panel');
+  await expect(panel).toContainText('feat: commit message 5 (merge)');
+  // 默认第一父视角：feature 侧文件
+  await expect(panel).toContainText('feature/c.txt');
+  await expect(panel).toContainText('feature/d.txt');
+
+  // 切到第二父视角：文件清单换成 main 侧
+  await page.getByRole('radio', { name: /第二父/ }).click();
+  await expect(panel).toContainText('main/b.txt');
+  await expect(panel).not.toContainText('feature/c.txt');
+
+  const errs = await page.evaluate(() => window.__errs ?? []);
+  expect(errs, JSON.stringify(errs)).toEqual([]);
+});
+
+test('详情面板：钉住后点击其他行不跟随', async ({ page }) => {
+  await page.goto('/#/repo/1/history');
+  await expect(page.getByTestId('graph-overlay')).toBeVisible();
+
+  await page.getByTestId('history-mode-list').click();
+  await page.locator('#fd-history-list-row-2').click();
+  const panel = page.getByTestId('commit-detail-panel');
+  await expect(panel).toContainText('feat: commit message 2');
+
+  // 钉住 → 点第 7 行：选中变化，但详情冻结在提交 2
+  await page.getByTestId('commit-detail-pin').click();
+  await page.locator('#fd-history-list-row-7').click();
+  await expect(panel).toContainText('feat: commit message 2');
+  await expect(panel).not.toContainText('feat: commit message 7');
 
   const errs = await page.evaluate(() => window.__errs ?? []);
   expect(errs, JSON.stringify(errs)).toEqual([]);

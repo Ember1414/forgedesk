@@ -11,6 +11,8 @@
 //! 把两者混成一个类型会逼着"只想知道改了几行"的调用点也去解析整个补丁——
 //! 在大仓库上那是几十 MB 的字符串处理。
 
+use serde::{Deserialize, Serialize};
+
 use super::path::RepoPath;
 
 /// 单个文件的增删行统计。
@@ -161,7 +163,8 @@ impl DiffSpec {
 }
 
 /// 文件在 diff 中的变更类别。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum DiffChangeKind {
     /// 新增文件。
     Added,

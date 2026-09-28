@@ -24,8 +24,8 @@ use std::sync::Arc;
 use forgedesk_jobs::JobRunner;
 use forgedesk_services::repository::OpenRepoRegistry;
 use forgedesk_services::{
-    AuditLog, CommitPlanRegistry, CommitService, GitEngines, HistoryService, RepositoryService,
-    StagingService, WorkspaceService,
+    AuditLog, CommitDetailService, CommitPlanRegistry, CommitService, GitEngines, HistoryService,
+    RepositoryService, StagingService, WorkspaceService,
 };
 use forgedesk_snapshot::SnapshotManager;
 use forgedesk_storage::{Database, OperationStore, RepositoryStore};
@@ -123,5 +123,14 @@ impl AppState {
     /// `HistoryService` 需要 `RepositoryStore` 来把 `repo_id` 解析为工作区路径。
     pub fn history_service(&self) -> HistoryService<'_> {
         HistoryService::new(&self.engines, RepositoryStore::new(&self.database))
+    }
+
+    /// 绑定当前状态构造提交详情服务（T2.4）。
+    ///
+    /// 与历史查询共用同一批引擎与同一个数据库；diff/补丁统计在服务内
+    /// 路由到 CLI 引擎（唯一数据源），`is_pushed` 用 CLI 的
+    /// `remote_refs_containing`（libgit2 侧未实现该读取）。
+    pub fn commit_detail_service(&self) -> CommitDetailService<'_> {
+        CommitDetailService::new(&self.engines, RepositoryStore::new(&self.database))
     }
 }

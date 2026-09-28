@@ -72,3 +72,27 @@ export function logKey(
 export function logKeyPrefix(repoId: number): readonly [string, number] {
   return [LOG_QUERY_KEY, repoId];
 }
+
+/** 单次提交详情（`git_commit_detail`，T2.4）。 */
+export const COMMIT_DETAIL_QUERY_KEY = 'commitDetail';
+
+/**
+ * 某个提交详情的查询键。
+ *
+ * `oid` 与 `parentIndex` 都进键：合并提交的"相对第一父 / 相对第二父"是**同一个
+ * 提交的两份视图**，各自占一条缓存让切换瞬时完成（配合 `placeholderData`
+ * 消掉切换时的闪空）。失效按 `[COMMIT_DETAIL_QUERY_KEY, repoId]` 前缀
+ * （`repoChanged.ts`）——`isHead` / `isPushed` / refs 都会随引用移动而变化。
+ */
+export function commitDetailKey(
+  repoId: number,
+  oid: string,
+  parentIndex: number,
+): readonly [string, number, string, number] {
+  return [COMMIT_DETAIL_QUERY_KEY, repoId, oid, parentIndex];
+}
+
+/** 某个仓库全部提交详情的键前缀（`refs` / `large` 失效用）。 */
+export function commitDetailKeyPrefix(repoId: number): readonly [string, number] {
+  return [COMMIT_DETAIL_QUERY_KEY, repoId];
+}

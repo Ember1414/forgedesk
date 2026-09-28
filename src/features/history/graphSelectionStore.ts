@@ -62,6 +62,14 @@ export interface GraphSelectionState {
   readonly hoverOid: string | null;
   /** 详情面板显示的提交（`null` 表示面板关闭）。 */
   readonly detailOid: string | null;
+  /**
+   * 详情面板是否钉住（T2.4 的"钉住 / 跟随选中"两模式）。
+   *
+   * 钉住后 `select` 仍正常更新选中集，但**不再改写 `detailOid`**——面板冻结在
+   * 当前提交上，用户可以放心地点别处对照。关闭钉住时面板立即回到跟随模式
+   * （显示当前选中的第一个提交）。
+   */
+  readonly detailPinned: boolean;
   readonly viewMode: GraphViewMode;
   readonly scale: number;
   readonly minimapOpen: boolean;
@@ -79,6 +87,8 @@ export interface GraphSelectionState {
   setHoverOid(oid: string | null): void;
   setCompareBase(oid: string | null): void;
   setDetailOid(oid: string | null): void;
+  /** 切换钉住模式（钉住后 select 不再改写 detailOid）。 */
+  setDetailPinned(pinned: boolean): void;
   setViewMode(mode: GraphViewMode): void;
   /** 设定缩放（自动夹到 0.5x–3x）。 */
   setScale(scale: number): void;
@@ -96,6 +106,7 @@ export const initialGraphSelectionState = {
   compareBaseOid: null as string | null,
   hoverOid: null as string | null,
   detailOid: null as string | null,
+  detailPinned: false,
   viewMode: 'graph' as GraphViewMode,
   scale: 1,
   minimapOpen: DEFAULT_MINIMAP_OPEN,
@@ -153,12 +164,14 @@ export const useGraphSelectionStore = create<GraphSelectionState>()((set, get) =
 
   select: (oid, modifiers, order) => {
     const state = get();
+    // 钉住时面板冻结在当前提交上：选中照常更新，详情不动（见 detailPinned 的说明）
+    const nextDetail = state.detailPinned ? state.detailOid : oid;
     if (modifiers.range && state.anchorOid !== null) {
       const range = oidRange(state.anchorOid, oid, order);
       if (range !== null) {
         // 区间选**替换**而不是追加：与文件管理器、GitHub Desktop 的 Shift 语义一致。
         // 锚点保持不变，于是"按住 Shift 上下移动"能连续调整区间末端。
-        set({ selectedOids: range, detailOid: oid });
+        set({ selectedOids: range, detailOid: nextDetail });
         return;
       }
     }
@@ -166,10 +179,10 @@ export const useGraphSelectionStore = create<GraphSelectionState>()((set, get) =
       const selected = state.selectedOids.includes(oid)
         ? state.selectedOids.filter((existing) => existing !== oid)
         : [...state.selectedOids, oid];
-      set({ selectedOids: orderByRow(selected, order), anchorOid: oid, detailOid: oid });
+      set({ selectedOids: orderByRow(selected, order), anchorOid: oid, detailOid: nextDetail });
       return;
     }
-    set({ selectedOids: [oid], anchorOid: oid, detailOid: oid });
+    set({ selectedOids: [oid], anchorOid: oid, detailOid: nextDetail });
   },
 
   selectMany: (oids, order) => {
@@ -196,6 +209,10 @@ export const useGraphSelectionStore = create<GraphSelectionState>()((set, get) =
 
   setDetailOid: (oid) => {
     set({ detailOid: oid });
+  },
+
+  setDetailPinned: (pinned) => {
+    set({ detailPinned: pinned });
   },
 
   setViewMode: (mode) => {

@@ -23,6 +23,7 @@
 
 pub mod audit;
 pub mod commit;
+pub mod commit_detail;
 pub mod engines;
 pub mod history;
 pub mod repository;
@@ -37,6 +38,9 @@ pub use audit::{
 };
 pub use commit::{
     AmendContext, CommitOutcome, CommitPlanRegistry, CommitService, MessageHint, PrepareRequest,
+};
+pub use commit_detail::{
+    CommitDetail, CommitDetailService, CommitFileChange, CommitMeta, CommitStats, FULL_OID_LENGTH,
 };
 pub use engines::GitEngines;
 pub use history::{

@@ -74,8 +74,18 @@ export type DiffViewMode = 'unified' | 'side-by-side';
 export interface DiffViewProps {
   readonly repoId: number;
   readonly path: string;
-  readonly target: 'staged' | 'unstaged';
+  /** 工作区比较侧；`source`（提交间比较）给出时可以省略。 */
+  readonly target?: 'staged' | 'unstaged';
   readonly className?: string;
+  /**
+   * 提交间比较（T2.4）：给出 `from`/`to` 时按 `target: 'between'` 查询，
+   * 覆盖 `target` 的语义。此模式下没有暂存/丢弃动作（那是对工作区的操作），
+   * 行级选择按钮自然消失；行内"复制 hunk 补丁"仍然可用。
+   */
+  readonly source?: {
+    readonly from: string;
+    readonly to: string;
+  };
   /**
    * 暂存选中的行 / 块（未暂存侧提供）。
    *
@@ -323,6 +333,7 @@ export function DiffView({
   repoId,
   path,
   target,
+  source,
   className,
   onStage,
   onUnstage,
@@ -363,9 +374,32 @@ export function DiffView({
 
   const query = useQuery({
     // 键的形状由 `@/lib/queryKeys` 统一提供：`repo:changed` 的失效逻辑按同一批键
-    // 去找查询，键在这里写错（少一段、换个字面量）就会让自动刷新静默失效
-    queryKey: [DIFF_QUERY_KEY, repoId, target, path, contextLines, forceFull],
-    queryFn: () => workspaceDiff(repoId, { target, paths: [path], contextLines, forceFull }),
+    // 去找查询，键在这里写错（少一段、换个字面量）就会让自动刷新静默失效。
+    // between 模式把 from/to 编进 target 位（同一文件、不同提交区间是不同的缓存条目）
+    queryKey: [
+      DIFF_QUERY_KEY,
+      repoId,
+      source === undefined ? target : `between:${source.from}:${source.to}`,
+      path,
+      contextLines,
+      forceFull,
+    ],
+    queryFn: () =>
+      source === undefined
+        ? workspaceDiff(repoId, {
+            target: target ?? 'unstaged',
+            paths: [path],
+            contextLines,
+            forceFull,
+          })
+        : workspaceDiff(repoId, {
+            target: 'between',
+            from: source.from,
+            to: source.to,
+            paths: [path],
+            contextLines,
+            forceFull,
+          }),
   });
 
   const settings = useSettingsStore();
@@ -531,7 +565,19 @@ export function DiffView({
   };
 
   const copyPatch = () => {
-    void workspaceDiffPatch(repoId, { target, paths: [path], forceFull: true }).then((bytes) => {
+    // between 模式（提交详情的文件 diff）同样可以复制整个文件的补丁；
+    // forceFull：用户要的就是完整补丁，截断会让复制 silently 缺一段
+    const spec =
+      source === undefined
+        ? { target: target ?? 'unstaged', paths: [path], forceFull: true }
+        : {
+            target: 'between' as const,
+            from: source.from,
+            to: source.to,
+            paths: [path],
+            forceFull: true,
+          };
+    void workspaceDiffPatch(repoId, spec).then((bytes) => {
       void navigator.clipboard.writeText(new TextDecoder().decode(new Uint8Array(bytes)));
     });
   };

@@ -944,3 +944,102 @@ fn the_index_and_head_tree_oids_agree_across_engines() {
     cli.stage(&repo, StageSpec::All).expect("stage 失败");
     assert_ne!(cli.index_tree(&repo).expect("CLI write-tree 失败"), staged);
 }
+
+// ---------------------------------------------------------------- T2.4 提交详情
+
+/// 详情面板消费的三类数据（元数据 / 合并双父 diff / 根提交 diff）两侧一致（T2.4）。
+///
+/// # 契约的不对称部分也要钉住
+///
+/// `show` 的 refs 与 signature **只有 CLI 给得出**（libgit2 的 `to_commit`
+/// 有意留空，见引擎侧注释）——详情服务的元数据因此刻意走 CLI。这里把这条
+/// 不对称写成断言：如果哪天有人给 libgit2 补了 refs/签名，或者反过来 CLI
+/// 侧丢了它们，这条测试会先红，提醒同步详情服务与 `docs/GIT-ENGINE-DIFF.md`。
+#[test]
+fn commit_detail_inputs_are_consistent_across_engines() {
+    let dir = TempDir::new("diff-detail");
+    shape_forked(dir.path());
+    let (cli, libgit2) = engines();
+    let repo = RepoId::new(dir.path());
+
+    // 全量提交（含 feature 分支）：从 CLI log 拿 oid 清单
+    let query = LogQuery::new().with_all_branches(true).with_limit(100);
+    let commits = cli.log(&repo, query).expect("CLI log 失败").items;
+    assert!(commits.len() >= 4, "夹具应有 base/C/B/merge 至少 4 条");
+    let merge = commits
+        .iter()
+        .find(|commit| commit.parents.len() == 2)
+        .expect("夹具应有 merge 提交");
+    let root = commits
+        .iter()
+        .find(|commit| commit.parents.is_empty())
+        .expect("夹具应有根提交");
+
+    // ① 元数据：oid / 父提交 / 作者 / 提交者 / subject / body 两侧一致
+    for commit in &commits {
+        let from_cli = cli.show(&repo, &commit.oid).expect("CLI show 失败");
+        let from_libgit2 = libgit2.show(&repo, &commit.oid).expect("libgit2 show 失败");
+
+        assert_eq!(from_cli.oid, from_libgit2.oid);
+        assert_eq!(from_cli.parents, from_libgit2.parents, "oid {}", commit.oid);
+        assert_eq!(from_cli.author, from_libgit2.author, "oid {}", commit.oid);
+        assert_eq!(
+            from_cli.committer, from_libgit2.committer,
+            "oid {}",
+            commit.oid
+        );
+        assert_eq!(from_cli.subject, from_libgit2.subject, "oid {}", commit.oid);
+        assert_eq!(from_cli.body, from_libgit2.body, "oid {}", commit.oid);
+
+        // 契约的不对称：refs 与签名状态只在 CLI 一侧
+        assert!(
+            from_libgit2.refs.is_empty(),
+            "libgit2 的 Commit 契约是 refs 留空；若改变了，请同步详情服务与 GIT-ENGINE-DIFF.md"
+        );
+        assert_eq!(
+            from_libgit2.signature,
+            forgedesk_domain::git::SignatureStatus::Unknown
+        );
+    }
+    // CLI 侧的 merge 提交带 HEAD -> main 装饰（详情面板的 ref 胶囊数据源）
+    let merge_from_cli = cli.show(&repo, &merge.oid).expect("CLI show 失败");
+    assert!(
+        merge_from_cli
+            .refs
+            .iter()
+            .any(|refname| refname.contains("main")),
+        "merge 提交的 %D 应含 main，实际 {:?}",
+        merge_from_cli.refs
+    );
+
+    // ② 合并双父 diff：相对第一父与相对第二父，两侧逐文件一致
+    for (index, parent) in merge.parents.iter().enumerate() {
+        compare_diff(
+            &cli,
+            &libgit2,
+            &repo,
+            DiffTarget::between(parent.clone(), &merge.oid),
+            &format!("merge parent {index}"),
+        );
+    }
+
+    // ③ 非合并提交与根提交的 `Commit` 目标（详情对单父/根提交的口径）
+    let normal = commits
+        .iter()
+        .find(|commit| commit.parents.len() == 1)
+        .expect("夹具应有单父提交");
+    compare_diff(
+        &cli,
+        &libgit2,
+        &repo,
+        DiffTarget::Commit(normal.oid.clone()),
+        "single parent",
+    );
+    compare_diff(
+        &cli,
+        &libgit2,
+        &repo,
+        DiffTarget::Commit(root.oid.clone()),
+        "root commit",
+    );
+}

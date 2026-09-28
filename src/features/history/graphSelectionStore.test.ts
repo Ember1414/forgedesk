@@ -154,6 +154,27 @@ describe('select — Shift 区间选', () => {
     store.select('oid-c', range, ORDER);
     expect(useGraphSelectionStore.getState().detailOid).toBe('oid-c');
   });
+
+  it('钉住时 select 更新选中集但不再改写 detailOid（T2.4 钉住模式）', () => {
+    const store = useGraphSelectionStore.getState();
+    store.select('oid-a', NO_MODIFIERS, ORDER);
+    expect(useGraphSelectionStore.getState().detailOid).toBe('oid-a');
+
+    store.setDetailPinned(true);
+    store.select('oid-b', NO_MODIFIERS, ORDER);
+    const state = useGraphSelectionStore.getState();
+    expect(state.selectedOids).toEqual(['oid-b']);
+    expect(state.detailOid).toBe('oid-a');
+
+    // Ctrl 多选同样被冻结
+    store.select('oid-c', { additive: true, range: false }, ORDER);
+    expect(useGraphSelectionStore.getState().detailOid).toBe('oid-a');
+
+    // 解除钉住后恢复跟随
+    store.setDetailPinned(false);
+    store.select('oid-c', NO_MODIFIERS, ORDER);
+    expect(useGraphSelectionStore.getState().detailOid).toBe('oid-c');
+  });
 });
 
 // ---------------------------------------------------------------- selectMany

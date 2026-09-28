@@ -1058,6 +1058,83 @@ merge 行的 `collapsed` 记录第二父（被折叠分支的 tip）的 oid；ti
 - **前端封装**：由前端代理回填（`src/lib/ipc/history.ts`）
 - **调用点**：由前端代理回填（`src/lib/ipc/history.ts`）
 
+### git_commit_detail
+
+读取**一次提交**的详情：元数据（含正文与签名状态）、指向它的 refs、相对指定父提交的
+统计与文件清单、以及一组状态标记（`isHead` / `isPushed` / `isMerge`）。由 T2.4 的
+提交详情面板消费。
+
+现状：服务层已落地（`crates/services/src/commit_detail.rs`），**命令已接线**
+（`crates/commands/src/commit_detail.rs`，已注册到 `src-tauri/src/main.rs`）。
+
+- **能力等级**：`ReadOnly`（只读展示：不改仓库状态、不写数据库，无需快照/审计）
+- **参数**：
+
+| 参数 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `repoId` | `number` | 是 | 仓库记录 id |
+| `oid` | `string` | 是 | 完整 40 位十六进制提交 oid；形状非法直接 `VALIDATION`（不进引擎） |
+| `parentIndex` | `number \| null` | 否 | 与哪个父提交比较：0 = 第一父（缺省），1 = 第二父（合并提交双父 diff 切换）。**非根提交**越界返回 `VALIDATION`；**根提交**只允许 0（0 表示"与空树比较"） |
+
+- **返回**：`CommitDetail`
+
+```ts
+interface CommitDetail {
+  meta: {
+    oid: string;
+    shortOid: string;      // 7 位
+    parents: string[];     // 顺序与 Git 一致（第一个是 first-parent）；根提交为空数组
+    author: CommitSignature;   // { name, email, time }，与 git_log_page 的 Commit 相同形状
+    committer: CommitSignature;
+    subject: string;
+    body: string | null;   // show 带 %b；列表查询没有这个字段
+    signature: SignatureStatus;  // 与 git_log_page 的枚举一致
+  };
+  refs: string[];          // %D 原文（如 "HEAD -> main"、"tag: v1.0.0"）
+  stats: {
+    filesChanged: number;  // 相对 parentIndex 指定的父提交
+    insertions: number;    // 二进制文件不计行数
+    deletions: number;
+  };
+  files: Array<{           // 文件级清单；行级内容按需经 workspace_diff 拉取（target: "between"）
+    path: string;
+    oldPath: string | null;
+    kind: string;          // added / deleted / modified / renamed / copied / typeChanged / unknown
+    binary: boolean;
+    additions: number;
+    deletions: number;
+    truncated: boolean;
+  }>;
+  isMerge: boolean;        // 父提交数 > 1
+  isHead: boolean;         // == 当前 HEAD
+  isPushed: boolean;       // 被任一远端跟踪分支包含（`git branch -r --contains` 口径）
+  webUrl: string | null;   // 由 origin 的 fetch URL 推断（仅 GitHub / GitLab.com / Bitbucket.org；
+                           // 自建实例形态无法保证，猜错比不给更糟）；提交页路径由前端拼接
+  parentIndex: number;     // 本次文件清单实际使用的父下标
+}
+```
+
+**引擎路由（有意的不对称）**：元数据走 **CLI** 的 `show`——`refs`（`%D`）与签名状态
+（`%G?`）只有 CLI 给得出（libgit2 的 `Commit` 有意留空这两项，见
+`crates/git-engine/src/engine/libgit2_engine.rs` 的 `to_commit`）；统计与文件清单走
+**CLI 的 diff**（T1.5 起的唯一数据源）；`isHead` 走 libgit2 的 `head_oid`；
+`isPushed` 走 CLI 的 `remote_refs_containing`（libgit2 未实现该读取）。
+合并提交**必须**显式 `Between{父, 提交}`：CLI 对 `Commit` 目标（`git show`）在 merge 上
+输出 combined diff，回答的是"冲突解决了什么"，不是"相对某父改了什么"——文件清单要的是
+后者。双引擎一致性由 `crates/git-engine/tests/differential.rs` 的
+`commit_detail_inputs_are_consistent_across_engines` 钉住（含不对称契约本身）。
+
+- **错误**：
+  - `NOT_FOUND`：repoId 无效，或提交不存在；
+  - `VALIDATION`：oid 不是完整 40 位十六进制；`parentIndex` 越界（非根提交 ≥ 父数，根提交 ≠ 0）。
+- **单文件 diff / 复制为 patch**：**不新增命令**——复用 `workspace_diff` /
+  `workspace_diff_patch`（`DiffRequest` 已支持 `target: "between"`，`from` = 所选父 oid、
+  `to` = 提交 oid；父 oid 由本命令的 `meta.parents` 下发）。避免"同一份数据两个入口"。
+- **失效**：`repo:changed` 的 `refs` / `large` 类别按 `[COMMIT_DETAIL_QUERY_KEY, repoId]`
+  前缀失效（`isHead` / `isPushed` / refs 都会随引用移动而变化）。
+- **前端封装**：由前端代理回填（`src/lib/ipc/commitDetail.ts`）
+- **调用点**：由前端代理回填（`src/features/history/CommitDetailPanel.tsx`）
+
 ### 文件监听与设置键（T1.10）
 
 监听**没有命令**：它的生命周期跟着仓库的打开与关闭走（`repo_open` / `repo_init` /
