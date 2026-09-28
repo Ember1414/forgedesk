@@ -39,7 +39,7 @@ import {
 import { useSyncStatus } from '@/features/sync/syncStatus';
 import type { SyncStatus } from '@/features/sync/syncStatus';
 import { useSyncJobs } from '@/features/sync/useSyncJobs';
-import type { SyncProgress } from '@/features/sync/useSyncJobs';
+import type { LeaseStage, SyncProgress } from '@/features/sync/useSyncJobs';
 
 import {
   AlertDialog,
@@ -207,8 +207,16 @@ export function SyncBar() {
       <RejectionDialog
         rejection={jobs.rejection}
         onFetchFirst={jobs.fetchThenRetry}
-        onForceWithLease={jobs.retryWithForceWithLease}
+        onForceWithLease={jobs.prepareForceWithLease}
         onDismiss={jobs.dismissRejection}
+      />
+
+      {/* 被拒后的第二条路的第二步：先拉取（已完成）→ 用户看着新鲜对比确认覆盖 */}
+      <LeaseConfirmDialog
+        stage={jobs.leaseStage}
+        status={status}
+        onConfirm={jobs.confirmForceWithLease}
+        onCancel={jobs.cancelForceWithLease}
       />
     </div>
   );
@@ -457,6 +465,65 @@ function RejectionDialog({
           </AlertDialogAction>
           <AlertDialogAction onClick={onForceWithLease} data-testid="sync-rejected-force">
             {label('force-with-lease', 'actions.pushForceWithLease')}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
+
+/**
+ * `--force-with-lease` 的第二步确认（红线 R7）。
+ *
+ * 到了这里，"远端当前状态"才是**刚拉取回来的**：下面给出的领先/落后就是
+ * 用户即将用本地历史覆盖掉的东西。少了这一步，`--force-with-lease`
+ * 就从"远端变了就拒绝"退化成"无条件覆盖"——那正是 R7 要消灭的东西。
+ */
+function LeaseConfirmDialog({
+  stage,
+  status,
+  onConfirm,
+  onCancel,
+}: {
+  readonly stage: LeaseStage | null;
+  readonly status: SyncStatus | undefined;
+  readonly onConfirm: () => void;
+  readonly onCancel: () => void;
+}) {
+  const { t } = useTranslation('shell');
+
+  if (stage !== 'ready') {
+    return null;
+  }
+
+  return (
+    <AlertDialog
+      open
+      onOpenChange={(next) => {
+        if (!next) {
+          onCancel();
+        }
+      }}
+    >
+      <AlertDialogContent
+        impact={t('sync.lease.impact', {
+          ahead: status?.ahead ?? 0,
+          behind: status?.behind ?? 0,
+        })}
+        impactLabel={t('sync.lease.impactLabel')}
+        data-testid="sync-lease-dialog"
+      >
+        <AlertDialogHeader>
+          <AlertDialogTitle>{t('sync.lease.title')}</AlertDialogTitle>
+          <AlertDialogDescription>
+            {t('sync.lease.description', { upstream: status?.upstream ?? '' })}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+
+        <AlertDialogFooter>
+          <AlertDialogCancel onClick={onCancel}>{t('sync.lease.cancel')}</AlertDialogCancel>
+          <AlertDialogAction onClick={onConfirm} data-testid="sync-lease-confirm">
+            {t('sync.lease.confirm')}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

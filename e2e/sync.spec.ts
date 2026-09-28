@@ -149,7 +149,7 @@ test('同步条显示上游与领先/落后，推送是长任务且进度事件�
   await expectNoPageErrors(page);
 });
 
-test('推送被拒：三条修复路径可见，force-with-lease 会带上标志重推', async ({ page }) => {
+test('推送被拒：三条修复路径可见，覆盖前先拉取并由用户确认', async ({ page }) => {
   await openRepo(page);
 
   await page.getByTestId('sync-push').click();
@@ -166,13 +166,32 @@ test('推送被拒：三条修复路径可见，force-with-lease 会带上标志
   await expect(page.getByTestId('sync-rejected-force')).toContainText('覆盖远端');
   await expect(dialog.getByRole('button', { name: '取消' })).toBeVisible();
 
+  // 点"覆盖"先拉取（红线 R7：lease 的比较基准必须是刚拉回来的远端状态）
   await page.getByTestId('sync-rejected-force').click();
   await expectSyncCalls(page, 2);
-
-  const lastSpec = await page.evaluate(() => window.__syncCalls?.[1]?.args?.spec);
-  expect(lastSpec?.forceWithLease).toBe(true);
+  expect(await page.evaluate(() => window.__syncCalls?.[1]?.command)).toBe('git_fetch');
   // 对话框必须关掉：否则用户点完还以为没生效
   await expect(dialog).toHaveCount(0);
+
+  await page.evaluate(() => {
+    window.__emitJob?.('job:done', {
+      jobId: 'job-2',
+      result: { remote: 'origin', fetch: { remote: 'origin', updates: [] } },
+    });
+  });
+
+  const confirm = page.getByTestId('sync-lease-dialog');
+  await expect(confirm).toBeVisible();
+  await expect(confirm).toContainText('确认覆盖远端？');
+  // 摊开"会被覆盖多少"：mock 的分支状态是领先 2 / 落后 3
+  await expect(confirm).toContainText('领先 2 个提交、落后 3 个');
+
+  await page.getByTestId('sync-lease-confirm').click();
+  await expectSyncCalls(page, 3);
+
+  const lastSpec = await page.evaluate(() => window.__syncCalls?.[2]?.args?.spec);
+  expect(lastSpec?.forceWithLease).toBe(true);
+  await expect(confirm).toHaveCount(0);
 
   await expectNoPageErrors(page);
 });

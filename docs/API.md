@@ -1261,6 +1261,7 @@ interface SyncJobResult {
 | 正常 | `job:done`；`fetch.updates` / `push.updates` 逐条给出引用变更（`kind ∈ "new" \| "updated" \| "deleted" \| "upToDate" \| "rejected"`） |
 | pull 冲突 | `job:done`，`pull.merge.kind = "conflicted"` 且 `merge.conflicts` 非空——**不是错误**：git 的非零退出码代表"留在冲突状态等用户解决"（M3 的冲突向导读的就是这份清单） |
 | push 被拒（non-fast-forward） | `job:failed`，`error.code = "PUSH_REJECTED"`，`error.actions` 固定三条：先拉取（`git_fetch`）/ `--force-with-lease` / 取消。**其它拒绝原因**（权限、hook）不提供强推选项——那只会误导用户（强推同样会被拒） |
+| push 被拒后选择覆盖 | 前端走**两步**（红线 R7）：先 `git_fetch` 拿到远端真实状态，再弹确认框展示"领先/落后"（即会被覆盖掉多少），用户确认后才 `git_push{forceWithLease:true}`。不允许跳过拉取直接强推——那会让 `--force-with-lease` 退化为无条件覆盖 |
 | 断网 / 认证失败 | `job:failed`，`error.code = "NETWORK"` / `"AUTH_REQUIRED"`（进程层固化 `GIT_TERMINAL_PROMPT=0`，需要交互输入的远端立即失败并转为结构化错误） |
 | 取消 | `job:failed`，`error.code = "CANCELLED"`；取消令牌透传到进程层（kill 子进程），已被取消的令牌不会启动操作 |
 

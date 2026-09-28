@@ -66,11 +66,26 @@ export interface PullConflict {
 /** 详细日志最多保留的行数（进度行可能刷得很快，界面不需要全部）。 */
 const MAX_MESSAGES = 50;
 
+/**
+ * `--force-with-lease` 的两步流程（红线 R7）。
+ *
+ * `fetching`：先去拉取远端**真实**状态（lease 的比较对象就是它）；
+ * `ready`：拉取完成，等用户在对话框里确认"我知道会覆盖什么"。
+ *
+ * 为什么不让"覆盖"一键直发：`--force-with-lease` 的安全性是**建立在
+ * 我们手里那份远端状态是新的**这个前提上的。跳过拉取直接强推，轻则被 git
+ * 判为 stale info 拒绝（用户会陷入"点了没反应"的循环），重则拿一份过期的
+ * 预期去覆盖别人的提交。
+ */
+export type LeaseStage = 'fetching' | 'ready';
+
 /** 事件回调里需要读到的、会随渲染变化的依赖。 */
 interface Handlers {
   readonly invalidateRepo: (repoId: number) => void;
   readonly show: (raw: unknown) => NormalizedError;
   readonly t: TFunction<'shell'>;
+  /** 更新 lease 流程状态（事件回调里用，必须是稳定的引用）。 */
+  readonly setLease: (stage: LeaseStage | null) => void;
 }
 
 export interface SyncJobs {
@@ -81,16 +96,22 @@ export interface SyncJobs {
   readonly conflict: PullConflict | null;
   /** 推送被拒（非 null 时界面应弹三条修复路径）。 */
   readonly rejection: NormalizedError | null;
+  /** `--force-with-lease` 的两步流程状态（null = 没有进行中的确认流程）。 */
+  readonly leaseStage: LeaseStage | null;
   runFetch(spec?: FetchSpec): void;
   runPull(strategy: PullStrategy): void;
   runPush(spec: PushSpec): void;
   cancel(): void;
   dismissConflict(): void;
   dismissRejection(): void;
-  /** 被拒后的第二条路：`--force-with-lease` 重推（后端只可能产出 lease 形态）。 */
-  retryWithForceWithLease(): void;
   /** 被拒后的第一条路：先拉取，再由用户决定是否重推。 */
   fetchThenRetry(): void;
+  /** 被拒后的第二条路第一步：拉取远端最新状态（lease 的对比基准）。 */
+  prepareForceWithLease(): void;
+  /** 第二步：用户确认覆盖 → 带 `--force-with-lease` 重推。 */
+  confirmForceWithLease(): void;
+  /** 放弃覆盖。 */
+  cancelForceWithLease(): void;
 }
 
 /** 我们自己发起的任务（用于过滤全局事件）。 */
@@ -110,6 +131,14 @@ export function useSyncJobs(repoId: number): SyncJobs {
   const [progress, setProgress] = useState<SyncProgress | null>(null);
   const [conflict, setConflict] = useState<PullConflict | null>(null);
   const [rejection, setRejection] = useState<NormalizedError | null>(null);
+  const [leaseStage, setLeaseStage] = useState<LeaseStage | null>(null);
+  // 事件回调里读的当前阶段：放进 ref 才能在只挂一次的订阅里读到最新值
+  const leaseStageRef = useRef<LeaseStage | null>(null);
+
+  const setLease = useCallback((stage: LeaseStage | null) => {
+    leaseStageRef.current = stage;
+    setLeaseStage(stage);
+  }, []);
 
   const invalidateRepo = useCallback(
     (target: number) => {
@@ -123,9 +152,9 @@ export function useSyncJobs(repoId: number): SyncJobs {
   );
 
   // 事件订阅只挂一次（依赖数组为空），回调里要用的东西通过 ref 读最新值
-  const handlersRef = useRef<Handlers>({ invalidateRepo, show, t });
+  const handlersRef = useRef<Handlers>({ invalidateRepo, show, t, setLease });
   useEffect(() => {
-    handlersRef.current = { invalidateRepo, show, t };
+    handlersRef.current = { invalidateRepo, show, t, setLease };
   });
 
   useEffect(() => {
@@ -169,6 +198,12 @@ export function useSyncJobs(repoId: number): SyncJobs {
         setProgress((current) => (current?.kind === job.kind ? null : current));
         handlersRef.current.invalidateRepo(job.repoId);
 
+        // lease 流程第一步（预拉取）完成 → 交给用户确认；失效后同步条上的
+        // ahead/behind 已是最新值，用户看到的正是"会被覆盖掉多少"。
+        if (job.kind === 'fetch' && leaseStageRef.current === 'fetching') {
+          handlersRef.current.setLease('ready');
+        }
+
         if (job.kind === 'pull') {
           const files = pullConflicts(readSyncResult(payload.result).pull);
           if (files.length > 0) {
@@ -197,6 +232,7 @@ export function useSyncJobs(repoId: number): SyncJobs {
         const error = normalizeError(payload.error);
         if (error.code === 'CANCELLED') {
           // 用户自己按的取消：再弹一个错误提示只会让人以为出了故障
+          handlersRef.current.setLease(null);
           return;
         }
         if (error.code === 'PUSH_REJECTED') {
@@ -286,22 +322,35 @@ export function useSyncJobs(repoId: number): SyncJobs {
     }
   }, [active]);
 
-  const retryWithForceWithLease = useCallback(() => {
-    const previous = lastPushRef.current ?? {};
-    setRejection(null);
-    runPush({ ...previous, forceWithLease: true });
-  }, [runPush]);
-
   const fetchThenRetry = useCallback(() => {
     setRejection(null);
     runFetch({});
   }, [runFetch]);
+
+  const prepareForceWithLease = useCallback(() => {
+    const remote = lastPushRef.current?.remote ?? null;
+    // 先把"被拒"的对话框收起来：接下来是 lease 自己的两步流程
+    setRejection(null);
+    setLease('fetching');
+    runFetch(remote === null ? {} : { remote });
+  }, [runFetch, setLease]);
+
+  const confirmForceWithLease = useCallback(() => {
+    const previous = lastPushRef.current ?? {};
+    setLease(null);
+    runPush({ ...previous, forceWithLease: true });
+  }, [runPush, setLease]);
+
+  const cancelForceWithLease = useCallback(() => {
+    setLease(null);
+  }, [setLease]);
 
   return {
     busy: active !== null,
     progress,
     conflict,
     rejection,
+    leaseStage,
     runFetch,
     runPull,
     runPush,
@@ -312,7 +361,9 @@ export function useSyncJobs(repoId: number): SyncJobs {
     dismissRejection: () => {
       setRejection(null);
     },
-    retryWithForceWithLease,
     fetchThenRetry,
+    prepareForceWithLease,
+    confirmForceWithLease,
+    cancelForceWithLease,
   };
 }

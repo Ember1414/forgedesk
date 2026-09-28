@@ -586,6 +586,14 @@
       "impactLabel": "三条可执行的下一步",
       "impact": "远端有你本地没有的提交。先拉取最安全；确需覆盖时用 force-with-lease（git 只会在远端仍是你上次看到的那个提交时才覆盖）。",
       "reason": "git 的原因：{{reason}}"
+    },
+    "lease": {
+      "title": "确认覆盖远端？",
+      "impactLabel": "覆盖会发生什么",
+      "impact": "这是刚拉取回来的对比：本地领先 {{ahead}} 个提交、落后 {{behind}} 个。覆盖会把远端分支改写成你本地的历史——落后的那些提交不会出现在远端分支上（仍可在托管平台上找回）。",
+      "description": "已拉取 {{upstream}} 的最新状态，这份对比就是覆盖的依据。",
+      "confirm": "确认覆盖（force-with-lease）",
+      "cancel": "取消"
     }
   },
   "history": {

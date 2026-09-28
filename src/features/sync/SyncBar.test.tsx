@@ -229,7 +229,7 @@ describe('SyncBar', () => {
     });
   });
 
-  it('推送被拒：三条修复路径可点，force-with-lease 会带上标志重推', async () => {
+  it('推送被拒：三条修复路径可点，覆盖前先拉取并由用户确认（红线 R7）', async () => {
     renderBar();
     await screen.findByTestId('sync-status');
 
@@ -253,15 +253,35 @@ describe('SyncBar', () => {
     expect(screen.getByTestId('sync-rejected-fetch-first')).toHaveTextContent('先拉取');
     expect(screen.getByTestId('sync-rejected-force')).toHaveTextContent('覆盖远端');
 
+    // 点"覆盖"不会立刻强推：先拉取，让 lease 的比较基准是**新鲜的**远端状态
     fireEvent.click(screen.getByTestId('sync-rejected-force'));
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+    expect(pushMock).toHaveBeenCalledTimes(1);
+    await waitFor(() => {
+      expect(screen.queryByTestId('sync-rejected-dialog')).not.toBeInTheDocument();
+    });
+
+    // 拉取完成 → 弹出确认对话框，并把"会被覆盖多少"摊开给用户看
+    await waitFor(() => {
+      expect(useJobStore.getState().jobs).toHaveLength(2);
+    });
+    await emit(bus.done, {
+      jobId: 'job-fetch',
+      result: { remote: 'origin', fetch: { remote: 'origin', updates: [] } },
+    });
+
+    const confirm = await screen.findByTestId('sync-lease-dialog');
+    expect(confirm).toHaveTextContent('确认覆盖远端？');
+    expect(confirm).toHaveTextContent('领先 2 个提交、落后 1 个');
+
+    fireEvent.click(screen.getByTestId('sync-lease-confirm'));
 
     await waitFor(() => {
       expect(pushMock).toHaveBeenCalledTimes(2);
     });
     expect(pushMock.mock.calls[1]?.[1]).toEqual({ forceWithLease: true });
-    await waitFor(() => {
-      expect(screen.queryByTestId('sync-rejected-dialog')).not.toBeInTheDocument();
-    });
   });
 
   it('拉取冲突：列出冲突文件并引导到冲突页', async () => {

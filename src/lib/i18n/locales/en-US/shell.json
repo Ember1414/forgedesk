@@ -586,6 +586,14 @@
       "impactLabel": "Three ways forward",
       "impact": "The remote has commits you do not have. Fetching first is the safe path; if you must overwrite, use force-with-lease (git only overwrites when the remote still points at the commit you last saw).",
       "reason": "git says: {{reason}}"
+    },
+    "lease": {
+      "title": "Overwrite the remote?",
+      "impactLabel": "What overwriting does",
+      "impact": "This comparison was just fetched: this branch is {{ahead}} commits ahead and {{behind}} commits behind. Overwriting rewrites the remote branch to your local history, so the commits you are behind will not be on it (they remain recoverable on the hosting platform).",
+      "description": "The latest state of {{upstream}} was fetched; this comparison is what the overwrite is based on.",
+      "confirm": "Overwrite (force-with-lease)",
+      "cancel": "Cancel"
     }
   },
   "history": {
