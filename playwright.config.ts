@@ -10,6 +10,14 @@
 export default defineConfig({
   testDir: './e2e',
   timeout: 30000,
+  // 元素可见性的等待窗口从默认 5s 提到 10s。
+  //
+  // 为什么：dev server 是按需编译的，第一次访问最重的路由（提交图 + 虚拟列表）
+  // 要现场转换整张模块图，冷启动时偶尔超过 5s，表现为
+  // "element(s) not found / waiting for navigation to finish" —— 页面最终渲染正常，
+  // 断言却已经超时（T2.6 与 T2.7 各复现过一次，且失败的用例每次不同）。
+  // 10s 仍然是个会失败的窗口（元素真出不来就红），但不再把"编译慢"当成产品缺陷。
+  expect: { timeout: 10000 },
   retries: 0,
   workers: 1,
   use: {
