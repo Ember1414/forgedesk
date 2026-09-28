@@ -29,6 +29,7 @@ pub mod engines;
 pub mod history;
 pub mod repository;
 pub mod staging;
+pub mod sync;
 pub mod templates;
 pub mod workspace;
 
@@ -53,6 +54,7 @@ pub use repository::{
     RepositoryService,
 };
 pub use staging::{PatchView, StagingService};
+pub use sync::SyncService;
 pub use templates::{sanitize_holder, GitignoreTemplate, LicenseTemplate};
 pub use workspace::WorkspaceService;
 

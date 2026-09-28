@@ -15,7 +15,7 @@ use std::fmt;
 /// 仓库内路径（相对仓库根，或 Git 输出的绝对路径，视调用场景而定）。
 ///
 /// 原始字节可通过 [`RepoPath::as_bytes`] 取出；展示用 [`RepoPath::to_string_lossy`]。
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize)]
 pub struct RepoPath {
     bytes: Vec<u8>,
 }

@@ -534,6 +534,60 @@
     "switcherNoMatch": "没有匹配的分支",
     "quickCreate": "输入名字，回车创建并切换"
   },
+  "sync": {
+    "ariaLabel": "远端同步",
+    "fetch": "获取",
+    "pull": "拉取",
+    "push": "推送",
+    "fetchHint": "只更新远端跟踪引用，不改动本地分支与工作区",
+    "pullHint": "拉取上游并合并到当前分支（执行前自动创建快照）",
+    "pushHint": "把当前分支推送到它的上游",
+    "upstreamTip": "当前分支的上游",
+    "noUpstream": "当前分支还没有上游",
+    "upToDate": "与上游一致",
+    "aheadTip": "本地比上游多的提交数",
+    "behindTip": "本地比上游少的提交数",
+    "strategy": {
+      "label": "拉取策略",
+      "fastForwardOnly": "仅快进（最安全）",
+      "merge": "允许合并提交",
+      "rebase": "变基后再快进"
+    },
+    "job": {
+      "fetch": "获取远端更新",
+      "pull": "拉取上游",
+      "push": "推送当前分支"
+    },
+    "phase": {
+      "starting": "正在启动",
+      "counting": "统计对象",
+      "compressing": "压缩对象",
+      "receiving": "接收对象",
+      "resolving": "解析增量",
+      "writing": "写入对象",
+      "ref-update": "更新引用",
+      "other": "同步中"
+    },
+    "steps": "{{current}} / {{total}} 个对象",
+    "cancel": "取消同步",
+    "showDetail": "展开详细日志",
+    "hideDetail": "收起详细日志",
+    "pushDone": "已推送到 {{remote}}",
+    "conflict": {
+      "title": "拉取产生了冲突",
+      "impactLabel": "接下来会发生什么",
+      "impact": "仓库停在合并冲突状态：冲突文件需要逐个解决后才能继续提交或推送。本次拉取之前已经自动创建了快照，可以随时回滚。",
+      "files": "冲突文件（{{count}} 个）",
+      "guide": "去解决冲突",
+      "later": "稍后处理"
+    },
+    "rejected": {
+      "title": "推送被拒绝",
+      "impactLabel": "三条可执行的下一步",
+      "impact": "远端有你本地没有的提交。先拉取最安全；确需覆盖时用 force-with-lease（git 只会在远端仍是你上次看到的那个提交时才覆盖）。",
+      "reason": "git 的原因：{{reason}}"
+    }
+  },
   "history": {
     "title": "历史",
     "description": "浏览提交图：分支、合并与引用一目了然。",

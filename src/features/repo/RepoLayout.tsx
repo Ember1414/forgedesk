@@ -5,6 +5,7 @@ import { DETAIL_PANEL_POSITIONS, useUiStore } from '@/stores/uiStore';
 import type { DetailPanelPosition } from '@/stores/uiStore';
 import { useRepoById } from '@/features/repo/recentRepos';
 import { BranchSwitcher } from '@/features/branches/BranchSwitcher';
+import { SyncBar } from '@/features/sync/SyncBar';
 import { CommitDetailPanel } from '@/features/history/CommitDetailPanel';
 import { ToggleGroup } from '@/ui/components/toggle-group';
 import { cn } from '@/lib/utils';
@@ -84,6 +85,12 @@ export function RepoLayout() {
           }}
         />
       </header>
+
+      {/*
+        同步条（T2.6）：Fetch / Pull / Push 与 ahead-behind 常驻在仓库外壳上，
+        让"远端同步"不必先跳到某个页面才能做——它是仓库级动作，不是某个页签的功能。
+      */}
+      <SyncBar />
 
       <div
         className={cn(

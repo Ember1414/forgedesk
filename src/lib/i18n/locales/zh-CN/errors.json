@@ -47,6 +47,10 @@
     "title": "被 Git 钩子拒绝",
     "hint": "查看钩子输出的原因（常见于提交信息校验或测试未通过），修正后重新提交。"
   },
+  "PUSH_REJECTED": {
+    "title": "推送被拒绝（远端有新提交）",
+    "hint": "先执行 Fetch/Pull 把远端的提交拿下来；确需覆盖时可用 force-with-lease（会先对比远端当前提交）。"
+  },
   "EMPTY_COMMIT": {
     "title": "没有可提交的内容",
     "hint": "索引为空，或暂存的改动与上一次提交完全相同。先暂存一些改动再提交。"
@@ -83,6 +87,9 @@
   "unknownHint": "请展开详情查看原始信息，并把内容附在问题反馈里。",
   "details": "详情",
   "actions": {
+    "pushFetchFirst": "先拉取（Fetch）远端提交",
+    "pushForceWithLease": "覆盖远端（force-with-lease，先对比）",
+    "cancel": "取消",
     "refresh": "刷新状态",
     "copyCommand": "复制等价命令",
     "viewLogs": "查看相关日志",

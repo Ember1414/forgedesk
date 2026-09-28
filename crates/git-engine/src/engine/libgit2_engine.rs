@@ -1022,6 +1022,7 @@ impl GitEngine for Libgit2Engine {
         _repo: &RepoId,
         _spec: forgedesk_domain::git::FetchSpec,
         _progress: &ProgressSink,
+        _cancel: &tokio_util::sync::CancellationToken,
     ) -> AppResult<forgedesk_domain::git::FetchOutcome> {
         Err(unsupported(EngineId::Libgit2, "fetch"))
     }
@@ -1031,6 +1032,7 @@ impl GitEngine for Libgit2Engine {
         _repo: &RepoId,
         _spec: forgedesk_domain::git::PullSpec,
         _progress: &ProgressSink,
+        _cancel: &tokio_util::sync::CancellationToken,
     ) -> AppResult<forgedesk_domain::git::PullOutcome> {
         Err(unsupported(EngineId::Libgit2, "pull"))
     }
@@ -1040,8 +1042,25 @@ impl GitEngine for Libgit2Engine {
         _repo: &RepoId,
         _spec: forgedesk_domain::git::PushSpec,
         _progress: &ProgressSink,
+        _cancel: &tokio_util::sync::CancellationToken,
     ) -> AppResult<forgedesk_domain::git::PushOutcome> {
         Err(unsupported(EngineId::Libgit2, "push"))
+    }
+
+    fn remote_add(&self, _repo: &RepoId, _name: &str, _url: &str) -> AppResult<()> {
+        Err(unsupported(EngineId::Libgit2, "remote_add"))
+    }
+
+    fn remote_remove(&self, _repo: &RepoId, _name: &str) -> AppResult<()> {
+        Err(unsupported(EngineId::Libgit2, "remote_remove"))
+    }
+
+    fn remote_rename(&self, _repo: &RepoId, _old: &str, _new: &str) -> AppResult<()> {
+        Err(unsupported(EngineId::Libgit2, "remote_rename"))
+    }
+
+    fn remote_set_url(&self, _repo: &RepoId, _name: &str, _url: &str) -> AppResult<()> {
+        Err(unsupported(EngineId::Libgit2, "remote_set_url"))
     }
 
     fn rebase(

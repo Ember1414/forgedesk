@@ -245,15 +245,44 @@ impl CliGitEngine {
         cwd: &Path,
         invocation: args::GitInvocation,
         progress: &ProgressSink,
+        cancel: &tokio_util::sync::CancellationToken,
     ) -> AppResult<GitOutput> {
-        let output = self.run_at_with_timeout(
-            cwd,
-            invocation,
-            RunKind::Write,
-            NETWORK_TIMEOUT,
-            Some(progress),
-        )?;
+        let output = self.run_network_raw(cwd, invocation, progress, cancel)?;
         ensure_success(&output)?;
+        Ok(output)
+    }
+
+    /// 网络操作，但**不**断言退出码（调用方按 stderr 自行判定结果）。
+    ///
+    /// 为什么 push 需要它：`git push` 被拒绝时以非零退出码结束，可这是**可修复的
+    /// 业务结果**而不是"命令失败"——界面要按引用给出"先拉取 / force-with-lease /
+    /// 取消"三条路（T2.6 验收）。断言成功会把这份信息压成一条错误，
+    /// 丢掉"哪个引用被拒、是不是非快进"。
+    pub(crate) fn run_network_raw(
+        &self,
+        cwd: &Path,
+        invocation: args::GitInvocation,
+        progress: &ProgressSink,
+        cancel: &tokio_util::sync::CancellationToken,
+    ) -> AppResult<GitOutput> {
+        // 与 run_at_with_timeout 相同的装配，只多一个取消令牌：
+        // 取消 = 进程层的 kill_on_drop 生效（含 fetch/pull/push 拉起的孙进程语义见 process.rs）
+        let mut opts = GitRunOpts::new(cwd)
+            .with_timeout(NETWORK_TIMEOUT)
+            .with_optional_locks(RunKind::Write.optional_locks())
+            .with_cancel(cancel.clone());
+        if let Some(index_file) = invocation.index_file.as_ref() {
+            opts = opts.with_isolated_index(index_file);
+        }
+        if let Some(stdin) = invocation.stdin {
+            opts = opts.with_stdin(stdin);
+        }
+        if progress.is_active() {
+            opts = opts.with_stderr_line_handler(progress.handler());
+        }
+        let output = self
+            .bridge
+            .block_on(self.process.run(&invocation.args, opts))??;
         Ok(output)
     }
 
@@ -518,8 +547,9 @@ impl GitEngine for CliGitEngine {
         repo: &RepoId,
         spec: FetchSpec,
         progress: &ProgressSink,
+        cancel: &tokio_util::sync::CancellationToken,
     ) -> AppResult<FetchOutcome> {
-        write::fetch(self, repo, &spec, progress)
+        write::fetch(self, repo, &spec, progress, cancel)
     }
 
     fn pull(
@@ -527,8 +557,9 @@ impl GitEngine for CliGitEngine {
         repo: &RepoId,
         spec: PullSpec,
         progress: &ProgressSink,
+        cancel: &tokio_util::sync::CancellationToken,
     ) -> AppResult<PullOutcome> {
-        write::pull(self, repo, &spec, progress)
+        write::pull(self, repo, &spec, progress, cancel)
     }
 
     fn push(
@@ -536,8 +567,25 @@ impl GitEngine for CliGitEngine {
         repo: &RepoId,
         spec: PushSpec,
         progress: &ProgressSink,
+        cancel: &tokio_util::sync::CancellationToken,
     ) -> AppResult<PushOutcome> {
-        write::push(self, repo, &spec, progress)
+        write::push(self, repo, &spec, progress, cancel)
+    }
+
+    fn remote_add(&self, repo: &RepoId, name: &str, url: &str) -> AppResult<()> {
+        write::remote_add(self, repo, name, url)
+    }
+
+    fn remote_remove(&self, repo: &RepoId, name: &str) -> AppResult<()> {
+        write::remote_remove(self, repo, name)
+    }
+
+    fn remote_rename(&self, repo: &RepoId, old: &str, new: &str) -> AppResult<()> {
+        write::remote_rename(self, repo, old, new)
+    }
+
+    fn remote_set_url(&self, repo: &RepoId, name: &str, url: &str) -> AppResult<()> {
+        write::remote_set_url(self, repo, name, url)
     }
 
     fn rebase(

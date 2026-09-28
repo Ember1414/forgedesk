@@ -48,7 +48,7 @@ interface FixAction {
 
 `PATH_NOT_REPO`、`GIT_CONFLICT`、`AUTH_REQUIRED`、`AUTH_EXPIRED`、`PERMISSION_DENIED`、
 `NOT_FOUND`、`VALIDATION`、`NETWORK`、`RATE_LIMITED`、`PATCH_APPLY_FAILED`、`PLAN_STALE`、
-`HOOK_REJECTED`、`EMPTY_COMMIT`、`RESTORE_VERIFY_FAILED`、`KEYRING_UNAVAILABLE`、`STORAGE`、
+`HOOK_REJECTED`、`PUSH_REJECTED`、`EMPTY_COMMIT`、`RESTORE_VERIFY_FAILED`、`KEYRING_UNAVAILABLE`、`STORAGE`、
 `PTY_UNSUPPORTED`、`UNSUPPORTED_BY_ENGINE`、`CANCELLED`、`INTERNAL`
 
 **转换入口**：命令层不得自行拼装错误，一律经 `forgedesk_commands::error::to_app_error`——
@@ -1213,6 +1213,66 @@ services 层在缺确认时拒绝——API 直调绕不过 UI。
 - **失效**：写命令完成后由前端统一失效 `[BRANCHES_QUERY_KEY, repoId]` 与
   `[LOG_QUERY_KEY, repoId]`（分支图变化）。
 - **前端封装**：由前端代理回填（`src/lib/ipc/branches.ts`）
+
+### 远端同步与 Remote 管理（T2.6）
+
+fetch / pull / push 都是**长任务**（走 `JobRunner`：立即返回 `jobId`，进度经
+`job:progress`、结果经 `job:done`、失败经 `job:failed`）；Remote CRUD 是瞬时命令，
+同步返回。写命令全部**审计**（`remote.*`），pull 会移动 HEAD，因此**先打 `PreSync` 快照**
+（快照在 services 层，与提交路径共用同一个快照历史；快照失败不阻断但记 warn）。
+
+现状：服务层 `crates/services/src/sync.rs`，命令 `crates/commands/src/sync.rs`
+（已注册到 `src-tauri/src/main.rs`），前端封装 `src/lib/ipc/sync.ts`，
+调用点：仓库页顶部同步条。
+
+| 命令 | 能力 | 参数 | 返回 / 说明 |
+| --- | --- | --- | --- |
+| `git_fetch` | Network | `repoId, spec { remote?, prune, refspecs[], tags, depth? }` | `jobId`；`job:done.result = { remote, fetch }` |
+| `git_pull` | Mutating | `repoId, spec { remote?, branch?, strategy, autostash, allowUnrelated }` | `jobId`；`job:done.result = { remote, pull }`；`strategy ∈ "fastForwardOnly" \| "merge" \| "rebase"`，缺省 `fastForwardOnly`（最安全） |
+| `git_push` | Network | `repoId, spec { remote?, branch?, setUpstream, forceWithLease, tags, remoteBranch?, dryRun }` | `jobId`；`job:done.result = { remote, push }`；被拒见下方 `PUSH_REJECTED` |
+| `git_remote_list` | ReadOnly | `repoId` | `Remote[]`（`{ name, fetchUrl, pushUrl?, kind }`；`kind ∈ "https" \| "ssh" \| "git" \| "file" \| "other"`） |
+| `git_remote_add` | Mutating | `repoId, name, url` | `()`；名称（单段、无空白、不含 ref 禁用字符）与 URL 形状先校验 |
+| `git_remote_remove` | Mutating | `repoId, name` | `()`；同时清理该远端的远端跟踪引用 |
+| `git_remote_rename` | Mutating | `repoId, old, new` | `()`；新名先校验 |
+| `git_remote_set_url` | Mutating | `repoId, name, url` | `()`；URL 形状先校验（可达性只有网络操作能验证） |
+
+> `git_tag_delete` 的 `alsoDeleteRemote` 与分支的远端删除都经 push 通道（本任务），
+> 不走单独命令。
+
+**`job:done` 的结果形状（同步专用）**：
+
+```ts
+interface SyncJobResult {
+  /** 实际使用的远端名（缺省 origin）。 */
+  remote?: string;
+  /** 只有 git_fetch 会填。 */
+  fetch?: FetchOutcome; // { remote, updates: RefUpdate[] }
+  /** 只有 git_pull 会填。 */
+  pull?: PullOutcome; // { fetch, strategy, upToDate, merge?: { kind, oid?, conflicts[] } }
+  /** 只有 git_push 会填。 */
+  push?: PushOutcome; // { remote, updates: RefUpdate[], rejections[] }
+}
+```
+
+**五类结果的判定（前端只按这些字段分支，不要解析 `message` 文本）**：
+
+| 情况 | 后端行为 |
+| --- | --- |
+| 正常 | `job:done`；`fetch.updates` / `push.updates` 逐条给出引用变更（`kind ∈ "new" \| "updated" \| "deleted" \| "upToDate" \| "rejected"`） |
+| pull 冲突 | `job:done`，`pull.merge.kind = "conflicted"` 且 `merge.conflicts` 非空——**不是错误**：git 的非零退出码代表"留在冲突状态等用户解决"（M3 的冲突向导读的就是这份清单） |
+| push 被拒（non-fast-forward） | `job:failed`，`error.code = "PUSH_REJECTED"`，`error.actions` 固定三条：先拉取（`git_fetch`）/ `--force-with-lease` / 取消。**其它拒绝原因**（权限、hook）不提供强推选项——那只会误导用户（强推同样会被拒） |
+| 断网 / 认证失败 | `job:failed`，`error.code = "NETWORK"` / `"AUTH_REQUIRED"`（进程层固化 `GIT_TERMINAL_PROMPT=0`，需要交互输入的远端立即失败并转为结构化错误） |
+| 取消 | `job:failed`，`error.code = "CANCELLED"`；取消令牌透传到进程层（kill 子进程），已被取消的令牌不会启动操作 |
+
+**红线 R7 的落点**：`PushSpec` 里**没有**裸 force 字段，参数构造器只可能产出
+`--force-with-lease`（单测断言四种组合都不出现裸 `--force` / `-f`）；push 的远端
+位置参数始终显式给出（缺省 `origin`），否则 git 会把 refspec 当仓库名。
+
+- **错误**：`VALIDATION`（远端名 / URL 非法）、`NOT_FOUND`（repoId 无效）、
+  `PUSH_REJECTED`、`NETWORK`、`AUTH_REQUIRED`、`CANCELLED`。
+- **失效**：fetch 完成后失效 `[BRANCHES_QUERY_KEY, repoId]`（远端跟踪引用变了）；
+  pull / push 完成后还需失效 `[STATUS_QUERY_KEY, repoId]` 与 `[LOG_QUERY_KEY, repoId]`
+  （HEAD 与提交图变了）。键的唯一来源是 `src/lib/queryKeys.ts`。
 
 ### 文件监听与设置键（T1.10）
 

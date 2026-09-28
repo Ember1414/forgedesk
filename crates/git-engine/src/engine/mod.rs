@@ -330,11 +330,15 @@ pub trait GitEngine: Send + Sync {
     fn stash(&self, repo: &RepoId, spec: StashSpec) -> AppResult<()>;
 
     /// 拉取远端引用。
+    ///
+    /// `cancel`（T2.6）：取消令牌传进进程层——取消 = kill 子进程（含其孙进程组），
+    /// 返回 `Cancelled` 错误。网络操作都可能很慢，不能取消的同步按钮等于挂死按钮。
     fn fetch(
         &self,
         repo: &RepoId,
         spec: FetchSpec,
         progress: &ProgressSink,
+        cancel: &tokio_util::sync::CancellationToken,
     ) -> AppResult<FetchOutcome>;
 
     /// 拉取并合并 / 变基。
@@ -343,6 +347,7 @@ pub trait GitEngine: Send + Sync {
         repo: &RepoId,
         spec: PullSpec,
         progress: &ProgressSink,
+        cancel: &tokio_util::sync::CancellationToken,
     ) -> AppResult<PullOutcome>;
 
     /// 推送。
@@ -351,7 +356,17 @@ pub trait GitEngine: Send + Sync {
         repo: &RepoId,
         spec: PushSpec,
         progress: &ProgressSink,
+        cancel: &tokio_util::sync::CancellationToken,
     ) -> AppResult<PushOutcome>;
+
+    /// 添加远端（`git remote add`）。名称与 URL 先经 services 校验。
+    fn remote_add(&self, repo: &RepoId, name: &str, url: &str) -> AppResult<()>;
+    /// 删除远端。
+    fn remote_remove(&self, repo: &RepoId, name: &str) -> AppResult<()>;
+    /// 重命名远端。
+    fn remote_rename(&self, repo: &RepoId, old: &str, new: &str) -> AppResult<()>;
+    /// 改远端 URL。
+    fn remote_set_url(&self, repo: &RepoId, name: &str, url: &str) -> AppResult<()>;
 
     /// 按计划重排提交（交互式 rebase）。
     ///

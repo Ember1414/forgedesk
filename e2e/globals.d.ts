@@ -99,6 +99,20 @@ export interface MockLoopState {
   prepared?: string;
 }
 
+/** mock 记录的一次同步命令（`sync.spec.ts` 断言界面传的策略与被拒后的重推标志）。 */
+export interface MockSyncCall {
+  readonly command: string;
+  readonly args?: {
+    readonly repoId?: number;
+    readonly spec?: {
+      readonly remote?: string | null;
+      readonly strategy?: string;
+      readonly setUpstream?: boolean;
+      readonly forceWithLease?: boolean;
+    };
+  };
+}
+
 declare global {
   interface Window {
     /** M1 闭环用例的 mock 状态（见上）。 */
@@ -121,5 +135,9 @@ declare global {
     __emitRepoChanged?: (paths: string[], kind?: string) => void;
     /** mock 记录收到的审计命令（断言导出带的格式、列表带的筛选）。 */
     __auditCalls?: MockAuditCall[];
+    /** mock 记录收到的同步命令（T2.6：断言策略、`--set-upstream`、force-with-lease）。 */
+    __syncCalls?: MockSyncCall[];
+    /** 手动投递一个 `job:*` 事件（T2.6：长任务的进度 / 完成 / 失败由事件到达）。 */
+    __emitJob?: (event: string, payload: unknown) => void;
   }
 }

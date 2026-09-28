@@ -19,7 +19,6 @@ use forgedesk_domain::git::{
     BranchLabel, CloneSpec, InitSpec, RepoAuditReport, RepositoryInfo, Worktree,
 };
 use forgedesk_domain::{AppError, AppResult, ErrorCode};
-use forgedesk_git_engine::engine::{ProgressEvent, ProgressSink};
 use forgedesk_services::audit::op_type;
 use forgedesk_services::repository::{InitExtras, LicenseSpec, OpenedRepository};
 use forgedesk_services::templates::{GitignoreTemplate, LicenseTemplate};
@@ -473,7 +472,7 @@ pub fn repo_clone(
     let watchers = Arc::clone(&state.watchers);
 
     let job_id = state.jobs.spawn(reporter_for(app), move |context| {
-        let progress = progress_sink(&context);
+        let progress = crate::jobs::progress_sink(&context);
         let opened = {
             let service =
                 RepositoryService::new(&engines, RepositoryStore::new(&database), &open_repos);
@@ -702,19 +701,6 @@ fn parse_license_template(raw: &str) -> AppResult<LicenseTemplate> {
 /// 当前年份（生成 LICENSE 时的默认值）。
 fn current_year() -> u32 {
     time::OffsetDateTime::now_utc().year().max(1970) as u32
-}
-
-/// 把任务上下文接到 git 的进度输出上。
-fn progress_sink(context: &forgedesk_jobs::JobContext) -> ProgressSink {
-    let context = context.clone();
-    ProgressSink::new(move |event: ProgressEvent| {
-        context.progress(
-            event.phase.as_str(),
-            event.current,
-            event.total,
-            Some(event.message),
-        );
-    })
 }
 
 #[cfg(test)]

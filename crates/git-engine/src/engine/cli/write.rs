@@ -52,7 +52,15 @@ pub(super) fn clone(
         .filter(|parent| !parent.as_os_str().is_empty())
         .map_or_else(|| PathBuf::from("."), Path::to_path_buf);
 
-    engine.run_network(&cwd, GitInvocation::new(args::clone_args(spec)), progress)?;
+    // 克隆（T1.9）尚未接取消令牌：传一个永不触发的令牌保持行为不变；
+    // T2.6 的 fetch/pull/push 全部真取消
+    let never = tokio_util::sync::CancellationToken::new();
+    engine.run_network(
+        &cwd,
+        GitInvocation::new(args::clone_args(spec)),
+        progress,
+        &never,
+    )?;
     read::discover(engine, &spec.into)
 }
 
@@ -456,11 +464,13 @@ pub(super) fn fetch(
     repo: &RepoId,
     spec: &FetchSpec,
     progress: &ProgressSink,
+    cancel: &tokio_util::sync::CancellationToken,
 ) -> AppResult<FetchOutcome> {
     let output = engine.run_network(
         repo.root(),
         GitInvocation::new(args::fetch_args(spec)),
         progress,
+        cancel,
     )?;
     Ok(FetchOutcome {
         remote: spec.remote.clone().unwrap_or_else(|| "origin".to_owned()),
@@ -474,11 +484,16 @@ pub(super) fn pull(
     repo: &RepoId,
     spec: &PullSpec,
     progress: &ProgressSink,
+    cancel: &tokio_util::sync::CancellationToken,
 ) -> AppResult<PullOutcome> {
-    let output = engine.run_network(
+    // 同样用 raw：合并冲突时 git 以非零退出码结束，但冲突是**要交给用户的
+    // 结果**（PullOutcome::Conflicted），不是错误——压成错误会让界面失去
+    // "哪些文件冲突"这份清单（T2.6 验收 / M3 冲突向导的输入）。
+    let output = engine.run_network_raw(
         repo.root(),
         GitInvocation::new(args::pull_args(spec)),
         progress,
+        cancel,
     )?;
     let stderr = output.stderr_lossy();
     let fetch = FetchOutcome {
@@ -535,11 +550,15 @@ pub(super) fn push(
     repo: &RepoId,
     spec: &PushSpec,
     progress: &ProgressSink,
+    cancel: &tokio_util::sync::CancellationToken,
 ) -> AppResult<PushOutcome> {
-    let output = engine.run_network(
+    // 这里刻意用 run_network_raw：被拒绝时 git 以非零退出码结束，但那是可修复的
+    // 业务结果（界面要按引用给出三条修复路径），不该在进程层被压成错误。
+    let output = engine.run_network_raw(
         repo.root(),
         GitInvocation::new(args::push_args(spec)),
         progress,
+        cancel,
     )?;
     let stderr = output.stderr_lossy();
     let updates = parse_ref_updates(&stderr);
@@ -683,79 +702,6 @@ pub(crate) fn parse_rejections(stderr: &str) -> Vec<PushRejection> {
     out
 }
 
-#[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-mod tests {
-    use super::{parse_ref_updates, parse_rejections};
-    use forgedesk_domain::git::RefUpdateKind;
-
-    #[test]
-    fn fetch_style_updates_are_parsed_with_their_oids() {
-        let stderr = "From https://example.com/r\n   a1b2c3d..e4f5a6b  main       -> origin/main\n * [new branch]      feature    -> origin/feature\n - [deleted]         (none)     -> origin/gone\n = [up to date]      dev        -> origin/dev\n";
-
-        let updates = parse_ref_updates(stderr);
-
-        assert_eq!(updates.len(), 4);
-        assert_eq!(updates[0].kind, RefUpdateKind::Updated);
-        assert_eq!(updates[0].name, "origin/main");
-        assert_eq!(updates[0].old_oid.as_deref(), Some("a1b2c3d"));
-        assert_eq!(updates[0].new_oid.as_deref(), Some("e4f5a6b"));
-        assert_eq!(updates[1].kind, RefUpdateKind::New);
-        assert_eq!(updates[2].kind, RefUpdateKind::Deleted);
-        assert_eq!(updates[2].new_oid, None, "(none) 不是 oid");
-        assert_eq!(updates[3].kind, RefUpdateKind::UpToDate);
-    }
-
-    #[test]
-    fn unrelated_stderr_lines_are_ignored() {
-        let stderr =
-            "Enumerating objects: 5, done.\nfatal: could not read from remote repository\n";
-
-        assert!(parse_ref_updates(stderr).is_empty());
-    }
-
-    #[test]
-    fn non_fast_forward_rejection_is_flagged_for_the_ui() {
-        let stderr = " ! [rejected]        main -> main (non-fast-forward)\n";
-
-        let rejections = parse_rejections(stderr);
-
-        assert_eq!(rejections.len(), 1);
-        assert_eq!(rejections[0].name, "main");
-        assert!(rejections[0].non_fast_forward);
-    }
-
-    #[test]
-    fn stale_info_rejection_is_also_treated_as_non_fast_forward() {
-        // force-with-lease 的语义就是"远端变了就拒绝"，属于同一类可选修复
-        let stderr = " ! [rejected]        main -> main (stale info)\n";
-
-        let rejections = parse_rejections(stderr);
-
-        assert!(rejections[0].non_fast_forward);
-    }
-
-    #[test]
-    fn hook_rejection_is_not_offered_a_force_option() {
-        let stderr = " ! [remote rejected] main -> main (pre-receive hook declined)\n";
-
-        let rejections = parse_rejections(stderr);
-
-        assert_eq!(rejections.len(), 1);
-        assert!(
-            !rejections[0].non_fast_forward,
-            "hook 拒绝时提供强推只会误导用户"
-        );
-        assert_eq!(rejections[0].reason, "pre-receive hook declined");
-    }
-
-    #[test]
-    fn malformed_rejection_lines_are_skipped() {
-        assert!(parse_rejections(" ! [rejected]\n").is_empty());
-        assert!(parse_rejections("").is_empty());
-    }
-}
-
 // ---------------------------------------------------------------- 分支与标签写操作（T2.5）
 
 /// 新建分支。
@@ -834,4 +780,118 @@ pub(super) fn tag_delete(
         engine.run_write(repo, invocation)?;
     }
     Ok(())
+}
+
+// ---------------------------------------------------------------- Remote 管理（T2.6）
+
+/// 添加远端。
+pub(super) fn remote_add(
+    engine: &CliGitEngine,
+    repo: &RepoId,
+    name: &str,
+    url: &str,
+) -> AppResult<()> {
+    engine.run_write(repo, args::remote_add_args(name, url))?;
+    Ok(())
+}
+
+/// 删除远端。
+pub(super) fn remote_remove(engine: &CliGitEngine, repo: &RepoId, name: &str) -> AppResult<()> {
+    engine.run_write(repo, args::remote_remove_args(name))?;
+    Ok(())
+}
+
+/// 重命名远端。
+pub(super) fn remote_rename(
+    engine: &CliGitEngine,
+    repo: &RepoId,
+    old: &str,
+    new: &str,
+) -> AppResult<()> {
+    engine.run_write(repo, args::remote_rename_args(old, new))?;
+    Ok(())
+}
+
+/// 改远端 URL。
+pub(super) fn remote_set_url(
+    engine: &CliGitEngine,
+    repo: &RepoId,
+    name: &str,
+    url: &str,
+) -> AppResult<()> {
+    engine.run_write(repo, args::remote_set_url_args(name, url))?;
+    Ok(())
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod tests {
+    use super::{parse_ref_updates, parse_rejections};
+    use forgedesk_domain::git::RefUpdateKind;
+
+    #[test]
+    fn fetch_style_updates_are_parsed_with_their_oids() {
+        let stderr = "From https://example.com/r\n   a1b2c3d..e4f5a6b  main       -> origin/main\n * [new branch]      feature    -> origin/feature\n - [deleted]         (none)     -> origin/gone\n = [up to date]      dev        -> origin/dev\n";
+
+        let updates = parse_ref_updates(stderr);
+
+        assert_eq!(updates.len(), 4);
+        assert_eq!(updates[0].kind, RefUpdateKind::Updated);
+        assert_eq!(updates[0].name, "origin/main");
+        assert_eq!(updates[0].old_oid.as_deref(), Some("a1b2c3d"));
+        assert_eq!(updates[0].new_oid.as_deref(), Some("e4f5a6b"));
+        assert_eq!(updates[1].kind, RefUpdateKind::New);
+        assert_eq!(updates[2].kind, RefUpdateKind::Deleted);
+        assert_eq!(updates[2].new_oid, None, "(none) 不是 oid");
+        assert_eq!(updates[3].kind, RefUpdateKind::UpToDate);
+    }
+
+    #[test]
+    fn unrelated_stderr_lines_are_ignored() {
+        let stderr =
+            "Enumerating objects: 5, done.\nfatal: could not read from remote repository\n";
+
+        assert!(parse_ref_updates(stderr).is_empty());
+    }
+
+    #[test]
+    fn non_fast_forward_rejection_is_flagged_for_the_ui() {
+        let stderr = " ! [rejected]        main -> main (non-fast-forward)\n";
+
+        let rejections = parse_rejections(stderr);
+
+        assert_eq!(rejections.len(), 1);
+        assert_eq!(rejections[0].name, "main");
+        assert!(rejections[0].non_fast_forward);
+    }
+
+    #[test]
+    fn stale_info_rejection_is_also_treated_as_non_fast_forward() {
+        // force-with-lease 的语义就是"远端变了就拒绝"，属于同一类可选修复
+        let stderr = " ! [rejected]        main -> main (stale info)\n";
+
+        let rejections = parse_rejections(stderr);
+
+        assert!(rejections[0].non_fast_forward);
+    }
+
+    #[test]
+    fn hook_rejection_is_not_offered_a_force_option() {
+        let stderr = " ! [remote rejected] main -> main (pre-receive hook declined)\n";
+
+        let rejections = parse_rejections(stderr);
+
+        assert_eq!(rejections.len(), 1);
+        assert!(
+            !rejections[0].non_fast_forward,
+            "hook 拒绝时提供强推只会误导用户"
+        );
+        assert_eq!(rejections[0].reason, "pre-receive hook declined");
+    }
+
+    #[test]
+    fn malformed_rejection_lines_are_skipped() {
+        assert!(parse_rejections(" ! [rejected]\n").is_empty());
+        assert!(parse_rejections("").is_empty());
+    }
 }

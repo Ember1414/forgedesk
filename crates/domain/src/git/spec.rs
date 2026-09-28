@@ -464,7 +464,8 @@ impl MergeSpec {
 }
 
 /// 拉取策略。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum PullStrategy {
     /// 只允许快进，否则失败（最安全，也是默认）。
     FastForwardOnly,
@@ -486,7 +487,8 @@ impl PullStrategy {
 }
 
 /// fetch 参数。
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, serde::Deserialize)]
+#[serde(rename_all = "camelCase", default)]
 pub struct FetchSpec {
     /// 远端名。`None` = 当前分支的上游远端（没有上游时用 `origin`）。
     pub remote: Option<String>,
@@ -496,6 +498,8 @@ pub struct FetchSpec {
     pub refspecs: Vec<String>,
     /// 是否同时取标签。
     pub tags: bool,
+    /// 浅取深度（`--depth`）。`None` = 完整历史。
+    pub depth: Option<u32>,
 }
 
 impl FetchSpec {
@@ -520,7 +524,8 @@ impl FetchSpec {
 }
 
 /// pull 参数。
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "camelCase", default)]
 pub struct PullSpec {
     /// 远端名。`None` = 当前分支的上游。
     pub remote: Option<String>,
@@ -528,6 +533,10 @@ pub struct PullSpec {
     pub branch: Option<String>,
     /// 策略。
     pub strategy: PullStrategy,
+    /// 工作区不干净时自动 stash 并在完成后恢复（`--autostash`）。
+    pub autostash: bool,
+    /// 允许合并没有共同祖先的历史（`--allow-unrelated-histories`）。
+    pub allow_unrelated: bool,
 }
 
 impl Default for PullSpec {
@@ -536,6 +545,8 @@ impl Default for PullSpec {
             remote: None,
             branch: None,
             strategy: PullStrategy::FastForwardOnly,
+            autostash: false,
+            allow_unrelated: false,
         }
     }
 }
@@ -559,7 +570,8 @@ impl PullSpec {
 /// **红线 R7**：这里刻意**没有**裸 `force` 字段。远端被拒绝时只有三条路
 /// ——先拉取、`--force-with-lease`、取消；裸 `--force` 会无条件覆盖别人的提交，
 /// 而它带来的"我推上去了"的错觉正是本产品要消灭的东西。
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, serde::Deserialize)]
+#[serde(rename_all = "camelCase", default)]
 pub struct PushSpec {
     /// 远端名。`None` = 当前分支的上游远端。
     pub remote: Option<String>,
@@ -571,6 +583,10 @@ pub struct PushSpec {
     pub force_with_lease: bool,
     /// 是否同时推送标签。
     pub tags: bool,
+    /// 远端分支名；`None` = 与本地同名，`Some` = 推到不同名（`<branch>:<remote_branch>`）。
+    pub remote_branch: Option<String>,
+    /// 演练模式（`--dry-run`）：照常计算但不真正更新远端。
+    pub dry_run: bool,
 }
 
 impl PushSpec {
@@ -654,7 +670,8 @@ pub struct ReorderSpec {
 }
 
 /// 合并的结果类别。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub enum MergeKind {
     /// 已经在目标提交上，什么都没做。
     AlreadyUpToDate,
@@ -667,7 +684,8 @@ pub enum MergeKind {
 }
 
 /// 合并结果。
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct MergeOutcome {
     /// 结果类别。
     pub kind: MergeKind,
@@ -685,7 +703,8 @@ impl MergeOutcome {
 }
 
 /// fetch 结果。
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct FetchOutcome {
     /// 实际使用的远端名。
     pub remote: String,
@@ -704,7 +723,8 @@ impl FetchOutcome {
 }
 
 /// pull 结果。
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PullOutcome {
     /// fetch 阶段的结果。
     pub fetch: FetchOutcome,
@@ -724,7 +744,8 @@ impl PullOutcome {
 }
 
 /// push 被拒绝的原因。
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PushRejection {
     /// 被拒绝的引用短名。
     pub name: String,
@@ -736,7 +757,8 @@ pub struct PushRejection {
 }
 
 /// push 结果。
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PushOutcome {
     /// 实际使用的远端名。
     pub remote: String,
@@ -987,8 +1009,8 @@ impl ReflogEntry {
 mod tests {
     use super::{
         ApplyDirection, ApplyPatchSpec, ApplyTarget, CheckoutSpec, CommitSpec, FetchOutcome,
-        InitSpec, MergeKind, MergeOutcome, PullOutcome, PullStrategy, PushOutcome, ReflogEntry,
-        ReorderAction, ResetMode, ResetSpec, StageSpec, StashAction, StashSpec,
+        InitSpec, MergeKind, MergeOutcome, PullOutcome, PullStrategy, PushOutcome, PushRejection,
+        ReflogEntry, ReorderAction, ResetMode, ResetSpec, StageSpec, StashAction, StashSpec,
     };
     use crate::git::refs::{RefUpdate, RefUpdateKind};
 
@@ -1205,6 +1227,37 @@ mod tests {
     fn an_empty_patch_is_detected_before_spawning_git() {
         assert!(ApplyPatchSpec::stage(Vec::new()).is_empty());
         assert!(!ApplyPatchSpec::stage(b"x".to_vec()).is_empty());
+    }
+
+    #[test]
+    fn sync_outcomes_serialise_in_the_documented_camel_case_shape() {
+        // 契约（docs/API.md §1）：DTO 一律 camelCase。前端的 `job:done.result`
+        // 直接读这些字段（`upToDate` / `nonFastForward` / `kind`），
+        // 形状错了界面只会"看起来没冲突/没被拒"，不会报错。
+        let pulled = PullOutcome {
+            fetch: FetchOutcome::default(),
+            strategy: PullStrategy::FastForwardOnly,
+            up_to_date: true,
+            merge: None,
+        };
+        let json = serde_json::to_value(&pulled).unwrap();
+        assert_eq!(json["upToDate"], true, "{json}");
+        assert_eq!(json["strategy"], "fastForwardOnly");
+
+        let rejection = PushRejection {
+            name: "main".to_owned(),
+            reason: "non-fast-forward".to_owned(),
+            non_fast_forward: true,
+        };
+        let json = serde_json::to_value(&rejection).unwrap();
+        assert_eq!(json["nonFastForward"], true, "{json}");
+
+        let merge = MergeOutcome {
+            kind: MergeKind::Conflicted,
+            oid: None,
+            conflicts: Vec::new(),
+        };
+        assert_eq!(serde_json::to_value(&merge).unwrap()["kind"], "conflicted");
     }
 }
 

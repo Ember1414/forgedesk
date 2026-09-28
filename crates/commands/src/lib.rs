@@ -40,6 +40,7 @@ pub mod repository;
 pub mod settings;
 pub mod snapshots;
 pub mod state;
+pub mod sync;
 pub mod system;
 pub mod watch;
 pub mod workspace;
@@ -74,6 +75,10 @@ pub use snapshots::{
     SnapshotDiffDto, SnapshotMetaDto,
 };
 pub use state::AppState;
+pub use sync::{
+    git_fetch, git_pull, git_push, git_remote_add, git_remote_list, git_remote_remove,
+    git_remote_rename, git_remote_set_url,
+};
 pub use system::log_frontend_error;
 pub use system::{app_version, AppVersion};
 pub use watch::{emit_watch_event, WatchSettings, WatcherRegistry, AUTO_REFRESH_KEY, DEBOUNCE_KEY};

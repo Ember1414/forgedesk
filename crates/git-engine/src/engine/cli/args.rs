@@ -697,6 +697,9 @@ pub fn fetch_args(spec: &FetchSpec) -> Vec<String> {
     if spec.tags {
         args.push("--tags".to_owned());
     }
+    if let Some(depth) = spec.depth {
+        args.push(format!("--depth={depth}"));
+    }
     if let Some(remote) = &spec.remote {
         args.push(remote.clone());
     }
@@ -712,6 +715,12 @@ pub fn pull_args(spec: &PullSpec) -> Vec<String> {
         spec.strategy.as_flag().to_owned(),
         "--no-edit".to_owned(),
     ];
+    if spec.autostash {
+        args.push("--autostash".to_owned());
+    }
+    if spec.allow_unrelated {
+        args.push("--allow-unrelated-histories".to_owned());
+    }
     if let Some(remote) = &spec.remote {
         args.push(remote.clone());
     }
@@ -733,14 +742,22 @@ pub fn push_args(spec: &PushSpec) -> Vec<String> {
     if spec.force_with_lease {
         args.push("--force-with-lease".to_owned());
     }
+    if spec.dry_run {
+        args.push("--dry-run".to_owned());
+    }
     if spec.tags {
         args.push("--tags".to_owned());
     }
-    if let Some(remote) = &spec.remote {
-        args.push(remote.clone());
-    }
-    if let Some(branch) = &spec.branch {
-        args.push(branch.clone());
+    // 远端位置参数**必须**出现：`git push` 的第一个位置参数是仓库名，
+    // 省掉远端会让后面的 refspec（缺省 `HEAD`）被当成仓库名，得到
+    // `fatal: 'HEAD' does not appear to be a git repository`。
+    // 缺省取 `origin`：与 fetch / pull 结果字段里的同一约定一致。
+    args.push(spec.remote.clone().unwrap_or_else(|| "origin".to_owned()));
+    // refspec：本地[:远端]。`remote_branch` 缺省 = 与本地同名。
+    let source = spec.branch.clone().unwrap_or_else(|| "HEAD".to_owned());
+    match &spec.remote_branch {
+        Some(remote_branch) => args.push(format!("{source}:{remote_branch}")),
+        None => args.push(source),
     }
     args
 }
@@ -755,6 +772,192 @@ pub fn rebase_args(plan: &ReorderSpec) -> Vec<String> {
 
 // 把 stderr 逐行回调包装成进度投递的工具在 `super::progress::ProgressSink::handler`：
 // 那里持有 `Arc`，因此产出的闭包是 `'static`，能被移动到读取子进程输出的任务里。
+
+// ---------------------------------------------------------------- 分支与标签写操作（T2.5）
+
+use forgedesk_domain::git::{
+    validate_ref_name, BranchCreateSpec, BranchDeleteSpec, BranchRenameSpec, BranchSetUpstreamSpec,
+    SwitchStrategy, TagCreateSpec, TagDeleteSpec,
+};
+
+/// 新建分支（`git branch <name> <start>` / `--track`）。
+pub fn branch_create_args(spec: &BranchCreateSpec) -> AppResult<GitInvocation> {
+    validate_ref_name(&spec.name).map_err(|reason| {
+        AppError::new(ErrorCode::Validation, "the branch name is invalid").with_detail(reason)
+    })?;
+    let mut args = vec!["branch".to_owned()];
+    if let Some(upstream) = &spec.track_upstream {
+        args.push("--track".to_owned());
+        args.push(format!("origin/{upstream}"));
+    }
+    args.push(spec.name.clone());
+    if let Some(start) = &spec.start_point {
+        args.push(start.clone());
+    }
+    Ok(GitInvocation::new(args))
+}
+
+/// 切换分支（含三策略的参数翻译）。
+pub fn switch_args(strategy: SwitchStrategy, target: &str) -> AppResult<GitInvocation> {
+    validate_ref_name(target).map_err(|reason| {
+        AppError::new(ErrorCode::Validation, "the branch name is invalid").with_detail(reason)
+    })?;
+    let mut args = vec!["checkout".to_owned(), "-q".to_owned()];
+    match strategy {
+        SwitchStrategy::Stash | SwitchStrategy::Clean => {}
+        SwitchStrategy::Force => args.push("--force".to_owned()),
+    }
+    args.push(target.to_owned());
+    Ok(GitInvocation::new(args))
+}
+
+/// 重命名分支（`git branch -m [-M] <old> <new>`；-M 在旧名与新名同指不同提交时必需，
+/// 这里始终用 -M 由 services 层负责风险确认——重命名本身不改提交图）。
+pub fn branch_rename_args(spec: &BranchRenameSpec) -> AppResult<GitInvocation> {
+    validate_ref_name(&spec.new).map_err(|reason| {
+        AppError::new(ErrorCode::Validation, "the branch name is invalid").with_detail(reason)
+    })?;
+    let mut args = vec!["branch".to_owned(), "-m".to_owned()];
+    if spec.rename_remote {
+        // `git branch -m --move` 的远端部分由配置决定；本地 bare 模拟恒为本地改名
+        args.push("--move".to_owned());
+    }
+    args.push(spec.old.clone());
+    args.push(spec.new.clone());
+    Ok(GitInvocation::new(args))
+}
+
+/// 删除分支（`git branch -d [-r] <name>` / `-D`）。
+pub fn branch_delete_args(spec: &BranchDeleteSpec) -> AppResult<Vec<GitInvocation>> {
+    let mut invocations = Vec::new();
+    let flag = if spec.force { "-D" } else { "-d" };
+    for name in &spec.names {
+        let mut args = vec!["branch".to_owned(), flag.to_owned()];
+        if spec.also_delete_remote {
+            args.push("-r".to_owned());
+        }
+        args.push(name.clone());
+        invocations.push(GitInvocation::new(args));
+    }
+    Ok(invocations)
+}
+
+/// 设置 / 取消上游。
+pub fn branch_upstream_args(spec: &BranchSetUpstreamSpec) -> AppResult<GitInvocation> {
+    let mut args = vec!["branch".to_owned()];
+    match &spec.upstream {
+        Some(upstream) => {
+            // upstream 可能是 "origin/main"（完整短名）或 "--set-upstream-to" 期望的形式
+            args.push("--set-upstream-to".to_owned());
+            args.push(upstream.clone());
+        }
+        None => args.push("--unset-upstream".to_owned()),
+    }
+    args.push(spec.branch.clone());
+    Ok(GitInvocation::new(args))
+}
+
+/// 创建标签。
+pub fn tag_create_args(spec: &TagCreateSpec) -> AppResult<GitInvocation> {
+    validate_ref_name(&spec.name).map_err(|reason| {
+        AppError::new(ErrorCode::Validation, "the tag name is invalid").with_detail(reason)
+    })?;
+    let mut args = vec!["tag".to_owned()];
+    if spec.force {
+        args.push("-f".to_owned());
+    }
+    if let Some(message) = &spec.message {
+        args.push("-a".to_owned());
+        args.push("-m".to_owned());
+        args.push(message.clone());
+        if spec.sign {
+            args.push("-s".to_owned());
+        }
+    } else if spec.sign {
+        return Err(AppError::new(
+            ErrorCode::Validation,
+            "a lightweight tag cannot be signed; provide a message to create an annotated tag",
+        ));
+    }
+    args.push(spec.name.clone());
+    if let Some(target) = &spec.target {
+        args.push(target.clone());
+    }
+    Ok(GitInvocation::new(args))
+}
+
+/// 删除标签（每个名字一条 `git tag -d`；远端删除由 push 通道负责，T2.6）。
+pub fn tag_delete_args(spec: &TagDeleteSpec) -> AppResult<Vec<GitInvocation>> {
+    Ok(spec
+        .names
+        .iter()
+        .map(|name| GitInvocation::new(vec!["tag".to_owned(), "-d".to_owned(), name.clone()]))
+        .collect())
+}
+
+/// 比较 a 与 b：领先 / 落后计数与各自独有的提交。
+pub fn branch_compare_args(a: &str, b: &str) -> GitInvocation {
+    // `git rev-list --left-right --count a...b` 给出 "behind<TAB>ahead"
+    GitInvocation::new(vec![
+        "rev-list".to_owned(),
+        "--left-right".to_owned(),
+        "--count".to_owned(),
+        format!("{a}...{b}"),
+    ])
+}
+
+/// a 独有的提交清单（`git log a --not b`，机器可读格式）。
+pub fn branch_only_commits_args(a: &str, b: &str) -> GitInvocation {
+    GitInvocation::new(vec![
+        "log".to_owned(),
+        "--format=%H%x1f%s".to_owned(),
+        "-z".to_owned(),
+        a.to_owned(),
+        "--not".to_owned(),
+        b.to_owned(),
+    ])
+}
+
+// ---------------------------------------------------------------- Remote 管理（T2.6）
+
+/// `git remote add <name> <url>`。
+pub fn remote_add_args(name: &str, url: &str) -> GitInvocation {
+    GitInvocation::new(vec![
+        "remote".to_owned(),
+        "add".to_owned(),
+        name.to_owned(),
+        url.to_owned(),
+    ])
+}
+
+/// `git remote remove <name>`。
+pub fn remote_remove_args(name: &str) -> GitInvocation {
+    GitInvocation::new(vec![
+        "remote".to_owned(),
+        "remove".to_owned(),
+        name.to_owned(),
+    ])
+}
+
+/// `git remote rename <old> <new>`。
+pub fn remote_rename_args(old: &str, new: &str) -> GitInvocation {
+    GitInvocation::new(vec![
+        "remote".to_owned(),
+        "rename".to_owned(),
+        old.to_owned(),
+        new.to_owned(),
+    ])
+}
+
+/// `git remote set-url <name> <url>`。
+pub fn remote_set_url_args(name: &str, url: &str) -> GitInvocation {
+    GitInvocation::new(vec![
+        "remote".to_owned(),
+        "set-url".to_owned(),
+        name.to_owned(),
+        url.to_owned(),
+    ])
+}
 
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
@@ -832,6 +1035,28 @@ mod tests {
 
         assert!(args.contains(&"--set-upstream".to_owned()));
         assert!(args.contains(&"--progress".to_owned()));
+    }
+
+    #[test]
+    fn push_always_names_the_remote_before_the_refspec() {
+        // 回归（T2.6）：`git push` 的第一个位置参数是**仓库名**。省掉远端时
+        // 后面的 refspec（缺省 `HEAD`）会被当成仓库名，git 报
+        // `fatal: 'HEAD' does not appear to be a git repository`。
+        assert_eq!(
+            joined(&push_args(&PushSpec::new())),
+            "push --progress origin HEAD"
+        );
+
+        let renamed = PushSpec {
+            remote: Some("upstream".to_owned()),
+            branch: Some("dev".to_owned()),
+            remote_branch: Some("release".to_owned()),
+            ..PushSpec::new()
+        };
+        assert_eq!(
+            joined(&push_args(&renamed)),
+            "push --progress upstream dev:release"
+        );
     }
 
     #[test]
@@ -1145,149 +1370,4 @@ mod tests {
         assert_eq!(joined(&invocation.args), "checkout -- feature");
         assert!(!invocation.args.iter().any(|arg| arg == "--force"));
     }
-}
-
-// ---------------------------------------------------------------- 分支与标签写操作（T2.5）
-
-use forgedesk_domain::git::{
-    validate_ref_name, BranchCreateSpec, BranchDeleteSpec, BranchRenameSpec, BranchSetUpstreamSpec,
-    SwitchStrategy, TagCreateSpec, TagDeleteSpec,
-};
-
-/// 新建分支（`git branch <name> <start>` / `--track`）。
-pub fn branch_create_args(spec: &BranchCreateSpec) -> AppResult<GitInvocation> {
-    validate_ref_name(&spec.name).map_err(|reason| {
-        AppError::new(ErrorCode::Validation, "the branch name is invalid").with_detail(reason)
-    })?;
-    let mut args = vec!["branch".to_owned()];
-    if let Some(upstream) = &spec.track_upstream {
-        args.push("--track".to_owned());
-        args.push(format!("origin/{upstream}"));
-    }
-    args.push(spec.name.clone());
-    if let Some(start) = &spec.start_point {
-        args.push(start.clone());
-    }
-    Ok(GitInvocation::new(args))
-}
-
-/// 切换分支（含三策略的参数翻译）。
-pub fn switch_args(strategy: SwitchStrategy, target: &str) -> AppResult<GitInvocation> {
-    validate_ref_name(target).map_err(|reason| {
-        AppError::new(ErrorCode::Validation, "the branch name is invalid").with_detail(reason)
-    })?;
-    let mut args = vec!["checkout".to_owned(), "-q".to_owned()];
-    match strategy {
-        SwitchStrategy::Stash | SwitchStrategy::Clean => {}
-        SwitchStrategy::Force => args.push("--force".to_owned()),
-    }
-    args.push(target.to_owned());
-    Ok(GitInvocation::new(args))
-}
-
-/// 重命名分支（`git branch -m [-M] <old> <new>`；-M 在旧名与新名同指不同提交时必需，
-/// 这里始终用 -M 由 services 层负责风险确认——重命名本身不改提交图）。
-pub fn branch_rename_args(spec: &BranchRenameSpec) -> AppResult<GitInvocation> {
-    validate_ref_name(&spec.new).map_err(|reason| {
-        AppError::new(ErrorCode::Validation, "the branch name is invalid").with_detail(reason)
-    })?;
-    let mut args = vec!["branch".to_owned(), "-m".to_owned()];
-    if spec.rename_remote {
-        // `git branch -m --move` 的远端部分由配置决定；本地 bare 模拟恒为本地改名
-        args.push("--move".to_owned());
-    }
-    args.push(spec.old.clone());
-    args.push(spec.new.clone());
-    Ok(GitInvocation::new(args))
-}
-
-/// 删除分支（`git branch -d [-r] <name>` / `-D`）。
-pub fn branch_delete_args(spec: &BranchDeleteSpec) -> AppResult<Vec<GitInvocation>> {
-    let mut invocations = Vec::new();
-    let flag = if spec.force { "-D" } else { "-d" };
-    for name in &spec.names {
-        let mut args = vec!["branch".to_owned(), flag.to_owned()];
-        if spec.also_delete_remote {
-            args.push("-r".to_owned());
-        }
-        args.push(name.clone());
-        invocations.push(GitInvocation::new(args));
-    }
-    Ok(invocations)
-}
-
-/// 设置 / 取消上游。
-pub fn branch_upstream_args(spec: &BranchSetUpstreamSpec) -> AppResult<GitInvocation> {
-    let mut args = vec!["branch".to_owned()];
-    match &spec.upstream {
-        Some(upstream) => {
-            // upstream 可能是 "origin/main"（完整短名）或 "--set-upstream-to" 期望的形式
-            args.push("--set-upstream-to".to_owned());
-            args.push(upstream.clone());
-        }
-        None => args.push("--unset-upstream".to_owned()),
-    }
-    args.push(spec.branch.clone());
-    Ok(GitInvocation::new(args))
-}
-
-/// 创建标签。
-pub fn tag_create_args(spec: &TagCreateSpec) -> AppResult<GitInvocation> {
-    validate_ref_name(&spec.name).map_err(|reason| {
-        AppError::new(ErrorCode::Validation, "the tag name is invalid").with_detail(reason)
-    })?;
-    let mut args = vec!["tag".to_owned()];
-    if spec.force {
-        args.push("-f".to_owned());
-    }
-    if let Some(message) = &spec.message {
-        args.push("-a".to_owned());
-        args.push("-m".to_owned());
-        args.push(message.clone());
-        if spec.sign {
-            args.push("-s".to_owned());
-        }
-    } else if spec.sign {
-        return Err(AppError::new(
-            ErrorCode::Validation,
-            "a lightweight tag cannot be signed; provide a message to create an annotated tag",
-        ));
-    }
-    args.push(spec.name.clone());
-    if let Some(target) = &spec.target {
-        args.push(target.clone());
-    }
-    Ok(GitInvocation::new(args))
-}
-
-/// 删除标签（每个名字一条 `git tag -d`；远端删除由 push 通道负责，T2.6）。
-pub fn tag_delete_args(spec: &TagDeleteSpec) -> AppResult<Vec<GitInvocation>> {
-    Ok(spec
-        .names
-        .iter()
-        .map(|name| GitInvocation::new(vec!["tag".to_owned(), "-d".to_owned(), name.clone()]))
-        .collect())
-}
-
-/// 比较 a 与 b：领先 / 落后计数与各自独有的提交。
-pub fn branch_compare_args(a: &str, b: &str) -> GitInvocation {
-    // `git rev-list --left-right --count a...b` 给出 "behind<TAB>ahead"
-    GitInvocation::new(vec![
-        "rev-list".to_owned(),
-        "--left-right".to_owned(),
-        "--count".to_owned(),
-        format!("{a}...{b}"),
-    ])
-}
-
-/// a 独有的提交清单（`git log a --not b`，机器可读格式）。
-pub fn branch_only_commits_args(a: &str, b: &str) -> GitInvocation {
-    GitInvocation::new(vec![
-        "log".to_owned(),
-        "--format=%H%x1f%s".to_owned(),
-        "-z".to_owned(),
-        a.to_owned(),
-        "--not".to_owned(),
-        b.to_owned(),
-    ])
 }

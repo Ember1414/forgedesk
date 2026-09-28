@@ -13,7 +13,8 @@
  * - `jobs.ts`：长任务事件与取消（`job:*`）；
  * - `history.ts`：提交历史分页查询（`git_log_page`）；
  * - `commitDetail.ts`：提交详情（`git_commit_detail`）；
- * - `branches.ts`：分支与标签管理（T2.5）。
+ * - `branches.ts`：分支与标签管理（T2.5）；
+ * - `sync.ts`：远端同步与 Remote 管理（T2.6，长任务返回 `jobId`）。
  *
  * 约定：本文件中的类型必须与 Rust 侧 DTO 的 `serde(rename_all = "camelCase")`
  * 一一对应。
@@ -79,6 +80,38 @@ export type {
   TagCreateSpec,
   TagDeleteSpec,
 } from './branches';
+
+export {
+  changedUpdates,
+  gitFetch,
+  gitPull,
+  gitPush,
+  gitRemoteAdd,
+  gitRemoteList,
+  gitRemoteRemove,
+  gitRemoteRename,
+  gitRemoteSetUrl,
+  pullConflicts,
+  readSyncResult,
+} from './sync';
+export type {
+  FetchOutcome,
+  FetchSpec,
+  MergeKind,
+  MergeOutcome,
+  PullOutcome,
+  PullSpec,
+  PullStrategy,
+  PushOutcome,
+  PushRejection,
+  PushSpec,
+  RefUpdate,
+  RefUpdateKind,
+  Remote,
+  RemoteKind,
+  SyncJobRef,
+  SyncJobResult,
+} from './sync';
 export type {
   CommitDetail,
   CommitFileChange,

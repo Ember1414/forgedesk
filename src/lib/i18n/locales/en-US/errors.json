@@ -47,6 +47,10 @@
     "title": "Rejected by a Git hook",
     "hint": "Read the hook output (often a commit-message check or a failing test), fix it and commit again."
   },
+  "PUSH_REJECTED": {
+    "title": "Push rejected (the remote has new commits)",
+    "hint": "Fetch/Pull first to bring the remote commits down; if you must overwrite, use force-with-lease (it shows the remote commit for confirmation)."
+  },
   "EMPTY_COMMIT": {
     "title": "Nothing to commit",
     "hint": "The index is empty, or the staged changes are identical to the last commit. Stage something first."
@@ -83,6 +87,9 @@
   "unknownHint": "Expand the details for the raw message and include it in your bug report.",
   "details": "Details",
   "actions": {
+    "pushFetchFirst": "Fetch the remote commits first",
+    "pushForceWithLease": "Overwrite the remote (force-with-lease, reviewed first)",
+    "cancel": "Cancel",
     "refresh": "Refresh state",
     "copyCommand": "Copy equivalent command",
     "viewLogs": "View related logs",

@@ -534,6 +534,60 @@
     "switcherNoMatch": "No matching branch",
     "quickCreate": "Type a name; Enter creates and switches"
   },
+  "sync": {
+    "ariaLabel": "Remote synchronisation",
+    "fetch": "Fetch",
+    "pull": "Pull",
+    "push": "Push",
+    "fetchHint": "Updates remote-tracking refs only; the local branch and worktree stay untouched",
+    "pullHint": "Fetches the upstream and merges it into the current branch (a snapshot is taken first)",
+    "pushHint": "Pushes the current branch to its upstream",
+    "upstreamTip": "Upstream of the current branch",
+    "noUpstream": "This branch has no upstream yet",
+    "upToDate": "In sync with upstream",
+    "aheadTip": "Commits this branch is ahead of upstream",
+    "behindTip": "Commits this branch is behind upstream",
+    "strategy": {
+      "label": "Pull strategy",
+      "fastForwardOnly": "Fast-forward only (safest)",
+      "merge": "Allow a merge commit",
+      "rebase": "Rebase, then fast-forward"
+    },
+    "job": {
+      "fetch": "Fetch remote updates",
+      "pull": "Pull upstream",
+      "push": "Push current branch"
+    },
+    "phase": {
+      "starting": "Starting",
+      "counting": "Counting objects",
+      "compressing": "Compressing objects",
+      "receiving": "Receiving objects",
+      "resolving": "Resolving deltas",
+      "writing": "Writing objects",
+      "ref-update": "Updating refs",
+      "other": "Synchronising"
+    },
+    "steps": "{{current}} / {{total}} objects",
+    "cancel": "Cancel sync",
+    "showDetail": "Show detailed log",
+    "hideDetail": "Hide detailed log",
+    "pushDone": "Pushed to {{remote}}",
+    "conflict": {
+      "title": "The pull produced conflicts",
+      "impactLabel": "What happens next",
+      "impact": "The repository is left in a conflicted merge state: every conflicted file must be resolved before you can commit or push again. A snapshot was taken before this pull, so you can always roll back.",
+      "files": "Conflicted files ({{count}})",
+      "guide": "Resolve conflicts",
+      "later": "Later"
+    },
+    "rejected": {
+      "title": "Push rejected",
+      "impactLabel": "Three ways forward",
+      "impact": "The remote has commits you do not have. Fetching first is the safe path; if you must overwrite, use force-with-lease (git only overwrites when the remote still points at the commit you last saw).",
+      "reason": "git says: {{reason}}"
+    }
+  },
   "history": {
     "title": "History",
     "description": "Browse the commit graph: branches, merges and refs at a glance.",

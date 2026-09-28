@@ -107,6 +107,21 @@ pub(crate) fn reporter_for(app: AppHandle) -> Arc<dyn JobReporter> {
     Arc::new(TauriJobReporter::new(app))
 }
 
+/// 把引擎的进度回调接到任务上报（fetch/pull/push/clone 共用）。
+pub(crate) fn progress_sink(
+    context: &forgedesk_jobs::JobContext,
+) -> forgedesk_git_engine::engine::progress::ProgressSink {
+    let context = context.clone();
+    forgedesk_git_engine::engine::progress::ProgressSink::new(move |event| {
+        context.progress(
+            event.phase.as_str(),
+            event.current,
+            event.total,
+            Some(event.message),
+        );
+    })
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {

@@ -112,3 +112,17 @@ export function commitDetailKey(
 export function commitDetailKeyPrefix(repoId: number): readonly [string, number] {
   return [COMMIT_DETAIL_QUERY_KEY, repoId];
 }
+
+/**
+ * 同步状态（T2.6）：当前分支、上游名、ahead/behind。
+ *
+ * 单独一个键而不是复用 `[BRANCHES_QUERY_KEY, repoId]`：它是**两次查询的合成**
+ * （分支列表 + `git_branch_compare`），形状与分支列表不同。共用键会让两个
+ * 形状不同的数据互相覆盖（先写进去的那个查询永远读到对方的缓存）。
+ */
+export const SYNC_STATUS_QUERY_KEY = 'syncStatus';
+
+/** 某个仓库同步状态的查询键。 */
+export function syncStatusKey(repoId: number): readonly [string, number] {
+  return [SYNC_STATUS_QUERY_KEY, repoId];
+}

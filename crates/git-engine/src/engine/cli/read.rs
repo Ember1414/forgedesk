@@ -923,6 +923,53 @@ pub(super) fn hooks_dir(engine: &CliGitEngine, repo: &RepoId) -> AppResult<std::
     })
 }
 
+// ---------------------------------------------------------------- 分支比较（T2.5）
+
+/// `(ahead, behind)`：a 领先 b 多少、落后多少（`rev-list --left-right --count a...b`）。
+pub(super) fn branch_compare(
+    engine: &CliGitEngine,
+    repo: &RepoId,
+    a: &str,
+    b: &str,
+) -> AppResult<(u64, u64)> {
+    let output = run(engine, repo, args::branch_compare_args(a, b))?;
+    let text = String::from_utf8_lossy(&output.stdout);
+    let line = text.trim();
+    let mut parts = line.split('\t');
+    let ahead = parts
+        .next()
+        .and_then(|v| v.trim().parse().ok())
+        .unwrap_or(0);
+    let behind = parts
+        .next()
+        .and_then(|v| v.trim().parse().ok())
+        .unwrap_or(0);
+    Ok((ahead, behind))
+}
+
+/// a 独有的提交（`git log a --not b`）：oid + subject，供删除确认清单。
+pub(super) fn branch_only_commits(
+    engine: &CliGitEngine,
+    repo: &RepoId,
+    a: &str,
+    b: &str,
+) -> AppResult<Vec<(String, String)>> {
+    let output = run(engine, repo, args::branch_only_commits_args(a, b))?;
+    let text = String::from_utf8_lossy(&output.stdout);
+    let mut out = Vec::new();
+    for record in text.split('\x1e') {
+        let record = record.trim_matches('\0').trim();
+        if record.is_empty() {
+            continue;
+        }
+        let mut fields = record.splitn(2, '\x1f');
+        let Some(oid) = fields.next() else { continue };
+        let subject = fields.next().unwrap_or("").trim().to_owned();
+        out.push((oid.trim().to_owned(), subject));
+    }
+    Ok(out)
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
@@ -1099,51 +1146,4 @@ mod tests {
         assert!(parse_stash_list("a\u{1f}b\n".as_bytes()).is_empty());
         assert!(parse_reflog("a\u{1f}b\n".as_bytes()).is_empty());
     }
-}
-
-// ---------------------------------------------------------------- 分支比较（T2.5）
-
-/// `(ahead, behind)`：a 领先 b 多少、落后多少（`rev-list --left-right --count a...b`）。
-pub(super) fn branch_compare(
-    engine: &CliGitEngine,
-    repo: &RepoId,
-    a: &str,
-    b: &str,
-) -> AppResult<(u64, u64)> {
-    let output = run(engine, repo, args::branch_compare_args(a, b))?;
-    let text = String::from_utf8_lossy(&output.stdout);
-    let line = text.trim();
-    let mut parts = line.split('\t');
-    let ahead = parts
-        .next()
-        .and_then(|v| v.trim().parse().ok())
-        .unwrap_or(0);
-    let behind = parts
-        .next()
-        .and_then(|v| v.trim().parse().ok())
-        .unwrap_or(0);
-    Ok((ahead, behind))
-}
-
-/// a 独有的提交（`git log a --not b`）：oid + subject，供删除确认清单。
-pub(super) fn branch_only_commits(
-    engine: &CliGitEngine,
-    repo: &RepoId,
-    a: &str,
-    b: &str,
-) -> AppResult<Vec<(String, String)>> {
-    let output = run(engine, repo, args::branch_only_commits_args(a, b))?;
-    let text = String::from_utf8_lossy(&output.stdout);
-    let mut out = Vec::new();
-    for record in text.split('\x1e') {
-        let record = record.trim_matches('\0').trim();
-        if record.is_empty() {
-            continue;
-        }
-        let mut fields = record.splitn(2, '\x1f');
-        let Some(oid) = fields.next() else { continue };
-        let subject = fields.next().unwrap_or("").trim().to_owned();
-        out.push((oid.trim().to_owned(), subject));
-    }
-    Ok(out)
 }

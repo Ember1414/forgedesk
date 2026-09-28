@@ -42,6 +42,8 @@ pub enum ErrorCode {
     PlanStale,
     /// Git 钩子拒绝了本次操作。
     HookRejected,
+    /// push 被远端以非快进拒绝（本地落后；只有先拉取或 force-with-lease 两条路）。
+    PushRejected,
     /// 没有可提交的内容（索引为空，或索引与 HEAD 相同）。
     ///
     /// 为什么单独一个码：这是用户**站在提交按钮前**最常遇到的情况，
@@ -112,6 +114,7 @@ impl ErrorCode {
             Self::PatchApplyFailed => "PATCH_APPLY_FAILED",
             Self::PlanStale => "PLAN_STALE",
             Self::HookRejected => "HOOK_REJECTED",
+            Self::PushRejected => "PUSH_REJECTED",
             Self::EmptyCommit => "EMPTY_COMMIT",
             Self::RestoreVerifyFailed => "RESTORE_VERIFY_FAILED",
             Self::KeyringUnavailable => "KEYRING_UNAVAILABLE",
@@ -155,6 +158,9 @@ impl ErrorCode {
             Self::PatchApplyFailed => "the patch could not be applied",
             Self::PlanStale => "the plan is stale: the repository changed after it was built",
             Self::HookRejected => "a Git hook rejected the operation",
+            Self::PushRejected => {
+                "the push was rejected because the remote has work you do not have"
+            }
             Self::EmptyCommit => "there is nothing staged to commit",
             Self::RestoreVerifyFailed => "the restored state failed verification",
             Self::KeyringUnavailable => "the system credential store is unavailable",
@@ -248,6 +254,10 @@ impl ErrorCode {
         }
         if has("patch does not apply") || has("patch failed") || has("corrupt patch") {
             return Self::PatchApplyFailed;
+        }
+        if has("non-fast-forward") || has("fetch first") || has("behind its remote-tracking branch")
+        {
+            return Self::PushRejected;
         }
         if has("hook declined")
             || has("pre-receive hook")

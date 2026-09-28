@@ -179,8 +179,11 @@ pub fn git_tag_delete(
 #[derive(Debug, Clone, Copy, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum SwitchStrategyDto {
+    /// 先储藏本地改动，切换后恢复（默认策略）。
     Stash,
+    /// 强制切换：丢弃本地改动（危险，需确认 + 快照）。
     Force,
+    /// 仅在工作区干净时切换，否则拒绝。
     Clean,
 }
 

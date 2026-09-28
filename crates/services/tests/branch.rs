@@ -14,18 +14,15 @@ mod support;
 
 use std::path::Path;
 
-use forgedesk_storage::Database as _DatabaseUnused;
-
 use forgedesk_domain::git::{
     validate_ref_name, BranchCreateSpec, BranchDeleteSpec, BranchRenameSpec, SwitchStrategy,
     TagCreateSpec, TagDeleteSpec,
 };
 use forgedesk_domain::ErrorCode;
 use forgedesk_git_engine::engines::GitEngines;
-use forgedesk_services::{BranchService, GitEngines as _};
+use forgedesk_services::BranchService;
 use forgedesk_snapshot::{SnapshotError, SnapshotId, SnapshotManager, SnapshotRequest};
-use forgedesk_storage::RepositoryStore;
-use support::{git, git_ok, init_repo, memory_database, write, TempDir};
+use support::{git, git_ok, init_repo, write, TempDir};
 
 /// 测试用快照管理器：记录 create 调用（断言"危险操作先打快照"）。
 #[derive(Default)]
@@ -88,7 +85,7 @@ fn service(dir: &TempDir) -> (BranchService<'static>, &'static RecordingSnapshot
         Box::leak(Box::new(forge_setup::leak_database()));
     let snapshots: &'static RecordingSnapshots = Box::leak(Box::new(RecordingSnapshots::default()));
     let store = forge_setup::store(database);
-    let repo_id = forge_setup::register(&store, dir.path());
+    forge_setup::register(&store, dir.path());
     let service = BranchService::new(engines, store, snapshots);
     (service, snapshots)
 }
