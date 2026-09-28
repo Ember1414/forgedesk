@@ -59,6 +59,14 @@ const HISTORY_FIXTURE = `
       edges.push({ fromOid: oid, toOid: parentOid, fromLane: lane, toLane: rows[i-1].lane, kind: kind });
     }
   }
+  window.__branches = [
+    { name: 'main', isRemote: false, isHead: true, target: '0000000000000000000000000000000000000000', upstream: 'origin/main', ahead: 0, behind: 0, upstreamGone: false },
+    { name: 'feature/xyz', isRemote: false, isHead: false, target: '0000000000000000000000000000000000000000', upstream: null, ahead: null, behind: null, upstreamGone: false },
+    { name: 'origin/main', isRemote: true, isHead: false, target: '0000000000000000000000000000000000000000', upstream: null, ahead: null, behind: null, upstreamGone: false },
+  ];
+  window.__tags = [
+    { name: 'v1.0.0', target: 't0', commit: '0000000000000000000000000000000000000000', annotated: false, message: null, createdAt: 1700000000 },
+  ];
   window.__historyFixture = {
     commits: commits,
     layout: { rows: rows, edges: edges, laneCount: 3 },
@@ -87,11 +95,77 @@ const MOCK_SCRIPT = `
         return Promise.resolve(authors);
       }
       if (command === 'git_branch_list') {
-        var zeroOid = ('000000000000000000000000000000000000000' + 0).slice(-40);
-        return Promise.resolve([
-          { name: 'main', isRemote: false, isHead: true, target: zeroOid, upstream: null, ahead: null, behind: null, upstreamGone: false },
-          { name: 'feature/xyz', isRemote: false, isHead: false, target: zeroOid, upstream: null, ahead: null, behind: null, upstreamGone: false },
-        ]);
+        return Promise.resolve(window.__branches);
+      }
+      if (command === 'git_tag_list') {
+        return Promise.resolve(window.__tags);
+      }
+      if (command === 'git_branch_create') {
+        var createdSpec = (args && args.spec) || { name: 'new-branch' };
+        window.__branches.push({
+          name: createdSpec.name,
+          isRemote: false,
+          isHead: !!createdSpec.checkout,
+          target: '0000000000000000000000000000000000000000',
+          upstream: null,
+          ahead: null,
+          behind: null,
+          upstreamGone: false,
+        });
+        if (createdSpec.checkout) {
+          for (var bi2 = 0; bi2 < window.__branches.length; bi2++) {
+            window.__branches[bi2].isHead = window.__branches[bi2].name === createdSpec.name;
+          }
+        }
+        return Promise.resolve(null);
+      }
+      if (command === 'git_branch_switch') {
+        var switchTarget = (args && args.target) || '';
+        for (var bi3 = 0; bi3 < window.__branches.length; bi3++) {
+          window.__branches[bi3].isHead = window.__branches[bi3].name === switchTarget;
+        }
+        return Promise.resolve(null);
+      }
+      if (command === 'git_branch_rename') {
+        var rn = (args && args.spec) || {};
+        for (var bi4 = 0; bi4 < window.__branches.length; bi4++) {
+          if (window.__branches[bi4].name === rn.old) window.__branches[bi4].name = rn.new;
+        }
+        return Promise.resolve(null);
+      }
+      if (command === 'git_branch_delete') {
+        var del = (args && args.spec) || { names: [] };
+        window.__branches = window.__branches.filter(function (b2) {
+          return del.names.indexOf(b2.name) < 0;
+        });
+        return Promise.resolve({ deleted: del.names });
+      }
+      if (command === 'git_branch_compare') {
+        return Promise.resolve({
+          ahead: 1,
+          behind: 0,
+          onlyInA: [['1111111111111111111111111111111111111111', 'unmerged work']],
+        });
+      }
+      if (command === 'git_branch_set_upstream') return Promise.resolve(null);
+      if (command === 'git_tag_create') {
+        var tc = (args && args.spec) || { name: 'x' };
+        window.__tags.push({
+          name: tc.name,
+          target: 't0',
+          commit: '0000000000000000000000000000000000000000',
+          annotated: !!tc.message,
+          message: tc.message || null,
+          createdAt: 1700000000,
+        });
+        return Promise.resolve(null);
+      }
+      if (command === 'git_tag_delete') {
+        var td = (args && args.spec) || { names: [] };
+        window.__tags = window.__tags.filter(function (tg) {
+          return td.names.indexOf(tg.name) < 0;
+        });
+        return Promise.resolve(null);
       }
       if (command === 'git_log_page') {
         var cursor = (args && args.query && args.query.cursor) || 0;
@@ -641,6 +715,80 @@ test('筛选状态刷新后保持（URL 为真相源）', async ({ page }) => {
   await expect(page.getByTestId('history-search-input')).toHaveValue('message 1');
   await expect(page.getByTestId('history-search-nav')).toBeVisible();
   await expect(page).toHaveURL(/q=message(\+|%20)1/);
+
+  const errs = await page.evaluate(() => window.__errs ?? []);
+  expect(errs, JSON.stringify(errs)).toEqual([]);
+});
+
+// ---------------------------------------------------------------- T2.5 分支与标签
+
+test('T2.5: 分支页列表（当前置顶/分组/upstream/标签）', async ({ page }) => {
+  await page.goto('/#/repo/1/branches');
+  await expect(page.getByTestId('branches-current')).toContainText('main');
+  await expect(page.getByTestId('branches-current')).toContainText('origin/main');
+  await expect(page.getByTestId('branches-switch-feature/xyz')).toBeVisible();
+  await expect(page.getByTestId('branches-tag-delete-v1.0.0')).toBeVisible();
+
+  const errs = await page.evaluate(() => window.__errs ?? []);
+  expect(errs, JSON.stringify(errs)).toEqual([]);
+});
+
+test('T2.5: 创建分支 → 切换 → 重命名 → 删除 全流程（验收项）', async ({ page }) => {
+  await page.goto('/#/repo/1/branches');
+  await expect(page.getByTestId('branches-current')).toContainText('main');
+
+  // ① 创建（并切换）
+  await page.getByTestId('branches-create').click();
+  await page.getByTestId('branches-create-name').fill('topic/t2.5');
+  await page.getByTestId('branches-create-confirm').click();
+
+  // ② 切换到另一分支（三策略对话框 → stash 推荐）
+  await page.getByTestId('branches-switch-feature/xyz').click();
+  await page.getByTestId('branches-switch-stash').click();
+  await expect(page.getByTestId('branches-current')).toContainText('feature/xyz');
+
+  // ③ 重命名（行内"重命名"按钮，第一条非当前本地分支）
+  const row = page.getByRole('button', { name: '重命名' }).first();
+  await row.click();
+  await page.getByTestId('branches-rename-name').fill('topic/renamed');
+  await page.getByTestId('branches-rename-confirm').click();
+
+  // ④ 删除（未合并确认链：compare 返回 1 条独有提交 → 强删按钮）
+  await page.getByTestId('branches-delete-topic/renamed').click();
+  await expect(page.getByText('unmerged work')).toBeVisible();
+  await page.getByTestId('branches-delete-confirm-unmerged').click();
+
+  const errs = await page.evaluate(() => window.__errs ?? []);
+  expect(errs, JSON.stringify(errs)).toEqual([]);
+});
+
+test('T2.5: 标签创建与删除', async ({ page }) => {
+  await page.goto('/#/repo/1/branches');
+  await expect(page.getByTestId('branches-tag-delete-v1.0.0')).toBeVisible();
+
+  await page.getByTestId('branches-tag-create').click();
+  await page.getByTestId('branches-tag-name').fill('v1.1.0');
+  await page.getByTestId('branches-tag-message').fill('second release');
+  await page.getByTestId('branches-tag-confirm').click();
+  await expect(page.getByTestId('branches-tag-delete-v1.1.0')).toBeVisible();
+
+  await page.getByTestId('branches-tag-delete-v1.1.0').click();
+  await expect(page.getByTestId('branches-tag-delete-v1.1.0')).toHaveCount(0);
+
+  const errs = await page.evaluate(() => window.__errs ?? []);
+  expect(errs, JSON.stringify(errs)).toEqual([]);
+});
+
+test('T2.5: 侧栏分支切换器（搜索 + 快速创建）', async ({ page }) => {
+  await page.goto('/#/repo/1/status');
+  await expect(page.getByTestId('branch-switcher')).toBeVisible();
+  await expect(page.getByTestId('branch-switcher')).toContainText('main');
+
+  await page.getByTestId('branch-switcher').click();
+  await page.getByTestId('branch-switcher-filter').fill('feat');
+  await expect(page.getByTestId('branch-switcher-item-feature/xyz')).toBeVisible();
+  await page.getByTestId('branch-switcher-item-feature/xyz').click();
+  await expect(page.getByTestId('branch-switcher')).toContainText('feature/xyz');
 
   const errs = await page.evaluate(() => window.__errs ?? []);
   expect(errs, JSON.stringify(errs)).toEqual([]);

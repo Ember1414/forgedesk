@@ -62,11 +62,12 @@ pub use query::{summarize_authors, AuthorSummary, LogQuery, Page};
 pub use refs::{Branch, RefUpdate, RefUpdateKind, Remote, RemoteKind, Tag};
 pub use repository::{BranchLabel, RepoId, RepositoryInfo, Worktree};
 pub use spec::{
-    AmendMode, ApplyDirection, ApplyPatchSpec, ApplyTarget, CheckoutSpec, CloneSpec, CommitSpec,
+    validate_ref_name, AmendMode, ApplyDirection, ApplyPatchSpec, ApplyTarget, BranchCreateSpec,
+    BranchDeleteSpec, BranchRenameSpec, BranchSetUpstreamSpec, CheckoutSpec, CloneSpec, CommitSpec,
     DiscardSpec, FetchOutcome, FetchSpec, InitSpec, MergeKind, MergeOutcome, MergeSpec,
     PullOutcome, PullSpec, PullStrategy, PushOutcome, PushRejection, PushSpec, ReflogEntry,
     ReorderAction, ReorderSpec, ReorderStep, ResetMode, ResetSpec, StageSpec, StashAction,
-    StashSpec,
+    StashSpec, SwitchStrategy, TagCreateSpec, TagDeleteSpec,
 };
 pub use staging::{trim_patch, LineSelection, PatchDirection, StageGranularity, StageScope};
 pub use stash::StashEntry;

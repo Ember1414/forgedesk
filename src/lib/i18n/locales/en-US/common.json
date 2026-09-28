@@ -21,6 +21,7 @@
     "dismiss": "Dismiss notification",
     "close": "Close",
     "cancel": "Cancel",
-    "retry": "Retry"
+    "retry": "Retry",
+    "confirm": "Confirm"
   }
 }

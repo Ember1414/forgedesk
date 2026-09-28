@@ -24,8 +24,8 @@ use std::sync::Arc;
 use forgedesk_jobs::JobRunner;
 use forgedesk_services::repository::OpenRepoRegistry;
 use forgedesk_services::{
-    AuditLog, CommitDetailService, CommitPlanRegistry, CommitService, GitEngines, HistoryService,
-    RepositoryService, StagingService, WorkspaceService,
+    AuditLog, BranchService, CommitDetailService, CommitPlanRegistry, CommitService, GitEngines,
+    HistoryService, RepositoryService, StagingService, WorkspaceService,
 };
 use forgedesk_snapshot::SnapshotManager;
 use forgedesk_storage::{Database, OperationStore, RepositoryStore};
@@ -123,6 +123,18 @@ impl AppState {
     /// `HistoryService` 需要 `RepositoryStore` 来把 `repo_id` 解析为工作区路径。
     pub fn history_service(&self) -> HistoryService<'_> {
         HistoryService::new(&self.engines, RepositoryStore::new(&self.database))
+    }
+
+    /// 绑定当前状态构造分支/标签管理服务（T2.5）。
+    ///
+    /// 快照管理器与提交路径共享同一个实例：Force 切换 / 未合并强删的
+    /// `PreHeadMove` 快照和提交前的快照落在同一份历史里，回滚页一并列出。
+    pub fn branch_service(&self) -> BranchService<'_> {
+        BranchService::new(
+            &self.engines,
+            RepositoryStore::new(&self.database),
+            self.snapshots.as_ref(),
+        )
     }
 
     /// 绑定当前状态构造提交详情服务（T2.4）。

@@ -4,6 +4,7 @@ import { NavLink, Outlet, useParams } from 'react-router-dom';
 import { DETAIL_PANEL_POSITIONS, useUiStore } from '@/stores/uiStore';
 import type { DetailPanelPosition } from '@/stores/uiStore';
 import { useRepoById } from '@/features/repo/recentRepos';
+import { BranchSwitcher } from '@/features/branches/BranchSwitcher';
 import { CommitDetailPanel } from '@/features/history/CommitDetailPanel';
 import { ToggleGroup } from '@/ui/components/toggle-group';
 import { cn } from '@/lib/utils';
@@ -65,6 +66,10 @@ export function RepoLayout() {
             ))}
           </nav>
         </div>
+
+        {/* 分支切换器（T2.5）：显示当前分支，下拉可搜索 + 快速创建。
+            切换动作与分支页共用同一命令（三策略语义在后端）。 */}
+        <BranchSwitcher />
 
         <ToggleGroup
           label={t('panel.label')}

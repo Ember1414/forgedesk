@@ -284,6 +284,160 @@ impl CommitSpec {
     }
 }
 
+// ---------------------------------------------------------------- 分支与标签（T2.5）
+
+/// 分支切换时对"工作区不干净"的处理策略（任务书 T2.5 实现要求 1）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SwitchStrategy {
+    /// 先 stash（含未跟踪）再切换；切换**成功后自动恢复**（恢复冲突如实上报）。
+    #[default]
+    Stash,
+    /// 强制切换（`checkout --force`）：**丢弃**全部未提交修改，不可逆。
+    /// 调用方（services）必须先打快照并在界面上要求显式确认。
+    Force,
+    /// 只允许干净切换：工作区不干净时直接报错（界面的"取消"分支）。
+    Clean,
+}
+
+/// 新建分支参数。
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BranchCreateSpec {
+    /// 分支名（先过 [`validate_ref_name`]）。
+    pub name: String,
+    /// 起点（分支/tag/oid）；`None` = 当前 HEAD。
+    pub start_point: Option<String>,
+    /// 创建后立即切换过去（`-c` + checkout）。
+    pub checkout: bool,
+    /// 同时设置上游（`--track` 的完整短名，如 `origin/main`）。
+    pub track_upstream: Option<String>,
+}
+
+/// 分支重命名参数。
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BranchRenameSpec {
+    /// 要改名的分支短名。
+    pub old: String,
+    /// 新名（先过 [`validate_ref_name`]）。
+    pub new: String,
+    /// 同时重命名上游分支（远端重命名依赖网络，T2.6 前仅在本地 bare 模拟里可用）。
+    pub rename_remote: bool,
+}
+
+/// 删除分支参数。
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BranchDeleteSpec {
+    /// 要删除的分支短名（可多个）。
+    pub names: Vec<String>,
+    /// 强制删除（`-D`）：允许删除未合并分支。调用方必须已展示
+    /// "独有提交"清单并拿到二次确认（services 层强制校验）。
+    pub force: bool,
+    /// 同时删除对应的远端分支（T2.6 前仅在本地 bare 模拟里可用）。
+    pub also_delete_remote: bool,
+}
+
+/// 设置上游参数。
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BranchSetUpstreamSpec {
+    /// 本地分支短名。
+    pub branch: String,
+    /// 上游短名；`None` = 取消上游（`--unset-upstream`）。
+    pub upstream: Option<String>,
+}
+
+/// 创建标签参数。
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TagCreateSpec {
+    /// 标签名（先过 [`validate_ref_name`]）。
+    pub name: String,
+    /// 目标（分支/tag/oid）；`None` = 当前 HEAD。
+    pub target: Option<String>,
+    /// 附注信息；`Some` = 附注标签（annotated），`None` = 轻量标签。
+    pub message: Option<String>,
+    /// 要求 gpg 签名（`-s`；仓库未配置签名密钥时 git 会报错，如实传播）。
+    pub sign: bool,
+    /// 同名标签已存在时覆盖（`-f`）。
+    pub force: bool,
+}
+
+/// 删除标签参数。
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TagDeleteSpec {
+    /// 要删除的标签名（可多个）。
+    pub names: Vec<String>,
+    /// 同时删除远端标签（T2.6 前仅在本地 bare 模拟里可用）。
+    pub also_delete_remote: bool,
+}
+
+/// `git check-ref-format` 的**本地实现**（纯函数，供 services 与测试复用）。
+///
+/// # 为什么不用 `git check-ref-format --branch`
+///
+/// 规则简单且多年未变；起一次子进程（Windows 上约 150ms）换 40 行纯逻辑
+/// 不划算，而且校验错误要给"人话原因"（实现要求 3），子进程的 stderr 反而
+/// 要再解析一遍。规则清单与 `git-check-ref-format(1)` 文档一一对应。
+///
+/// 返回 `Ok(())` 或"违反了哪条规则"的人话描述。
+pub fn validate_ref_name(name: &str) -> Result<(), &'static str> {
+    if name.is_empty() {
+        return Err("名称不能为空");
+    }
+    if name.starts_with('.') {
+        return Err("不能以点开头");
+    }
+    if name.starts_with('/') {
+        return Err("不能以斜杠开头");
+    }
+    if name.ends_with('/') {
+        return Err("不能以斜杠结尾");
+    }
+    if name.ends_with('.') {
+        return Err("不能以点结尾");
+    }
+    if name.ends_with(".lock") {
+        return Err("不能以 .lock 结尾");
+    }
+    if name.contains("..") {
+        return Err("不能包含连续的点");
+    }
+    if name.contains("//") {
+        return Err("不能包含连续的斜杠");
+    }
+    for ch in name.chars() {
+        if ch.is_whitespace() {
+            return Err("不能包含空格或空白字符");
+        }
+        if matches!(ch, '~' | '^' | ':' | '?' | '*' | '[' | '\\' | '\u{7f}') {
+            return Err("包含 git 不允许的字符（~ ^ : ? * [ \\ 或 DEL）");
+        }
+        if (ch as u32) < 0x20 {
+            return Err("包含控制字符");
+        }
+    }
+    // 分量（以 / 分隔）不能以 .lock 结尾，也不能为空
+    for component in name.split('/') {
+        if component.is_empty() {
+            return Err("包含空的路径分量（连续斜杠）");
+        }
+        if component.ends_with(".lock") {
+            return Err("路径分量不能以 .lock 结尾");
+        }
+        if component == "@" {
+            return Err("单个 @ 不是合法的分量");
+        }
+        if component.contains("@{") {
+            return Err("不能包含 @{ 序列");
+        }
+    }
+    Ok(())
+}
+
 /// 合并参数。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MergeSpec {
@@ -1051,5 +1205,71 @@ mod tests {
     fn an_empty_patch_is_detected_before_spawning_git() {
         assert!(ApplyPatchSpec::stage(Vec::new()).is_empty());
         assert!(!ApplyPatchSpec::stage(b"x".to_vec()).is_empty());
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod ref_name_tests {
+    use super::validate_ref_name;
+
+    /// 任务书 T2.5 实现要求 3：≥ 12 个非法用例（每条规则至少一个）。
+    #[test]
+    fn rejects_the_documented_illegal_names_with_reasons() {
+        // (名称, 期望的错误片段)
+        let cases: &[(&str, &str)] = &[
+            ("", "不能为空"),
+            ("feat branch", "空白"),
+            ("feat\ttab", "空白"),
+            ("feature..backup", "连续的点"),
+            ("refs//double", "连续的斜杠"),
+            ("feat~1", "不允许的字符"),
+            ("feat^2", "不允许的字符"),
+            ("tag:v1", "不允许的字符"),
+            ("what?isthis", "不允许的字符"),
+            ("a*b", "不允许的字符"),
+            ("[bracket]", "不允许的字符"),
+            ("back\\slash", "不允许的字符"),
+            ("v1.lock", ".lock"),
+            ("dir/sub.lock/x", ".lock"),
+            (".hidden", "以点开头"),
+            ("trailing.", "以点结尾"),
+            ("ends/", "斜杠结尾"),
+            ("/absolute", "斜杠开头"),
+            ("@{reflog}", "@{"),
+            ("@", "单个 @"),
+        ];
+        assert!(cases.len() >= 12, "任务书要求至少 12 个非法用例");
+        for (name, expected) in cases {
+            let error = validate_ref_name(name).expect_err(name);
+            assert!(
+                error.contains(expected),
+                "分支名 {name:?} 应报 {expected:?}，实际 {error:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn accepts_typical_branch_and_tag_names() {
+        for name in [
+            "main",
+            "feature/login-flow",
+            "release/v1.2.3",
+            "hotfix-2026-09-28",
+            "v1.0.0",
+            "issue/42-fix-crash",
+            "pyromanic_underscore-name.42",
+        ] {
+            assert_eq!(validate_ref_name(name), Ok(()), "{name} 应合法");
+        }
+    }
+
+    #[test]
+    fn multibyte_names_are_accepted_when_not_violating_rules() {
+        assert_eq!(validate_ref_name("feature/登录"), Ok(()));
+        assert!(
+            validate_ref_name("feature/登录 分支").is_err(),
+            "含空格仍拒绝"
+        );
     }
 }

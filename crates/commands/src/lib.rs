@@ -28,6 +28,7 @@
 #![forbid(unsafe_code)]
 
 pub mod audit;
+pub mod branch;
 pub mod commit;
 pub mod commit_detail;
 pub mod debug;
@@ -46,6 +47,10 @@ pub mod workspace;
 pub use audit::{
     audit_export, audit_list, audit_prune, AuditEntryDto, AuditExportDto, AuditPageDto,
     AuditPruneDto,
+};
+pub use branch::{
+    git_branch_compare, git_branch_create, git_branch_delete, git_branch_rename,
+    git_branch_set_upstream, git_branch_switch, git_tag_create, git_tag_delete, git_tag_list,
 };
 pub use commit::{
     commit_amend_context, commit_execute, commit_hooks_list, commit_message_hint, commit_prepare,

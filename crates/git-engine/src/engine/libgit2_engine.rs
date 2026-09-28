@@ -866,6 +866,79 @@ impl GitEngine for Libgit2Engine {
         Err(unsupported(EngineId::Libgit2, "authors"))
     }
 
+    fn branch_create(
+        &self,
+        _repo: &RepoId,
+        _spec: &forgedesk_domain::git::BranchCreateSpec,
+    ) -> AppResult<()> {
+        Err(unsupported(EngineId::Libgit2, "branch_create"))
+    }
+
+    fn branch_switch(
+        &self,
+        _repo: &RepoId,
+        _strategy: forgedesk_domain::git::SwitchStrategy,
+        _target: &str,
+    ) -> AppResult<()> {
+        Err(unsupported(EngineId::Libgit2, "branch_switch"))
+    }
+
+    fn branch_rename(
+        &self,
+        _repo: &RepoId,
+        _spec: &forgedesk_domain::git::BranchRenameSpec,
+    ) -> AppResult<()> {
+        Err(unsupported(EngineId::Libgit2, "branch_rename"))
+    }
+
+    fn branch_delete(
+        &self,
+        _repo: &RepoId,
+        _spec: &forgedesk_domain::git::BranchDeleteSpec,
+    ) -> AppResult<Vec<String>> {
+        Err(unsupported(EngineId::Libgit2, "branch_delete"))
+    }
+
+    fn branch_set_upstream(
+        &self,
+        _repo: &RepoId,
+        _spec: &forgedesk_domain::git::BranchSetUpstreamSpec,
+    ) -> AppResult<()> {
+        Err(unsupported(EngineId::Libgit2, "branch_set_upstream"))
+    }
+
+    fn branch_compare(&self, _repo: &RepoId, _a: &str, _b: &str) -> AppResult<(u64, u64)> {
+        // 比较是纯读取：libgit2 可以给出 ahead/behind（walk 两个分支找分叉点）。
+        // v1 只用 CLI 一侧（与 branch_only_commits 的解析共享语义），如实拒绝以保持
+        // "同一条数据一个来源"。
+        Err(unsupported(EngineId::Libgit2, "branch_compare"))
+    }
+
+    fn branch_only_commits(
+        &self,
+        _repo: &RepoId,
+        _a: &str,
+        _b: &str,
+    ) -> AppResult<Vec<(String, String)>> {
+        Err(unsupported(EngineId::Libgit2, "branch_only_commits"))
+    }
+
+    fn tag_create(
+        &self,
+        _repo: &RepoId,
+        _spec: &forgedesk_domain::git::TagCreateSpec,
+    ) -> AppResult<()> {
+        Err(unsupported(EngineId::Libgit2, "tag_create"))
+    }
+
+    fn tag_delete(
+        &self,
+        _repo: &RepoId,
+        _spec: &forgedesk_domain::git::TagDeleteSpec,
+    ) -> AppResult<()> {
+        Err(unsupported(EngineId::Libgit2, "tag_delete"))
+    }
+
     fn commit(
         &self,
         _repo: &RepoId,

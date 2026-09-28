@@ -232,6 +232,61 @@ pub trait GitEngine: Send + Sync {
     /// 范围与 `--all` 一致：作者筛选作用于全仓库，而不是当前分支。
     fn authors(&self, repo: &RepoId) -> AppResult<Vec<forgedesk_domain::git::AuthorSummary>>;
 
+    // ---- 分支与标签管理（T2.5；写操作全部走 CLI） ----
+
+    /// 新建分支。
+    fn branch_create(
+        &self,
+        repo: &RepoId,
+        spec: &forgedesk_domain::git::BranchCreateSpec,
+    ) -> AppResult<()>;
+    /// 切换分支（策略由调用方定；stash 编排在 services）。
+    fn branch_switch(
+        &self,
+        repo: &RepoId,
+        strategy: forgedesk_domain::git::SwitchStrategy,
+        target: &str,
+    ) -> AppResult<()>;
+    /// 重命名分支。
+    fn branch_rename(
+        &self,
+        repo: &RepoId,
+        spec: &forgedesk_domain::git::BranchRenameSpec,
+    ) -> AppResult<()>;
+    /// 删除一批分支；返回实际删除的名字（失败即中止并报错）。
+    fn branch_delete(
+        &self,
+        repo: &RepoId,
+        spec: &forgedesk_domain::git::BranchDeleteSpec,
+    ) -> AppResult<Vec<String>>;
+    /// 设置 / 取消上游。
+    fn branch_set_upstream(
+        &self,
+        repo: &RepoId,
+        spec: &forgedesk_domain::git::BranchSetUpstreamSpec,
+    ) -> AppResult<()>;
+    /// 比较两个分支：`(ahead, behind)`（a 相对 b）。
+    fn branch_compare(&self, repo: &RepoId, a: &str, b: &str) -> AppResult<(u64, u64)>;
+    /// a 独有的提交（oid + subject），供"未合并删除确认"清单。
+    fn branch_only_commits(
+        &self,
+        repo: &RepoId,
+        a: &str,
+        b: &str,
+    ) -> AppResult<Vec<(String, String)>>;
+    /// 创建标签。
+    fn tag_create(
+        &self,
+        repo: &RepoId,
+        spec: &forgedesk_domain::git::TagCreateSpec,
+    ) -> AppResult<()>;
+    /// 删除一批标签。
+    fn tag_delete(
+        &self,
+        repo: &RepoId,
+        spec: &forgedesk_domain::git::TagDeleteSpec,
+    ) -> AppResult<()>;
+
     // ---------------------------------------------------------------- 快照（T1.9）
 
     /// 把一个 ref 指到指定提交（快照的防 gc 锚点）。

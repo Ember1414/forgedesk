@@ -21,10 +21,12 @@ use std::time::Duration;
 
 use forgedesk_diagnostics::sanitize_log;
 use forgedesk_domain::git::{
-    ApplyPatchSpec, Branch, CheckoutSpec, CloneSpec, Commit, CommitSpec, DiffReport, DiffSpec,
+    ApplyPatchSpec, Branch, BranchCreateSpec, BranchDeleteSpec, BranchRenameSpec,
+    BranchSetUpstreamSpec, CheckoutSpec, CloneSpec, Commit, CommitSpec, DiffReport, DiffSpec,
     DiscardSpec, FetchOutcome, FetchSpec, InitSpec, LogQuery, MergeOutcome, MergeSpec, Page,
     PullOutcome, PullSpec, PushOutcome, PushSpec, ReflogEntry, Remote, ReorderSpec, RepoId,
-    RepositoryInfo, ResetSpec, StageSpec, StashEntry, StashSpec, StatusQuery, StatusReport, Tag,
+    RepositoryInfo, ResetSpec, StageSpec, StashEntry, StashSpec, StatusQuery, StatusReport,
+    SwitchStrategy, Tag, TagCreateSpec, TagDeleteSpec,
 };
 use forgedesk_domain::{AppError, AppResult, ErrorCode};
 
@@ -419,6 +421,52 @@ impl GitEngine for CliGitEngine {
 
     fn authors(&self, repo: &RepoId) -> AppResult<Vec<forgedesk_domain::git::AuthorSummary>> {
         read::authors(self, repo)
+    }
+
+    fn branch_create(&self, repo: &RepoId, spec: &BranchCreateSpec) -> AppResult<()> {
+        write::branch_create(self, repo, spec)
+    }
+
+    fn branch_switch(
+        &self,
+        repo: &RepoId,
+        strategy: SwitchStrategy,
+        target: &str,
+    ) -> AppResult<()> {
+        write::branch_switch(self, repo, strategy, target)
+    }
+
+    fn branch_rename(&self, repo: &RepoId, spec: &BranchRenameSpec) -> AppResult<()> {
+        write::branch_rename(self, repo, spec)
+    }
+
+    fn branch_delete(&self, repo: &RepoId, spec: &BranchDeleteSpec) -> AppResult<Vec<String>> {
+        write::branch_delete(self, repo, spec)
+    }
+
+    fn branch_set_upstream(&self, repo: &RepoId, spec: &BranchSetUpstreamSpec) -> AppResult<()> {
+        write::branch_set_upstream(self, repo, spec)
+    }
+
+    fn branch_compare(&self, repo: &RepoId, a: &str, b: &str) -> AppResult<(u64, u64)> {
+        read::branch_compare(self, repo, a, b)
+    }
+
+    fn branch_only_commits(
+        &self,
+        repo: &RepoId,
+        a: &str,
+        b: &str,
+    ) -> AppResult<Vec<(String, String)>> {
+        read::branch_only_commits(self, repo, a, b)
+    }
+
+    fn tag_create(&self, repo: &RepoId, spec: &TagCreateSpec) -> AppResult<()> {
+        write::tag_create(self, repo, spec)
+    }
+
+    fn tag_delete(&self, repo: &RepoId, spec: &TagDeleteSpec) -> AppResult<()> {
+        write::tag_delete(self, repo, spec)
     }
 
     fn update_ref(&self, repo: &RepoId, name: &str, oid: &str) -> AppResult<()> {

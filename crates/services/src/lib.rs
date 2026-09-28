@@ -22,6 +22,7 @@
 #![forbid(unsafe_code)]
 
 pub mod audit;
+pub mod branch;
 pub mod commit;
 pub mod commit_detail;
 pub mod engines;
@@ -36,6 +37,7 @@ pub use audit::{
     AuditLog, AuditRetention, AuditRun, AUDIT_ARGS_LIMIT, DEFAULT_RETENTION_DAYS,
     DEFAULT_RETENTION_ROWS, GLOBAL_REPO_ID, RETENTION_DAYS_KEY, RETENTION_MAX_KEY,
 };
+pub use branch::{BranchComparison, BranchDeleteOutcome, BranchService};
 pub use commit::{
     AmendContext, CommitOutcome, CommitPlanRegistry, CommitService, MessageHint, PrepareRequest,
 };

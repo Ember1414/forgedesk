@@ -1177,6 +1177,43 @@ libgit2 侧未实现该读取（与 `remote_refs_containing` 同一先例），�
 数据、同一个游标语义，避免"同一份数据两个入口"）。"高亮匹配 / 上一处 / 下一处"
 是纯前端行为（在已加载行里定位），不涉及后端。
 
+### 分支与标签管理（T2.5）
+
+写命令全部**审计**（`branch.*` / `tag.*`），危险路径**快照**（`PreHeadMove`，与提交
+路径共用同一个快照历史）；确认语义是**显式参数**（`confirmForce` / `confirmUnmerged`），
+services 层在缺确认时拒绝——API 直调绕不过 UI。
+
+现状：服务层已落地（`crates/services/src/branch.rs`），命令已接线
+（`crates/commands/src/branch.rs`，已注册到 `src-tauri/src/main.rs`）。
+
+| 命令 | 能力 | 参数 | 返回 / 说明 |
+| --- | --- | --- | --- |
+| `git_branch_list` | ReadOnly | `includeRemote?: boolean` | `Branch[]`；**当前分支置顶 → 本地 → 远端**（与任务书分组要求一致） |
+| `git_branch_compare` | ReadOnly | `a: string, b: string` | `{ ahead, behind, onlyInA: [oid, subject][] }`；删除确认清单的数据源 |
+| `git_branch_create` | Write | `spec { name, startPoint?, checkout, trackUpstream? }` | 名称先过 ref-format 校验；`checkout=true` 时创建后**干净切换**（不干净报 `VALIDATION`） |
+| `git_branch_switch` | Write | `target, strategy: "stash"\|"force"\|"clean", confirmForce?: boolean` | 返回快照 id（Force 时）。**三策略**：stash（含未跟踪，切换后自动恢复；恢复失败如实报错、stash 保留）、force（必须 `confirmForce=true`，先快照）、clean（不干净直接拒绝，对应"取消"） |
+| `git_branch_rename` | Write | `spec { old, new, renameRemote }` | 新名过校验 |
+| `git_branch_delete` | Write | `spec { names[], force, alsoDeleteRemote }, confirmUnmerged?: boolean` | `{ deleted: string[] }`；当前分支不可删；`force=true` 必须 `confirmUnmerged=true`（调用方应先用 `git_branch_compare` 把独有提交展示给用户），删除前打快照 |
+| `git_branch_set_upstream` | Write | `spec { branch, upstream?: string }` | `upstream` 缺省 = 取消上游 |
+| `git_tag_list` | ReadOnly | – | `Tag[]`（轻量/附注、消息、时间） |
+| `git_tag_create` | Write | `spec { name, target?, message?, sign, force }` | `message` 有值 = 附注标签；轻量标签不可签名（`VALIDATION`）；重名需 `force` |
+| `git_tag_delete` | Write | `spec { names[], alsoDeleteRemote }` | 远端删除经 push 通道（T2.6），本命令只删本地 |
+
+**分支名校验**（实现要求 3）：`domain::git::validate_ref_name`——本地实现
+`git check-ref-format` 全规则（空格、`~^:?*[]\`、连续点/斜杠、以点或斜杠开头结尾、
+`.lock` 分量、`@{`、单 `@`、控制字符），错误给**人话原因**（如"不能包含连续的点"），
+作为 `VALIDATION` 的 detail 返回。20 个非法用例 + 合法名测试在 domain 单测里。
+
+**引擎路由**：分支/标签写操作全部走 CLI（libgit2 侧如实返回
+`UNSUPPORTED_BY_ENGINE`，差分测试钉住）；`branch_compare` 用
+`git rev-list --left-right --count` + `git log a --not b`（机器可读格式）。
+
+- **错误**：`VALIDATION`（名称非法 / 无确认 / 不干净工作区 / 当前分支不可删 /
+  轻量标签带签名）、`NOT_FOUND`（repoId 无效）、`Internal`（git 拒绝，如未合并 `-d`）。
+- **失效**：写命令完成后由前端统一失效 `[BRANCHES_QUERY_KEY, repoId]` 与
+  `[LOG_QUERY_KEY, repoId]`（分支图变化）。
+- **前端封装**：由前端代理回填（`src/lib/ipc/branches.ts`）
+
 ### 文件监听与设置键（T1.10）
 
 监听**没有命令**：它的生命周期跟着仓库的打开与关闭走（`repo_open` / `repo_init` /

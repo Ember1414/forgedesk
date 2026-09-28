@@ -15,10 +15,11 @@ use std::path::{Path, PathBuf};
 
 use forgedesk_diagnostics::sanitize_log;
 use forgedesk_domain::git::{
-    AmendMode, ApplyPatchSpec, CheckoutSpec, CloneSpec, CommitSpec, DiscardSpec, FetchOutcome,
+    AmendMode, ApplyPatchSpec, BranchCreateSpec, BranchDeleteSpec, BranchRenameSpec,
+    BranchSetUpstreamSpec, CheckoutSpec, CloneSpec, CommitSpec, DiscardSpec, FetchOutcome,
     FetchSpec, InitSpec, MergeKind, MergeOutcome, MergeSpec, PullOutcome, PullSpec, PushOutcome,
     PushRejection, PushSpec, RefUpdate, RefUpdateKind, RepoId, RepositoryInfo, ResetSpec,
-    StageSpec, StashSpec,
+    StageSpec, StashSpec, SwitchStrategy, TagCreateSpec, TagDeleteSpec,
 };
 use forgedesk_domain::{AppError, AppResult, ErrorCode};
 
@@ -753,4 +754,84 @@ mod tests {
         assert!(parse_rejections(" ! [rejected]\n").is_empty());
         assert!(parse_rejections("").is_empty());
     }
+}
+
+// ---------------------------------------------------------------- 分支与标签写操作（T2.5）
+
+/// 新建分支。
+pub(super) fn branch_create(
+    engine: &CliGitEngine,
+    repo: &RepoId,
+    spec: &BranchCreateSpec,
+) -> AppResult<()> {
+    engine.run_write(repo, args::branch_create_args(spec)?)?;
+    Ok(())
+}
+
+/// 切换分支（策略参数由 args 层翻译；stash 编排在 services 层）。
+pub(super) fn branch_switch(
+    engine: &CliGitEngine,
+    repo: &RepoId,
+    strategy: SwitchStrategy,
+    target: &str,
+) -> AppResult<()> {
+    engine.run_write(repo, args::switch_args(strategy, target)?)?;
+    Ok(())
+}
+
+/// 重命名分支。
+pub(super) fn branch_rename(
+    engine: &CliGitEngine,
+    repo: &RepoId,
+    spec: &BranchRenameSpec,
+) -> AppResult<()> {
+    engine.run_write(repo, args::branch_rename_args(spec)?)?;
+    Ok(())
+}
+
+/// 删除一批分支（每个名字一条命令：某条失败（如未合并）时其余不被告命数字掩盖）。
+pub(super) fn branch_delete(
+    engine: &CliGitEngine,
+    repo: &RepoId,
+    spec: &BranchDeleteSpec,
+) -> AppResult<Vec<String>> {
+    let mut deleted = Vec::new();
+    for invocation in args::branch_delete_args(spec)? {
+        engine.run_write(repo, invocation)?;
+        // 删除顺序即 names 顺序；失败即中止（前面的已删掉），services 层据此报部分结果
+        deleted.push(String::new());
+    }
+    Ok(deleted)
+}
+
+/// 设置 / 取消上游。
+pub(super) fn branch_set_upstream(
+    engine: &CliGitEngine,
+    repo: &RepoId,
+    spec: &BranchSetUpstreamSpec,
+) -> AppResult<()> {
+    engine.run_write(repo, args::branch_upstream_args(spec)?)?;
+    Ok(())
+}
+
+/// 创建标签。
+pub(super) fn tag_create(
+    engine: &CliGitEngine,
+    repo: &RepoId,
+    spec: &TagCreateSpec,
+) -> AppResult<()> {
+    engine.run_write(repo, args::tag_create_args(spec)?)?;
+    Ok(())
+}
+
+/// 删除一批标签。
+pub(super) fn tag_delete(
+    engine: &CliGitEngine,
+    repo: &RepoId,
+    spec: &TagDeleteSpec,
+) -> AppResult<()> {
+    for invocation in args::tag_delete_args(spec)? {
+        engine.run_write(repo, invocation)?;
+    }
+    Ok(())
 }

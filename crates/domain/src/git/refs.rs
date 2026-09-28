@@ -125,7 +125,7 @@ impl Branch {
 }
 
 /// 一个标签。
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct Tag {
     /// 标签名。
     pub name: String,
