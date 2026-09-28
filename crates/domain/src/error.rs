@@ -26,6 +26,28 @@ pub enum ErrorCode {
     AuthRequired,
     /// 凭据已过期或被撤销，需要重新登录。
     AuthExpired,
+    /// SSH 主机密钥未被信任（`Host key verification failed`）。
+    ///
+    /// 为什么与 [`Self::AuthRequired`] 分开：这两件事的**修复动作完全不同**——
+    /// 前者要去核对/信任主机指纹（可能正是中间人攻击的信号，必须让用户自己确认），
+    /// 后者是"你还没登录"。混在一个码里，界面只能给出"重新登录"，
+    /// 而用户照着做一百遍也不会通过主机密钥校验。
+    SshHostKeyUnverified,
+    /// SSH 公钥被服务端拒绝（`Permission denied (publickey)`）。
+    ///
+    /// 与 [`Self::AuthRequired`]（HTTPS 缺凭据）分开：这里的排查方向是
+    /// "公钥有没有加到服务端、agent 里有没有加载、是不是用错了 key"。
+    SshKeyRejected,
+    /// 服务端 TLS 证书校验失败（`SSL certificate problem`）。
+    ///
+    /// 单独成码的原因：这与"网络不通"的排查方向相反——连接是通的，
+    /// 是证书链/自签名/企业中间人代理的问题。归到 NETWORK 会让用户去查网络。
+    TlsCertificateRejected,
+    /// 代理不可用或拒绝连接（`Proxy CONNECT aborted`、HTTP 407）。
+    ///
+    /// 单独成码的原因：代理失败时"网络是通的"（能连上代理），
+    /// 用户需要去检查代理配置，而不是查自己的网络。
+    ProxyFailed,
     /// 权限不足（缺少必要的作用域或文件系统权限）。
     PermissionDenied,
     /// 资源不存在（仓库、分支、提交、PR 等）。
@@ -76,11 +98,20 @@ pub enum ErrorCode {
 
 impl ErrorCode {
     /// 全部错误码，用于遍历（例如校验 i18n 覆盖率）。
+    ///
+    /// **新增错误码必须同时加进这里**：漏掉不会有编译错误，
+    /// 但 `ErrorCode::parse` 会认不出它（T2.5 加 `PUSH_REJECTED` 时就漏过一次），
+    /// 而前端的 i18n 覆盖检查会因此少要求一条文案。
+    /// [`tests::all_lists_every_variant_exactly_once`] 用穷举 match + 数量断言盯着这件事。
     pub const ALL: &'static [Self] = &[
         Self::PathNotRepo,
         Self::GitConflict,
         Self::AuthRequired,
         Self::AuthExpired,
+        Self::SshHostKeyUnverified,
+        Self::SshKeyRejected,
+        Self::TlsCertificateRejected,
+        Self::ProxyFailed,
         Self::PermissionDenied,
         Self::NotFound,
         Self::Validation,
@@ -89,6 +120,7 @@ impl ErrorCode {
         Self::PatchApplyFailed,
         Self::PlanStale,
         Self::HookRejected,
+        Self::PushRejected,
         Self::EmptyCommit,
         Self::RestoreVerifyFailed,
         Self::KeyringUnavailable,
@@ -106,6 +138,10 @@ impl ErrorCode {
             Self::GitConflict => "GIT_CONFLICT",
             Self::AuthRequired => "AUTH_REQUIRED",
             Self::AuthExpired => "AUTH_EXPIRED",
+            Self::SshHostKeyUnverified => "SSH_HOST_KEY_UNVERIFIED",
+            Self::SshKeyRejected => "SSH_KEY_REJECTED",
+            Self::TlsCertificateRejected => "TLS_CERTIFICATE_REJECTED",
+            Self::ProxyFailed => "PROXY_FAILED",
             Self::PermissionDenied => "PERMISSION_DENIED",
             Self::NotFound => "NOT_FOUND",
             Self::Validation => "VALIDATION",
@@ -150,6 +186,14 @@ impl ErrorCode {
             Self::GitConflict => "the repository has unresolved conflicts",
             Self::AuthRequired => "authentication is required",
             Self::AuthExpired => "the stored credential has expired or was revoked",
+            Self::SshHostKeyUnverified => {
+                "the SSH host key is not trusted (host key verification failed)"
+            }
+            Self::SshKeyRejected => {
+                "the SSH key was rejected by the remote (publickey authentication failed)"
+            }
+            Self::TlsCertificateRejected => "the server TLS certificate could not be verified",
+            Self::ProxyFailed => "the proxy refused or could not complete the connection",
             Self::PermissionDenied => "permission denied",
             Self::NotFound => "the requested resource does not exist",
             Self::Validation => "invalid input",
@@ -173,8 +217,39 @@ impl ErrorCode {
     }
 
     /// 默认是否可重试。调用方可覆盖该判断。
+    ///
+    /// `PROXY_FAILED` 算可重试：代理进程重启、切换网络后同一个操作**确实可能成功**。
+    /// 而 SSH/TLS 三类不可重试——它们是配置/信任问题，原样重试一百次结果一样。
     pub const fn default_retryable(self) -> bool {
-        matches!(self, Self::Network | Self::RateLimited | Self::PlanStale)
+        matches!(
+            self,
+            Self::Network | Self::RateLimited | Self::PlanStale | Self::ProxyFailed
+        )
+    }
+
+    /// 该错误码默认可以给出的修复动作。
+    ///
+    /// 为什么放在 domain：`FixAction` 是 IPC 契约的一部分，而"哪类错误有哪几条出路"
+    /// 是领域知识（与哪个命令实现它无关）。命令层只需要实现这些动作指向的命令。
+    ///
+    /// `command` 必须是**真实存在**的 Tauri 命令名（前端会照它 invoke）。
+    /// 还没实现的出口——例如 T4.4 的账号登录、T6.8 的 SSH 主机指纹信任——
+    /// 宁可不给按钮：一个点了没反应的按钮比没有按钮更让人困惑。
+    /// 需要参数的出口（例如"测试连接"要知道测哪个远端）由调用方用
+    /// [`FixAction::with_args`] 补齐，这里只给不带参数的骨架。
+    #[must_use]
+    pub fn default_actions(self) -> Vec<FixAction> {
+        match self {
+            Self::SshHostKeyUnverified
+            | Self::SshKeyRejected
+            | Self::TlsCertificateRejected
+            | Self::ProxyFailed => vec![FixAction::new(
+                "test-connection",
+                "errors:actions.testConnection",
+                "credential_test_remote",
+            )],
+            _ => Vec::new(),
+        }
     }
 
     /// 从字符串解析错误码（大小写不敏感，与 [`Self::as_str`] 一致）。
@@ -205,6 +280,40 @@ impl ErrorCode {
         // git 的输出里到处是提交哈希，"404" 出现在某段 SHA 里会把普通错误误判成"资源不存在"，
         // 而错误码一旦被误判，用户看到的就是完全不相干的修复建议。只认带上下文的文字。
 
+        // ---- SSH / TLS / 代理（必须先于通用认证与网络规则）----
+        //
+        // 顺序理由：`Permission denied (publickey)` 里也含 "permission denied"，
+        // 而 TLS 证书失败的原文里常带 "unable to access"（看起来像网络问题）。
+        // 先认最具体的那一类，才能给用户**方向正确的**排查建议：
+        // SSH key、主机指纹、证书、代理这四件事的修法互不相同。
+        if has("host key verification failed") || has("remote host identification has changed") {
+            return Self::SshHostKeyUnverified;
+        }
+        if has("permission denied (publickey)")
+            || has("no such identity")
+            || has("no supported authentication methods")
+            || has("publickey authentication failed")
+        {
+            return Self::SshKeyRejected;
+        }
+        if has("ssl certificate problem")
+            || has("certificate verify failed")
+            || has("server certificate verification failed")
+            || has("unable to get local issuer certificate")
+            || has("self-signed certificate")
+            || has("certificate has expired")
+        {
+            return Self::TlsCertificateRejected;
+        }
+        if has("proxy connect aborted")
+            || has("http code 407")
+            || has("could not connect to proxy")
+            || has("proxy error")
+            || has("received http code 407")
+        {
+            return Self::ProxyFailed;
+        }
+
         // ---- 认证类（先判断"过期"，再判断"缺少"）----
         if has("token expired")
             || has("expired token")
@@ -214,12 +323,12 @@ impl ErrorCode {
         {
             return Self::AuthExpired;
         }
+        // 注意：`permission denied (publickey)` 与 `no such identity` 已在上面归入
+        // SSH_KEY_REJECTED，这里不再重复（重复会让规则顺序变得难以推理）。
         if has("authentication failed")
             || has("could not read username")
             || has("could not read password")
-            || has("permission denied (publickey)")
             || has("terminal prompts disabled")
-            || has("no such identity")
             || has("authentication required")
         {
             return Self::AuthRequired;
@@ -608,12 +717,51 @@ mod tests {
                 ErrorCode::AuthRequired,
             ),
             (
-                "git@example.com: Permission denied (publickey).",
-                ErrorCode::AuthRequired,
-            ),
-            (
                 "remote: HTTP Basic: Access denied\nfatal: Invalid username or password",
                 ErrorCode::AuthExpired,
+            ),
+            // ---- T2.7：SSH / TLS / 代理（样本取自真实的 git 输出）----
+            (
+                "git@github.com: Permission denied (publickey).\nfatal: Could not read from remote repository.",
+                ErrorCode::SshKeyRejected,
+            ),
+            (
+                "no such identity: /home/u/.ssh/id_ed25519: No such file or directory",
+                ErrorCode::SshKeyRejected,
+            ),
+            (
+                "git@example.com: no supported authentication methods available (server sent: publickey)",
+                ErrorCode::SshKeyRejected,
+            ),
+            (
+                "Host key verification failed.\nfatal: Could not read from remote repository.",
+                ErrorCode::SshHostKeyUnverified,
+            ),
+            (
+                "@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@\n\
+                 @    WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!     @\n\
+                 @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@",
+                ErrorCode::SshHostKeyUnverified,
+            ),
+            (
+                "fatal: unable to access 'https://example.com/a.git/': SSL certificate problem: self-signed certificate",
+                ErrorCode::TlsCertificateRejected,
+            ),
+            (
+                "fatal: unable to access 'https://example.com/a.git/': SSL certificate problem: unable to get local issuer certificate",
+                ErrorCode::TlsCertificateRejected,
+            ),
+            (
+                "fatal: unable to access 'https://example.com/a.git/': server certificate verification failed. CAfile: none CRLfile: none",
+                ErrorCode::TlsCertificateRejected,
+            ),
+            (
+                "fatal: unable to access 'https://example.com/a.git/': Received HTTP code 407 from proxy after CONNECT",
+                ErrorCode::ProxyFailed,
+            ),
+            (
+                "error: Proxy CONNECT aborted",
+                ErrorCode::ProxyFailed,
             ),
             (
                 "fatal: could not resolve host: example.com",
@@ -658,6 +806,86 @@ mod tests {
         for (raw, expected) in cases {
             assert_eq!(ErrorCode::classify(raw), expected, "分类错误：{raw}");
         }
+    }
+
+    /// 穷举 match：新增错误码时编译器会强制作者在这里补一行，
+    /// 从而逼着他顺手检查 `ALL`（`ALL` 漏项不会有编译错误，这是 T2.5 踩过的坑）。
+    fn describe(code: ErrorCode) -> &'static str {
+        match code {
+            ErrorCode::PathNotRepo => "PATH_NOT_REPO",
+            ErrorCode::GitConflict => "GIT_CONFLICT",
+            ErrorCode::AuthRequired => "AUTH_REQUIRED",
+            ErrorCode::AuthExpired => "AUTH_EXPIRED",
+            ErrorCode::SshHostKeyUnverified => "SSH_HOST_KEY_UNVERIFIED",
+            ErrorCode::SshKeyRejected => "SSH_KEY_REJECTED",
+            ErrorCode::TlsCertificateRejected => "TLS_CERTIFICATE_REJECTED",
+            ErrorCode::ProxyFailed => "PROXY_FAILED",
+            ErrorCode::PermissionDenied => "PERMISSION_DENIED",
+            ErrorCode::NotFound => "NOT_FOUND",
+            ErrorCode::Validation => "VALIDATION",
+            ErrorCode::Network => "NETWORK",
+            ErrorCode::RateLimited => "RATE_LIMITED",
+            ErrorCode::PatchApplyFailed => "PATCH_APPLY_FAILED",
+            ErrorCode::PlanStale => "PLAN_STALE",
+            ErrorCode::HookRejected => "HOOK_REJECTED",
+            ErrorCode::PushRejected => "PUSH_REJECTED",
+            ErrorCode::EmptyCommit => "EMPTY_COMMIT",
+            ErrorCode::RestoreVerifyFailed => "RESTORE_VERIFY_FAILED",
+            ErrorCode::KeyringUnavailable => "KEYRING_UNAVAILABLE",
+            ErrorCode::Storage => "STORAGE",
+            ErrorCode::PtyUnsupported => "PTY_UNSUPPORTED",
+            ErrorCode::UnsupportedByEngine => "UNSUPPORTED_BY_ENGINE",
+            ErrorCode::Cancelled => "CANCELLED",
+            ErrorCode::Internal => "INTERNAL",
+        }
+    }
+
+    #[test]
+    fn all_lists_every_variant_exactly_once() {
+        // 25 个变体（新增时必须同时改 ALL 与本断言里的数字）
+        assert_eq!(ErrorCode::ALL.len(), 25);
+
+        let mut seen = std::collections::BTreeSet::new();
+        for code in ErrorCode::ALL {
+            assert_eq!(describe(*code), code.as_str(), "as_str 与穷举表不一致");
+            assert!(
+                seen.insert(code.as_str()),
+                "{} 在 ALL 里重复",
+                code.as_str()
+            );
+            // parse 必须认得出 ALL 里的每一个：认不出意味着 IPC 参数收敛会失败
+            assert_eq!(ErrorCode::parse(code.as_str()), Some(*code));
+        }
+    }
+
+    #[test]
+    fn the_ssh_and_tls_codes_offer_a_connection_test_but_no_dead_buttons() {
+        for code in [
+            ErrorCode::SshHostKeyUnverified,
+            ErrorCode::SshKeyRejected,
+            ErrorCode::TlsCertificateRejected,
+            ErrorCode::ProxyFailed,
+        ] {
+            let actions = code.default_actions();
+            assert_eq!(actions.len(), 1, "{code:?}");
+            assert_eq!(actions[0].command, "credential_test_remote");
+            assert_eq!(actions[0].label_key, "errors:actions.testConnection");
+        }
+
+        // 还没实现的出口（T4.4 重新登录、T6.8 信任主机指纹）不给按钮
+        assert!(ErrorCode::AuthRequired.default_actions().is_empty());
+        assert!(ErrorCode::SshHostKeyUnverified.default_actions()[0]
+            .args
+            .is_none());
+    }
+
+    #[test]
+    fn only_the_proxy_failure_is_retryable_among_the_new_codes() {
+        assert!(ErrorCode::ProxyFailed.default_retryable());
+        // SSH/TLS 是配置与信任问题：原样重试一百次结果一样
+        assert!(!ErrorCode::SshHostKeyUnverified.default_retryable());
+        assert!(!ErrorCode::SshKeyRejected.default_retryable());
+        assert!(!ErrorCode::TlsCertificateRejected.default_retryable());
     }
 
     /// 提交哈希里出现 "404" 之类的数字时不能被误判（git 输出里到处是 SHA）。

@@ -15,6 +15,22 @@
     "title": "Credential is no longer valid",
     "hint": "The token may have expired or been revoked. Sign in again and retry."
   },
+  "SSH_HOST_KEY_UNVERIFIED": {
+    "title": "Host key not trusted",
+    "hint": "This host identity does not match what is stored locally (a first connection looks the same). Verify the fingerprint before trusting it; if the fingerprint does not match, do not continue."
+  },
+  "SSH_KEY_REJECTED": {
+    "title": "SSH key rejected",
+    "hint": "The remote does not accept the current public key: check that it is added to the hosting platform, and which key ssh-agent has loaded."
+  },
+  "TLS_CERTIFICATE_REJECTED": {
+    "title": "Certificate verification failed",
+    "hint": "The connection works but the server certificate cannot be verified (self-signed certificate or a corporate intercepting proxy). Check the system certificate chain and the proxy settings."
+  },
+  "PROXY_FAILED": {
+    "title": "Proxy connection failed",
+    "hint": "The proxy refused the connection or could not establish it. Check the proxy address, port and credentials, then retry."
+  },
   "PERMISSION_DENIED": {
     "title": "Permission denied",
     "hint": "The current account or system user may not perform this action. Check token scopes or file permissions."
@@ -90,6 +106,7 @@
     "pushFetchFirst": "Fetch the remote commits first",
     "pushForceWithLease": "Overwrite the remote (force-with-lease, reviewed first)",
     "cancel": "Cancel",
+    "testConnection": "Test connection",
     "refresh": "Refresh state",
     "copyCommand": "Copy equivalent command",
     "viewLogs": "View related logs",

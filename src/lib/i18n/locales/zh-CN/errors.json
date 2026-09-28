@@ -15,6 +15,22 @@
     "title": "凭据已失效",
     "hint": "令牌可能已过期或被撤销，请重新登录后再试。"
   },
+  "SSH_HOST_KEY_UNVERIFIED": {
+    "title": "主机密钥未受信任",
+    "hint": "这台主机的身份与本地记录不一致（首次连接也会如此）。核对指纹无误后再信任它；指纹对不上就不要再继续了。"
+  },
+  "SSH_KEY_REJECTED": {
+    "title": "SSH 密钥被拒绝",
+    "hint": "服务端不接受当前公钥：确认公钥已添加到托管平台，并检查 ssh-agent 里加载的是哪一把密钥。"
+  },
+  "TLS_CERTIFICATE_REJECTED": {
+    "title": "证书校验失败",
+    "hint": "连接是通的，但服务端证书无法验证（自签名证书或企业中间人代理）。请检查系统证书链与代理设置。"
+  },
+  "PROXY_FAILED": {
+    "title": "代理连接失败",
+    "hint": "代理拒绝或未能建立连接。检查代理地址、端口与认证信息后重试。"
+  },
   "PERMISSION_DENIED": {
     "title": "权限不足",
     "hint": "当前账号或系统用户没有执行该操作的权限，请检查令牌作用域或文件权限。"
@@ -90,6 +106,7 @@
     "pushFetchFirst": "先拉取（Fetch）远端提交",
     "pushForceWithLease": "覆盖远端（force-with-lease，先对比）",
     "cancel": "取消",
+    "testConnection": "测试连接",
     "refresh": "刷新状态",
     "copyCommand": "复制等价命令",
     "viewLogs": "查看相关日志",
