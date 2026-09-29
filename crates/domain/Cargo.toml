@@ -13,6 +13,7 @@ authors.workspace = true
 [dependencies]
 serde.workspace = true
 serde_json.workspace = true
+similar = "3"
 thiserror.workspace = true
 time.workspace = true
 uuid.workspace = true

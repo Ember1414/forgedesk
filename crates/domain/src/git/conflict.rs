@@ -21,7 +21,61 @@
 //!（camelCase），由 commands 层直接作为 IPC 形状返回——冲突查询没有第二份
 //! DTO，避免"domain 一份字段名、IPC 一份字段名"的漂移。
 
+use super::merge_blocks::MergeBlock;
 use super::path::RepoPath;
+
+/// 结果文本写回工作区时使用的换行风格（T3.2：保持原文件风格）。
+///
+/// 派生 `Deserialize`：它随写回请求从 IPC 进来（前端回传探测结果）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum LineEnding {
+    /// LF：`\n`（Unix 与现代默认）。
+    Lf,
+    /// CRLF：`\r\n`（Windows）。
+    Crlf,
+    /// CR：`\r`（经典 Mac，罕见但存在）。
+    Cr,
+}
+
+/// 整个文件采用一方的解决动作（二进制冲突与"文件级快捷操作"共用）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum TakeSide {
+    /// 采用我方版本（`git checkout --ours` 后标记已解决）。
+    Ours,
+    /// 采用对方版本（`git checkout --theirs` 后标记已解决）。
+    Theirs,
+}
+
+/// 单个冲突文件的完整详情：三方 blob、工作区文件形状、合并块（T3.2）。
+///
+/// 与 [`ConflictFile`] 的区别：它是**打开单文件编辑器时**的惰性查询——
+/// 块计算要对三份文本跑 diff3，冲突清单页只给文件名与类别就够了。
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConflictFileDetail {
+    /// 文件路径。
+    pub path: RepoPath,
+    /// 冲突类别。
+    pub kind: ConflictKind,
+    /// 共同祖先（stage 1）。
+    pub base: Option<FileBlob>,
+    /// 我方版本（stage 2）。
+    pub ours: Option<FileBlob>,
+    /// 对方版本（stage 3）。
+    pub theirs: Option<FileBlob>,
+    /// 工作区里该文件是否还存在。
+    pub worktree_exists: bool,
+    /// 工作区文件的换行风格（写回时保持）。
+    pub eol: LineEnding,
+    /// 工作区文件是否带 UTF-8 BOM（写回时保持）。
+    pub bom: bool,
+    /// 工作区文件末尾是否有换行（写回时保持）。
+    pub trailing_newline: bool,
+    /// diff3 合并块（三方内容可用且都是文本时非空；二进制为空）。
+    pub blocks: Vec<MergeBlock>,
+}
 
 /// 冲突来源的操作类型。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize)]

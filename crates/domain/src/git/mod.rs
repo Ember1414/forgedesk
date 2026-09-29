@@ -33,6 +33,7 @@ pub mod commit_plan;
 pub mod conflict;
 pub mod diff;
 pub mod index;
+pub mod merge_blocks;
 pub mod path;
 pub mod query;
 pub mod refs;
@@ -55,14 +56,15 @@ pub use commit_plan::{
     EQUIVALENT_COMMAND_FILE_LIMIT, SUBJECT_RECOMMENDED_MAX_CHARS,
 };
 pub use conflict::{
-    ConflictAbortOutcome, ConflictContinueOutcome, ConflictFile, ConflictKind, ConflictOpKind,
-    ConflictState, FileBlob, MAX_CONFLICT_BLOB_BYTES,
+    ConflictAbortOutcome, ConflictContinueOutcome, ConflictFile, ConflictFileDetail, ConflictKind,
+    ConflictOpKind, ConflictState, FileBlob, LineEnding, TakeSide, MAX_CONFLICT_BLOB_BYTES,
 };
 pub use diff::{
     DiffChangeKind, DiffHunk, DiffLine, DiffLineKind, DiffReport, DiffSpec, DiffTarget, FileDiff,
     FileStat, DEFAULT_CONTEXT_LINES, MAX_DIFF_BYTES_PER_FILE, MAX_DIFF_LINES_PER_FILE,
 };
 pub use index::{StageEntry, UnmergedEntry, UnmergedStage};
+pub use merge_blocks::{compute_merge_blocks, ChangeSource, MergeBlock, MergeBlockReport};
 pub use path::RepoPath;
 pub use query::{summarize_authors, AuthorSummary, LogQuery, Page};
 pub use refs::{Branch, RefUpdate, RefUpdateKind, Remote, RemoteKind, Tag};
