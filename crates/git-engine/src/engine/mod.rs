@@ -234,6 +234,15 @@ pub trait GitEngine: Send + Sync {
     /// 它会往对象库里写一个树对象（不影响引用与工作区，gc 会回收）。
     fn index_tree(&self, repo: &RepoId) -> AppResult<String>;
 
+    /// 当前索引的条目数（已暂存文件数，含合并冲突的多个阶段）。
+    ///
+    /// 状态引擎分流（T2.10 后的方案 B）用它做**廉价的规模探测**：libgit2 的
+    /// 状态计算在"索引上万条、工作区全改"的形状上比 git CLI 慢约 10 倍
+    /// （`docs/PERF-BASELINE.md` §3.1），服务层据此把大仓库的状态读切到
+    /// CLI。探测必须比一次状态计算便宜得多——只解析 `.git/index` 文件，
+    /// 不扫工作区。
+    fn index_entry_count(&self, repo: &RepoId) -> AppResult<u64>;
+
     /// HEAD 的树 oid；空仓库（还没有提交）返回 `None`。
     ///
     /// 与 [`GitEngine::index_tree`] 一起回答"这次提交是否什么都不会提交"：

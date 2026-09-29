@@ -918,6 +918,19 @@ impl GitEngine for Libgit2Engine {
         Ok(oid.to_string())
     }
 
+    fn index_entry_count(&self, repo: &RepoId) -> AppResult<u64> {
+        let repository = open(repo)?;
+        let index = repository
+            .index()
+            .map_err(|error| map_error(&error, "index"))?;
+        // `entry_count` 是解析后的内存计数：只读 .git/index 文件，不碰工作区。
+        // 合并中的索引同一文件会有多个阶段条目——分流探测要的是"规模"，
+        // 与 CLI 的 ls-files 计数（按路径去重）可能不同，这没有关系：
+        // 决策函数只把它当规模信号，两侧是否完全一致不参与契约
+        // （差分测试不对拍这个数字，理由见 differential.rs）。
+        Ok(index.len() as u64)
+    }
+
     fn head_tree(&self, repo: &RepoId) -> AppResult<Option<String>> {
         let repository = open(repo)?;
         // 结果先绑定到局部变量：git2 的 `Reference` 借用 `repository`，

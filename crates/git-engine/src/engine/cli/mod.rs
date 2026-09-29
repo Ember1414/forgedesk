@@ -524,6 +524,10 @@ impl GitEngine for CliGitEngine {
         read::index_tree(self, repo)
     }
 
+    fn index_entry_count(&self, repo: &RepoId) -> AppResult<u64> {
+        read::index_entry_count(self, repo)
+    }
+
     fn head_tree(&self, repo: &RepoId) -> AppResult<Option<String>> {
         read::head_tree(self, repo)
     }

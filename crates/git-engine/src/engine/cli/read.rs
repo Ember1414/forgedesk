@@ -895,6 +895,21 @@ pub(super) fn index_tree(engine: &CliGitEngine, repo: &RepoId) -> AppResult<Stri
     Ok(oid)
 }
 
+/// å½åç´¢å¼çæ¡ç®æ°ï¼ç¶æå¼æåæµçè§æ¨¡æ¢æµï¼è§ trait ææ¡£ï¼ã
+///
+/// `ls-files -z` æè·¯å¾ååºå·²æå­æ¡ç®ï¼åå¹¶å²çªæ¶å»éï¼ï¼ä¸ libgit2 çé¶æ®µè®¡æ°å¯è½ä¸åï¼å³ç­å½æ°åªæå®å½è§æ¨¡ä¿¡å·ï¼ä¸åä¸è·¨å¼æå¥çº¦ã
+pub(super) fn index_entry_count(engine: &CliGitEngine, repo: &RepoId) -> AppResult<u64> {
+    let output = engine.run_write(
+        repo,
+        GitInvocation::new(vec!["ls-files".to_owned(), "-z".to_owned()]),
+    )?;
+    // è·¯å¾å¯è½ä¸æ¯åæ³ UTF-8ï¼æ° NUL å­èèä¸æ¯åå­ç¬¦ä¸²ï¼å T1.1 çå­èçº¦å®ï¼ã
+    let nul = b' ';
+    let count = output.stdout.iter().filter(|byte| **byte == nul).count() as u64;
+    // ç©ºè¾åºä¸âæåæ¡ç®æ²¡æç»æ­¢ç¬¦âé½è¦è½åºåï¼ls-files æ¯æ¡åé½æ NULï¼æ«å°¾ä¹æ¯ï¼å æ­¤ NUL æ°å°±æ¯æ¡ç®æ°ï¼ç©ºç´¢å¼æ¶ä¸º 0ã
+    Ok(count)
+}
+
 /// HEAD 的树 oid；空仓库返回 `None`。
 pub(super) fn head_tree(engine: &CliGitEngine, repo: &RepoId) -> AppResult<Option<String>> {
     rev_parse(engine, repo, "HEAD^{tree}")
