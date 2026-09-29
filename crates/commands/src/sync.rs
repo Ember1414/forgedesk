@@ -21,7 +21,7 @@
 use forgedesk_domain::git::{
     FetchOutcome, FetchSpec, PullOutcome, PullSpec, PushOutcome, PushSpec, Remote,
 };
-use forgedesk_domain::AppResult;
+use forgedesk_domain::{AppError, AppResult};
 use serde::Serialize;
 use tauri::{AppHandle, State};
 
@@ -29,7 +29,9 @@ use crate::audit;
 use crate::jobs;
 use crate::state::AppState;
 use forgedesk_services::AuditEntry;
-use forgedesk_services::{AuditArgs, AuditEntry as ServicesAuditEntry, SyncService};
+use forgedesk_services::{
+    AuditArgs, AuditEntry as ServicesAuditEntry, CredentialGate, SyncService,
+};
 
 /// 任务结果（`job:done` 的 payload；都是结构化 outcome）。
 #[derive(Debug, Serialize)]
@@ -49,6 +51,47 @@ pub struct SyncJobResult {
     pub push: Option<PushOutcome>,
 }
 
+/// 给同步服务接上凭据门。
+///
+/// `None` 表示宿主拿不到自身可执行文件路径（无法充当 askpass 程序），
+/// 此时网络操作退化为匿名/SSH——如实降级，而不是拿一个空路径去骗 git。
+fn with_credentials<'a>(
+    service: SyncService<'a>,
+    credentials: Option<&'a CredentialGate>,
+) -> SyncService<'a> {
+    match credentials {
+        Some(gate) => service.with_credentials(gate),
+        None => service,
+    }
+}
+
+/// 把仓库上下文补进错误里的"测试连接"动作。
+///
+/// `ErrorCode::default_actions` 只给动作骨架（id / labelKey / command），
+/// 因为领域层不知道是哪个仓库出的错；而前端会照 `command` + `args` 直接 invoke。
+/// 缺参数的按钮点下去只会得到一条 `VALIDATION`——那比没有按钮更让人困惑。
+fn attach_repo_context(error: AppError, repo_id: i64) -> AppError {
+    if !error.actions.is_empty() {
+        // 已经有更具体的动作了（例如 `PUSH_REJECTED` 的三条修复路径），不叠加
+        return error;
+    }
+    let actions = error.code.default_actions();
+    if actions.is_empty() {
+        return error;
+    }
+
+    let mut enriched = error;
+    for action in actions {
+        let action = if action.command == "credential_test_remote" {
+            action.with_args(serde_json::json!({ "repoId": repo_id }))
+        } else {
+            action
+        };
+        enriched = enriched.with_action(action);
+    }
+    enriched
+}
+
 /// `git_fetch`：立即返回任务 id；进度与结果经 `job:*` 事件。
 #[tauri::command]
 pub fn git_fetch(
@@ -60,14 +103,20 @@ pub fn git_fetch(
     let engines = std::sync::Arc::clone(&state.engines);
     let database = std::sync::Arc::clone(&state.database);
     let snapshots = std::sync::Arc::clone(&state.snapshots);
+    let credential_gate = state.credential_gate.clone();
     let job_id = state.jobs.spawn(jobs::reporter_for(app), move |context| {
         let progress = jobs::progress_sink(&context);
-        let service = SyncService::new(
-            &engines,
-            forgedesk_storage::RepositoryStore::new(&database),
-            snapshots.as_ref(),
+        let service = with_credentials(
+            SyncService::new(
+                &engines,
+                forgedesk_storage::RepositoryStore::new(&database),
+                snapshots.as_ref(),
+            ),
+            credential_gate.as_deref(),
         );
-        let outcome = service.fetch(repo_id, spec, &progress, &context.cancellation())?;
+        let outcome = service
+            .fetch(repo_id, spec, &progress, &context.cancellation())
+            .map_err(|error| attach_repo_context(error, repo_id))?;
         Ok(SyncJobResult {
             remote: Some(outcome.remote.clone()),
             fetch: Some(outcome),
@@ -93,14 +142,20 @@ pub fn git_pull(
     let database = std::sync::Arc::clone(&state.database);
     let snapshots = std::sync::Arc::clone(&state.snapshots);
 
+    let credential_gate = state.credential_gate.clone();
     let job_id = state.jobs.spawn(jobs::reporter_for(app), move |context| {
         let progress = jobs::progress_sink(&context);
-        let service = SyncService::new(
-            &engines,
-            forgedesk_storage::RepositoryStore::new(&database),
-            snapshots.as_ref(),
+        let service = with_credentials(
+            SyncService::new(
+                &engines,
+                forgedesk_storage::RepositoryStore::new(&database),
+                snapshots.as_ref(),
+            ),
+            credential_gate.as_deref(),
         );
-        let outcome = service.pull(repo_id, spec, &progress, &context.cancellation())?;
+        let outcome = service
+            .pull(repo_id, spec, &progress, &context.cancellation())
+            .map_err(|error| attach_repo_context(error, repo_id))?;
         // pull 移动了 HEAD / 工作区：同步事件让状态页与历史页刷新
         Ok(SyncJobResult {
             remote: Some(outcome.fetch.remote.clone()),
@@ -130,12 +185,16 @@ pub fn git_push(
 
     // push 的审计在任务线程里记（与 repo_clone 同一模式：结果在任务里才知道）
     let audit_database = state.database.clone();
+    let credential_gate = state.credential_gate.clone();
     let job_id = state.jobs.spawn(jobs::reporter_for(app), move |context| {
         let progress = jobs::progress_sink(&context);
-        let service = SyncService::new(
-            &engines,
-            forgedesk_storage::RepositoryStore::new(&database),
-            snapshots.as_ref(),
+        let service = with_credentials(
+            SyncService::new(
+                &engines,
+                forgedesk_storage::RepositoryStore::new(&database),
+                snapshots.as_ref(),
+            ),
+            credential_gate.as_deref(),
         );
         let spec_ref = &spec;
         let operation = audit::record_with(
@@ -158,7 +217,7 @@ pub fn git_push(
                 )
             },
         );
-        let outcome = operation?;
+        let outcome = operation.map_err(|error| attach_repo_context(error, repo_id))?;
         Ok(SyncJobResult {
             remote: Some(outcome.remote.clone()),
             fetch: None,
@@ -237,4 +296,57 @@ pub fn git_remote_set_url(
         AuditEntry::new(repo_id, "remote.setUrl").with_args(args),
         || state.sync_service().remote_set_url(repo_id, &name, &url),
     )
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod tests {
+    use super::*;
+    use forgedesk_domain::{ErrorCode, FixAction};
+
+    /// 前端会照 `command` + `args` 直接 invoke：参数错了，按钮点下去只会得到
+    /// 一条 `VALIDATION`，用户看到的则是"点了没反应"。
+    #[test]
+    fn the_test_connection_action_carries_the_repository_id() {
+        let error = AppError::from_code(ErrorCode::SshKeyRejected);
+
+        let enriched = attach_repo_context(error, 42);
+
+        let action = enriched.actions.first().expect("应当补上一个动作");
+        assert_eq!(action.command, "credential_test_remote");
+        assert_eq!(
+            action
+                .args
+                .as_ref()
+                .and_then(|args| args.get("repoId"))
+                .and_then(serde_json::Value::as_i64),
+            Some(42)
+        );
+    }
+
+    #[test]
+    fn an_error_that_already_carries_specific_actions_is_left_alone() {
+        // `PUSH_REJECTED` 的三条修复路径是更具体的出口，不能被"测试连接"叠加进来
+        let error = AppError::from_code(ErrorCode::PushRejected).with_action(FixAction::new(
+            "fetch-first",
+            "errors:actions.pushFetchFirst",
+            "git_fetch",
+        ));
+
+        let enriched = attach_repo_context(error, 42);
+
+        assert_eq!(enriched.actions.len(), 1);
+        assert_eq!(enriched.actions[0].command, "git_fetch");
+    }
+
+    #[test]
+    fn codes_without_default_actions_pass_through_unchanged() {
+        let error = AppError::from_code(ErrorCode::Network);
+
+        let enriched = attach_repo_context(error.clone(), 42);
+
+        assert!(enriched.actions.is_empty());
+        assert_eq!(enriched.code, error.code);
+        assert_eq!(enriched.message, error.message);
+    }
 }
