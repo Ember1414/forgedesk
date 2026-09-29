@@ -218,7 +218,10 @@ pub(crate) fn record<T>(
     state: &AppState,
     entry: AuditEntry<'_>,
     run: impl FnOnce() -> AppResult<T>,
-) -> AppResult<T> {
+) -> AppResult<T>
+where
+    T: serde::Serialize,
+{
     record_with(&state.audit_service(), entry, run)
 }
 
@@ -227,15 +230,37 @@ pub(crate) fn record<T>(
 /// 拦截逻辑本身（"成功与失败都要收尾"）是最值得钉住的部分：它错了会表现为
 /// "审计表里一堆没有结束时间的记录"，而那正是"应用崩了"的信号——假警报
 /// 会让真正的崩溃淹没在噪音里。
-pub(crate) fn record_with<T>(
+///
+/// # `snapshot_id` 从结果里提取（T2.10 修复）
+///
+/// 结果的 serde 形状是 IPC 契约（camelCase）：凡是带 `snapshotId` 字段的结果
+/// （reset / cherry-pick / revert / stash save / apply / pop…），这个 id 会被
+/// 写进 `operation_records.snapshot_id`，`reversible` 据此为真——这是"遍历
+/// operation_records 与 snapshots 的关联性"能成立的前提。此前这里硬编码
+/// `None`：服务层明明打了快照、前端也拿得到 id，唯独审计表断链，
+/// "这个操作能不能回滚"在操作历史里永远是"否"。
+///
+/// 提取走**契约形状**而不是给每个 DTO 加 trait：没有 `snapshotId` 字段的
+/// 结果（`()`、清单、只读查询）自然提取为 `None`；哪个操作该带 id 而没带，
+/// 由 `write_ops_safety_net` 集成测试的关联断言兜底。
+pub fn record_with<T>(
     audit: &forgedesk_services::AuditLog<'_>,
     entry: AuditEntry<'_>,
     run: impl FnOnce() -> AppResult<T>,
-) -> AppResult<T> {
+) -> AppResult<T>
+where
+    T: serde::Serialize,
+{
     let operation = audit.begin(&entry);
     let result = run();
     if let Some(operation) = operation {
-        operation.finish(&result, None);
+        let snapshot_id = match &result {
+            Ok(value) => serde_json::to_value(value)
+                .ok()
+                .and_then(|json| json.get("snapshotId").and_then(serde_json::Value::as_i64)),
+            Err(_) => None,
+        };
+        operation.finish(&result, snapshot_id);
     }
     result
 }

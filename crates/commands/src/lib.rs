@@ -48,8 +48,8 @@ pub mod watch;
 pub mod workspace;
 
 pub use audit::{
-    audit_export, audit_list, audit_prune, AuditEntryDto, AuditExportDto, AuditPageDto,
-    AuditPruneDto,
+    audit_export, audit_list, audit_prune, record_with, AuditEntryDto, AuditExportDto,
+    AuditPageDto, AuditPruneDto,
 };
 pub use branch::{
     git_branch_compare, git_branch_create, git_branch_delete, git_branch_rename,

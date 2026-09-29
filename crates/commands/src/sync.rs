@@ -19,7 +19,7 @@
 //! 本任务不把任何 secret 放进命令行或 URL（红线 R8）。
 
 use forgedesk_domain::git::{
-    FetchOutcome, FetchSpec, PullOutcome, PullSpec, PushOutcome, PushSpec, Remote,
+    FetchOutcome, FetchSpec, PullOutcome, PullSpec, PullStrategy, PushOutcome, PushSpec, Remote,
 };
 use forgedesk_domain::{AppError, AppResult};
 use serde::Serialize;
@@ -88,6 +88,8 @@ pub fn git_fetch(
     let database = std::sync::Arc::clone(&state.database);
     let snapshots = std::sync::Arc::clone(&state.snapshots);
     let credential_gate = state.credential_gate.clone();
+    // 审计在任务线程里记（与 push / repo_clone 同一模式：结果在任务里才知道）
+    let audit_database = state.database.clone();
     let job_id = state.jobs.spawn(jobs::reporter_for(app), move |context| {
         let progress = jobs::progress_sink(&context);
         let service = SyncService::new(
@@ -96,9 +98,24 @@ pub fn git_fetch(
             snapshots.as_ref(),
         )
         .with_credential_gate(credential_gate.as_deref());
-        let outcome = service
-            .fetch(repo_id, spec, &progress, &context.cancellation())
-            .map_err(|error| attach_repo_context(error, repo_id))?;
+        let spec_ref = &spec;
+        let operation = audit::record_with(
+            &forgedesk_services::AuditLog::new(forgedesk_storage::OperationStore::new(
+                &audit_database,
+            )),
+            ServicesAuditEntry::new(repo_id, "sync.fetch").with_args(
+                AuditArgs::new().text("remote", spec_ref.remote.as_deref().unwrap_or("<upstream>")),
+            ),
+            || {
+                service.fetch(
+                    repo_id,
+                    spec_ref.clone(),
+                    &progress,
+                    &context.cancellation(),
+                )
+            },
+        );
+        let outcome = operation.map_err(|error| attach_repo_context(error, repo_id))?;
         Ok(SyncJobResult {
             remote: Some(outcome.remote.clone()),
             fetch: Some(outcome),
@@ -125,6 +142,7 @@ pub fn git_pull(
     let snapshots = std::sync::Arc::clone(&state.snapshots);
 
     let credential_gate = state.credential_gate.clone();
+    let audit_database = state.database.clone();
     let job_id = state.jobs.spawn(jobs::reporter_for(app), move |context| {
         let progress = jobs::progress_sink(&context);
         let service = SyncService::new(
@@ -133,9 +151,33 @@ pub fn git_pull(
             snapshots.as_ref(),
         )
         .with_credential_gate(credential_gate.as_deref());
-        let outcome = service
-            .pull(repo_id, spec, &progress, &context.cancellation())
-            .map_err(|error| attach_repo_context(error, repo_id))?;
+        let spec_ref = &spec;
+        let operation = audit::record_with(
+            &forgedesk_services::AuditLog::new(forgedesk_storage::OperationStore::new(
+                &audit_database,
+            )),
+            ServicesAuditEntry::new(repo_id, "sync.pull").with_args(
+                AuditArgs::new()
+                    .text("remote", spec_ref.remote.as_deref().unwrap_or("<upstream>"))
+                    .text(
+                        "strategy",
+                        match spec_ref.strategy {
+                            PullStrategy::Merge => "merge",
+                            PullStrategy::Rebase => "rebase",
+                            PullStrategy::FastForwardOnly => "ff-only",
+                        },
+                    ),
+            ),
+            || {
+                service.pull(
+                    repo_id,
+                    spec_ref.clone(),
+                    &progress,
+                    &context.cancellation(),
+                )
+            },
+        );
+        let outcome = operation.map_err(|error| attach_repo_context(error, repo_id))?;
         // pull 移动了 HEAD / 工作区：同步事件让状态页与历史页刷新
         Ok(SyncJobResult {
             remote: Some(outcome.fetch.remote.clone()),

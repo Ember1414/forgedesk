@@ -522,6 +522,8 @@ pub fn repo_init(state: State<'_, AppState>, spec: InitRequest) -> AppResult<Ope
     let (path, init_spec, extras) = spec.into_parts()?;
 
     // 仓库记录 id 要等初始化成功才存在，因此这条记录挂在"全局"下（args 有路径）
+    // （DTO 构造挪进闭包：record 的结果形状要求可序列化——这也正是快照 id
+    //   能从结果里提取进审计表的同一约束）
     let opened = crate::audit::record(
         &state,
         AuditEntry::new(GLOBAL_REPO_ID, op_type::INIT).with_args(
@@ -529,18 +531,31 @@ pub fn repo_init(state: State<'_, AppState>, spec: InitRequest) -> AppResult<Ope
                 .text("path", &path.display().to_string())
                 .flag("bare", init_spec.bare),
         ),
-        || state.repository_service().init(&path, &init_spec, &extras),
+        || {
+            state
+                .repository_service()
+                .init(&path, &init_spec, &extras)
+                .map(OpenedRepositoryDto::from)
+        },
     )?;
 
-    // 与 repo_open 同一条纪律：初始化成功就顺手开始监听
+    // 与 repo_open 同一条纪律：初始化成功就顺手开始监听。
+    // 监听根从 DTO 里取：workdir 缺失（裸仓库）时退回 `.git` 目录——
+    // 与 `watch_root` 同一规则，只是数据源换了形状
+    let watch_path = opened
+        .repository
+        .workdir
+        .as_deref()
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(&opened.repository.git_dir));
     watch::start_for_repo(
         &state.watchers,
         &state.database,
         opened.record_id,
-        watch_root(&opened),
+        &watch_path,
     );
 
-    Ok(OpenedRepositoryDto::from(opened))
+    Ok(opened)
 }
 
 /// 最近打开的仓库（按最近打开时间倒序）。

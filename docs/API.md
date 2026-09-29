@@ -1227,8 +1227,8 @@ fetch / pull / push 都是**长任务**（走 `JobRunner`：立即返回 `jobId`
 
 | 命令 | 能力 | 参数 | 返回 / 说明 |
 | --- | --- | --- | --- |
-| `git_fetch` | Network | `repoId, spec { remote?, prune, refspecs[], tags, depth? }` | `jobId`；`job:done.result = { remote, fetch }` |
-| `git_pull` | Mutating | `repoId, spec { remote?, branch?, strategy, autostash, allowUnrelated }` | `jobId`；`job:done.result = { remote, pull }`；`strategy ∈ "fastForwardOnly" \| "merge" \| "rebase"`，缺省 `fastForwardOnly`（最安全） |
+| `git_fetch` | Network | `repoId, spec { remote?, prune, refspecs[], tags, depth? }` | `jobId`；`job:done.result = { remote, fetch }`；写审计（`sync.fetch`，T2.10 起） |
+| `git_pull` | Mutating | `repoId, spec { remote?, branch?, strategy, autostash, allowUnrelated }` | `jobId`；`job:done.result = { remote, pull }`；`strategy ∈ "fastForwardOnly" \| "merge" \| "rebase"`，缺省 `fastForwardOnly`（最安全）；写审计（`sync.pull`，T2.10 起），`pull.snapshotId` 关联执行前的 `PreSync` 快照 |
 | `git_push` | Network | `repoId, spec { remote?, branch?, setUpstream, forceWithLease, tags, remoteBranch?, dryRun }` | `jobId`；`job:done.result = { remote, push }`；被拒见下方 `PUSH_REJECTED` |
 | `git_remote_list` | ReadOnly | `repoId` | `Remote[]`（`{ name, fetchUrl, pushUrl?, kind }`；`kind ∈ "https" \| "ssh" \| "git" \| "file" \| "other"`） |
 | `git_remote_add` | Mutating | `repoId, name, url` | `()`；名称（单段、无空白、不含 ref 禁用字符）与 URL 形状先校验 |
@@ -1248,7 +1248,7 @@ interface SyncJobResult {
   /** 只有 git_fetch 会填。 */
   fetch?: FetchOutcome; // { remote, updates: RefUpdate[] }
   /** 只有 git_pull 会填。 */
-  pull?: PullOutcome; // { fetch, strategy, upToDate, merge?: { kind, oid?, conflicts[] } }
+  pull?: PullOutcome; // { fetch, strategy, upToDate, merge?: { kind, oid?, conflicts[] }, snapshotId? }
   /** 只有 git_push 会填。 */
   push?: PushOutcome; // { remote, updates: RefUpdate[], rejections[] }
 }
@@ -1375,13 +1375,13 @@ identity 文件）、`TLS_CERTIFICATE_REJECTED`（自签名或证书链不完整
 
 | 命令 | 能力 | 参数 | 返回 |
 | --- | --- | --- | --- |
-| `git_stash_save` | Mutating | `{ message?, includeUntracked, keepIndex, paths? }` | `{ stashed, entry? }`。**`stashed=false` 不是失败**（没有可储藏的内容）；储藏前打 `pre-worktree-change` 快照 |
+| `git_stash_save` | Mutating | `{ message?, includeUntracked, keepIndex, paths? }` | `{ stashed, entry?, snapshotId? }`。**`stashed=false` 不是失败**（没有可储藏的内容）；储藏前打 `pre-worktree-change` 快照，`snapshotId` 随结果返回（T2.10 起，同时也写入审计表） |
 | `git_stash_list` | ReadOnly | `repoId` | `StashEntry[]`（`{ index, oid, baseOid, message, createdAt?, includesUntracked, untrackedOid? }`） |
 | `git_stash_show` | ReadOnly | `repoId, index` | `{ entry, diff, untracked? }`：`diff` 是**相对 base** 的变更；`-u` 创建的 stash 里未跟踪文件**不在** `diff` 里，单独放在 `untracked`（与空树比较，全是新增）。界面对 `-u` 的 stash 必须两份都展示，只展示 `diff` 会让人以为 stash 是完整的 |
-| `git_stash_apply` / `git_stash_pop` | Mutating | `{ index, restoreIndex? }`（`restoreIndex` = `--index`） | `StashOutcome { conflicts }`。**冲突不是错误**：仓库已进入冲突状态，`conflicts` 列出冲突文件，`pop` 冲突时**不会**删除该条 |
-| `git_stash_drop` / `git_stash_clear` | Dangerous | `repoId[, index]` | `{ dropped: StashEntry[] }`（含 oid）。**不打快照**（有意为之：快照记录的是 HEAD/索引/工作区，不含 stash 内容，打了只会制造假安心）；安全网是返回并审计被丢的 oid——`gc` 回收之前都能按 oid 找回 |
+| `git_stash_apply` / `git_stash_pop` | Mutating | `{ index, restoreIndex? }`（`restoreIndex` = `--index`） | `StashOutcome { conflicts, snapshotId? }`。**冲突不是错误**：仓库已进入冲突状态，`conflicts` 列出冲突文件，`pop` 冲突时**不会**删除该条；操作前打 `pre-worktree-change` 快照（T2.10 起随结果返回） |
+| `git_stash_drop` / `git_stash_clear` | Dangerous | `repoId[, index]` | `{ dropped: StashEntry[] }`（含 oid）。**不打快照**（有意为之：快照记录的是 HEAD/索引/工作区，不含 stash 内容，打了只会制造假安心）；安全网是返回并审计被丢的 oid——审计的 `args` 里带被丢 oid（clear 取上限内的清单），`gc` 回收之前都能按 oid 找回 |
 | `git_stash_branch` | Mutating | `{ index, name }` | `{ branch }`；从 stash 的 base 建分支并应用（**会切换分支**，先打 `pre-head-move` 快照）。pop 冲突时的正规出路：新分支从 base 开始，一定干净 |
-| `git_cherry_pick` | Mutating | `{ revision, recordSource?, noCommit? }`（`revision` 可以是 `A..B` 区间） | `MergeOutcome`（复用 pull 的冲突形状）。`recordSource` = `-x`（提交信息里附来源） |
+| `git_cherry_pick` | Mutating | `{ revision, recordSource?, noCommit? }`（`revision` 可以是 `A..B` 区间） | `MergeOutcome { kind, oid?, conflicts[], snapshotId? }`（复用 pull 的冲突形状）。`recordSource` = `-x`（提交信息里附来源） |
 | `git_revert` | Mutating | `{ revision, mainline?, noCommit? }` | `MergeOutcome`。**反转合并提交必须给 `mainline`**（从 1 开始），猜错主父会反转出相反的结果，因此没有缺省值 |
 | `git_reset_prepare` | ReadOnly | `{ revision, mode }`（`mode ∈ "soft" \| "mixed" \| "hard"`） | `ResetPlan`（见下）。不写仓库 |
 | `git_reset_execute` | Mutating | `{ planId, confirmation? }` | `ResetOutcome { mode, headBefore, headAfter, discardedCount, snapshotId? }`。`--hard` 必须带 `confirmation="reset"`（大小写与首尾空白不敏感），否则 `VALIDATION` |

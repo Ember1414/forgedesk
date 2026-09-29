@@ -176,6 +176,8 @@ pub struct StashSaveDto {
     pub stashed: bool,
     /// 新条目。
     pub entry: Option<StashEntry>,
+    /// 操作前打的快照 id（审计表与前端回滚入口都靠它；T2.10 补上）。
+    pub snapshot_id: Option<i64>,
 }
 
 impl From<StashSaveOutcome> for StashSaveDto {
@@ -183,6 +185,7 @@ impl From<StashSaveOutcome> for StashSaveDto {
         Self {
             stashed: outcome.stashed,
             entry: outcome.entry,
+            snapshot_id: outcome.snapshot_id,
         }
     }
 }
@@ -474,9 +477,21 @@ pub fn git_stash_drop(
     index: usize,
 ) -> AppResult<StashDiscardDto> {
     let repo_id = require_repo(repo_id)?;
-    let args = AuditArgs::new()
+    // 被丢 oid 先记进 args：drop/clear 按设计**不打快照**（工作区快照找不回
+    // stash 内容），审计里的 oid 是 gc 之前唯一的自救线索（T2.8 的约定），
+    // 因此不能只有 index——那条记录在丢弃后就什么都不剩了
+    let target_oid = state
+        .stash_service()
+        .list(repo_id)?
+        .into_iter()
+        .find(|entry| entry.index == index)
+        .map(|entry| entry.oid);
+    let mut args = AuditArgs::new()
         .number("index", index as i64)
         .text("scope", "one");
+    if let Some(oid) = &target_oid {
+        args = args.text("oid", oid);
+    }
 
     audit::record(
         &state,
@@ -497,7 +512,14 @@ pub fn git_stash_clear(
     repo_id: i64,
 ) -> AppResult<StashDiscardDto> {
     let repo_id = require_repo(repo_id)?;
-    let args = AuditArgs::new().text("scope", "all");
+    // 同 drop：clear 之前把将丢的 oid 清单记进 args（上限内），gc 前可按 oid 自救
+    let entries = state.stash_service().list(repo_id)?;
+    let mut args = AuditArgs::new()
+        .text("scope", "all")
+        .number("count", entries.len() as i64);
+    for entry in entries.iter().take(16) {
+        args = args.text("oid", &entry.oid);
+    }
 
     audit::record(
         &state,

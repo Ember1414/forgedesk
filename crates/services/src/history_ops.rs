@@ -171,9 +171,11 @@ impl<'a> HistoryOpsService<'a> {
         } else {
             SnapshotKind::PreHeadMove
         };
-        self.snapshot(repo_id, &workdir, kind);
+        let snapshot_id = self.snapshot(repo_id, &workdir, kind);
 
-        self.engines.write().cherry_pick(&repo, spec.clone())
+        let mut outcome = self.engines.write().cherry_pick(&repo, spec.clone())?;
+        outcome.snapshot_id = snapshot_id;
+        Ok(outcome)
     }
 
     /// 反转提交（单个或区间）。
@@ -186,9 +188,11 @@ impl<'a> HistoryOpsService<'a> {
         } else {
             SnapshotKind::PreHeadMove
         };
-        self.snapshot(repo_id, &workdir, kind);
+        let snapshot_id = self.snapshot(repo_id, &workdir, kind);
 
-        self.engines.write().revert(&repo, spec.clone())
+        let mut outcome = self.engines.write().revert(&repo, spec.clone())?;
+        outcome.snapshot_id = snapshot_id;
+        Ok(outcome)
     }
 
     // ------------------------------------------------------------ 重置（两段式）

@@ -36,6 +36,8 @@ pub struct StashSaveOutcome {
     pub stashed: bool,
     /// 新产生的那条（`stashed` 为真时一定存在）。
     pub entry: Option<StashEntry>,
+    /// 操作前打的快照 id（T2.10：随 DTO 流向前端与审计表，不再半路丢弃）。
+    pub snapshot_id: Option<i64>,
 }
 
 /// 某条 stash 相对它 base 的变更。
@@ -126,7 +128,7 @@ impl<'a> StashService<'a> {
         let repo = RepoId::new(workdir.clone());
         let before = self.engines.read().stash_list(&repo)?.len();
 
-        self.snapshot(repo_id, &workdir, SnapshotKind::PreWorktreeChange);
+        let snapshot_id = self.snapshot(repo_id, &workdir, SnapshotKind::PreWorktreeChange);
 
         self.engines.write().stash(&repo, spec.clone())?;
 
@@ -142,6 +144,7 @@ impl<'a> StashService<'a> {
             } else {
                 None
             },
+            snapshot_id,
         })
     }
 
@@ -227,9 +230,11 @@ impl<'a> StashService<'a> {
         let workdir = self.resolve_workdir(repo_id)?;
         let repo = RepoId::new(workdir.clone());
 
-        self.snapshot(repo_id, &workdir, SnapshotKind::PreWorktreeChange);
+        let snapshot_id = self.snapshot(repo_id, &workdir, SnapshotKind::PreWorktreeChange);
 
-        self.engines.write().stash(&repo, spec.clone())
+        let mut outcome = self.engines.write().stash(&repo, spec.clone())?;
+        outcome.snapshot_id = snapshot_id;
+        Ok(outcome)
     }
 
     // ------------------------------------------------------------ 丢弃

@@ -140,16 +140,18 @@ impl<'a> SyncService<'a> {
     ) -> AppResult<PullOutcome> {
         let workdir = self.resolve_workdir(repo_id)?;
         let context = self.auth_context(&workdir, spec.remote.as_deref())?;
-        self.snapshot_before(repo_id, &workdir, "pull");
+        let snapshot_id = self.snapshot_before(repo_id, &workdir, "pull");
         let repo = RepoId::new(workdir);
-        let outcome = match self
-            .engines
-            .write()
-            .pull(&repo, spec, progress, cancel, context.auth())
-        {
-            Ok(outcome) => outcome,
-            Err(error) => return Err(context.describe_failure(error)),
-        };
+        let mut outcome =
+            match self
+                .engines
+                .write()
+                .pull(&repo, spec, progress, cancel, context.auth())
+            {
+                Ok(outcome) => outcome,
+                Err(error) => return Err(context.describe_failure(error)),
+            };
+        outcome.snapshot_id = snapshot_id;
         context.note_success();
         Ok(outcome)
     }
@@ -304,16 +306,20 @@ impl<'a> SyncService<'a> {
             .remote_set_url(&RepoId::new(workdir), name, url)
     }
 
-    /// 危险操作前打快照（pull 会移动 HEAD）。
-    fn snapshot_before(&self, repo_id: i64, workdir: &std::path::Path, label: &str) {
+    /// 危险操作前打快照（pull 会移动 HEAD）；失败**不阻断**，返回 `None`。
+    fn snapshot_before(&self, repo_id: i64, workdir: &std::path::Path, label: &str) -> Option<i64> {
         let request = SnapshotRequest {
             repo_id,
             workdir,
             label: SnapshotKind::PreSync.key(),
             kind: SnapshotKind::PreSync,
         };
-        if let Err(error) = self.snapshots.create(&request) {
-            tracing::warn!(error = %error.message(), label, "同步前未能创建快照");
+        match self.snapshots.create(&request) {
+            Ok(id) => Some(id),
+            Err(error) => {
+                tracing::warn!(error = %error.message(), label, "同步前未能创建快照");
+                None
+            }
         }
     }
 }
