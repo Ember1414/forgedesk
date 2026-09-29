@@ -140,6 +140,14 @@ jobs:
       - name: Rust clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
 
+      # 测试夹具应该自足（仓库级身份由各自配置）；这条全局身份是**防御层**——
+      # 任何漏配身份的新测试不会因此挂掉 CI（2026-09-28 起的长期红灯根因：
+      # differential 生命周期用例依赖 runner 全局身份，runner 上没有）。
+      - name: Configure git identity for tests
+        run: |
+          git config --global user.name "ForgeDesk CI"
+          git config --global user.email "ci@forgedesk.invalid"
+
       - name: Rust tests
         run: cargo test --workspace
 

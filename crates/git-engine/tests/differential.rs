@@ -751,6 +751,11 @@ fn cli_engine_drives_a_full_read_write_lifecycle() {
     let info = cli.init(dir.path(), Default::default()).expect("init 失败");
     assert!(info.is_empty, "刚初始化的仓库应当是空的");
     assert!(!info.is_bare);
+    // 引擎的 init 不会配置身份（那是用户环境的事）；commit 依赖身份，
+    // CI runner 没有全局 user.name/email——本机有全局配置所以本地一直绿、
+    // CI 一直红（2026-09-28 起的长期红灯根因）。仓库级配置让测试自足。
+    git_ok(dir.path(), &["config", "user.name", "Fixture Author"]);
+    git_ok(dir.path(), &["config", "user.email", "author@example.com"]);
 
     // 首次提交
     write(dir.path(), "a.txt", b"one\n");

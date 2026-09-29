@@ -48,6 +48,7 @@ vi.mock('@/lib/ipc', async (importOriginal) => {
 });
 
 import { repoClone, repoInit, repoOpen } from '@/lib/ipc';
+import type { OpenedRepository } from '@/lib/ipc';
 const repoOpenMock = vi.mocked(repoOpen);
 const repoCloneMock = vi.mocked(repoClone);
 const repoInitMock = vi.mocked(repoInit);
@@ -93,7 +94,9 @@ afterEach(() => {
   useToastStore.setState(initialToastState);
 });
 
-const openRepoResult = {
+// 显式注成 IPC 契约形状：fixture 漏字段/错字面量由 typecheck 当场拦住，
+// 而不是等 CI（本机漏跑 typecheck 被抓过一次）
+const openRepoResult: OpenedRepository = {
   recordId: 7,
   repository: {
     workdir: 'D:/demo',
@@ -102,8 +105,14 @@ const openRepoResult = {
     isEmpty: false,
     head: 'main',
     detached: false,
+    upstream: null,
+    defaultBranch: 'main',
+    isShallow: false,
+    isLfs: false,
+    worktrees: [],
+    branchLabel: { kind: 'named', name: 'main' },
   },
-  audit: { findings: [] },
+  audit: { findings: [], hasDanger: false, maxSeverity: null },
   gitVersion: '2.50.0',
   gitVersionSupported: true,
   needsGitUpgrade: false,
