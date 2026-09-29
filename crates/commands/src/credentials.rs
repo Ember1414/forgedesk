@@ -14,6 +14,8 @@
 
 use forgedesk_credentials::{BackendKind, CredentialKind, CredentialMeta, Secret};
 use forgedesk_domain::AppResult;
+use forgedesk_services::CredentialMode;
+use forgedesk_storage::{Database, Scope, SettingsRepository};
 
 use crate::state::AppState;
 
@@ -119,17 +121,24 @@ pub fn credential_test_remote(
 pub struct CredentialsStatusDto {
     /// 密文实际存在哪里（`systemKeyring` / `encryptedVault` / `memory`）。
     pub backend: BackendKind,
-    /// 已保存的凭据数量。
-    pub count: usize,
+    /// 当前形态：`systemKeyring` / `vaultUnlocked` / `vaultLocked`。
+    pub mode: CredentialMode,
+    /// 已保存的凭据数量；保险库未解锁时为 `null`（**不是 0**）。
+    pub count: Option<usize>,
     /// 索引文件路径（keyring 不可用时用户需要知道回退文件在哪）。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub index_path: Option<String>,
+    /// 加密保险库文件路径（已存在时）。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub vault_path: Option<String>,
+    /// 保险库文件是否已存在（界面据此决定展示"新建"还是"解锁"）。
+    pub vault_exists: bool,
     /// 系统凭据库是否可用；不可用时给出平台原因（数据，不是建议）。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub keyring_unavailable_reason: Option<String>,
 }
 
-/// 凭据状态：存在哪里、有多少条、系统凭据库能不能用。
+/// 凭据状态：存在哪里、处于哪种形态、有多少条、系统凭据库能不能用。
 ///
 /// 为什么要主动探测凭据库：Linux 上没有 Secret Service 时，用户要等**第一次保存**
 /// 才知道不可用——那时他已经填完表单了。这里提前告诉他，并给出回退方向。
@@ -141,11 +150,62 @@ pub fn credentials_status(state: tauri::State<'_, AppState>) -> AppResult<Creden
 
     Ok(CredentialsStatusDto {
         backend: status.backend,
+        mode: status.mode,
         count: status.count,
         index_path: status.index_path,
+        vault_path: status.vault_path,
+        vault_exists: status.vault_exists,
         keyring_unavailable_reason: availability.reason().map(str::to_owned),
     })
 }
+
+/// 新建加密保险库（系统凭据库不可用时的回退方案）并切到它。
+///
+/// 口令只以 [`Secret`] 形式在内存里存在，落盘的是 Argon2id 派生的密钥加密后的密文；
+/// 口令本身**不**保存——忘了口令等于忘了里面的凭据（这是加密存储的固有代价，界面必须说清）。
+#[tauri::command]
+pub fn credentials_vault_create(
+    state: tauri::State<'_, AppState>,
+    passphrase: String,
+) -> AppResult<()> {
+    let secret = Secret::new(passphrase);
+    state.credentials_service().create_vault(&secret)?;
+    remember_backend(&state, BACKEND_ENCRYPTED_VAULT)
+}
+
+/// 解锁已有加密保险库并切到它。
+#[tauri::command]
+pub fn credentials_vault_unlock(
+    state: tauri::State<'_, AppState>,
+    passphrase: String,
+) -> AppResult<()> {
+    let secret = Secret::new(passphrase);
+    state.credentials_service().unlock_vault(&secret)?;
+    remember_backend(&state, BACKEND_ENCRYPTED_VAULT)
+}
+
+/// 记住"用户选了哪个凭据后端"，供下次启动时直接进入该形态。
+fn remember_backend(state: &AppState, backend: &str) -> AppResult<()> {
+    SettingsRepository::new(&state.database).set(&Scope::Global, CREDENTIALS_BACKEND_KEY, backend)
+}
+
+/// 读"用户上次选择的凭据后端"。
+///
+/// 为什么放在命令层：启动时（`AppState` 还没建好）只有数据库可用，
+/// 而"选择"是命令写进去的——读写必须用同一个键，因此定义也留在这里。
+pub fn preferred_backend(database: &Database) -> Option<String> {
+    SettingsRepository::new(database)
+        .get(&Scope::Global, CREDENTIALS_BACKEND_KEY)
+        .ok()
+        .flatten()
+}
+
+/// 凭据后端的选择键（全局设置）。
+pub const CREDENTIALS_BACKEND_KEY: &str = "credentials.backend";
+/// 取值：系统凭据库。
+pub const BACKEND_SYSTEM_KEYRING: &str = "systemKeyring";
+/// 取值：加密文件（回退方案）。
+pub const BACKEND_ENCRYPTED_VAULT: &str = "encryptedVault";
 
 // 校验全部落在 `forgedesk_credentials::CredentialRef::new` 与存储层（空令牌 → VALIDATION），
 // 本模块不做第二套规则：两套规则迟早会不一致，而不一致的那一套通常更松。

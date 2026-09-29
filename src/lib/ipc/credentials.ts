@@ -37,12 +37,26 @@ export interface CredentialMeta {
 /** 密文实际存放的位置。 */
 export type CredentialBackend = 'systemKeyring' | 'encryptedVault' | 'memory';
 
+/** 凭据存储当前的形态（界面据此在"添加"与"解锁"之间切换）。 */
+export type CredentialMode = 'systemKeyring' | 'vaultUnlocked' | 'vaultLocked';
+
 /** 凭据状态（设置页的顶部说明用）。 */
 export interface CredentialsStatus {
   readonly backend: CredentialBackend;
-  readonly count: number;
+  /** 当前形态。 */
+  readonly mode: CredentialMode;
+  /**
+   * 已保存的凭据数量；保险库未解锁时为 `null`。
+   *
+   * 注意不是 0：0 的意思是"没有凭据"，而 `null` 是"还不知道"。
+   */
+  readonly count: number | null;
   /** 索引文件路径（keyring 不可用时用户需要知道回退文件在哪）。 */
   readonly indexPath?: string;
+  /** 加密保险库文件路径（已存在时）。 */
+  readonly vaultPath?: string;
+  /** 保险库文件是否已存在（决定展示"新建"还是"解锁"）。 */
+  readonly vaultExists: boolean;
   /**
    * 系统凭据库不可用的原因（平台原文，是**数据**不是建议）。
    *
@@ -89,6 +103,21 @@ export function credentialsDelete(key: CredentialRef): Promise<void> {
 /** 凭据状态：存在哪里、有多少条、系统凭据库是否可用。 */
 export function credentialsStatus(): Promise<CredentialsStatus> {
   return invokeCommand<CredentialsStatus>('credentials_status');
+}
+
+/**
+ * 新建加密保险库并切换到它（系统凭据库不可用时的回退方案）。
+ *
+ * 口令只用于派生密钥，**不会**被保存：忘记口令等于里面的凭据不可恢复。
+ * 已存在保险库文件时后端拒绝（覆盖等于把已有凭据悄悄清空）。
+ */
+export function credentialsVaultCreate(passphrase: string): Promise<void> {
+  return invokeCommand<void>('credentials_vault_create', { passphrase });
+}
+
+/** 解锁已有加密保险库并切换到它。口令错时返回本地存储类错误。 */
+export function credentialsVaultUnlock(passphrase: string): Promise<void> {
+  return invokeCommand<void>('credentials_vault_unlock', { passphrase });
 }
 
 /**

@@ -160,8 +160,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let credentials = Arc::new(CredentialsService::keyring(
                 data_dir.join(CREDENTIALS_INDEX_FILE),
             ));
+            // 上次选的是加密文件、且保险库还在 → 启动即进入"待解锁"。
+            // 不这样做会拿一个空 keyring 冒充"没有凭据"，用户会以为保存过的令牌丢了。
+            if forgedesk_commands::preferred_backend(&database)
+                .as_deref()
+                == Some(forgedesk_commands::BACKEND_ENCRYPTED_VAULT)
+                && credentials.vault_exists()
+            {
+                credentials.lock_vault();
+                info!("凭据使用加密保险库，等待用户解锁");
+            }
             let credential_gate =
-                CredentialGate::with_app_askpass(credentials.store()).map(Arc::new);
+                CredentialGate::with_app_askpass(credentials.shared()).map(Arc::new);
 
             app.manage(AppState {
                 database: Arc::clone(&database),
@@ -257,6 +267,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         forgedesk_commands::credentials_delete,
         forgedesk_commands::credentials_status,
         forgedesk_commands::credential_test_remote,
+        forgedesk_commands::credentials_vault_create,
+        forgedesk_commands::credentials_vault_unlock,
         forgedesk_commands::debug_throw_error,
         forgedesk_commands::debug_panic,
     ]);
@@ -321,6 +333,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         forgedesk_commands::credentials_delete,
         forgedesk_commands::credentials_status,
         forgedesk_commands::credential_test_remote,
+        forgedesk_commands::credentials_vault_create,
+        forgedesk_commands::credentials_vault_unlock,
     ]);
 
     let app = builder.build(tauri::generate_context!())?;

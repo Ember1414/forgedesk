@@ -62,7 +62,9 @@ pub use commit::{
 pub use commit_detail::git_commit_detail;
 pub use credentials::{
     credential_test_remote, credentials_delete, credentials_list, credentials_save,
-    credentials_status, CredentialKindDto, CredentialsStatusDto, RemoteProbeDto,
+    credentials_status, credentials_vault_create, credentials_vault_unlock, preferred_backend,
+    CredentialKindDto, CredentialsStatusDto, RemoteProbeDto, BACKEND_ENCRYPTED_VAULT,
+    CREDENTIALS_BACKEND_KEY,
 };
 pub use debug::{debug_panic, debug_throw_error};
 pub use error::{to_app_error, Fallible};

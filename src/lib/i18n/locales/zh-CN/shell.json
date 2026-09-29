@@ -251,7 +251,21 @@
       "deleteTitle": "删除这条凭据？",
       "deleteImpactLabel": "会发生什么",
       "deleteImpact": "系统凭据库里的密文会被删除，之后的网络操作需要重新输入。远端仓库与已经推送的内容不受影响。",
-      "todoT44": "还没做的部分（T4.4）：用 GitHub 登录（OAuth 设备码）、多账号切换与身份同步。当前版本需要手动粘贴访问令牌。"
+      "todoT44": "还没做的部分（T4.4）：用 GitHub 登录（OAuth 设备码）、多账号切换与身份同步。当前版本需要手动粘贴访问令牌。",
+      "countUnknown": "—",
+      "vault": {
+        "switchButton": "改用加密文件存储",
+        "createTitle": "创建加密保险库",
+        "createDescription": "口令用于派生加密密钥（Argon2id + AES-256-GCM），保险库文件放在应用数据目录。与系统凭据库相比，能读到该文件的人可以离线尝试破解口令，因此口令要足够长。",
+        "unlockTitle": "解锁加密保险库",
+        "unlockDescription": "凭据保存在加密文件里，输入口令解锁后才能用于同步。",
+        "passphrase": "保险库口令",
+        "create": "创建并切换",
+        "unlock": "解锁",
+        "forgotWarning": "口令不会被保存：忘记它等于里面的凭据无法恢复（只能删除保险库后重新添加）。",
+        "created": "已切换到加密文件存储",
+        "unlocked": "保险库已解锁"
+      }
     },
     "general": {
       "densityLabel": "界面密度",

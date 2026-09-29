@@ -1300,8 +1300,20 @@ SSH 远端（`git@host:path` / `ssh://`）与本地路径**永不**注入令牌�
 | `credentials_list` | ReadOnly | — | `CredentialMeta[]`：`{ key: { provider, host, login }, kind, createdAtMs }`，**不含密文** |
 | `credentials_save` | Mutating | `provider, host, login, kind, secret` | `CredentialMeta`；`kind ∈ "pat" \| "oauth" \| "password"`；provider/login 非空且不含 `:`，空 `secret` → `VALIDATION` |
 | `credentials_delete` | Mutating | `provider, host, login` | `()`；幂等（删不存在的条目也成功） |
-| `credentials_status` | ReadOnly | — | `{ backend, count, indexPath?, keyringUnavailableReason? }`；`backend ∈ "systemKeyring" \| "encryptedVault" \| "memory"`；写-读-删一条哨兵来探测系统凭据库 |
+| `credentials_status` | ReadOnly | — | `{ backend, mode, count, indexPath?, vaultPath?, vaultExists, keyringUnavailableReason? }`；`backend ∈ "systemKeyring" \| "encryptedVault" \| "memory"`，`mode ∈ "systemKeyring" \| "vaultUnlocked" \| "vaultLocked"`；写-读-删一条哨兵来探测系统凭据库 |
+| `credentials_vault_create` | Mutating | `passphrase` | `()`；创建加密保险库（Argon2id + AES-256-GCM）并切换过去，同时把 `credentials.backend` 记为 `encryptedVault`；**已存在保险库文件时拒绝**（覆盖等于悄悄清空已有凭据）→ `VALIDATION` |
+| `credentials_vault_unlock` | Mutating | `passphrase` | `()`；解锁并切换；口令错或文件被改 → `STORAGE`（两者在 AES-GCM 下不可区分，这是刻意的） |
 | `credential_test_remote` | ReadOnly | `url?` 或 `repoId + remote?` | `{ refs }`（远端引用条数，空仓库为 0）；`git ls-remote`，超时 5s；失败按 stderr 分类（见下） |
+
+**回退方案（系统凭据库不可用时）**：探测失败 → `credentials_status.keyringUnavailableReason` 有值 →
+界面提示可"改用加密文件存储" → `credentials_vault_create` 建库并切换 → 选择记在全局设置
+`credentials.backend`（`"systemKeyring"` / `"encryptedVault"`）。下次启动时若该键是
+`encryptedVault` 且库文件存在，应用进入 `vaultLocked`（不会拿空 keyring 冒充"没有凭据"），
+由设置页引导解锁。保险库口令**不保存**：忘记口令等于其中的凭据不可恢复（`hint` 里给出库文件路径）。
+
+**连续失败保护**：同一 host 连续 3 次认证失败后，后端在发起网络操作**之前**直接返回
+`AUTH_REQUIRED`（`message` 说明不再自动重试，`hint` 是 host），直到用户保存/更新该 host 的凭据
+（`credentials_save` 成功即清零计数）。
 
 **认证与网络失败的错误码**（§1.1 已登记）：`AUTH_REQUIRED` / `AUTH_EXPIRED`（HTTPS 凭据）、
 `SSH_HOST_KEY_UNVERIFIED`（主机指纹未信任或已变化）、`SSH_KEY_REJECTED`（公钥被拒 / 找不到

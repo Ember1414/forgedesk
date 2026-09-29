@@ -17,11 +17,12 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 
 use forgedesk_credentials::{
     parse_remote_url, provider_for_host, AskpassPlan, BackendKind, CredentialKind, CredentialMeta,
-    CredentialRef, CredentialStore, FileIndex, IndexedCredentialStore, KeyringBackend, Secret,
+    CredentialRef, CredentialStore, CredentialsError, FileIndex, IndexedCredentialStore,
+    KeyringBackend, Secret, VaultBackend,
 };
 use forgedesk_domain::git::{Remote, RepoId};
 use forgedesk_domain::{AppError, AppResult, ErrorCode};
@@ -36,9 +37,103 @@ use forgedesk_git_engine::process::NetworkAuth;
 /// 用户在界面上连点三次"重试"就足以说明"这不是偶发的手滑"。
 pub const MAX_CONSECUTIVE_AUTH_FAILURES: u32 = 3;
 
+/// 可切换的凭据存储句柄。
+///
+/// # 为什么需要"可切换"
+///
+/// 系统凭据库不可用时，用户要能改用加密文件（红线 R8 的回退方案）；而这次切换发生在
+/// **运行期**——用户输入保险库口令的那一刻。凭据门与凭据服务因此不能各自持有一个固定的
+/// `Arc<dyn CredentialStore>`：它们必须看到同一个"当前存储"，否则会出现
+/// "面板里保存成功、同步时却查不到"这类难以解释的现象。
+#[derive(Clone)]
+pub struct SharedStore {
+    inner: Arc<RwLock<Arc<dyn CredentialStore>>>,
+}
+
+impl std::fmt::Debug for SharedStore {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("SharedStore")
+            .field("backend", &self.current().backend_kind())
+            .finish()
+    }
+}
+
+impl SharedStore {
+    /// 包一个存储。
+    pub fn new(store: Arc<dyn CredentialStore>) -> Self {
+        Self {
+            inner: Arc::new(RwLock::new(store)),
+        }
+    }
+
+    /// 当前存储（每次都取最新的：切换后立即生效）。
+    pub fn current(&self) -> Arc<dyn CredentialStore> {
+        match self.inner.read() {
+            Ok(store) => Arc::clone(&store),
+            // 锁中毒只可能来自别处 panic：退回一个拒绝所有操作的存储，
+            // 而不是 panic 传染给调用者
+            Err(_) => Arc::new(LockedVault),
+        }
+    }
+
+    /// 换成另一个存储（切换后端时调用）。
+    pub fn replace(&self, store: Arc<dyn CredentialStore>) {
+        if let Ok(mut current) = self.inner.write() {
+            *current = store;
+        }
+    }
+}
+
+/// 凭据存储当前处于哪种形态（设置页据此决定展示"添加表单"还是"解锁表单"）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum CredentialMode {
+    /// 系统凭据库（正常路径）。
+    SystemKeyring,
+    /// 加密保险库已解锁。
+    VaultUnlocked,
+    /// 加密保险库存在但未解锁：所有操作都要先输口令。
+    VaultLocked,
+}
+
+/// 尚未解锁的加密保险库。
+///
+/// 为什么不用 `None` 表示"锁着"：界面上"还没有凭据"与"保险库锁着"是两个完全不同的
+/// 状态——前者要引导添加，后者要引导解锁。混成一个，用户会以为自己的凭据丢了。
+#[derive(Debug)]
+struct LockedVault;
+
+impl CredentialStore for LockedVault {
+    fn store(
+        &self,
+        _key: &CredentialRef,
+        _kind: CredentialKind,
+        _secret: &Secret,
+    ) -> Result<(), CredentialsError> {
+        Err(CredentialsError::VaultLocked)
+    }
+
+    fn get(&self, _key: &CredentialRef) -> Result<Secret, CredentialsError> {
+        Err(CredentialsError::VaultLocked)
+    }
+
+    fn delete(&self, _key: &CredentialRef) -> Result<(), CredentialsError> {
+        Err(CredentialsError::VaultLocked)
+    }
+
+    fn list(&self) -> Result<Vec<CredentialMeta>, CredentialsError> {
+        Err(CredentialsError::VaultLocked)
+    }
+
+    fn backend_kind(&self) -> BackendKind {
+        BackendKind::EncryptedVault
+    }
+}
+
 /// 凭据门：解析注入方案 + 记住连续失败次数。
 pub struct CredentialGate {
-    store: Arc<dyn CredentialStore>,
+    store: SharedStore,
     /// askpass 程序（应用自身；见 `forgedesk-credentials::askpass`）。
     program: PathBuf,
     /// host → 连续失败次数。
@@ -50,14 +145,14 @@ impl std::fmt::Debug for CredentialGate {
         formatter
             .debug_struct("CredentialGate")
             .field("program", &self.program)
-            .field("backend", &self.store.backend_kind())
+            .field("store", &self.store)
             .finish_non_exhaustive()
     }
 }
 
 impl CredentialGate {
     /// 组装门（`program` 是当前可执行文件路径：git 会用它作 askpass）。
-    pub fn new(store: Arc<dyn CredentialStore>, program: impl Into<PathBuf>) -> Self {
+    pub fn new(store: SharedStore, program: impl Into<PathBuf>) -> Self {
         Self {
             store,
             program: program.into(),
@@ -69,14 +164,14 @@ impl CredentialGate {
     ///
     /// 拿不到自身路径时返回 `None`：无法充当 askpass 程序时，"不做注入"
     /// 比"注入一个空路径"要诚实——后者会让 git 在需要凭据时以一个更费解的方式失败。
-    pub fn with_app_askpass(store: Arc<dyn CredentialStore>) -> Option<Self> {
+    pub fn with_app_askpass(store: SharedStore) -> Option<Self> {
         let program = std::env::current_exe().ok()?;
         Some(Self::new(store, program))
     }
 
     /// 凭据实际存在哪里（设置页展示）。
     pub fn backend_kind(&self) -> BackendKind {
-        self.store.backend_kind()
+        self.store.current().backend_kind()
     }
 
     /// 为某个远端 URL 构造注入方案。
@@ -105,6 +200,7 @@ impl CredentialGate {
 
         let secret = self
             .store
+            .current()
             .get(&meta.key)
             .map_err(|error| error.to_app_error())?;
         let Some(plan) = AskpassPlan::new(&self.program, meta.key.login.clone(), &secret) else {
@@ -116,7 +212,11 @@ impl CredentialGate {
 
     /// 按 host 找凭据（同 host 多账号时：`login_hint` 优先，否则取排序后的第一条）。
     fn find(&self, host: &str, login_hint: Option<&str>) -> AppResult<Option<CredentialMeta>> {
-        let metas = self.store.list().map_err(|error| error.to_app_error())?;
+        let metas = self
+            .store
+            .current()
+            .list()
+            .map_err(|error| error.to_app_error())?;
         let mut candidates: Vec<CredentialMeta> = metas
             .into_iter()
             .filter(|meta| meta.key.host.eq_ignore_ascii_case(host))
@@ -199,16 +299,29 @@ impl CredentialGate {
 pub struct CredentialsStatus {
     /// 密文实际存在哪里。
     pub backend: BackendKind,
+    /// 当前形态（keyring / 保险库已解锁 / 保险库未解锁）。
+    pub mode: CredentialMode,
     /// 已保存的凭据数量。
-    pub count: usize,
+    ///
+    /// 保险库未解锁时是 `None` 而**不是 0**：报 0 会让用户以为凭据丢了，
+    /// 而真实情况只是"还没输入口令"。
+    pub count: Option<usize>,
     /// 索引文件路径（keyring 不可用时用户需要知道回退文件在哪）。
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub index_path: Option<String>,
+    /// 加密保险库文件路径（已存在时）。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub vault_path: Option<String>,
+    /// 保险库文件是否已存在（界面据此决定展示"新建"还是"解锁"）。
+    pub vault_exists: bool,
 }
 
-/// 面向界面的凭据服务：列表、保存、删除、状态。
+/// 面向界面的凭据服务：列表、保存、删除、状态，以及 keyring ↔ 加密保险库的切换。
 pub struct CredentialsService {
-    store: Arc<dyn CredentialStore>,
-    index_path: Option<PathBuf>,
+    store: SharedStore,
+    index_path: PathBuf,
+    vault_path: PathBuf,
+    mode: Mutex<CredentialMode>,
 }
 
 impl std::fmt::Debug for CredentialsService {
@@ -216,34 +329,100 @@ impl std::fmt::Debug for CredentialsService {
         // `AppState` 派生 Debug，因此这里必须可 Debug；但**不能**打印存储内容
         formatter
             .debug_struct("CredentialsService")
-            .field("backend", &self.store.backend_kind())
+            .field("store", &self.store)
             .field("index_path", &self.index_path)
+            .field("mode", &self.mode.lock().map(|mode| *mode).ok())
             .finish()
     }
 }
 
 impl CredentialsService {
-    /// 用系统 keyring + 文件索引构造（生产路径）。
+    /// 生产路径：系统凭据库 + 文件索引；保险库文件落在同一目录（同名前缀 `.vault`）。
     pub fn keyring(index_path: impl Into<PathBuf>) -> Self {
         let index_path = index_path.into();
+        let vault_path = index_path.with_extension("vault");
         let store = IndexedCredentialStore::new(KeyringBackend::new(), FileIndex::at(&index_path));
         Self {
-            store: Arc::new(store),
-            index_path: Some(index_path),
+            store: SharedStore::new(Arc::new(store)),
+            index_path,
+            vault_path,
+            mode: Mutex::new(CredentialMode::SystemKeyring),
         }
     }
 
-    /// 用给定的存储构造（测试注入内存实现）。
+    /// 测试用：注入任意存储（索引路径为空）。
     pub fn with_store(store: Arc<dyn CredentialStore>) -> Self {
         Self {
-            store,
-            index_path: None,
+            store: SharedStore::new(store),
+            index_path: PathBuf::new(),
+            vault_path: PathBuf::new(),
+            mode: Mutex::new(CredentialMode::SystemKeyring),
         }
     }
 
-    /// 底层存储（供 [`CredentialGate`] 共享同一份索引）。
-    pub fn store(&self) -> Arc<dyn CredentialStore> {
-        Arc::clone(&self.store)
+    /// 共享句柄（[`CredentialGate`] 与界面必须看到同一份"当前存储"）。
+    pub fn shared(&self) -> SharedStore {
+        self.store.clone()
+    }
+
+    /// 当前形态。
+    pub fn mode(&self) -> CredentialMode {
+        self.mode
+            .lock()
+            .map(|mode| *mode)
+            .unwrap_or(CredentialMode::VaultLocked)
+    }
+
+    fn set_mode(&self, mode: CredentialMode) {
+        if let Ok(mut current) = self.mode.lock() {
+            *current = mode;
+        }
+    }
+
+    /// 保险库文件是否已存在。
+    pub fn vault_exists(&self) -> bool {
+        self.vault_path.is_file()
+    }
+
+    /// 切到"未解锁的保险库"（启动时配置为加密文件时用）。
+    ///
+    /// 不在这里尝试解锁：口令只能来自用户，而"启动时弹一个口令框"是 T4.x 的
+    /// 身份模型该决定的事。现在由设置页引导解锁。
+    pub fn lock_vault(&self) {
+        self.store.replace(Arc::new(LockedVault));
+        self.set_mode(CredentialMode::VaultLocked);
+    }
+
+    /// 新建保险库并切换到它。
+    ///
+    /// 已存在保险库文件时**拒绝**：`Vault::create` 会覆盖文件，那等于把里面
+    /// 已保存的凭据悄悄丢掉（用户以为在"新建"，实际在"清空"）。
+    pub fn create_vault(&self, passphrase: &Secret) -> AppResult<()> {
+        if self.vault_exists() {
+            return Err(AppError::new(
+                ErrorCode::Validation,
+                "an encrypted vault already exists for this data directory",
+            )
+            .with_hint(self.vault_path.display().to_string()));
+        }
+        let backend = VaultBackend::create(&self.vault_path, passphrase)
+            .map_err(|error| error.to_app_error())?;
+        self.activate_vault(backend);
+        Ok(())
+    }
+
+    /// 解锁已有保险库并切换到它。
+    pub fn unlock_vault(&self, passphrase: &Secret) -> AppResult<()> {
+        let backend = VaultBackend::open(&self.vault_path, passphrase)
+            .map_err(|error| error.to_app_error())?;
+        self.activate_vault(backend);
+        Ok(())
+    }
+
+    fn activate_vault(&self, backend: VaultBackend) {
+        let store = IndexedCredentialStore::new(backend, FileIndex::at(&self.index_path));
+        self.store.replace(Arc::new(store));
+        self.set_mode(CredentialMode::VaultUnlocked);
     }
 
     /// 保存（覆盖同引用的旧值）。
@@ -258,6 +437,7 @@ impl CredentialsService {
         let key =
             CredentialRef::new(provider, host, login).map_err(|error| error.to_app_error())?;
         self.store
+            .current()
             .store(&key, kind, secret)
             .map_err(|error| error.to_app_error())?;
         Ok(CredentialMeta {
@@ -272,25 +452,39 @@ impl CredentialsService {
         let key =
             CredentialRef::new(provider, host, login).map_err(|error| error.to_app_error())?;
         self.store
+            .current()
             .delete(&key)
             .map_err(|error| error.to_app_error())
     }
 
     /// 列出已保存的凭据（不含密文）。
     pub fn list(&self) -> AppResult<Vec<CredentialMeta>> {
-        self.store.list().map_err(|error| error.to_app_error())
+        self.store
+            .current()
+            .list()
+            .map_err(|error| error.to_app_error())
     }
 
-    /// 状态（后端的可用性由 T2.7 的探测命令单独给出）。
+    /// 状态（系统凭据库的可用性由探测单独给出，见命令层）。
     pub fn status(&self) -> AppResult<CredentialsStatus> {
-        let count = self.list()?.len();
+        let mode = self.mode();
+        let store = self.store.current();
+        let count = match store.list() {
+            Ok(metas) => Some(metas.len()),
+            // 锁着时**不**报 0：那是"凭据没了"的意思，而事实是"还没解锁"
+            Err(_) if mode == CredentialMode::VaultLocked => None,
+            Err(error) => return Err(error.to_app_error()),
+        };
         Ok(CredentialsStatus {
-            backend: self.store.backend_kind(),
+            backend: store.backend_kind(),
+            mode,
             count,
-            index_path: self
-                .index_path
-                .as_ref()
-                .map(|path| path.display().to_string()),
+            index_path: (!self.index_path.as_os_str().is_empty())
+                .then(|| self.index_path.display().to_string()),
+            vault_path: self
+                .vault_exists()
+                .then(|| self.vault_path.display().to_string()),
+            vault_exists: self.vault_exists(),
         })
     }
 }
@@ -364,17 +558,30 @@ mod tests {
 
     fn gate() -> CredentialGate {
         let store = IndexedCredentialStore::new(MemoryBackend::new(), MemoryIndex::new());
-        CredentialGate::new(Arc::new(store), "/opt/forgedesk/forgedesk")
+        CredentialGate::new(
+            SharedStore::new(Arc::new(store)),
+            "/opt/forgedesk/forgedesk",
+        )
     }
 
     fn save(gate: &CredentialGate, host: &str, login: &str, secret: &str) {
         gate.store
+            .current()
             .store(
                 &CredentialRef::new("github", host, login).expect("valid"),
                 CredentialKind::Pat,
                 &Secret::new(secret),
             )
             .expect("store");
+    }
+
+    /// 临时索引路径（保险库与索引都在它的目录里）。
+    fn temp_index(tag: &str) -> PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("forgedesk-creds-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        dir.join("credentials.index.json")
     }
 
     #[test]
@@ -561,8 +768,9 @@ mod tests {
         assert_eq!(saved.key.account(), "github:github.com:octocat");
         assert_eq!(service.list().expect("list").len(), 1);
         let status = service.status().expect("status");
-        assert_eq!(status.count, 1);
+        assert_eq!(status.count, Some(1));
         assert_eq!(status.backend, BackendKind::Memory);
+        assert_eq!(status.mode, CredentialMode::SystemKeyring);
 
         service
             .delete("github", "github.com", "octocat")
@@ -589,6 +797,113 @@ mod tests {
             .expect_err("empty secret");
 
         assert_eq!(error.code, ErrorCode::Validation);
+    }
+
+    #[test]
+    fn creating_a_vault_switches_the_store_and_keeps_working_after_a_reopen() {
+        let index = temp_index("vault-create");
+        let service = CredentialsService::keyring(&index);
+        let passphrase = Secret::new("correct horse battery staple");
+
+        assert!(!service.vault_exists());
+        service.create_vault(&passphrase).expect("创建保险库");
+        assert_eq!(service.mode(), CredentialMode::VaultUnlocked);
+
+        service
+            .save(
+                "github",
+                "github.com",
+                "octocat",
+                CredentialKind::Pat,
+                &Secret::new("ghp_x"),
+            )
+            .expect("保存到保险库");
+        assert_eq!(service.list().expect("list").len(), 1);
+
+        // 换一个服务实例、走"解锁"这条路：证明密文真的落在文件里
+        let reopened = CredentialsService::keyring(&index);
+        reopened.lock_vault();
+        assert_eq!(reopened.mode(), CredentialMode::VaultLocked);
+        assert!(reopened.list().is_err(), "锁着时不该能读到凭据");
+
+        reopened.unlock_vault(&passphrase).expect("解锁");
+        assert_eq!(reopened.list().expect("list").len(), 1);
+
+        let _ = std::fs::remove_dir_all(index.parent().expect("parent"));
+    }
+
+    #[test]
+    fn a_locked_vault_reports_an_unknown_count_and_a_wrong_passphrase_stays_locked() {
+        let index = temp_index("vault-locked");
+        let service = CredentialsService::keyring(&index);
+        service
+            .create_vault(&Secret::new("right"))
+            .expect("创建保险库");
+
+        let reopened = CredentialsService::keyring(&index);
+        reopened.lock_vault();
+
+        // 锁着时 count 是 None（不是 0）：0 的意思是"没有凭据"，与事实不符
+        let status = reopened.status().expect("status");
+        assert_eq!(status.mode, CredentialMode::VaultLocked);
+        assert_eq!(status.count, None);
+        assert_eq!(status.backend, BackendKind::EncryptedVault);
+        assert!(status.vault_exists);
+
+        let error = reopened
+            .unlock_vault(&Secret::new("wrong"))
+            .expect_err("口令错必须失败");
+        assert_eq!(error.code, ErrorCode::Storage);
+        assert_eq!(reopened.mode(), CredentialMode::VaultLocked);
+
+        let _ = std::fs::remove_dir_all(index.parent().expect("parent"));
+    }
+
+    #[test]
+    fn creating_a_vault_that_already_exists_is_refused_instead_of_overwriting_it() {
+        let index = temp_index("vault-exists");
+        let service = CredentialsService::keyring(&index);
+        service
+            .create_vault(&Secret::new("pw"))
+            .expect("创建保险库");
+
+        let error = service
+            .create_vault(&Secret::new("pw"))
+            .expect_err("不得覆盖已有保险库");
+
+        // 覆盖 = 把已保存的凭据悄悄清空，而用户以为自己只是"新建"了一次
+        assert_eq!(error.code, ErrorCode::Validation);
+
+        let _ = std::fs::remove_dir_all(index.parent().expect("parent"));
+    }
+
+    #[test]
+    fn the_gate_sees_the_store_currently_in_use() {
+        let index = temp_index("gate-shared");
+        let service = CredentialsService::keyring(&index);
+        let gate = CredentialGate::new(service.shared(), "/opt/forgedesk/forgedesk");
+
+        service
+            .create_vault(&Secret::new("pw"))
+            .expect("创建保险库");
+        service
+            .save(
+                "github",
+                "github.com",
+                "octocat",
+                CredentialKind::Pat,
+                &Secret::new("ghp_x"),
+            )
+            .expect("保存");
+
+        // 切换后端之后，门必须立刻看到新存储（否则同步会去 keyring 里找一个不存在的令牌）
+        let auth = gate
+            .auth_for("https://github.com/octocat/repo.git", None)
+            .expect("auth");
+        assert_eq!(gate.backend_kind(), BackendKind::EncryptedVault);
+        assert!(!auth.is_none());
+
+        let _ = std::fs::remove_dir_all(index.parent().expect("parent"));
     }
 
     #[test]

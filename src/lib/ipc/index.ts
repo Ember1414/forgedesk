@@ -87,6 +87,8 @@ export {
   credentialsList,
   credentialsSave,
   credentialsStatus,
+  credentialsVaultCreate,
+  credentialsVaultUnlock,
   probeUrlFor,
 } from './credentials';
 export type {
@@ -94,6 +96,7 @@ export type {
   CredentialInput,
   CredentialKind,
   CredentialMeta,
+  CredentialMode,
   CredentialRef,
   CredentialsStatus,
   RemoteProbe,

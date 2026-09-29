@@ -251,7 +251,21 @@
       "deleteTitle": "Delete this credential?",
       "deleteImpactLabel": "What happens",
       "deleteImpact": "The ciphertext is removed from the system credential store, so later network operations will ask for it again. The remote repository and anything already pushed are unaffected.",
-      "todoT44": "Still to come (T4.4): signing in with GitHub (OAuth device flow), switching between accounts and syncing your profile. This version expects a pasted access token."
+      "todoT44": "Still to come (T4.4): signing in with GitHub (OAuth device flow), switching between accounts and syncing your profile. This version expects a pasted access token.",
+      "countUnknown": "—",
+      "vault": {
+        "switchButton": "Use an encrypted file instead",
+        "createTitle": "Create an encrypted vault",
+        "createDescription": "The passphrase derives the encryption key (Argon2id + AES-256-GCM) and the vault file lives in the app data directory. Unlike the system credential store, anyone who can read that file can attack the passphrase offline, so make it long.",
+        "unlockTitle": "Unlock the encrypted vault",
+        "unlockDescription": "Credentials are kept in an encrypted file; enter the passphrase to unlock them for synchronisation.",
+        "passphrase": "Vault passphrase",
+        "create": "Create and switch",
+        "unlock": "Unlock",
+        "forgotWarning": "The passphrase is never stored: forgetting it means the credentials inside cannot be recovered (delete the vault and add them again).",
+        "created": "Switched to encrypted file storage",
+        "unlocked": "Vault unlocked"
+      }
     },
     "general": {
       "densityLabel": "Interface density",

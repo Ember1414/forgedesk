@@ -27,6 +27,8 @@ import {
   credentialsList,
   credentialsSave,
   credentialsStatus,
+  credentialsVaultCreate,
+  credentialsVaultUnlock,
   probeUrlFor,
 } from '@/lib/ipc/credentials';
 import type { CredentialKind, CredentialMeta } from '@/lib/ipc/credentials';
@@ -75,14 +77,25 @@ export function CredentialsPanel() {
   const queryClient = useQueryClient();
   const [form, setForm] = useState<CredentialForm>(emptyForm);
   const [pendingDelete, setPendingDelete] = useState<CredentialMeta | null>(null);
+  const [passphrase, setPassphrase] = useState('');
+  const [vaultFormOpen, setVaultFormOpen] = useState(false);
+
+  const statusQuery = useQuery({
+    queryKey: credentialsStatusKey(),
+    queryFn: credentialsStatus,
+  });
+  const status = statusQuery.data;
+  const locked = status?.mode === 'vaultLocked';
+  const vaultExists = status?.vaultExists ?? false;
 
   const listQuery = useQuery({
     queryKey: [CREDENTIALS_QUERY_KEY],
     queryFn: credentialsList,
-  });
-  const statusQuery = useQuery({
-    queryKey: credentialsStatusKey(),
-    queryFn: credentialsStatus,
+    // 保险库锁着时列表必然失败：跳过查询，界面上换成"解锁"表单，
+    // 免得用户看到一条"读不到凭据"的错误却不知道下一步做什么。
+    // 条件里必须等状态先到（`status !== undefined`）：否则首帧就会抢跑一次注定失败的查询，
+    // 而那次失败会换来一条用户看不懂的错误提示。
+    enabled: status !== undefined && status.mode !== 'vaultLocked',
   });
 
   const invalidate = (): void => {
@@ -123,8 +136,29 @@ export function CredentialsPanel() {
     onError: show,
   });
 
-  const status = statusQuery.data;
+  const vaultCreate = useMutation({
+    mutationFn: credentialsVaultCreate,
+    onSuccess: () => {
+      setPassphrase('');
+      setVaultFormOpen(false);
+      invalidate();
+      pushToast({ tone: 'success', title: t('settings.credentials.vault.created') });
+    },
+    onError: show,
+  });
+
+  const vaultUnlock = useMutation({
+    mutationFn: credentialsVaultUnlock,
+    onSuccess: () => {
+      setPassphrase('');
+      invalidate();
+      pushToast({ tone: 'success', title: t('settings.credentials.vault.unlocked') });
+    },
+    onError: show,
+  });
+
   const credentials = listQuery.data ?? [];
+  const showVaultForm = locked || vaultFormOpen;
 
   return (
     <section className="flex flex-col gap-4" data-testid="credentials-panel">
@@ -140,7 +174,8 @@ export function CredentialsPanel() {
             >
               {t('settings.credentials.status', {
                 backend: t(`settings.credentials.backend.${status.backend}`),
-                count: status.count,
+                // 未解锁时报"—"而不是 0：0 会被读成"凭据没了"
+                count: status.count ?? t('settings.credentials.countUnknown'),
               })}
             </span>
           ) : null}
@@ -149,17 +184,88 @@ export function CredentialsPanel() {
       </header>
 
       {status?.keyringUnavailableReason !== undefined ? (
-        <p
-          className="rounded-md border border-warning bg-surface p-3 text-12 leading-relaxed"
+        <div
+          className="flex flex-col gap-2 rounded-md border border-warning bg-surface p-3 text-12 leading-relaxed"
           data-testid="credentials-keyring-warning"
         >
-          {t('settings.credentials.keyringUnavailable')}
-          {`: ${status.keyringUnavailableReason}`}
-        </p>
+          <p>
+            {t('settings.credentials.keyringUnavailable')}
+            {`: ${status.keyringUnavailableReason}`}
+          </p>
+          <div>
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => {
+                setVaultFormOpen(true);
+              }}
+              data-testid="credentials-vault-start"
+            >
+              {t('settings.credentials.vault.switchButton')}
+            </Button>
+          </div>
+        </div>
+      ) : null}
+
+      {showVaultForm ? (
+        <form
+          className="flex flex-col gap-2 rounded-md border border-line bg-surface p-3"
+          data-testid="credentials-vault-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (passphrase.trim() === '') {
+              return;
+            }
+            if (vaultExists) {
+              vaultUnlock.mutate(passphrase);
+            } else {
+              vaultCreate.mutate(passphrase);
+            }
+          }}
+        >
+          <h3 className="text-13 font-medium">
+            {vaultExists
+              ? t('settings.credentials.vault.unlockTitle')
+              : t('settings.credentials.vault.createTitle')}
+          </h3>
+          <p className="text-12 text-fg-muted">
+            {vaultExists
+              ? t('settings.credentials.vault.unlockDescription')
+              : t('settings.credentials.vault.createDescription')}
+          </p>
+          <div className="flex flex-wrap items-end gap-2">
+            <label className="flex flex-1 flex-col gap-1">
+              <span className="text-12 text-fg-muted">
+                {t('settings.credentials.vault.passphrase')}
+              </span>
+              <Input
+                type="password"
+                autoComplete="new-password"
+                value={passphrase}
+                onChange={(event) => {
+                  setPassphrase(event.target.value);
+                }}
+                data-testid="credentials-vault-passphrase"
+              />
+            </label>
+            <Button
+              type="submit"
+              size="sm"
+              loading={vaultCreate.isPending || vaultUnlock.isPending}
+              disabled={passphrase.trim() === ''}
+              data-testid="credentials-vault-submit"
+            >
+              {vaultExists
+                ? t('settings.credentials.vault.unlock')
+                : t('settings.credentials.vault.create')}
+            </Button>
+          </div>
+          <p className="text-12 text-fg-subtle">{t('settings.credentials.vault.forgotWarning')}</p>
+        </form>
       ) : null}
 
       {/* 已保存的凭据 */}
-      {credentials.length === 0 ? (
+      {locked ? null : credentials.length === 0 ? (
         <p className="text-13 text-fg-subtle" data-testid="credentials-empty">
           {t('settings.credentials.empty')}
         </p>
