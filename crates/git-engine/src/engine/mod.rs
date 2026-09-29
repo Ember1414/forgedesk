@@ -45,10 +45,11 @@ use std::path::Path;
 use crate::process::NetworkAuth;
 use forgedesk_domain::git::{
     ApplyPatchSpec, Branch, CheckoutSpec, CherryPickSpec, CloneSpec, Commit, CommitSpec,
-    DiffReport, DiffSpec, DiscardSpec, FetchOutcome, FetchSpec, InitSpec, LogQuery, MergeOutcome,
-    MergeSpec, Page, PullOutcome, PullSpec, PushOutcome, PushSpec, ReflogEntry, Remote,
-    ReorderSpec, RepoId, RepositoryInfo, ResetSpec, RevertSpec, StageSpec, StashEntry,
-    StashOutcome, StashSpec, StatusQuery, StatusReport, Tag,
+    ConflictAbortOutcome, ConflictContinueOutcome, ConflictOpKind, ConflictState, DiffReport,
+    DiffSpec, DiscardSpec, FetchOutcome, FetchSpec, InitSpec, LogQuery, MergeOutcome, MergeSpec,
+    Page, PullOutcome, PullSpec, PushOutcome, PushSpec, ReflogEntry, Remote, ReorderSpec, RepoId,
+    RepoPath, RepositoryInfo, ResetSpec, RevertSpec, StageSpec, StashEntry, StashOutcome,
+    StashSpec, StatusQuery, StatusReport, Tag,
 };
 use forgedesk_domain::{AppError, AppResult, ErrorCode};
 
@@ -383,6 +384,48 @@ pub trait GitEngine: Send + Sync {
     /// `apply` / `pop` 可能停在冲突状态：这时返回的 [`StashOutcome`] 里带着冲突清单
     /// （不是错误），调用方据此把用户送到冲突页。
     fn stash(&self, repo: &RepoId, spec: StashSpec) -> AppResult<StashOutcome>;
+
+    /// 采集冲突状态（T3.1）。
+    ///
+    /// 数据源是 index stage（`git ls-files -u`）而不是工作区的 `<<<<<<<` 标记：
+    /// 用户可能已手动编辑过冲突文件（标记被删但 index 仍冲突），
+    /// 也可能在无冲突的文件里写下这些字符。
+    ///
+    /// 只有 CLI 实现支持：stage 三方内容 + 2 MiB 阈值 + 二进制判定这组语义
+    /// 以 git CLI 为准，libgit2 侧返回
+    /// [`ErrorCode::UnsupportedByEngine`](forgedesk_domain::ErrorCode::UnsupportedByEngine)
+    /// （见 `docs/GIT-ENGINE-DIFF.md` §4）。调用方（services）走写引擎通道。
+    fn conflict_state(&self, repo: &RepoId) -> AppResult<ConflictState>;
+
+    /// 标记文件已解决（`git add` + 校验 stage 条目已清空）。
+    ///
+    /// 校验失败（路径仍冲突）返回 `CONFLICT_UNRESOLVED`，`hint` 列出未解决的路径。
+    fn conflict_mark_resolved(&self, repo: &RepoId, paths: &[RepoPath]) -> AppResult<()>;
+
+    /// 继续进行中的操作（merge commit / `rebase --continue` / 拣选 / 反转）。
+    ///
+    /// `op` 必须与仓库当前的进行中操作一致（调用方先从 [`Self::conflict_state`]
+    /// 拿到），不一致时 git 自己会失败并按常规分类返回错误。
+    /// 返回值区分两种**正常**结局：完成（`oid`）与再次停在冲突（`conflicts` 非空，
+    /// 序列重放下一个提交时撞新冲突）——后者不是错误。
+    fn conflict_continue(
+        &self,
+        repo: &RepoId,
+        op: ConflictOpKind,
+    ) -> AppResult<ConflictContinueOutcome>;
+
+    /// 中止进行中的操作（`<op> --abort`）。
+    ///
+    /// 快照与"回到操作前状态"的校验由服务层编排（快照必须打在 abort 之前，
+    /// 校验要对比 abort 前后两次 HEAD / 分支名）。
+    fn conflict_abort(&self, repo: &RepoId, op: ConflictOpKind) -> AppResult<ConflictAbortOutcome>;
+
+    /// 跳过当前提交。只有 rebase 支持；其余操作返回 `VALIDATION`。
+    fn conflict_skip(
+        &self,
+        repo: &RepoId,
+        op: ConflictOpKind,
+    ) -> AppResult<ConflictContinueOutcome>;
 
     /// 拉取远端引用。
     ///

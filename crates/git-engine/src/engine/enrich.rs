@@ -28,30 +28,133 @@ use crate::process::{GitProcess, GitRunOpts};
 /// 二进制嗅探读取的字节数（与 Git 的启发式一致：含 NUL 即按二进制处理）。
 const BINARY_SNIFF_BYTES: usize = 8192;
 
-/// 判定进行中的多步操作（`.git` 目录的标记文件）。
+/// 判定进行中的多步操作（`.git` 目录的标记文件与目录的**综合**判断）。
 ///
 /// 顺序有讲究：`CHERRY_PICK_HEAD` 与 `MERGE_HEAD` 可能同时存在（冲突的拣选），
 /// 此时按用户心智"正在合并"上报 merge；`rebase-merge` / `rebase-apply`
 /// 都是 rebase 的两种形态。
+///
+/// # T3.1 起的语义（多信号，不再依赖单一文件）
+///
+/// rebase 目录（`rebase-merge` / `rebase-apply`）是**强信号**，优先于一切单文件
+/// 标记：目录存在说明 sequencer 正在跑，而此时任何单文件标记都只是它的影子。
+/// `git am` 复用 `rebase-apply` 目录——对"操作状态检测"而言语义相同（应用补丁
+/// 序列），不单独区分。
 pub fn detect_operation(git_dir: &Path) -> OperationState {
+    detect_operation_with_details(git_dir).state
+}
+
+/// 综合检测的完整结果：操作类型 + rebase / 序列进度。
+///
+/// 进度只对有序列语义的操作有意义：
+/// - rebase：`rebase-merge`（或 `rebase-apply`）下的 `msgnum` / `end`；
+/// - cherry-pick / revert 序列：`.git/sequencer` 的 `done` + `todo` 行数
+///   （序列的**间隙**——上一个提交已完成、下一个还没开始——既没有
+///   `CHERRY_PICK_HEAD` 也没有 `REVERT_HEAD`，只有 sequencer 目录）。
+pub struct OperationDetection {
+    /// 操作类型。
+    pub state: OperationState,
+    /// 当前步骤（从 1 开始计）。
+    pub current_step: Option<u32>,
+    /// 总步数。
+    pub total_steps: Option<u32>,
+    /// 被 rebase 的分支名（`head-name`；其余操作为 `None`）。
+    pub head_name: Option<String>,
+}
+
+/// 判定进行中的操作并采集进度（T3.1 的状态机数据源）。
+pub fn detect_operation_with_details(git_dir: &Path) -> OperationDetection {
     let exists = |marker: &str| git_dir.join(marker).exists();
 
-    if exists("MERGE_HEAD") {
-        return OperationState::Merge;
+    // rebase 两种形态是强信号，最先判（见函数文档）
+    let rebase_dir = if exists("rebase-merge") {
+        Some(git_dir.join("rebase-merge"))
+    } else if exists("rebase-apply") {
+        Some(git_dir.join("rebase-apply"))
+    } else {
+        None
+    };
+    if let Some(dir) = rebase_dir {
+        return OperationDetection {
+            state: OperationState::Rebase,
+            current_step: read_marker_number(&dir.join("msgnum")),
+            total_steps: read_marker_number(&dir.join("end")),
+            head_name: read_marker_text(&dir.join("head-name")),
+        };
     }
-    if exists("rebase-merge") || exists("rebase-apply") {
-        return OperationState::Rebase;
+
+    if exists("MERGE_HEAD") {
+        return OperationDetection::simple(OperationState::Merge);
     }
     if exists("CHERRY_PICK_HEAD") {
-        return OperationState::CherryPick;
+        return OperationDetection::simple(OperationState::CherryPick);
     }
     if exists("REVERT_HEAD") {
-        return OperationState::Revert;
+        return OperationDetection::simple(OperationState::Revert);
+    }
+    // sequencer 目录在而标记文件不在：多步 cherry-pick / revert 序列的间隙。
+    // sequencer 是 cherry-pick 与 revert 共用的机制，todo 里无法区分二者；
+    // 按 cherry-pick 上报（两者的用户语义都是"重放一组提交"）。
+    if exists("sequencer") {
+        let done = count_todo_lines(&git_dir.join("sequencer").join("done"));
+        let todo = count_todo_lines(&git_dir.join("sequencer").join("todo"));
+        if let (Some(done), Some(todo)) = (done, todo) {
+            return OperationDetection {
+                state: OperationState::CherryPick,
+                current_step: Some(done + 1),
+                total_steps: Some(done + todo),
+                head_name: None,
+            };
+        }
     }
     if exists("BISECT_LOG") {
-        return OperationState::Bisect;
+        return OperationDetection::simple(OperationState::Bisect);
     }
-    OperationState::None
+    OperationDetection::simple(OperationState::None)
+}
+
+impl OperationDetection {
+    const fn simple(state: OperationState) -> Self {
+        Self {
+            state,
+            current_step: None,
+            total_steps: None,
+            head_name: None,
+        }
+    }
+}
+
+/// 读取标记文件里的数字（`msgnum` / `end`；内容形如 `2\n`）。
+///
+/// 读不到或内容不是数字都返回 `None`：进度是**增强信息**，缺失时界面退化为
+/// 不显示进度，绝不能因此让整个状态查询失败。
+fn read_marker_number(path: &Path) -> Option<u32> {
+    let text = read_marker_text(path)?;
+    text.parse().ok()
+}
+
+/// 读取标记文件里的文本（`head-name`；去首尾空白与空文件）。
+fn read_marker_text(path: &Path) -> Option<String> {
+    let text = std::fs::read_to_string(path).ok()?;
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_owned())
+    }
+}
+
+/// 统计 sequencer todo / done 文件里的有效行数（`#` 注释与空行不算）。
+fn count_todo_lines(path: &Path) -> Option<u32> {
+    let text = std::fs::read_to_string(path).ok()?;
+    let count = text
+        .lines()
+        .filter(|line| {
+            let trimmed = line.trim();
+            !trimmed.is_empty() && !trimmed.starts_with('#')
+        })
+        .count() as u32;
+    Some(count)
 }
 
 /// 解析 `.git` 指针文件（链接工作区的 `.git` 是内容为 `gitdir: <路径>` 的文件）。
@@ -211,7 +314,9 @@ mod tests {
 
     use forgedesk_domain::git::OperationState;
 
-    use super::{detect_operation, lfs_paths_from_check_attr, resolve_git_dir};
+    use super::{
+        detect_operation, detect_operation_with_details, lfs_paths_from_check_attr, resolve_git_dir,
+    };
 
     fn temp_dir(label: &str) -> PathBuf {
         static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
@@ -231,13 +336,75 @@ mod tests {
         std::fs::write(dir.join("CHERRY_PICK_HEAD"), b"").unwrap();
         assert_eq!(detect_operation(&dir), OperationState::CherryPick);
 
-        // merge 与 cherry-pick 并存（冲突的拣选）时按 merge 上报
+        // rebase 目录是强信号：即使 MERGE_HEAD 也在（畸形 / 残留），sequencer
+        // 目录正在跑这件事优先（T3.1 起的综合判断）
+        std::fs::create_dir_all(dir.join("rebase-merge")).unwrap();
         std::fs::write(dir.join("MERGE_HEAD"), b"").unwrap();
-        std::fs::write(dir.join("rebase-merge"), b"").unwrap();
+        assert_eq!(detect_operation(&dir), OperationState::Rebase);
+
+        std::fs::remove_dir_all(dir.join("rebase-merge")).unwrap();
         assert_eq!(detect_operation(&dir), OperationState::Merge);
 
         std::fs::remove_file(dir.join("MERGE_HEAD")).unwrap();
-        assert_eq!(detect_operation(&dir), OperationState::Rebase);
+        assert_eq!(detect_operation(&dir), OperationState::CherryPick);
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn rebase_progress_is_read_from_msgnum_and_end() {
+        let dir = temp_dir("rebase-progress");
+        let rebase = dir.join("rebase-merge");
+        std::fs::create_dir_all(&rebase).unwrap();
+        std::fs::write(rebase.join("msgnum"), b"3\n").unwrap();
+        std::fs::write(rebase.join("end"), b"7\n").unwrap();
+        std::fs::write(rebase.join("head-name"), b"refs/heads/main\n").unwrap();
+
+        let detection = detect_operation_with_details(&dir);
+        assert_eq!(detection.state, OperationState::Rebase);
+        assert_eq!(detection.current_step, Some(3));
+        assert_eq!(detection.total_steps, Some(7));
+        assert_eq!(detection.head_name.as_deref(), Some("refs/heads/main"));
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn missing_or_malformed_progress_degrades_to_none_instead_of_failing() {
+        let dir = temp_dir("rebase-degraded");
+        std::fs::create_dir_all(dir.join("rebase-merge")).unwrap();
+
+        let detection = detect_operation_with_details(&dir);
+        assert_eq!(detection.state, OperationState::Rebase);
+        assert_eq!(detection.current_step, None);
+        assert_eq!(detection.total_steps, None);
+        assert_eq!(detection.head_name, None);
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn sequencer_gap_is_reported_as_cherry_pick_with_progress() {
+        // 多步拣选序列的间隙：上一步已完成、下一步未开始——没有 CHERRY_PICK_HEAD，
+        // 只有 sequencer 目录（T3.1 要求的综合判断）
+        let dir = temp_dir("sequencer-gap");
+        let sequencer = dir.join("sequencer");
+        std::fs::create_dir_all(&sequencer).unwrap();
+        std::fs::write(
+            sequencer.join("done"),
+            b"pick aaaaaaa one\npick bbbbbbb two\n",
+        )
+        .unwrap();
+        std::fs::write(
+            sequencer.join("todo"),
+            "# comment line\n\npick ccccccc three\n",
+        )
+        .unwrap();
+
+        let detection = detect_operation_with_details(&dir);
+        assert_eq!(detection.state, OperationState::CherryPick);
+        assert_eq!(detection.current_step, Some(3));
+        assert_eq!(detection.total_steps, Some(3));
 
         std::fs::remove_dir_all(&dir).ok();
     }

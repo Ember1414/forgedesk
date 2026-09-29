@@ -1218,6 +1218,41 @@ impl GitEngine for Libgit2Engine {
     ) -> AppResult<forgedesk_domain::git::MergeOutcome> {
         Err(unsupported(EngineId::Libgit2, "rebase"))
     }
+
+    // 冲突状态机（T3.1）整体走 CLI：stage 三方内容 + 2 MiB 阈值 + 二进制判定
+    // 的语义以 git CLI 为准，双实现只会在编码提示与内容阈值上产生分歧
+    // （见 docs/GIT-ENGINE-DIFF.md §4）。读路径同样不支持——由差分测试钉住。
+    fn conflict_state(&self, _repo: &RepoId) -> AppResult<forgedesk_domain::git::ConflictState> {
+        Err(unsupported(EngineId::Libgit2, "conflict_state"))
+    }
+
+    fn conflict_mark_resolved(&self, _repo: &RepoId, _paths: &[RepoPath]) -> AppResult<()> {
+        Err(unsupported(EngineId::Libgit2, "conflict_mark_resolved"))
+    }
+
+    fn conflict_continue(
+        &self,
+        _repo: &RepoId,
+        _op: forgedesk_domain::git::ConflictOpKind,
+    ) -> AppResult<forgedesk_domain::git::ConflictContinueOutcome> {
+        Err(unsupported(EngineId::Libgit2, "conflict_continue"))
+    }
+
+    fn conflict_abort(
+        &self,
+        _repo: &RepoId,
+        _op: forgedesk_domain::git::ConflictOpKind,
+    ) -> AppResult<forgedesk_domain::git::ConflictAbortOutcome> {
+        Err(unsupported(EngineId::Libgit2, "conflict_abort"))
+    }
+
+    fn conflict_skip(
+        &self,
+        _repo: &RepoId,
+        _op: forgedesk_domain::git::ConflictOpKind,
+    ) -> AppResult<forgedesk_domain::git::ConflictContinueOutcome> {
+        Err(unsupported(EngineId::Libgit2, "conflict_skip"))
+    }
 }
 
 /// 远端默认分支（`refs/remotes/origin/HEAD` 指向的分支短名）。

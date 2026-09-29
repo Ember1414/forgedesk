@@ -629,7 +629,9 @@ pub(super) fn push(
 // ---------------------------------------------------------------- 辅助
 
 /// 未解决冲突的路径（去重）。
-fn unmerged_paths(
+///
+/// ：冲突状态采集（）与合并结果判定都要用，不复制。
+pub(super) fn unmerged_paths(
     engine: &CliGitEngine,
     repo: &RepoId,
 ) -> AppResult<Vec<forgedesk_domain::git::RepoPath>> {

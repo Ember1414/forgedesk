@@ -866,6 +866,58 @@ fn cli_engine_reports_unsupported_for_rebase_until_m3() {
 }
 
 #[test]
+fn libgit2_engine_reports_unsupported_for_the_whole_conflict_state_machine() {
+    // T3.1 的取舍：冲突状态与 continue/abort/skip 唯一数据源是 git CLI
+    // （stage 三方内容 + 2 MiB 阈值 + 二进制判定的语义以 CLI 为准，见
+    // docs/GIT-ENGINE-DIFF.md §4）。这里钉住 libgit2 侧必须**明确拒绝**
+    // 而不是静默给出另一套语义。
+    let dir = TempDir::new("conflict-unsupported");
+    init_repo(dir.path());
+    let (_, libgit2) = engines();
+    let repo = RepoId::new(dir.path());
+    let op = forgedesk_domain::git::ConflictOpKind::Merge;
+
+    let state_error = libgit2
+        .conflict_state(&repo)
+        .expect_err("libgit2 不支持冲突状态查询");
+    let continue_error = libgit2
+        .conflict_continue(&repo, op)
+        .expect_err("libgit2 不支持冲突 continue");
+    let abort_error = libgit2
+        .conflict_abort(&repo, op)
+        .expect_err("libgit2 不支持冲突 abort");
+    let skip_error = libgit2
+        .conflict_skip(&repo, op)
+        .expect_err("libgit2 不支持冲突 skip");
+
+    for error in [state_error, continue_error, abort_error, skip_error] {
+        assert_eq!(
+            error.code,
+            forgedesk_domain::ErrorCode::UnsupportedByEngine,
+            "必须报 UNSUPPORTED_BY_ENGINE：{error:?}"
+        );
+    }
+}
+
+#[test]
+fn conflict_state_is_an_empty_probe_on_a_clean_repository() {
+    let dir = TempDir::new("conflict-clean");
+    init_repo(dir.path());
+    let (cli, _) = engines();
+    let repo = RepoId::new(dir.path());
+
+    let state = cli.conflict_state(&repo).expect("conflict_state 失败");
+    assert_eq!(state.op_kind, None);
+    assert!(!state.op_in_progress);
+    assert_eq!(state.current_step, None);
+    assert_eq!(state.total_steps, None);
+    assert!(state.files.is_empty());
+    assert!(!state.can_continue);
+    assert!(!state.can_abort);
+    assert!(!state.can_skip);
+}
+
+#[test]
 fn libgit2_engine_refuses_every_write_operation_explicitly() {
     let dir = TempDir::new("libgit2-writes");
     init_repo(dir.path());

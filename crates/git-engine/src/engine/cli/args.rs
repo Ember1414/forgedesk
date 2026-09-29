@@ -49,6 +49,13 @@ pub struct GitInvocation {
     /// 见 `GitRunOpts::index_file`：这是 `GIT_INDEX_FILE` 的显式入口，
     /// 只用于"刻意不碰用户索引"的场景（amend 只改信息、快照恢复）。
     pub index_file: Option<PathBuf>,
+    /// 追加的环境变量（覆盖继承值）。
+    ///
+    /// 为什么在这里而不是让调用方直接改进程环境：环境注入与参数数组一样是
+    /// **安全边界**（T3.1 的 `GIT_EDITOR=true` 必须可靠覆盖用户 shell 里的
+    /// `GIT_EDITOR`，否则 rebase --continue 会打开交互编辑器挂死），收口在
+    /// 统一执行路径上才能保证每个调用点都显式声明自己需要什么环境。
+    pub env: Vec<(String, String)>,
 }
 
 impl GitInvocation {
@@ -58,6 +65,7 @@ impl GitInvocation {
             args,
             stdin: None,
             index_file: None,
+            env: Vec::new(),
         }
     }
 
@@ -65,6 +73,13 @@ impl GitInvocation {
     #[must_use]
     pub fn with_stdin(mut self, stdin: Vec<u8>) -> Self {
         self.stdin = Some(stdin);
+        self
+    }
+
+    /// 追加一个环境变量（覆盖从父进程继承的同名变量）。
+    #[must_use]
+    pub fn with_env(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        self.env.push((key.into(), value.into()));
         self
     }
 

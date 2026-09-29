@@ -208,7 +208,7 @@ fn worktrees_of(engine: &CliGitEngine, repo: &RepoId, fallback: Worktree) -> Vec
 }
 
 /// 当前分支短名；游离 HEAD 或空仓库返回 `None`。
-fn head_branch(engine: &CliGitEngine, repo: &RepoId) -> AppResult<Option<String>> {
+pub(super) fn head_branch(engine: &CliGitEngine, repo: &RepoId) -> AppResult<Option<String>> {
     let invocation = GitInvocation::new(vec![
         "symbolic-ref".to_owned(),
         "--short".to_owned(),

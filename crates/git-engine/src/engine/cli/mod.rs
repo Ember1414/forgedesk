@@ -13,6 +13,7 @@
 //! "少判一个退出码"或"忘了脱敏"都不会有测试发现。
 
 pub mod args;
+pub mod conflict;
 pub mod read;
 pub mod write;
 
@@ -22,11 +23,12 @@ use std::time::Duration;
 use forgedesk_diagnostics::sanitize_log;
 use forgedesk_domain::git::{
     ApplyPatchSpec, Branch, BranchCreateSpec, BranchDeleteSpec, BranchRenameSpec,
-    BranchSetUpstreamSpec, CheckoutSpec, CherryPickSpec, CloneSpec, Commit, CommitSpec, DiffReport,
+    BranchSetUpstreamSpec, CheckoutSpec, CherryPickSpec, CloneSpec, Commit, CommitSpec,
+    ConflictAbortOutcome, ConflictContinueOutcome, ConflictOpKind, ConflictState, DiffReport,
     DiffSpec, DiscardSpec, FetchOutcome, FetchSpec, InitSpec, LogQuery, MergeOutcome, MergeSpec,
     Page, PullOutcome, PullSpec, PushOutcome, PushSpec, ReflogEntry, Remote, ReorderSpec, RepoId,
-    RepositoryInfo, ResetSpec, RevertSpec, StageSpec, StashEntry, StashOutcome, StashSpec,
-    StatusQuery, StatusReport, SwitchStrategy, Tag, TagCreateSpec, TagDeleteSpec,
+    RepoPath, RepositoryInfo, ResetSpec, RevertSpec, StageSpec, StashEntry, StashOutcome,
+    StashSpec, StatusQuery, StatusReport, SwitchStrategy, Tag, TagCreateSpec, TagDeleteSpec,
 };
 use forgedesk_domain::{AppError, AppResult, ErrorCode};
 
@@ -396,6 +398,9 @@ impl CliGitEngine {
         if let Some(stdin) = invocation.stdin {
             opts = opts.with_stdin(stdin);
         }
+        for (key, value) in &invocation.env {
+            opts = opts.with_env(key.clone(), value.clone());
+        }
         if let Some(progress) = progress.filter(|sink| sink.is_active()) {
             opts = opts.with_stderr_line_handler(progress.handler());
         }
@@ -636,6 +641,34 @@ impl GitEngine for CliGitEngine {
 
     fn stash(&self, repo: &RepoId, spec: StashSpec) -> AppResult<StashOutcome> {
         write::stash(self, repo, &spec)
+    }
+
+    fn conflict_state(&self, repo: &RepoId) -> AppResult<ConflictState> {
+        conflict::conflict_state(self, repo)
+    }
+
+    fn conflict_mark_resolved(&self, repo: &RepoId, paths: &[RepoPath]) -> AppResult<()> {
+        conflict::mark_resolved(self, repo, paths)
+    }
+
+    fn conflict_continue(
+        &self,
+        repo: &RepoId,
+        op: ConflictOpKind,
+    ) -> AppResult<ConflictContinueOutcome> {
+        conflict::continue_operation(self, repo, op)
+    }
+
+    fn conflict_abort(&self, repo: &RepoId, op: ConflictOpKind) -> AppResult<ConflictAbortOutcome> {
+        conflict::abort_operation(self, repo, op)
+    }
+
+    fn conflict_skip(
+        &self,
+        repo: &RepoId,
+        op: ConflictOpKind,
+    ) -> AppResult<ConflictContinueOutcome> {
+        conflict::skip_operation(self, repo, op)
     }
 
     fn fetch(
