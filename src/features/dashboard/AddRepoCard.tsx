@@ -26,7 +26,7 @@ import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 
 import { useAppError } from '@/lib/errors';
-import { onJobDone, onJobFailed, onJobProgress, pickFolder } from '@/lib/ipc';
+import { isTauriRuntime, onJobDone, onJobFailed, onJobProgress, pickFolder } from '@/lib/ipc';
 import { repoClone, repoInit, repoOpen } from '@/lib/ipc';
 import { RECENT_REPOS_QUERY_KEY } from '@/lib/queryKeys';
 import { Button } from '@/ui/components/button';
@@ -89,6 +89,13 @@ export function AddRepoCard() {
   });
 
   useEffect(() => {
+    // 无宿主环境（浏览器 `pnpm dev` / jsdom 单测）没有 `__TAURI_INTERNALS__`：
+    // 真实 listen 会产生 unhandled rejection——与 `isTauriRuntime()` 的既有
+    // 约定一致（调用方禁用宿主相关能力，而不是让界面报错）。CI 上由
+    // AppShell.test 渲染真实卡片时抓到过（2026-09-29）。
+    if (!isTauriRuntime()) {
+      return;
+    }
     let disposed = false;
     let unlistenDone: (() => void) | null = null;
     let unlistenFailed: (() => void) | null = null;

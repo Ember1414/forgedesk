@@ -31,6 +31,8 @@ vi.mock('@/lib/ipc', async (importOriginal) => {
     repoClone: vi.fn(),
     repoInit: vi.fn(),
     pickFolder: vi.fn(),
+    // 卡片的事件订阅只在宿主里发生：单测模拟宿主，克隆链路才能被驱动
+    isTauriRuntime: () => true,
     repoRecentList: vi.fn().mockResolvedValue([]),
     onJobProgress: (handler: (payload: unknown) => void) => {
       bus.progress.push(handler);
