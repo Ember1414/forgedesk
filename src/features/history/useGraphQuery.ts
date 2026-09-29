@@ -25,7 +25,7 @@
  * 泳道数很多时超线性）**与首屏无关**，不要拿它当首屏预算；面板上的
  * "布局耗时"量的是这一页的 IPC 往返（见 `graphPerfStore.ts` 的说明）。
  */
-import { useCallback } from 'react';
+import { useCallback, useEffect } from 'react';
 
 import { keepPreviousData, useQueries, useQueryClient } from '@tanstack/react-query';
 import type { QueryObserverResult } from '@tanstack/react-query';
@@ -383,6 +383,30 @@ export function useGraphQuery(
   const refresh = useCallback((): void => {
     void queryClient.invalidateQueries({ queryKey: logKeyPrefix(repoId) });
   }, [queryClient, repoId]);
+
+  // ---------------------------------------------------------------- 预取下一页（T2.9）
+  //
+  // 最后一页的数据一到就把下一页拉进缓存：滚动加载的体验瓶颈是"滚到底才开始
+  // 取"——IPC 往返加引擎 walk 全落在用户的等待里。预取把这段等待提前到上一页
+  // 到达的瞬间；后端日志分页缓存（T2.9）让预取从**累积前缀**切片，几乎免费。
+  //
+  // 依赖里的 `filters` 是 HistoryPage useMemo 过的稳定引用；`cursors` 来自
+  // Zustand 选择器，同样是稳定引用——effect 不会因渲染而空转。
+  const nextCursor = combined.model.nextCursor;
+  useEffect(() => {
+    if (!enabled || nextCursor === null) {
+      return;
+    }
+    // 已加载的游标不用预取（它已经在 useQueries 的观察列表里）
+    if (cursors.includes(nextCursor)) {
+      return;
+    }
+    void queryClient.prefetchQuery({
+      queryKey: logKey(repoId, nextCursor, signature),
+      queryFn: () => fetchHistoryPage(repoId, filters, pageSize, nextCursor),
+      staleTime: HISTORY_STALE_TIME_MS,
+    });
+  }, [queryClient, repoId, signature, pageSize, filters, nextCursor, cursors, enabled]);
 
   return {
     model: combined.model,

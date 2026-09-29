@@ -49,6 +49,7 @@ import {
 import type { SelectableLine, Selection } from '@/features/diff/selectionModel';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { normalizeError } from '@/lib/errors';
+import { PERFORMANCE_CONTEXT_LINES, usePerformanceMode } from '@/lib/performanceMode';
 import { workspaceDiff, workspaceDiffPatch } from '@/lib/ipc/workspace';
 import type { DiffHunk, DiffLine, PatchViewSpec, StageScope } from '@/lib/ipc/workspace';
 import { Button } from '@/ui/components/button';
@@ -343,6 +344,12 @@ export function DiffView({
   const { t } = useTranslation('shell');
   const [contextLines, setContextLines] = useState(3);
   const [forceFull, setForceFull] = useState(false);
+  // 性能模式（T2.9）：大仓库里把上下文压到 1 行。用户点"更多上下文"是
+  // 显式要细节——那次点击之后以用户为准，模式不再往回收。
+  const [contextBoosted, setContextBoosted] = useState(false);
+  const perfMode = usePerformanceMode(repoId);
+  const effectiveContextLines =
+    perfMode && !contextBoosted ? PERFORMANCE_CONTEXT_LINES : contextLines;
   const [collapsed, setCollapsed] = useState<ReadonlySet<number>>(new Set());
   const [scrollTarget, setScrollTarget] = useState(-1);
   const [jumpCursor, setJumpCursor] = useState(-1);
@@ -381,7 +388,7 @@ export function DiffView({
       repoId,
       source === undefined ? target : `between:${source.from}:${source.to}`,
       path,
-      contextLines,
+      effectiveContextLines,
       forceFull,
     ],
     queryFn: () =>
@@ -389,7 +396,7 @@ export function DiffView({
         ? workspaceDiff(repoId, {
             target: target ?? 'unstaged',
             paths: [path],
-            contextLines,
+            contextLines: effectiveContextLines,
             forceFull,
           })
         : workspaceDiff(repoId, {
@@ -397,7 +404,7 @@ export function DiffView({
             from: source.from,
             to: source.to,
             paths: [path],
-            contextLines,
+            contextLines: effectiveContextLines,
             forceFull,
           }),
   });
@@ -407,7 +414,8 @@ export function DiffView({
 
   const file = query.data?.files.find((candidate) => candidate.path === path);
   const hunks = useMemo(() => file?.hunks ?? [], [file]);
-  const charDiffEnabled = changedLineCount(hunks) <= CHAR_DIFF_MAX_CHANGED_LINES;
+  // 性能模式下字符级高亮整档关闭：万级行的 diff 上它是最贵的渲染项
+  const charDiffEnabled = !perfMode && changedLineCount(hunks) <= CHAR_DIFF_MAX_CHANGED_LINES;
 
   /** 行对象 → 它在所属 hunk 里的位置（选择与后端用同一口径，见 selectionModel）。 */
   const lineIndexOf = useMemo(() => {
@@ -513,7 +521,7 @@ export function DiffView({
    * 省略即等价。**"更多上下文"改过的值必须带走** —— 否则后端会用 -U3 重新生成补丁，
    * hunk 的划分与界面看到的不是同一份，下标随之错位。
    */
-  const viewSpec: PatchViewSpec = { contextLines };
+  const viewSpec: PatchViewSpec = { contextLines: effectiveContextLines };
 
   const scopeFromSelection = (): StageScope => ({
     kind: 'lines',
@@ -754,6 +762,7 @@ export function DiffView({
           label={t('diff.moreContext')}
           tooltip={t('diff.moreContext')}
           onClick={() => {
+            setContextBoosted(true);
             setContextLines((n) => Math.min(n * 4, 200));
           }}
         >

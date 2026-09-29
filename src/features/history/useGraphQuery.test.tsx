@@ -240,7 +240,11 @@ describe('useGraphQuery — 续页', () => {
   it('loadMore 追加游标并触发第二页请求', async () => {
     const page1 = makePage([makeRow('a', 0, 0)], 200);
     const page2 = makePage([makeRow('b', 1, 0)], null);
-    gitLogPageMock.mockResolvedValueOnce(page1).mockResolvedValueOnce(page2);
+    // 按游标分发：预取（T2.9）与 loadMore 的观察者共用同一份 mock，
+    // Once 链会在两者竞争时耗尽并让 queryFn 返回 undefined
+    gitLogPageMock.mockImplementation((_repoId, query) =>
+      Promise.resolve(query?.cursor === 0 ? page1 : page2),
+    );
 
     const { result } = renderHook(() => useGraphQuery(1), { wrapper });
     await waitFor(() => {
@@ -248,6 +252,11 @@ describe('useGraphQuery — 续页', () => {
     });
 
     expect(result.current.hasNextPage).toBe(true);
+    // 预取（T2.9）会先于 loadMore 发出第二页请求：等它落地，避免
+    // promise 在 act 外结算刷 act 告警
+    await waitFor(() => {
+      expect(gitLogPageMock).toHaveBeenCalledTimes(2);
+    });
     const appended = result.current.loadMore();
     expect(appended).toBe(true);
 
@@ -255,7 +264,7 @@ describe('useGraphQuery — 续页', () => {
       expect(result.current.model.loadedPages).toBe(2);
     });
     expect(gitLogPageMock).toHaveBeenCalledTimes(2);
-    // 第二次调用应带 cursor=200
+    // 第二次调用应带 cursor=200（预取发出，loadMore 命中缓存）
     expect(gitLogPageMock.mock.calls[1]![1]).toMatchObject({ cursor: 200 });
   });
 
@@ -270,5 +279,64 @@ describe('useGraphQuery — 续页', () => {
 
     expect(result.current.hasNextPage).toBe(false);
     expect(result.current.loadMore()).toBe(false);
+  });
+
+  it('首页到达后自动预取下一页进缓存（T2.9）', async () => {
+    const page1 = makePage([makeRow('a', 0, 0)], 200);
+    const page2 = makePage([makeRow('b', 1, 0)], null);
+    // 按游标分发而不是 Once 链：额外的偶发调用（TanStack 去重竞态）不会
+    // 拿到 undefined 而刷警告；下面的 toHaveBeenCalledTimes 仍然钉住调用数
+    gitLogPageMock.mockImplementation((_repoId, query) =>
+      Promise.resolve(query?.cursor === 0 ? page1 : page2),
+    );
+
+    const { result } = renderHook(() => useGraphQuery(1), { wrapper });
+    await waitFor(() => {
+      expect(result.current.isPending).toBe(false);
+    });
+
+    // 预取：没有 loadMore，第二页的请求也自动发出并落入缓存
+    const sig = filtersSignature(EMPTY_FILTERS, DEFAULT_PAGE_SIZE);
+    await waitFor(() => {
+      expect(queryClient.getQueryData(logKey(1, 200, sig))).toBeDefined();
+    });
+    expect(gitLogPageMock).toHaveBeenCalledTimes(2);
+    expect(gitLogPageMock.mock.calls[1]![1]).toMatchObject({ cursor: 200 });
+    // 观察的页没有增加：预取只进缓存，不改分页游标
+    expect(result.current.model.loadedPages).toBe(1);
+  });
+
+  it('loadMore 命中预取缓存时不再发起新请求（T2.9）', async () => {
+    const page1 = makePage([makeRow('a', 0, 0)], 200);
+    const page2 = makePage([makeRow('b', 1, 0)], null);
+    gitLogPageMock.mockImplementation((_repoId, query) =>
+      Promise.resolve(query?.cursor === 0 ? page1 : page2),
+    );
+
+    const { result } = renderHook(() => useGraphQuery(1), { wrapper });
+    await waitFor(() => {
+      expect(result.current.isPending).toBe(false);
+    });
+    // 等预取落地（否则 promise 在 act 外结算刷告警）
+    await waitFor(() => {
+      expect(gitLogPageMock).toHaveBeenCalledTimes(2);
+    });
+    const appended = result.current.loadMore();
+    expect(appended).toBe(true);
+
+    await waitFor(() => {
+      expect(result.current.model.loadedPages).toBe(2);
+    });
+    // 整个过程只有两次 IPC：首页 + 预取；loadMore 本身直接命中缓存
+    expect(gitLogPageMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('末页（nextCursor = null）不触发预取', async () => {
+    gitLogPageMock.mockResolvedValue(makePage([makeRow('a', 0, 0)], null));
+    const { result } = renderHook(() => useGraphQuery(1), { wrapper });
+    await waitFor(() => {
+      expect(result.current.isPending).toBe(false);
+    });
+    expect(gitLogPageMock).toHaveBeenCalledTimes(1);
   });
 });

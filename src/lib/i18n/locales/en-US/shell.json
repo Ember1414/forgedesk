@@ -313,6 +313,13 @@
       "watchDebounceLabel": "Merge window",
       "watchDebounceHint": "Multiple file changes within this window collapse into a single refresh. Larger is calmer, smaller feels snappier.",
       "watchDebounceValue": "{{ms}} ms",
+      "perfLabel": "Large repository performance mode",
+      "perfHint": "For large repositories with many changed files, trim rendering details automatically: char-level diff highlighting off, fewer diff context lines, and half the history page size. Forced off keeps every detail on large repositories.",
+      "perf": {
+        "auto": "Auto",
+        "on": "Always on",
+        "off": "Always off"
+      },
       "themeNote": "The theme is kept in browser local storage because it must be readable synchronously before the first paint; storing it in the database would cause a flash on startup.",
       "loadFailed": "Could not read settings",
       "loadFailedHint": "The local database may be unreachable. Retry, and if it keeps failing check the logs.",

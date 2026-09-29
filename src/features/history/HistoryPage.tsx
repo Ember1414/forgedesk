@@ -35,6 +35,7 @@ import { useSearchParams, useParams } from 'react-router-dom';
 import { normalizeError } from '@/lib/errors';
 import { settingsGet, settingsSet } from '@/lib/ipc';
 import { gitBranchList, gitLogAuthors } from '@/lib/ipc';
+import { PERFORMANCE_PAGE_SIZE, usePerformanceMode } from '@/lib/performanceMode';
 import { useRepoChangeInvalidation } from '@/lib/repoChanged';
 import { AUTHORS_QUERY_KEY, BRANCHES_QUERY_KEY } from '@/lib/queryKeys';
 import { cn } from '@/lib/utils';
@@ -93,7 +94,11 @@ export function HistoryPage() {
   const filterState = useMemo(() => filtersFromSearchParams(searchParams), [searchParams]);
   const filters = useMemo(() => filtersToQuery(filterState), [filterState]);
 
-  const graph = useGraphQuery(repoId, filters);
+  // 性能模式（T2.9）：大仓库把每页行数减半，首屏更快、滚动更跟手。
+  // pageSize 变化会改变查询签名并重取第一页——模式判定基于状态条目数，
+  // 打开仓库后基本稳定，不会出现来回抖动。
+  const perfMode = usePerformanceMode(repoId);
+  const graph = useGraphQuery(repoId, filters, perfMode ? { pageSize: PERFORMANCE_PAGE_SIZE } : {});
   // 引用 / 大量变更时按类别失效历史页（`refs` 与 `large` 已覆盖 `[LOG_QUERY_KEY, repoId]` 前缀）
   useRepoChangeInvalidation(repoId);
 

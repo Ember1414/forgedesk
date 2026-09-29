@@ -12,6 +12,11 @@ import {
   WATCH_DEBOUNCE_KEY,
 } from '@/stores/settingsStore';
 import type { Density } from '@/stores/settingsStore';
+import {
+  PERFORMANCE_MODES,
+  PERFORMANCE_MODE_KEY,
+  parsePerformanceMode,
+} from '@/lib/performanceMode';
 import { Checkbox } from '@/ui/components/checkbox';
 import { ErrorState } from '@/ui/components/error-state';
 import { Skeleton } from '@/ui/components/skeleton';
@@ -47,6 +52,10 @@ export function GeneralSettingsPage() {
   const density = getJson<Density>(DENSITY_KEY, 'comfortable');
   const autoRefresh = getJson<boolean>(WATCH_AUTO_REFRESH_KEY, true);
   const debounceMs = getJson<number>(WATCH_DEBOUNCE_KEY, DEFAULT_DEBOUNCE_MS);
+  // 性能模式（T2.9）：订阅原始值（字符串比较稳定，切换时触发重渲染），
+  // 再经 parsePerformanceMode 解析（坏值回落 auto）——与 parseDensity 同一防御姿势
+  const performanceModeRaw = useSettingsStore((state) => state.values[PERFORMANCE_MODE_KEY]);
+  const performanceMode = parsePerformanceMode(performanceModeRaw);
 
   return (
     <section className="flex flex-col gap-4">
@@ -134,6 +143,29 @@ export function GeneralSettingsPage() {
               />
             )}
           </div>
+        </div>
+
+        {/* 性能模式（T2.9）：大仓库自动收紧渲染细节 */}
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line pt-4">
+          <div className="flex max-w-md flex-col gap-0.5">
+            <span className="text-14 font-medium">{t('settings.general.perfLabel')}</span>
+            <span className="text-12 text-fg-subtle">{t('settings.general.perfHint')}</span>
+          </div>
+          {loading && !loaded ? (
+            <Skeleton className="h-7 w-40" />
+          ) : (
+            <ToggleGroup
+              label={t('settings.general.perfLabel')}
+              value={performanceMode}
+              options={PERFORMANCE_MODES.map((option) => ({
+                value: option,
+                label: t(`settings.general.perf.${option}`),
+              }))}
+              onValueChange={(next) => {
+                void setJson(PERFORMANCE_MODE_KEY, next).catch(show);
+              }}
+            />
+          )}
         </div>
 
         <div className="flex flex-col gap-1 border-t border-line pt-4">
