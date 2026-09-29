@@ -267,6 +267,37 @@
         "unlocked": "保险库已解锁"
       }
     },
+    "ssh": {
+      "title": "SSH 密钥",
+      "description": "本地密钥与 ssh-agent 的当前状态，用来排查「Permission denied (publickey)」。只读取文件名与公钥内容，私钥不会被读取。",
+      "directory": "目录：{{directory}}",
+      "noDirectory": "找不到 ~/.ssh 目录（可能还没配过 SSH）。",
+      "unavailable": "无法盘点本地 SSH：读取密钥目录时出错，详情见日志。",
+      "empty": "还没有 SSH 密钥。用 ssh-keygen 生成后，把公钥添加到托管平台。",
+      "state": {
+        "pair": "公私钥齐全",
+        "publicOnly": "只有公钥",
+        "privateOnly": "缺少公钥"
+      },
+      "privateOnlyHint": "找不到与它配对的 .pub 文件：可用 ssh-keygen -y -f <私钥路径> 从私钥重新导出公钥。",
+      "agent": {
+        "title": "ssh-agent",
+        "ready": "已加载 {{count}} 把密钥",
+        "noIdentities": "agent 在运行，但没有加载密钥",
+        "noIdentitiesHint": "加进去再试：ssh-add ~/.ssh/id_ed25519。agent 优先于文件，这是最常见的困惑来源。",
+        "notRunning": "agent 没有运行",
+        "notRunningHint": "先启动 agent 并加载密钥（Windows 上通常是 ssh-agent 服务未启动）。",
+        "unknown": "无法确定 agent 状态",
+        "bits": "{{bits}} 位"
+      },
+      "test": {
+        "title": "测试连接（远端地址）",
+        "placeholder": "git@github.com:owner/repo.git",
+        "button": "测试",
+        "hint": "只做一次 git ls-remote：不改动本地，也不会写入远端。",
+        "ok": "连接成功：远端有 {{refs}} 条引用"
+      }
+    },
     "general": {
       "densityLabel": "界面密度",
       "densityHint": "紧凑模式会收紧列表与页面的留白，适合小屏幕，或想在一屏里看到更多内容时使用。",

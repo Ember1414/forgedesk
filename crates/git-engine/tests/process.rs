@@ -18,6 +18,8 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use forgedesk_domain::ErrorCode;
+use forgedesk_git_engine::engine::CliGitEngine;
+use forgedesk_git_engine::engine::GitEngine;
 use forgedesk_git_engine::process::{GitProcess, GitRunOpts, DEFAULT_TIMEOUT};
 use support::{args, TempDir};
 use tokio_util::sync::CancellationToken;
@@ -452,4 +454,34 @@ async fn a_missing_working_directory_is_reported_as_not_found() {
         error.hint.as_deref(),
         Some(missing.to_string_lossy().as_ref())
     );
+}
+
+/// 真机连通性：`ssh-add -l` 的探测（T2.7）。
+///
+/// 手动跑：`cargo test -p forgedesk-git-engine -- --ignored`
+///
+/// 为什么标 `#[ignore]`：它读的是**这台机器**的 ssh-agent（系统状态），
+/// 有密钥 / 没密钥 / agent 没运行三种结局都合法，放进常规门禁只会变成抖动源。
+/// 这里要钉住的是一条容易写反的约定：**非零退出码不是错误**——
+/// 若把 1（没有密钥）当成 `Err`，界面会把"还没加载密钥"显示成"命令执行失败"，
+/// 用户于是去重装 OpenSSH，而不是 `ssh-add ~/.ssh/id_ed25519`。
+#[test]
+#[ignore = "reads the real ssh-agent; run manually with --ignored"]
+fn probing_the_real_ssh_agent_reports_an_exit_code_instead_of_failing() {
+    let engine = CliGitEngine::new().expect("创建 CLI 引擎失败");
+
+    let outcome = engine.probe_ssh_agent();
+
+    match outcome {
+        Ok(output) => assert!(
+            matches!(output.exit_code, Some(0..=2)),
+            "退出码应落在 ssh-add -l 的三种语义内，实际: {output:?}"
+        ),
+        // 机器上没装 ssh-add 也算通过：那是"程序跑不起来"，与 agent 状态无关。
+        // 但错误必须是可诊断的（能看出是启动失败而不是超时）。
+        Err(error) => assert!(
+            !error.message.is_empty(),
+            "程序跑不起来时也要给出可诊断的错误"
+        ),
+    }
 }

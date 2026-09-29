@@ -1304,6 +1304,7 @@ SSH 远端（`git@host:path` / `ssh://`）与本地路径**永不**注入令牌�
 | `credentials_vault_create` | Mutating | `passphrase` | `()`；创建加密保险库（Argon2id + AES-256-GCM）并切换过去，同时把 `credentials.backend` 记为 `encryptedVault`；**已存在保险库文件时拒绝**（覆盖等于悄悄清空已有凭据）→ `VALIDATION` |
 | `credentials_vault_unlock` | Mutating | `passphrase` | `()`；解锁并切换；口令错或文件被改 → `STORAGE`（两者在 AES-GCM 下不可区分，这是刻意的） |
 | `credential_test_remote` | ReadOnly | `url?` 或 `repoId + remote?` | `{ refs }`（远端引用条数，空仓库为 0）；`git ls-remote`，超时 5s；失败按 stderr 分类（见下） |
+| `credentials_ssh_inventory` | ReadOnly | — | `{ directory?, keys[], agent }`；`keys[] = { publicPath?, privatePath?, keyType?, comment? }`（**不读私钥内容**，只判存在性），`agent = { kind: "ready" \| "noIdentities" \| "notRunning" \| "unknown", keys[], reason? }`（`ssh-add -l`，超时 5s，退出码 1/2 是**正常结局**而不是错误） |
 
 **回退方案（系统凭据库不可用时）**：探测失败 → `credentials_status.keyringUnavailableReason` 有值 →
 界面提示可"改用加密文件存储" → `credentials_vault_create` 建库并切换 → 选择记在全局设置
@@ -1325,7 +1326,14 @@ identity 文件）、`TLS_CERTIFICATE_REJECTED`（自签名或证书链不完整
 `repoId` 由命令层在错误离开任务时补上——前端会照 `args` 原样 invoke，缺参数的按钮点下去
 只会得到一条 `VALIDATION`。已有自带动作的错误（如 `PUSH_REJECTED` 的三条路径）不会被叠加。
 
-> 尚未接线：`auth_login_device_*`（OAuth 设备码）与多账号模型属于 T4.4，会复用本节的存储层。
+**SSH 侧**（`credentials_ssh_inventory`）：盘点 `~/.ssh` 下的密钥与 `ssh-add -l` 的结果，
+回答 `Permission denied (publickey)` 之后最常被问的那一半——"本地到底有哪些密钥、agent 里
+加载了哪几把"。**不读私钥内容**（只对私钥文件做存在性判断），因此"这是一把私钥"是基于
+命名惯例的**候选**判定，界面文案不得写成断言。它不能回答"服务端是否接受这把公钥"，
+那只有 `credential_test_remote` 实际连一次才能知道。
+
+> 尚未接线：`auth_login_device_*`（OAuth 设备码）与多账号模型属于 T4.4，会复用本节的存储层；
+> `clone` 尚未接入凭据通道（私有仓库克隆仍会以 `AUTH_REQUIRED` 失败）。
 
 ### 文件监听与设置键（T1.10）
 

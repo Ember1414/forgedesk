@@ -76,6 +76,28 @@ impl std::fmt::Display for EngineId {
     }
 }
 
+/// 一次"外部探测"的原样结果（`ssh-add -l` 之类）。
+///
+/// # 为什么只带回输出与退出码
+///
+/// 判读规则属于调用方（例如 `forgedesk_credentials::parse_agent_listing`
+/// 认识 `ssh-add -l` 的三种退出码语义），引擎只负责"把程序安全地跑起来、
+/// 如实带回结果"。两件事的变更原因不同：换一个探测命令只是调用方换个解析器，
+/// 而进程启动策略（不出 shell、固定环境、超时、可取消）不该跟着变。
+///
+/// 为什么不用 [`crate::process::GitOutput`]：那个类型带着 stderr 与"成功判定"，
+/// 是给 git 命令用的语义；探测的退出码**非零也是正常结局**（例如 `ssh-add -l`
+/// 用 1 表示"agent 里没有密钥"），把两者混成一个类型会诱导调用方误用
+/// `success()` 去做判断，从而把"没有密钥"当成错误。
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProbeOutput {
+    /// 标准输出（按 UTF-8 宽松解码；解码失败不报错，见 `stdout_lossy` 的既有约定）。
+    pub stdout: String,
+    /// 退出码；被信号终止时为 `None`。
+    pub exit_code: Option<i32>,
+}
+
 /// 构造"本引擎不支持该操作"的错误。
 ///
 /// 与"尚未实现"区分开：前者是**设计如此**（libgit2 不承担写操作），
@@ -371,6 +393,22 @@ pub trait GitEngine: Send + Sync {
     /// 失败时返回的 `AppError` 已经过 [`ErrorCode::classify`]：SSH 主机指纹、
     /// 公钥被拒、证书、代理这些情况各自成为可区分的错误码（T2.7 的验收要求）。
     fn probe_remote(&self, cwd: &Path, url: &str, auth: &NetworkAuth) -> AppResult<usize>;
+
+    /// 读取 ssh-agent 里的密钥清单（`ssh-add -l`）。
+    ///
+    /// # 为什么放在引擎层
+    ///
+    /// 引擎拥有"如何安全地跑外部程序"这份能力：一律以数组传参（没有 shell 包装）、
+    /// 固定 locale 与交互开关、有超时、可取消。换到别处实现等于再写一份进程启动逻辑，
+    /// 而进程启动恰恰是最容易写漏安全细节的地方。SSH 探测与 [`Self::probe_remote`]
+    /// 同属"连接与认证的诊断"家族，放在一起也便于将来统一调整超时与代理环境。
+    ///
+    /// # 退出码的语义由调用方解释
+    ///
+    /// `ssh-add -l`：0 = 列出了密钥、1 = agent 在跑但没有密钥、2 = agent 没运行。
+    /// **非零不是错误**，因此这里只有在**程序本身跑不起来**时才返回 `Err`
+    /// （没装 `ssh-add`、超时）——"agent 没运行"与"命令不存在"需要完全不同的建议。
+    fn probe_ssh_agent(&self) -> AppResult<ProbeOutput>;
 
     /// 添加远端（`git remote add`）。名称与 URL 先经 services 校验。
     fn remote_add(&self, repo: &RepoId, name: &str, url: &str) -> AppResult<()>;

@@ -20,9 +20,9 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, RwLock};
 
 use forgedesk_credentials::{
-    parse_remote_url, provider_for_host, AskpassPlan, BackendKind, CredentialKind, CredentialMeta,
-    CredentialRef, CredentialStore, CredentialsError, FileIndex, IndexedCredentialStore,
-    KeyringBackend, Secret, VaultBackend,
+    parse_remote_url, provider_for_host, AgentStatus, AskpassPlan, BackendKind, CredentialKind,
+    CredentialMeta, CredentialRef, CredentialStore, CredentialsError, FileIndex,
+    IndexedCredentialStore, KeyringBackend, Secret, SshInventory, VaultBackend,
 };
 use forgedesk_domain::git::{Remote, RepoId};
 use forgedesk_domain::{AppError, AppResult, ErrorCode};
@@ -543,6 +543,29 @@ pub fn remote_provider(url: &str) -> String {
         )
 }
 
+/// 组装本地 SSH 盘点（T2.7）。
+///
+/// # 为什么把 agent 状态作为参数传进来
+///
+/// "扫 `~/.ssh` 目录"与"问 ssh-agent"是两条独立的路径，失败方式也完全不同：
+/// 目录不存在是**正常状态**（新机器还没配过 SSH），而 agent 没运行要引导用户去开。
+/// 让调用方传入 [`AgentStatus`]，两件事就能各自测试，也不用在服务层
+/// 引入"跑外部程序"的能力（那是引擎的职责，见 `GitEngine::probe_ssh_agent`）。
+///
+/// `directory` 为 `None`（拿不到 HOME）时同样返回空列表而不是错误：
+/// 那不是故障，只是我们没有可盘点的位置。
+pub fn ssh_inventory(directory: Option<&Path>, agent: AgentStatus) -> AppResult<SshInventory> {
+    let keys = match directory {
+        Some(dir) => forgedesk_credentials::scan_keys(dir).map_err(|error| error.to_app_error())?,
+        None => Vec::new(),
+    };
+    Ok(SshInventory {
+        directory: directory.map(|dir| dir.display().to_string()),
+        keys,
+        agent,
+    })
+}
+
 /// 由服务层读取远端列表（同步路径与凭据解析共用）。
 pub fn read_remotes(engines: &GitEngines, workdir: &Path) -> AppResult<Vec<Remote>> {
     engines
@@ -554,7 +577,7 @@ pub fn read_remotes(engines: &GitEngines, workdir: &Path) -> AppResult<Vec<Remot
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
     use super::*;
-    use forgedesk_credentials::{MemoryBackend, MemoryIndex};
+    use forgedesk_credentials::{AgentKey, MemoryBackend, MemoryIndex};
 
     fn gate() -> CredentialGate {
         let store = IndexedCredentialStore::new(MemoryBackend::new(), MemoryIndex::new());
@@ -931,5 +954,57 @@ mod tests {
             remote_host("https://gitlab.com/team/repo.git").as_deref(),
             Some("gitlab.com")
         );
+    }
+
+    /// 临时 SSH 目录（用例自己造密钥文件；**不碰**用户真实的 `~/.ssh`）。
+    fn temp_ssh_dir(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("forgedesk-ssh-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        dir
+    }
+
+    #[test]
+    fn ssh_inventory_reports_the_keys_on_disk_and_the_agent_state_it_was_given() {
+        let dir = temp_ssh_dir("inventory");
+        std::fs::write(
+            dir.join("id_ed25519.pub"),
+            "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExample octocat@example.com\n",
+        )
+        .expect("write pub");
+        std::fs::write(dir.join("id_ed25519"), b"PRIVATE KEY NEVER READ").expect("write key");
+        std::fs::write(dir.join("known_hosts"), b"github.com ssh-ed25519 AAAA").expect("write");
+
+        let inventory = ssh_inventory(
+            Some(&dir),
+            AgentStatus::Ready(vec![AgentKey {
+                bits: Some(256),
+                fingerprint: "SHA256:abc".to_owned(),
+                comment: Some("id_ed25519".to_owned()),
+            }]),
+        )
+        .expect("盘点");
+
+        let expected_dir = dir.display().to_string();
+        assert_eq!(inventory.directory.as_deref(), Some(expected_dir.as_str()));
+        assert_eq!(inventory.keys.len(), 1, "{:?}", inventory.keys);
+        assert!(inventory.keys[0].is_pair());
+        assert_eq!(inventory.keys[0].key_type.as_deref(), Some("ssh-ed25519"));
+        // agent 状态原样带出：界面靠它区分"没有密钥"与"agent 没运行"
+        assert!(matches!(&inventory.agent, AgentStatus::Ready(keys) if keys.len() == 1));
+        assert!(!inventory.is_empty());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_missing_ssh_directory_is_an_empty_inventory_rather_than_a_failure() {
+        // 新机器还没配过 SSH 是正常状态，不该弹错误；agent 没运行则如实带出
+        let inventory = ssh_inventory(None, AgentStatus::NotRunning).expect("盘点");
+
+        assert!(inventory.keys.is_empty());
+        assert_eq!(inventory.directory, None);
+        assert!(inventory.is_empty());
+        assert_eq!(inventory.agent, AgentStatus::NotRunning);
     }
 }

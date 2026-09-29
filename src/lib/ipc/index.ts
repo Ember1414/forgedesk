@@ -86,6 +86,7 @@ export {
   credentialsDelete,
   credentialsList,
   credentialsSave,
+  credentialsSshInventory,
   credentialsStatus,
   credentialsVaultCreate,
   credentialsVaultUnlock,
@@ -100,6 +101,10 @@ export type {
   CredentialRef,
   CredentialsStatus,
   RemoteProbe,
+  SshAgentKey,
+  SshAgentStatus,
+  SshInventory,
+  SshKeyInfo,
 } from './credentials';
 
 export {

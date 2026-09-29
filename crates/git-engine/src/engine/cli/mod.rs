@@ -31,7 +31,7 @@ use forgedesk_domain::git::{
 use forgedesk_domain::{AppError, AppResult, ErrorCode};
 
 use super::progress::ProgressSink;
-use super::{not_implemented, EngineId, GitEngine};
+use super::{not_implemented, EngineId, GitEngine, ProbeOutput};
 use crate::process::{GitOutput, GitProcess, GitRunOpts, NetworkAuth};
 
 /// 本地操作的超时。
@@ -346,6 +346,29 @@ impl CliGitEngine {
             .count())
     }
 
+    /// 读取 ssh-agent 的密钥清单（`ssh-add -l`）。
+    ///
+    /// 与 [`Self::probe_remote_impl`] 同一套超时：这也是"排错按钮"背后的动作，
+    /// 不能让用户等；`ssh-add` 本身只在问一个本地进程，正常是毫秒级。
+    pub(crate) fn probe_ssh_agent_impl(&self) -> AppResult<ProbeOutput> {
+        // 工作目录固定用系统临时目录：`ssh-add` 与 cwd 无关，而沿用"当前目录"
+        // 会在那个目录被删掉时抛出与本操作无关的错误（用户会以为 SSH 坏了）
+        let cwd = std::env::temp_dir();
+        let opts = GitRunOpts::new(&cwd).with_timeout(PROBE_TIMEOUT);
+        let args = vec!["-l".to_owned()];
+
+        // `Err` 只表示程序跑不起来（未安装 ssh-add / 超时）；退出码 1、2 是正常结局
+        let output = self
+            .bridge
+            .block_on(GitProcess::with_program("ssh-add").run(&args, opts))??;
+
+        Ok(ProbeOutput {
+            // `stdout_lossy` 返回借用形态（`Cow`）：这里要带走所有权
+            stdout: output.stdout_lossy().into_owned(),
+            exit_code: output.exit_code,
+        })
+    }
+
     /// 在指定目录执行写命令并断言成功（用于 `init` 这类目标目录还不是仓库的场景）。
     pub(crate) fn run_write_at(
         &self,
@@ -637,6 +660,10 @@ impl GitEngine for CliGitEngine {
 
     fn probe_remote(&self, cwd: &Path, url: &str, auth: &NetworkAuth) -> AppResult<usize> {
         self.probe_remote_impl(cwd, url, auth)
+    }
+
+    fn probe_ssh_agent(&self) -> AppResult<ProbeOutput> {
+        self.probe_ssh_agent_impl()
     }
 
     fn remote_add(&self, repo: &RepoId, name: &str, url: &str) -> AppResult<()> {

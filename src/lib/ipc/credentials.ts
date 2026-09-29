@@ -75,6 +75,60 @@ export interface CredentialInput {
   readonly secret: string;
 }
 
+/** 一把本地 SSH 密钥的元信息（**不含私钥内容**）。 */
+export interface SshKeyInfo {
+  /** 公钥文件路径（存在时）。 */
+  readonly publicPath?: string;
+  /** 私钥文件路径（存在时；只表示"文件在"，不代表内容可读或被读过）。 */
+  readonly privatePath?: string;
+  /** 密钥类型（来自公钥首行，如 `ssh-ed25519`）。 */
+  readonly keyType?: string;
+  /** 公钥里的注释（通常是 `user@host`）。 */
+  readonly comment?: string;
+}
+
+/** agent 里的一把密钥。 */
+export interface SshAgentKey {
+  /** 位长。 */
+  readonly bits?: number;
+  /** 指纹（`SHA256:...`）：用户拿它去跟托管平台上的指纹核对。 */
+  readonly fingerprint: string;
+  /** 注释。 */
+  readonly comment?: string;
+}
+
+/**
+ * `ssh-add -l` 的结果。
+ *
+ * `noIdentities`（agent 在跑但没加载密钥）与 `notRunning`（agent 没开）
+ * 必须分开：两者的下一步动作完全不同。
+ */
+export type SshAgentStatus =
+  | { readonly kind: 'ready'; readonly keys: readonly SshAgentKey[] }
+  | { readonly kind: 'noIdentities' }
+  | { readonly kind: 'notRunning' }
+  | { readonly kind: 'unknown'; readonly reason: string };
+
+/** 本地 SSH 盘点。 */
+export interface SshInventory {
+  /** 扫描的目录（`~/.ssh`；拿不到 HOME 时缺省）。 */
+  readonly directory?: string;
+  /** 目录里的密钥（按文件名排序）。 */
+  readonly keys: readonly SshKeyInfo[];
+  /** agent 状态。 */
+  readonly agent: SshAgentStatus;
+}
+
+/**
+ * 盘点本地 SSH 密钥与 ssh-agent（只读）。
+ *
+ * 只回答"本地有什么"：公私钥是否配对、agent 里加载了哪几把。服务端是否接受公钥
+ * 只能靠 {@link credentialTestRemote} 实际连一次。
+ */
+export function credentialsSshInventory(): Promise<SshInventory> {
+  return invokeCommand<SshInventory>('credentials_ssh_inventory');
+}
+
 /** "测试连接"的结果。 */
 export interface RemoteProbe {
   /** 远端引用条数（空仓库为 0）。 */

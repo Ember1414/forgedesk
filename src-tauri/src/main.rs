@@ -267,6 +267,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         forgedesk_commands::credentials_delete,
         forgedesk_commands::credentials_status,
         forgedesk_commands::credential_test_remote,
+        forgedesk_commands::credentials_ssh_inventory,
         forgedesk_commands::credentials_vault_create,
         forgedesk_commands::credentials_vault_unlock,
         forgedesk_commands::debug_throw_error,
@@ -333,6 +334,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         forgedesk_commands::credentials_delete,
         forgedesk_commands::credentials_status,
         forgedesk_commands::credential_test_remote,
+        forgedesk_commands::credentials_ssh_inventory,
         forgedesk_commands::credentials_vault_create,
         forgedesk_commands::credentials_vault_unlock,
     ]);

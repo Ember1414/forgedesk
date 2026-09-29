@@ -206,6 +206,15 @@ pub fn scan_keys(dir: &Path) -> Result<Vec<SshKey>, CredentialsError> {
 
     // 再补上"只有私钥文件、没有公钥"的候选
     for name in entries.iter().filter(|name| is_private_candidate(name)) {
+        // 已经配对过的私钥跳过：第一轮已经用 `id_ed25519.pub` 登记过这条密钥，
+        // 这里再列一次会出现两条描述同一把密钥的条目，而其中一条会**错误地**
+        // 声称"这把私钥没有对应公钥"——用户看到的是"我的密钥配错了"
+        if entries
+            .iter()
+            .any(|candidate| candidate == &format!("{name}.pub"))
+        {
+            continue;
+        }
         let private_path = dir.join(name);
         keys.push(SshKey {
             public_path: None,
@@ -224,9 +233,12 @@ pub fn scan_keys(dir: &Path) -> Result<Vec<SshKey>, CredentialsError> {
 ///
 /// 退出码的语义（OpenSSH 手册）：0 = 列出密钥，1 = "The agent has no identities"，
 /// 2 = "Could not open a connection to your authentication agent"。
-pub fn parse_agent_listing(stdout: &str, exit_code: i32) -> AgentStatus {
+///
+/// 取 `Option<i32>`：进程被信号终止时拿不到退出码。用哨兵值（例如 -1）代替
+/// 会让"被杀死"和"退出码 -1"混为一谈，而这两种情况在诊断上完全不同。
+pub fn parse_agent_listing(stdout: &str, exit_code: Option<i32>) -> AgentStatus {
     match exit_code {
-        0 => {
+        Some(0) => {
             let keys: Vec<AgentKey> = stdout.lines().filter_map(parse_agent_line).collect();
             if keys.is_empty() {
                 AgentStatus::Unknown {
@@ -236,10 +248,14 @@ pub fn parse_agent_listing(stdout: &str, exit_code: i32) -> AgentStatus {
                 AgentStatus::Ready(keys)
             }
         }
-        1 => AgentStatus::NoIdentities,
-        2 => AgentStatus::NotRunning,
-        other => AgentStatus::Unknown {
+        Some(1) => AgentStatus::NoIdentities,
+        Some(2) => AgentStatus::NotRunning,
+        Some(other) => AgentStatus::Unknown {
             reason: format!("ssh-add -l exited with {other}"),
+        },
+        // 被信号杀死（超时、崩溃）：与"退出码异常"分开说，否则用户会去查命令参数
+        None => AgentStatus::Unknown {
+            reason: "ssh-add -l was terminated before it reported an exit code".to_owned(),
         },
     }
 }
@@ -333,13 +349,17 @@ mod tests {
 
         let keys = scan_keys(&dir).expect("scan");
 
-        // id_ed25519.pub + 两个私钥候选（id_ed25519 的私钥、单独的 id_rsa）
-        assert_eq!(keys.len(), 3, "{keys:?}");
+        // 两条：配对齐全的 id_ed25519 + 只有私钥的 id_rsa。
+        // `id_ed25519` 不会再单独列一条——它与 `.pub` 是同一把密钥，
+        // 重复列出会让界面显示一条"这把私钥没有公钥"的错误结论
+        assert_eq!(keys.len(), 2, "{keys:?}");
         let pair = keys.iter().find(|key| key.is_pair()).expect("pair");
         assert_eq!(pair.display_name(), "id_ed25519.pub");
         assert_eq!(pair.key_type.as_deref(), Some("ssh-ed25519"));
         assert_eq!(pair.comment.as_deref(), Some("octocat@example.com"));
-        assert!(keys.iter().any(|key| key.is_private_only()));
+        let private_only: Vec<&SshKey> = keys.iter().filter(|key| key.is_private_only()).collect();
+        assert_eq!(private_only.len(), 1, "{keys:?}");
+        assert_eq!(private_only[0].display_name(), "id_rsa");
         // known_hosts / config 不是密钥
         assert!(!keys.iter().any(|key| key.display_name() == "known_hosts"));
         assert!(!keys.iter().any(|key| key.display_name() == "config"));
@@ -360,7 +380,7 @@ mod tests {
         let stdout = "2048 SHA256:AbCdEf1234567890 octocat@example.com (RSA)\n\
                       256 SHA256:ZzYyXx0987654321 id_ed25519 (ED25519)\n";
 
-        match parse_agent_listing(stdout, 0) {
+        match parse_agent_listing(stdout, Some(0)) {
             AgentStatus::Ready(keys) => {
                 assert_eq!(keys.len(), 2);
                 assert_eq!(keys[0].bits, Some(2048));
@@ -377,13 +397,25 @@ mod tests {
     #[test]
     fn an_agent_without_identities_is_distinguished_from_a_stopped_agent() {
         // 这两种情况的界面文案完全不同：一个引导 ssh-add，一个引导启动 agent
-        assert_eq!(parse_agent_listing("", 1), AgentStatus::NoIdentities);
-        assert_eq!(parse_agent_listing("", 2), AgentStatus::NotRunning);
+        assert_eq!(parse_agent_listing("", Some(1)), AgentStatus::NoIdentities);
+        assert_eq!(parse_agent_listing("", Some(2)), AgentStatus::NotRunning);
+    }
+
+    #[test]
+    fn a_killed_probe_is_not_reported_as_an_unusual_exit_code() {
+        // 被杀死（超时/崩溃）与"退出码 127"需要不同的排查方向：
+        // 前者看进程为什么被杀，后者通常是命令不存在
+        match parse_agent_listing("", None) {
+            AgentStatus::Unknown { reason } => {
+                assert!(reason.contains("terminated"), "{reason}");
+            }
+            other => panic!("expected Unknown, got {other:?}"),
+        }
     }
 
     #[test]
     fn an_unexpected_exit_code_is_reported_as_unknown_with_the_code() {
-        match parse_agent_listing("ssh: command not found", 127) {
+        match parse_agent_listing("ssh: command not found", Some(127)) {
             AgentStatus::Unknown { reason } => assert!(reason.contains("127"), "{reason}"),
             other => panic!("expected Unknown, got {other:?}"),
         }
@@ -392,7 +424,7 @@ mod tests {
     #[test]
     fn a_successful_listing_without_parseable_lines_is_unknown_rather_than_empty_ready() {
         // 报告"已加载 0 把 key"会让用户以为自己清空了 agent
-        match parse_agent_listing("some unexpected banner\n", 0) {
+        match parse_agent_listing("some unexpected banner\n", Some(0)) {
             AgentStatus::Unknown { .. } => {}
             other => panic!("expected Unknown, got {other:?}"),
         }

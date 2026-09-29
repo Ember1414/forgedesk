@@ -1048,6 +1048,10 @@ impl GitEngine for Libgit2Engine {
         Err(unsupported(EngineId::Libgit2, "probe_remote"))
     }
 
+    fn probe_ssh_agent(&self) -> AppResult<crate::engine::ProbeOutput> {
+        Err(unsupported(EngineId::Libgit2, "probe_ssh_agent"))
+    }
+
     fn push(
         &self,
         _repo: &RepoId,

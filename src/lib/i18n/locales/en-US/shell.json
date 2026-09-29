@@ -267,6 +267,37 @@
         "unlocked": "Vault unlocked"
       }
     },
+    "ssh": {
+      "title": "SSH keys",
+      "description": "Local keys and the current state of ssh-agent, for chasing down \"Permission denied (publickey)\". Only file names and public keys are read; private keys are never opened.",
+      "directory": "Directory: {{directory}}",
+      "noDirectory": "No ~/.ssh directory found (SSH may never have been set up here).",
+      "unavailable": "Could not take inventory of the local SSH setup: reading the key directory failed, see the logs for details.",
+      "empty": "No SSH keys yet. Generate one with ssh-keygen and add the public key to your hosting platform.",
+      "state": {
+        "pair": "Public and private key present",
+        "publicOnly": "Public key only",
+        "privateOnly": "Missing public key"
+      },
+      "privateOnlyHint": "No matching .pub file: regenerate it from the private key with ssh-keygen -y -f <private key path>.",
+      "agent": {
+        "title": "ssh-agent",
+        "ready": "{{count}} keys loaded",
+        "noIdentities": "The agent is running but has no keys loaded",
+        "noIdentitiesHint": "Add one and retry: ssh-add ~/.ssh/id_ed25519. The agent takes precedence over the files, which is the usual source of confusion.",
+        "notRunning": "The agent is not running",
+        "notRunningHint": "Start the agent and load a key first (on Windows this is usually the ssh-agent service being stopped).",
+        "unknown": "Could not determine the agent state",
+        "bits": "{{bits}} bits"
+      },
+      "test": {
+        "title": "Test connection (remote URL)",
+        "placeholder": "git@github.com:owner/repo.git",
+        "button": "Test",
+        "hint": "Runs a single git ls-remote: nothing local changes and nothing is written to the remote.",
+        "ok": "Connected: the remote has {{refs}} refs"
+      }
+    },
     "general": {
       "densityLabel": "Interface density",
       "densityHint": "Compact tightens list and page padding - useful on small screens or to fit more on one screen.",

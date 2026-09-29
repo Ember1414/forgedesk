@@ -1,6 +1,7 @@
 import { useTranslation } from 'react-i18next';
 
 import { CredentialsPanel } from '@/features/settings/CredentialsPanel';
+import { SshKeysPanel } from '@/features/settings/SshKeysPanel';
 
 /**
  * 代码托管账号设置（T2.7 起有真实内容）。
@@ -32,6 +33,9 @@ export function GitHubSettingsPage() {
       </header>
 
       <CredentialsPanel />
+
+      {/* SSH 是另一条认证路径：令牌对 git@host 远端毫无作用，因此单独一组 */}
+      <SshKeysPanel />
 
       <p className="rounded-md border border-dashed border-line bg-surface p-4 text-12 text-fg-subtle">
         {t('settings.credentials.todoT44')}

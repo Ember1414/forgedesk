@@ -47,8 +47,8 @@ pub use commit_detail::{
     CommitDetail, CommitDetailService, CommitFileChange, CommitMeta, CommitStats, FULL_OID_LENGTH,
 };
 pub use credentials::{
-    remote_host, remote_provider, remote_url, resolve_remote_url, tracking_remote, CredentialGate,
-    CredentialMode, CredentialsService, CredentialsStatus, SharedStore,
+    remote_host, remote_provider, remote_url, resolve_remote_url, ssh_inventory, tracking_remote,
+    CredentialGate, CredentialMode, CredentialsService, CredentialsStatus, SharedStore,
     MAX_CONSECUTIVE_AUTH_FAILURES,
 };
 pub use engines::GitEngines;

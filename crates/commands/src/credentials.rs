@@ -12,9 +12,13 @@
 //! 写入系统凭据库；本模块**不**把它写进日志、审计或错误详情（红线 R8）。
 //! 因此这里也**不允许**出现 `tracing::*` 打印 `secret` 的语句。
 
-use forgedesk_credentials::{BackendKind, CredentialKind, CredentialMeta, Secret};
+use forgedesk_credentials::{
+    default_ssh_dir, parse_agent_listing, AgentStatus, BackendKind, CredentialKind, CredentialMeta,
+    Secret, SshInventory,
+};
 use forgedesk_domain::AppResult;
-use forgedesk_services::CredentialMode;
+use forgedesk_git_engine::engine::GitEngine;
+use forgedesk_services::{ssh_inventory, CredentialMode};
 use forgedesk_storage::{Database, Scope, SettingsRepository};
 
 use crate::state::AppState;
@@ -87,6 +91,33 @@ pub fn credentials_delete(
 #[tauri::command]
 pub fn credentials_list(state: tauri::State<'_, AppState>) -> AppResult<Vec<CredentialMeta>> {
     state.credentials_service().list()
+}
+
+/// 本地 SSH 盘点（T2.7）：`~/.ssh` 里的密钥 + ssh-agent 状态。
+///
+/// # 它能回答什么、不能回答什么
+///
+/// 能：本地有哪些密钥、公私钥是否配对、`~/.ssh` 在哪、agent 里当前加载了哪几把
+/// （以及 agent 在不在）。这是 `Permission denied (publickey)` 之后最常被问的那一半。
+///
+/// 不能：服务端是否接受这把公钥——那只能靠 [`credential_test_remote`] 实际连一次。
+///
+/// # 红线 R8
+///
+/// **不读私钥内容**：扫描只对私钥文件做 `is_file()`（存在性），只有公钥读首行
+/// 取类型与注释。私钥路径会返回给界面（用户需要知道是哪个文件），但那不是秘密。
+#[tauri::command]
+pub fn credentials_ssh_inventory(state: tauri::State<'_, AppState>) -> AppResult<SshInventory> {
+    let agent = match state.engines.write().probe_ssh_agent() {
+        Ok(output) => parse_agent_listing(&output.stdout, output.exit_code),
+        // "问不了 agent"（没装 ssh-add、超时）与"agent 没运行"必须分开：
+        // 前者是我们查不到，后者是用户需要去启动 agent。理由里带上引擎给的原因，
+        // 让界面能如实展示而不是笼统地说"SSH 有问题"。
+        Err(error) => AgentStatus::Unknown {
+            reason: error.detail.unwrap_or(error.message),
+        },
+    };
+    ssh_inventory(default_ssh_dir().as_deref(), agent)
 }
 
 /// "测试连接"的结果。

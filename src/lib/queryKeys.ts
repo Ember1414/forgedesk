@@ -130,6 +130,15 @@ export function credentialsStatusKey(): readonly [string] {
 }
 
 /**
+ * 本地 SSH 盘点（`~/.ssh` + ssh-agent；T2.7，全局）。
+ *
+ * 与仓库无关：密钥属于这台机器上的用户，不属于某个仓库。
+ * 因此它也不进 `repoChanged.ts` 的失效映射，只在用户手动刷新/重新打开
+ * 设置页时重新查询（`ssh-add` 的结果会变，但那是几分钟一次的粒度）。
+ */
+export const SSH_INVENTORY_QUERY_KEY = 'sshInventory';
+
+/**
  * 同步状态（T2.6）：当前分支、上游名、ahead/behind。
  *
  * 单独一个键而不是复用 `[BRANCHES_QUERY_KEY, repoId]`：它是**两次查询的合成**
