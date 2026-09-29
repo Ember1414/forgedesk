@@ -12,7 +12,6 @@ import { RepoConflictPage } from '@/features/repo/RepoConflictPage';
 import {
   gitConflictAbort,
   gitConflictContinue,
-  gitConflictMarkResolved,
   gitConflictSkip,
   gitConflictState,
 } from '@/lib/ipc';
@@ -28,7 +27,6 @@ vi.mock('@/lib/ipc', () => ({
 }));
 
 const stateMock = vi.mocked(gitConflictState);
-const resolveMock = vi.mocked(gitConflictMarkResolved);
 const continueMock = vi.mocked(gitConflictContinue);
 const abortMock = vi.mocked(gitConflictAbort);
 const skipMock = vi.mocked(gitConflictSkip);
@@ -113,33 +111,9 @@ describe('RepoConflictPage', () => {
     renderPage();
 
     expect(await screen.findByTestId('conflict-op-kind')).toHaveTextContent('合并');
-    expect(screen.getByTestId('conflict-file-row')).toBeInTheDocument();
-    expect(screen.getByText('src/a.ts')).toBeInTheDocument();
+    expect(screen.getByTestId('conflict-list-item-src/a.ts')).toBeInTheDocument();
     // 有未解决文件：不能继续
     expect(screen.getByTestId('conflict-continue')).toBeDisabled();
-  });
-
-  it('文本冲突展示类别与三方版本可用性', async () => {
-    stateMock.mockResolvedValue(mergeConflict());
-
-    renderPage();
-
-    expect(await screen.findByText('文本冲突')).toBeInTheDocument();
-    expect(screen.getByTestId('conflict-file-versions')).toBeInTheDocument();
-  });
-
-  it('标记已解决会调用后端命令并刷新状态', async () => {
-    stateMock.mockResolvedValueOnce(mergeConflict());
-    stateMock.mockResolvedValue(mergeConflict({ files: [], canContinue: true }));
-    resolveMock.mockResolvedValue(undefined);
-
-    renderPage();
-
-    fireEvent.click(await screen.findByRole('button', { name: '标记已解决' }));
-
-    await waitFor(() => {
-      expect(resolveMock).toHaveBeenCalledWith(1, ['src/a.ts']);
-    });
   });
 
   it('全部解决后可以继续', async () => {

@@ -88,19 +88,28 @@ export {
 } from './historyOps';
 export {
   gitConflictAbort,
+  gitConflictApplyResolution,
   gitConflictContinue,
+  gitConflictFileDetail,
   gitConflictMarkResolved,
+  gitConflictRemoveFile,
   gitConflictSkip,
+  gitConflictTakeSide,
   gitConflictState,
 } from './conflict';
 export type {
+  ApplyResolutionRequest,
   ConflictAbortOutcome,
   ConflictBlob,
   ConflictContinueOutcome,
   ConflictFile,
+  ConflictFileDetail,
   ConflictKind,
   ConflictOpKind,
   ConflictState,
+  LineEnding,
+  MergeBlock,
+  TakeSide,
 } from './conflict';
 export type {
   CommitSummary,

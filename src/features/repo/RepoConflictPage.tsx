@@ -18,9 +18,11 @@
 import { useState } from 'react';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, CheckCircle2, GitBranch, RefreshCw } from 'lucide-react';
+import { CheckCircle2, GitBranch, RefreshCw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useParams } from 'react-router-dom';
+
+import { ConflictEditor, EditorPlaceholder } from '@/features/conflict/ConflictEditor';
 
 import { EmptyState } from '@/ui/components/empty-state';
 import { ErrorState } from '@/ui/components/error-state';
@@ -41,90 +43,10 @@ import { useAppError } from '@/lib/errors';
 import {
   gitConflictAbort,
   gitConflictContinue,
-  gitConflictMarkResolved,
   gitConflictSkip,
   gitConflictState,
 } from '@/lib/ipc';
-import type { ConflictFile, ConflictKind } from '@/lib/ipc';
 import { conflictKey } from '@/lib/queryKeys';
-
-/** 冲突类别 → i18n key 后缀（`pages.repoConflict.kind.*`）。 */
-function kindLabelKey(kind: ConflictKind): string {
-  return `pages.repoConflict.kind.${kind}`;
-}
-
-/** 一个 stage 侧的可用性标记：有内容 / 无内容 / 不可显示。 */
-function VersionDot({ available, label }: { readonly available: boolean; readonly label: string }) {
-  return (
-    <span className="inline-flex items-center gap-1 text-xs text-fg-muted">
-      {available ? (
-        <CheckCircle2 aria-hidden className="size-3 text-success" />
-      ) : (
-        <span aria-hidden className="size-3 rounded-full border border-line" />
-      )}
-      <span>{label}</span>
-    </span>
-  );
-}
-
-/** 一行冲突文件。 */
-function ConflictFileRow({
-  file,
-  onResolve,
-  resolving,
-}: {
-  readonly file: ConflictFile;
-  readonly onResolve: (path: string) => void;
-  readonly resolving: boolean;
-}) {
-  const { t } = useTranslation('shell');
-  const showable =
-    (file.base?.content !== null && file.base !== undefined) ||
-    (file.ours?.content !== null && file.ours !== undefined) ||
-    (file.theirs?.content !== null && file.theirs !== undefined);
-
-  return (
-    <li
-      className="flex flex-col gap-2 border-b border-line px-4 py-3"
-      data-testid="conflict-file-row"
-    >
-      <div className="flex flex-wrap items-center gap-2">
-        <AlertTriangle
-          aria-hidden
-          className="size-4 shrink-0 text-warning"
-          data-testid="conflict-file-icon"
-        />
-        <span className="min-w-0 truncate font-mono text-sm" title={file.path}>
-          {file.path}
-        </span>
-        <span className="rounded border border-line px-1.5 py-0.5 text-xs text-fg-muted">
-          {t(kindLabelKey(file.kind))}
-        </span>
-        <span className="ml-auto">
-          <Button
-            size="sm"
-            variant="secondary"
-            disabled={resolving}
-            onClick={() => onResolve(file.path)}
-          >
-            {t('pages.repoConflict.markResolved')}
-          </Button>
-        </span>
-      </div>
-      <div className="flex flex-wrap items-center gap-3 pl-6" data-testid="conflict-file-versions">
-        <VersionDot available={file.base !== null} label={t('pages.repoConflict.versions')} />
-        {showable ? null : (
-          <span className="text-xs text-fg-muted">
-            {t('pages.repoConflict.contentUnavailable')}
-          </span>
-        )}
-        {file.worktreeExists ? null : (
-          <span className="text-xs text-warning">{t(kindLabelKey(file.kind))}</span>
-        )}
-      </div>
-    </li>
-  );
-}
 
 /** 冲突页面：T3.1 状态机视图（三栏编辑器归 T3.2）。 */
 export function RepoConflictPage() {
@@ -145,11 +67,6 @@ export function RepoConflictPage() {
     void queryClient.invalidateQueries({ queryKey: conflictKey(repoId) });
   };
 
-  const markResolved = useMutation({
-    mutationFn: (path: string) => gitConflictMarkResolved(repoId, [path]),
-    onSuccess: invalidate,
-    onError: appError.show,
-  });
   const continueOp = useMutation({
     mutationFn: () => gitConflictContinue(repoId),
     // "又停在新的冲突上"也是成功：状态刷新后列表更新，不弹错误
@@ -173,6 +90,14 @@ export function RepoConflictPage() {
   // 载荷来自 IPC：真实后端不会给 null，但防御通用 mock / 异常路径，
   // 崩溃的空白页比"没有冲突"的空态更让用户困惑
   const state = stateQuery.data;
+  const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  // 本会话已解决的文件（state 只列未解决；已解决项在侧栏里可识别但不可编辑，
+  // 内容复查走工作区 diff 页——T3.2 不重复做）
+  const [resolvedPaths, setResolvedPaths] = useState<readonly string[]>([]);
+  const fileResolved = (path: string) => {
+    setResolvedPaths((previous) => (previous.includes(path) ? previous : [...previous, path]));
+    setSelectedPath(null);
+  };
   const progress =
     state?.currentStep != null && state.totalSteps !== null
       ? t('pages.repoConflict.progress', {
@@ -218,50 +143,92 @@ export function RepoConflictPage() {
         </div>
       </header>
 
-      <div className="min-h-0 flex-1 overflow-y-auto" data-testid="conflict-file-list">
-        {stateQuery.isPending ? (
-          <div className="flex flex-col gap-3 p-4" data-testid="conflict-page-loading">
-            <Skeleton className="h-12 w-full" />
-            <Skeleton className="h-16 w-full" />
-            <Skeleton className="h-16 w-full" />
-          </div>
-        ) : stateQuery.isError ? (
-          <div className="p-4">
-            <ErrorState
-              title={t('pages.repoConflict.title')}
-              hint={t('pages.repoConflict.emptyHint')}
-              retryLabel={t('common:actions.retry')}
-              onRetry={() => void stateQuery.refetch()}
-            />
-          </div>
-        ) : !state?.opKind ? (
-          <div className="p-4" data-testid="conflict-page-empty">
-            <EmptyState
-              title={t('pages.repoConflict.empty')}
-              description={t('pages.repoConflict.emptyHint')}
-            />
-          </div>
-        ) : state.files.length === 0 ? (
-          <div
-            className="flex items-center gap-2 px-4 py-6 text-sm text-success"
-            data-testid="conflict-all-resolved"
+      {stateQuery.isPending ? (
+        <div className="flex flex-col gap-3 p-4" data-testid="conflict-page-loading">
+          <Skeleton className="h-12 w-full" />
+          <Skeleton className="h-16 w-full" />
+          <Skeleton className="h-16 w-full" />
+        </div>
+      ) : stateQuery.isError ? (
+        <div className="p-4">
+          <ErrorState
+            title={t('pages.repoConflict.title')}
+            hint={t('pages.repoConflict.emptyHint')}
+            retryLabel={t('common:actions.retry')}
+            onRetry={() => void stateQuery.refetch()}
+          />
+        </div>
+      ) : !state?.opKind ? (
+        <div className="p-4" data-testid="conflict-page-empty">
+          <EmptyState
+            title={t('pages.repoConflict.empty')}
+            description={t('pages.repoConflict.emptyHint')}
+          />
+        </div>
+      ) : (
+        <div className="flex min-h-0 flex-1">
+          <aside
+            className="w-64 shrink-0 overflow-y-auto border-r border-line"
+            data-testid="conflict-file-list"
           >
-            <CheckCircle2 aria-hidden className="size-4" />
-            <span>{t('pages.repoConflict.allResolved')}</span>
-          </div>
-        ) : (
-          <ul>
-            {state.files.map((file) => (
-              <ConflictFileRow
-                key={file.path}
-                file={file}
-                resolving={markResolved.isPending}
-                onResolve={(path) => markResolved.mutate(path)}
+            {state.files.length === 0 ? (
+              <div
+                className="flex items-center gap-2 px-4 py-6 text-sm text-success"
+                data-testid="conflict-all-resolved"
+              >
+                <CheckCircle2 aria-hidden className="size-4" />
+                <span>{t('pages.repoConflict.allResolved')}</span>
+              </div>
+            ) : (
+              <ul>
+                {state.files.map((file) => {
+                  const selected = file.path === selectedPath;
+                  return (
+                    <li key={file.path}>
+                      <button
+                        type="button"
+                        className="w-full truncate px-4 py-2 text-left font-mono text-13 hover:bg-surface-sunken"
+                        aria-current={selected ? 'true' : undefined}
+                        data-selected={selected ? 'true' : undefined}
+                        data-testid={`conflict-list-item-${file.path}`}
+                        onClick={() => setSelectedPath(file.path)}
+                      >
+                        {file.path}
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+            {resolvedPaths.length === 0 ? null : (
+              <ul className="border-t border-line">
+                {resolvedPaths.map((path) => (
+                  <li
+                    key={path}
+                    className="px-4 py-2 font-mono text-13 text-fg-muted"
+                    data-testid={`conflict-resolved-item-${path}`}
+                  >
+                    <CheckCircle2 aria-hidden className="mr-1 inline size-3 text-success" />
+                    {path}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </aside>
+          <main className="flex min-h-0 min-w-0 flex-1 flex-col">
+            {selectedPath === null || resolvedPaths.includes(selectedPath) ? (
+              <EditorPlaceholder />
+            ) : (
+              <ConflictEditor
+                key={`${selectedPath}-${state.files.length}`}
+                repoId={repoId}
+                path={selectedPath}
+                onResolved={fileResolved}
               />
-            ))}
-          </ul>
-        )}
-      </div>
+            )}
+          </main>
+        </div>
+      )}
 
       {state?.opKind ? (
         <div className="flex flex-wrap items-center gap-2 border-t border-line px-4 py-3">

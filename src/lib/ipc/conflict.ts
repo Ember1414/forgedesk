@@ -79,6 +79,74 @@ export function gitConflictAbort(repoId: number): Promise<ConflictAbortOutcome> 
   return invokeCommand<ConflictAbortOutcome>('git_conflict_abort', { repoId });
 }
 
+/** 工作区文件的换行风格（写回时保持原文件形状）。 */
+export type LineEnding = 'lf' | 'crlf' | 'cr';
+
+/** "整个文件采用一方"的动作（二进制 / 删除类冲突的解决路径）。 */
+export type TakeSide = 'ours' | 'theirs';
+
+/** diff3 合并块（Rust 侧 `MergeBlock`，tag = type）。 */
+export type MergeBlock =
+  | { readonly type: 'context'; readonly lines: readonly string[] }
+  | {
+      readonly type: 'resolved';
+      readonly lines: readonly string[];
+      readonly source: 'ours' | 'theirs' | 'both';
+    }
+  | {
+      readonly type: 'conflict';
+      readonly base: readonly string[];
+      readonly ours: readonly string[];
+      readonly theirs: readonly string[];
+    };
+
+/** 单个冲突文件的完整详情（三方 blob + 工作区形状 + 合并块）。 */
+export interface ConflictFileDetail {
+  readonly path: string;
+  readonly kind: ConflictKind;
+  readonly base: ConflictBlob | null;
+  readonly ours: ConflictBlob | null;
+  readonly theirs: ConflictBlob | null;
+  readonly worktreeExists: boolean;
+  readonly eol: LineEnding;
+  readonly bom: boolean;
+  readonly trailingNewline: boolean;
+  readonly blocks: readonly MergeBlock[];
+}
+
+/** 读取单个冲突文件的详情（打开编辑器时才调用）。 */
+export function gitConflictFileDetail(repoId: number, path: string): Promise<ConflictFileDetail> {
+  return invokeCommand<ConflictFileDetail>('git_conflict_file_detail', { repoId, path });
+}
+
+/** `git_conflict_apply_resolution` 的请求体。 */
+export interface ApplyResolutionRequest {
+  /** 编辑器产出的完整结果文本（LF 换行；EOL 由后端按原文件形状重建）。 */
+  readonly content: string;
+  readonly eol: LineEnding;
+  readonly bom: boolean;
+  readonly trailingNewline: boolean;
+}
+
+/** 写回结果文本并标记已解决（后端保持原文件的 EOL / BOM / 末尾换行）。 */
+export function gitConflictApplyResolution(
+  repoId: number,
+  path: string,
+  spec: ApplyResolutionRequest,
+): Promise<void> {
+  return invokeCommand<void>('git_conflict_apply_resolution', { repoId, path, spec });
+}
+
+/** 整个文件采用一方（二进制 / 删除类冲突）。 */
+export function gitConflictTakeSide(repoId: number, path: string, side: TakeSide): Promise<void> {
+  return invokeCommand<void>('git_conflict_take_side', { repoId, path, side });
+}
+
+/** 以"删除该文件"解决删除类冲突。 */
+export function gitConflictRemoveFile(repoId: number, path: string): Promise<void> {
+  return invokeCommand<void>('git_conflict_remove_file', { repoId, path });
+}
+
 /** 跳过当前提交（只有 rebase 支持）。 */
 export function gitConflictSkip(repoId: number): Promise<ConflictContinueOutcome> {
   return invokeCommand<ConflictContinueOutcome>('git_conflict_skip', { repoId });

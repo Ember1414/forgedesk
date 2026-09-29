@@ -170,7 +170,56 @@
         "addedByThem": "仅对方新增"
       },
       "contentUnavailable": "二进制、超大或非 UTF-8 文件，内容不可显示",
-      "versions": "基线 / 本侧 / 对方"
+      "versions": "基线 / 本侧 / 对方",
+      "editor": {
+        "resolution": {
+          "unresolved": "未解决",
+          "ours": "已采用本方",
+          "theirs": "已采用对方",
+          "bothOursFirst": "已保留双方（本方在前）",
+          "bothTheirsFirst": "已保留双方（对方在前）",
+          "custom": "自定义"
+        },
+        "conflictN": "第 {{current}} / {{total}} 处冲突",
+        "sideOurs": "本方（ours）",
+        "sideTheirs": "对方（theirs）",
+        "sideBase": "共同祖先（base）",
+        "resultLabel": "本块结果（可直接编辑，编辑后标记为自定义）",
+        "adoptOurs": "采用本方",
+        "adoptTheirs": "采用对方",
+        "bothOursFirst": "两者保留（本方在前）",
+        "bothTheirsFirst": "两者保留（对方在前）",
+        "manualEdit": "手动编辑",
+        "showBase": "显示基线",
+        "viewLabel": "显示范围",
+        "conflictsOnly": "仅冲突块",
+        "allContent": "显示全文",
+        "prevConflict": "上一处未解决",
+        "nextConflict": "下一处未解决",
+        "conflictProgress": "本文件已解决 {{resolved}} / 共 {{total}} 处冲突",
+        "markOnly": "标记已解决（不保存）",
+        "saveAndResolve": "保存并标记已解决",
+        "markersTitle": "结果中仍有冲突标记",
+        "markersBody": "结果文本里还有 {{count}} 行 git 冲突标记（<<<<<<< / ======= / >>>>>>>）。仍然保存的话，git 会把它当作含标记的普通文本，该文件会被标记为已解决。",
+        "markersImpact": "残留标记不会阻止保存，但可能意味着有的冲突块还没有真正解决。",
+        "keepAnyway": "仍然保存",
+        "autoResolved": {
+          "ours": "本方修改（自动采用）",
+          "theirs": "对方修改（自动采用）",
+          "both": "双方一致的修改（自动采用）"
+        },
+        "context": "三方一致的上下文",
+        "binaryNote": "二进制或超大文件，无法显示差异。可以采用其中一方的版本，或删除该文件。",
+        "deleteFile": "删除文件",
+        "deleteTitle": "删除该文件？",
+        "deleteBody": "该文件将从工作区与索引中删除，作为本次冲突的解决方式。",
+        "deleteImpact": "删除文件不可通过本对话框撤销；操作前会写入审计记录，可在操作历史中追溯。",
+        "keepOurs": "保留本方的修改",
+        "keepTheirs": "保留对方的修改",
+        "selectFile": "选择左侧的冲突文件开始解决",
+        "selectFileHint": "每个文件会单独打开一个编辑视图，解决后从清单中消失。",
+        "loadFailed": "读取冲突详情失败：该文件可能已被解决或路径已变化。"
+      }
     },
     "repoTerminal": {
       "title": "终端",

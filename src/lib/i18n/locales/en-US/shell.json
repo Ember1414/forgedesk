@@ -170,7 +170,56 @@
         "addedByThem": "Added by them"
       },
       "contentUnavailable": "Binary, oversized or non-UTF-8 file; content is not shown",
-      "versions": "base / ours / theirs"
+      "versions": "base / ours / theirs",
+      "editor": {
+        "resolution": {
+          "unresolved": "Unresolved",
+          "ours": "Ours adopted",
+          "theirs": "Theirs adopted",
+          "bothOursFirst": "Both kept (ours first)",
+          "bothTheirsFirst": "Both kept (theirs first)",
+          "custom": "Custom"
+        },
+        "conflictN": "Conflict {{current}} of {{total}}",
+        "sideOurs": "Ours",
+        "sideTheirs": "Theirs",
+        "sideBase": "Common ancestor (base)",
+        "resultLabel": "Block result (editable; editing marks it custom)",
+        "adoptOurs": "Take ours",
+        "adoptTheirs": "Take theirs",
+        "bothOursFirst": "Keep both (ours first)",
+        "bothTheirsFirst": "Keep both (theirs first)",
+        "manualEdit": "Edit manually",
+        "showBase": "Show base",
+        "viewLabel": "View",
+        "conflictsOnly": "Conflicts only",
+        "allContent": "Full content",
+        "prevConflict": "Previous unresolved",
+        "nextConflict": "Next unresolved",
+        "conflictProgress": "{{resolved}} of {{total}} conflicts resolved in this file",
+        "markOnly": "Mark resolved (no save)",
+        "saveAndResolve": "Save and mark resolved",
+        "markersTitle": "Conflict markers remain",
+        "markersBody": "The result still contains {{count}} git conflict marker lines (<<<<<<< / ======= / >>>>>>>). Saving anyway marks the file resolved, but git will treat those markers as plain text.",
+        "markersImpact": "Leftover markers do not block saving, but they may mean some conflict blocks were not truly resolved.",
+        "keepAnyway": "Save anyway",
+        "autoResolved": {
+          "ours": "Ours (adopted automatically)",
+          "theirs": "Theirs (adopted automatically)",
+          "both": "Identical change from both sides (adopted automatically)"
+        },
+        "context": "Context identical on all three sides",
+        "binaryNote": "Binary or oversized file; the difference cannot be shown. Take one side's version, or delete the file.",
+        "deleteFile": "Delete file",
+        "deleteTitle": "Delete this file?",
+        "deleteBody": "The file will be removed from the worktree and the index as the resolution of this conflict.",
+        "deleteImpact": "Deleting the file cannot be undone from this dialog; the action is written to the audit log and can be traced in the operation history.",
+        "keepOurs": "Keep our changes",
+        "keepTheirs": "Keep their changes",
+        "selectFile": "Pick a conflicted file on the left to start",
+        "selectFileHint": "Each file opens its own editing view and disappears from the list once resolved.",
+        "loadFailed": "Failed to load the conflict detail: the file may already be resolved or its path changed."
+      }
     },
     "repoTerminal": {
       "title": "Terminal",
