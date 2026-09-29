@@ -56,6 +56,11 @@ pub enum SnapshotKind {
     PreSync,
     /// 会移动 HEAD 的操作（重置、切换分支）之前。
     PreHeadMove,
+    /// 只改动工作区/索引、不动 HEAD 的操作（储藏、应用储藏）之前。
+    ///
+    /// 与 [`Self::PreHeadMove`] 分开：回滚一份"只动了工作区"的快照不需要移动 HEAD，
+    /// 界面上的说明也完全不同（"恢复我的未提交改动" vs "回到某个提交"）。
+    PreWorktreeChange,
 }
 
 impl SnapshotKind {
@@ -67,6 +72,7 @@ impl SnapshotKind {
             Self::PreRestore => "pre-restore",
             Self::PreSync => "pre-sync",
             Self::PreHeadMove => "pre-head-move",
+            Self::PreWorktreeChange => "pre-worktree-change",
         }
     }
 }

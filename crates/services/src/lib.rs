@@ -28,8 +28,10 @@ pub mod commit_detail;
 pub mod credentials;
 pub mod engines;
 pub mod history;
+pub mod history_ops;
 pub mod repository;
 pub mod staging;
+pub mod stash;
 pub mod sync;
 pub mod templates;
 pub mod workspace;
@@ -55,11 +57,13 @@ pub use engines::GitEngines;
 pub use history::{
     HistoryPage, HistoryQuery, HistoryService, MAX_PAGE_SIZE as MAX_HISTORY_PAGE_SIZE,
 };
+pub use history_ops::{HistoryOpsService, ResetPlanRegistry};
 pub use repository::{
     InitExtras, LicenseSpec, MillisClock, OpenRepoRegistry, OpenedRepository, RecentRepository,
     RepositoryService,
 };
 pub use staging::{PatchView, StagingService};
+pub use stash::{StashDiscardOutcome, StashSaveOutcome, StashService, StashShowOutcome};
 pub use sync::SyncService;
 pub use templates::{sanitize_holder, GitignoreTemplate, LicenseTemplate};
 pub use workspace::WorkspaceService;
