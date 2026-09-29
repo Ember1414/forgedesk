@@ -113,6 +113,25 @@ export interface MockSyncCall {
   };
 }
 
+/**
+ * mock 记录的一次凭据命令（`credentials.spec.ts` 断言保存的载荷、删除的目标与探活地址）。
+ *
+ * `secret` / `passphrase` 在这里被记录下来是**测试专用**的：真实运行里它们的唯一去处是
+ * 系统凭据库（红线 R8），而 e2e 要断言的正是"明文只经一次 IPC、之后不再出现在界面上"。
+ */
+export interface MockCredentialCall {
+  readonly command: string;
+  readonly args?: {
+    readonly provider?: string;
+    readonly host?: string;
+    readonly login?: string;
+    readonly kind?: string;
+    readonly secret?: string;
+    readonly passphrase?: string;
+    readonly url?: string;
+  };
+}
+
 declare global {
   interface Window {
     /** M1 闭环用例的 mock 状态（见上）。 */
@@ -139,5 +158,7 @@ declare global {
     __syncCalls?: MockSyncCall[];
     /** 手动投递一个 `job:*` 事件（T2.6：长任务的进度 / 完成 / 失败由事件到达）。 */
     __emitJob?: (event: string, payload: unknown) => void;
+    /** mock 记录收到的凭据命令（T2.7：断言明文只发一次、删除目标、探活地址）。 */
+    __credCalls?: MockCredentialCall[];
   }
 }
