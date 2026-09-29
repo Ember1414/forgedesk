@@ -33,6 +33,7 @@ import type {
 } from '@/features/workspace/statusModel';
 import { PlaceholderPage } from '@/ui/PlaceholderPage';
 import { DiffView } from '@/features/diff/DiffView';
+import { StashPanel } from '@/features/stash/StashPanel';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -535,6 +536,13 @@ export function WorkspaceStatusPage() {
           </IconButton>
         </div>
       </header>
+
+      {/*
+        储藏（T2.8）：它是对工作区做的事，与状态页天然同屏——
+        用户看着一堆"不想提交又不想丢"的改动时才会想起它。
+      */}
+      <StashPanel />
+
       {query.data === undefined ? (
         query.isError ? (
           (() => {

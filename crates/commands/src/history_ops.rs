@@ -267,6 +267,11 @@ pub struct ResetPlanDto {
     pub remote: ResetRemoteImpactDto,
     /// 是否需要输入确认词。
     pub requires_confirmation: bool,
+    /// 需要输入的确认词（`requiresConfirmation` 为真时才有）。
+    ///
+    /// 由后端给出而不是前端写死：这个词是**执行闸门的一部分**，前端抄一份
+    /// 迟早会在某次改动里和后端不一致——用户照着界面输入却被拒绝。
+    pub confirmation_word: Option<String>,
     /// 执行前是否必须打快照。
     pub snapshot_required: bool,
 }
@@ -310,6 +315,11 @@ impl From<ResetPlan> for ResetPlanDto {
                 not_on_remote: plan.remote.not_on_remote,
             },
             requires_confirmation: plan.requires_confirmation,
+            confirmation_word: if plan.requires_confirmation {
+                Some(ResetPlan::CONFIRMATION_WORD.to_owned())
+            } else {
+                None
+            },
             snapshot_required: plan.snapshot_required,
         }
     }

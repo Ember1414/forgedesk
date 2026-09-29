@@ -62,6 +62,7 @@ import {
 } from '@/features/history/historyFilters';
 import type { HistoryFiltersState } from '@/features/history/historyFilters';
 import { HistoryFilterBar } from '@/features/history/HistoryFilterBar';
+import { HistoryOpsPanel } from '@/features/history/HistoryOpsPanel';
 import { GraphListMode } from '@/features/history/GraphListMode';
 import { GraphOverlay } from '@/features/history/GraphOverlay';
 import { useGraphPerfStore } from '@/features/history/graphPerfStore';
@@ -527,6 +528,12 @@ export function HistoryPage() {
           </div>
         ) : null}
       </header>
+
+      {/*
+        历史操作（T2.8）：拣选 / 反转 / 重置到选中提交，以及 reflog 恢复。
+        动作作用于"当前选中的提交"（图上点选的那一个），因此放在历史页同屏。
+      */}
+      <HistoryOpsPanel />
 
       {body}
 

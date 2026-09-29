@@ -138,6 +138,22 @@ export function credentialsStatusKey(): readonly [string] {
  */
 export const SSH_INVENTORY_QUERY_KEY = 'sshInventory';
 
+/** 某仓库 stash 列表的查询键（T2.8）。 */
+export const STASH_QUERY_KEY = 'stash';
+
+/** 某仓库 stash 列表的查询键。 */
+export function stashKey(repoId: number): readonly [string, number] {
+  return [STASH_QUERY_KEY, repoId];
+}
+
+/** 某仓库 reflog 的查询键（T2.8）。 */
+export const REFLOG_QUERY_KEY = 'reflog';
+
+/** 某仓库 reflog 的查询键。 */
+export function reflogKey(repoId: number): readonly [string, number] {
+  return [REFLOG_QUERY_KEY, repoId];
+}
+
 /**
  * 同步状态（T2.6）：当前分支、上游名、ahead/behind。
  *

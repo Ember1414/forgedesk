@@ -37,6 +37,8 @@ import {
   LOG_QUERY_KEY,
   SNAPSHOTS_QUERY_KEY,
   STATUS_QUERY_KEY,
+  REFLOG_QUERY_KEY,
+  STASH_QUERY_KEY,
   SYNC_STATUS_QUERY_KEY,
 } from '@/lib/queryKeys';
 
@@ -62,7 +64,11 @@ export function queryKeysForChange(
 ): readonly (readonly unknown[])[] {
   switch (kind) {
     case 'workspace':
-      return [[STATUS_QUERY_KEY, repoId]];
+      // 储藏会搬走工作区里的改动：stash 面板必须跟着刷新（T2.8）
+      return [
+        [STATUS_QUERY_KEY, repoId],
+        [STASH_QUERY_KEY, repoId],
+      ];
     case 'refs':
       return [
         [STATUS_QUERY_KEY, repoId],
@@ -73,6 +79,9 @@ export function queryKeysForChange(
         [AUTHORS_QUERY_KEY, repoId],
         // 同步条上的 ahead/behind 是相对上游算出来的：引用一动它就可能过期
         [SYNC_STATUS_QUERY_KEY, repoId],
+        // 丢 stash / 恢复分支都会动 refs，也都会改变这两份列表
+        [STASH_QUERY_KEY, repoId],
+        [REFLOG_QUERY_KEY, repoId],
       ];
     case 'large':
       return [
@@ -84,6 +93,8 @@ export function queryKeysForChange(
         [COMMIT_DETAIL_QUERY_KEY, repoId],
         [AUTHORS_QUERY_KEY, repoId],
         [SYNC_STATUS_QUERY_KEY, repoId],
+        [STASH_QUERY_KEY, repoId],
+        [REFLOG_QUERY_KEY, repoId],
       ];
     default:
       // 认不出的类别（例如载荷来自更早的版本）按"大量变更"处理：
@@ -97,6 +108,8 @@ export function queryKeysForChange(
         [COMMIT_DETAIL_QUERY_KEY, repoId],
         [AUTHORS_QUERY_KEY, repoId],
         [SYNC_STATUS_QUERY_KEY, repoId],
+        [STASH_QUERY_KEY, repoId],
+        [REFLOG_QUERY_KEY, repoId],
       ];
   }
 }
