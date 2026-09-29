@@ -1,0 +1,113 @@
+name: Nightly
+
+# ===========================================================================
+# 性能基准回归（T2.9）
+#
+# 【为什么 cron 处于注释状态】ADR-002（docs/adr/ADR-002-private-first-two-phase-ci.md）
+# 决定**私有阶段不启用夜间任务**：GitHub Free 私有仓库每月 2000 分钟配额，
+# 每日基准约消耗 10-15 分钟。转公开阶段启用时（docs/OPEN-SOURCE-READINESS.md
+# 清单第 7 条，T7.2），取消下面 `schedule:` 块的注释即可，无需其他改动。
+#
+# 【现在怎么跑】Actions 页面手动触发（workflow_dispatch），或 PR 里说
+#   "/bench" 之外的场景由维护者自行决定。
+#
+# 【基线与门禁】
+#   - `scripts/perf/baseline-ci.json` 不在仓库里时，本次运行**建立基线**：
+#     结果写入 artifact，成功结束并在日志里提示维护者把它拷进仓库提交。
+#     （工作流只读权限，不自动提交——基线入仓是维护者的显式决定。）
+#   - 基线在仓库里时，任一指标超过基线 10% 即失败（任务书 T2.9 的回归门禁）。
+#   - 注意：本文件量的是 **CI Linux runner** 上的数字，与
+#     docs/PERF-BASELINE.md 的 Windows 本机数字不可互相比较。
+# ===========================================================================
+
+# on:
+#   schedule:
+#     - cron: '0 2 * * *' # 每日 02:00 UTC（PLAN §11.1；私有阶段不启用，见 ADR-002）
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: nightly-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  bench:
+    name: perf-bench
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: bench
+
+      # 只编译 services（探针所需），src-tauri 的 GTK 全家桶在这里不需要；
+      # libdbus 是 credentials（keyring）在 Linux 编译期的既有依赖
+      - name: Install Linux system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libdbus-1-dev \
+            libssl-dev
+
+      - name: Generate fixtures
+        run: |
+          node scripts/perf/gen-repo.mjs target/perf/commits-50000 --commits 50000
+          node scripts/perf/gen-repo.mjs target/perf/commits-100000-br200 --commits 100000 --branches 200
+          node scripts/perf/gen-repo.mjs target/perf/modified-10000 --modified 10000
+
+      - name: Build probe
+        run: cargo build --release -p forgedesk-services --example perf_probe
+
+      # 每个夹具跑两遍取第二遍：第一遍是冷文件缓存（modified-10000 的首次
+      # 状态计算会把所有文件冷读一遍，数字差 7 倍），第二遍才是可比口径
+      - name: Run probe
+        run: |
+          set -eu
+          PROBE=./target/release/examples/perf_probe
+          mkdir -p target/perf/results
+          for fixture in commits-50000 commits-100000-br200 modified-10000; do
+            args=""
+            case "$fixture" in
+              commits-50000) args="--deep-cursor 25000" ;;
+              commits-100000-br200) args="--deep-cursor 50000" ;;
+            esac
+            $PROBE "target/perf/$fixture" $args > /dev/null
+            $PROBE "target/perf/$fixture" $args | tail -1 \
+              > "target/perf/results/$fixture.json"
+            cat "target/perf/results/$fixture.json"
+          done
+
+      - name: Check regression against baseline
+        run: |
+          node scripts/perf/check-regression.mjs \
+            scripts/perf/baseline-ci.json target/perf/results
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: perf-results
+          path: |
+            target/perf/results/
+            scripts/perf/baseline-ci.json
+          if-no-files-found: warn
