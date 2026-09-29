@@ -1419,6 +1419,10 @@ identity 文件）、`TLS_CERTIFICATE_REJECTED`（自签名或证书链不完整
 | `git_conflict_continue` | Mutating（`async`） | `{ repoId }` | `ConflictContinueOutcome { oid, conflicts }`。仍有未解决文件时返回 `CONFLICT_UNRESOLVED`；成功时 `oid` 为完成后的 HEAD；`conflicts` 非空 = 序列重放又停在新的冲突上（**正常结果**，界面刷新状态不弹错误）。merge 的 continue 是 `git commit --no-edit`；全部动作带 `GIT_EDITOR=true` 防止编辑器阻塞。写审计（`conflict_continue`），不打快照 |
 | `git_conflict_abort` | Mutating（`async`） | `{ repoId }` | `ConflictAbortOutcome { headOid, headRef, snapshotId }`。**先打 `pre-head-move` 快照再 abort**（rebase 的回滚基线是 `orig-head`），abort 后校验 HEAD 与分支名回到操作前状态，不一致返回 `INTERNAL` 并带实际状态。写审计（`conflict_abort`），`snapshotId` 写进操作记录 |
 | `git_conflict_skip` | Mutating（`async`） | `{ repoId }` | `ConflictContinueOutcome`。只有 rebase 支持（其余操作返回 `VALIDATION`）；跳过后撞上新的冲突同样是正常结果。写审计（`conflict_skip`） |
+| `git_conflict_file_detail` | ReadOnly（`async`） | `{ repoId, path }` | `ConflictFileDetail`。打开编辑器时的惰性查询：三方 blob（2 MiB / 二进制 / 非 UTF-8 时 `content: null`）、工作区文件形状（`eol` / `bom` / `trailingNewline`，写回时保持）与 diff3 合并块（`blocks`：`context` / `resolved`（自动采用的段，含来源） / `conflict`）。非冲突路径返回 `VALIDATION` |
+| `git_conflict_apply_resolution` | Mutating（`async`） | `{ repoId, path, spec: { content, eol, bom, trailingNewline } }` | `null`。把编辑器的结果文本写回工作区（**按原文件形状重建 EOL / BOM / 末尾换行**，前端只产出 LF 文本）→ `git add` → 校验 stage 清空。写审计（`conflict_resolve`，参数记路径与内容长度，不记内容本身） |
+| `git_conflict_take_side` | Mutating（`async`） | `{ repoId, path, side: "ours" \| "theirs" }` | `null`。`git checkout --ours/--theirs` 恢复一方到工作区后标记已解决——二进制冲突与删除类冲突的"保留一方"路径。写审计（`conflict_resolve`） |
+| `git_conflict_remove_file` | Mutating（`async`） | `{ repoId, path }` | `null`。以"删除该文件"解决删除类冲突（`git rm -f`：工作区与索引一起删；前端必须先确认）。写审计（`conflict_resolve`） |
 
 事件：`git_conflict_mark_resolved` 成功后发 `repo:changed`（`workspace`）；
 `git_conflict_continue` / `git_conflict_skip` / `git_conflict_abort` 成功后发

@@ -96,7 +96,7 @@
 | `RepositoryInfo.worktrees`（T1.3） | 完整列表（主 + 关联工作区，含路径 / HEAD / 分支 / locked / prunable） | **只有主工作区** | `git2::Repository::worktrees` 返回的是 `StringArray`（只有工作区**名称**），既没有路径也没有 HEAD，而 `git2` 没有暴露 `git_worktree_lookup` |
 | `remote_refs_containing`（T1.8） | 已实现（`for-each-ref --contains HEAD refs/remotes`） | 返回 `UNSUPPORTED_BY_ENGINE` | 与 `commit` 同族：它服务的是"这次改写会不会影响远端"这个**写路径**判断，而 libgit2 侧要自己遍历 refs 做可达性计算（还要单独处理"相等"这一 libgit2 API 不覆盖的边界），收益不抵两套实现之间产生分歧的风险 |
 | `LogQuery.follow_renames`（T2.1，`--follow`） | 支持（`paths` 恰好一条时传 `--follow`） | 返回 `UNSUPPORTED_BY_ENGINE` | libgit2 没有 `--follow` 等价物；装作支持等于悄悄给出**错误结果**（漏掉重命名前的历史），宁可明确拒绝。由 `log_follow_renames_is_unsupported_by_libgit2` 钉住 |
-| 冲突状态机（T3.1：`conflict_state` / `conflict_mark_resolved` / `conflict_continue` / `conflict_abort` / `conflict_skip`） | 已实现 | 返回 `UNSUPPORTED_BY_ENGINE` | 任务书指名数据源是 git 的 index stage（`git ls-files -u` + 按 oid `git cat-file`）；stage 三方内容、2 MiB 内容阈值与二进制判定这组语义以 CLI 为准，双实现只会在编码提示与阈值行为上产生分歧，宁可明确拒绝。冲突查询是低频的用户发起操作，"一次进程的代价"不构成问题。由 `libgit2_engine_reports_unsupported_for_the_whole_conflict_state_machine` 钉住 |
+| 冲突状态机（T3.1：`conflict_state` / `conflict_mark_resolved` / `conflict_continue` / `conflict_abort` / `conflict_skip`；T3.2 追加 `conflict_file_detail` / `conflict_take_side` / `conflict_apply_resolution` / `conflict_remove_file`） | 已实现 | 返回 `UNSUPPORTED_BY_ENGINE` | 任务书指名数据源是 git 的 index stage（`git ls-files -u` + 按 oid `git cat-file`）；stage 三方内容、2 MiB 内容阈值与二进制判定这组语义以 CLI 为准，双实现只会在编码提示与阈值行为上产生分歧，宁可明确拒绝。冲突查询是低频的用户发起操作，"一次进程的代价"不构成问题。由 `libgit2_engine_reports_unsupported_for_the_whole_conflict_state_machine` 钉住 |
 
 **给 `services` 层的约束**：需要上述字段的功能，必须走 CLI 引擎，
 或者由 CLI 引擎补一次查询；不得假设"换个引擎也有这些值"。

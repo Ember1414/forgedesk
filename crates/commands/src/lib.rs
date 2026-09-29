@@ -63,8 +63,9 @@ pub use commit::{
 };
 pub use commit_detail::git_commit_detail;
 pub use conflict::{
-    git_conflict_abort, git_conflict_continue, git_conflict_mark_resolved, git_conflict_skip,
-    git_conflict_state,
+    git_conflict_abort, git_conflict_apply_resolution, git_conflict_continue,
+    git_conflict_file_detail, git_conflict_mark_resolved, git_conflict_remove_file,
+    git_conflict_skip, git_conflict_state, git_conflict_take_side, ApplyResolutionRequest,
 };
 pub use credentials::{
     credential_test_remote, credentials_delete, credentials_list, credentials_save,
