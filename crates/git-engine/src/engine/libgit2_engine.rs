@@ -775,6 +775,7 @@ impl GitEngine for Libgit2Engine {
         &self,
         _spec: forgedesk_domain::git::CloneSpec,
         _progress: &ProgressSink,
+        _auth: &crate::process::NetworkAuth,
     ) -> AppResult<RepositoryInfo> {
         Err(unsupported(EngineId::Libgit2, "clone"))
     }

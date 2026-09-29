@@ -33,6 +33,7 @@ use forgedesk_domain::{AppError, AppResult, ErrorCode, FixAction};
 use forgedesk_git_engine::engine::{GitEngine, ProgressSink};
 use forgedesk_storage::{RepositoryRecord, RepositoryStore, RepositoryUpsert};
 
+use crate::credentials::{CredentialContext, CredentialGate};
 use crate::engines::GitEngines;
 use crate::templates::{sanitize_holder, GitignoreTemplate, LicenseTemplate};
 
@@ -186,6 +187,8 @@ pub struct RepositoryService<'a> {
     engines: &'a GitEngines,
     store: RepositoryStore<'a>,
     open: &'a OpenRepoRegistry,
+    /// 凭据门（T2.7）：克隆也要用保存过的凭据，否则私有仓库克隆必然失败。
+    credentials: Option<&'a CredentialGate>,
     clock: MillisClock,
 }
 
@@ -200,8 +203,26 @@ impl<'a> RepositoryService<'a> {
             engines,
             store,
             open,
+            credentials: None,
             clock: Arc::new(system_clock),
         }
+    }
+
+    /// 接上凭据门（T2.7）：克隆私有仓库时按 URL 解析并注入凭据。
+    #[must_use]
+    pub fn with_credentials(mut self, credentials: &'a CredentialGate) -> Self {
+        self.credentials = Some(credentials);
+        self
+    }
+
+    /// 接上凭据门；`None`（宿主拿不到自身可执行文件路径）时退化为匿名/SSH。
+    ///
+    /// 存在的理由：调用方持有的往往是 `Option<Arc<CredentialGate>>`（任务闭包里
+    /// 只能克隆 Arc），用这个形态可以一行接上，不必在每处写一遍 `match`。
+    #[must_use]
+    pub fn with_credential_gate(mut self, credentials: Option<&'a CredentialGate>) -> Self {
+        self.credentials = credentials;
+        self
     }
 
     /// 替换时间源（测试用）。
@@ -237,12 +258,24 @@ impl<'a> RepositoryService<'a> {
         self.finish_open(info)
     }
 
-    /// 克隆仓库：目标检查 → 克隆 → 审计 → 登记。
+    /// 克隆仓库：目标检查 → 解析凭据 → 克隆 → 审计 → 登记。
     ///
     /// 阻塞调用；调用方负责放进 `JobRunner` 并接上进度。
+    ///
+    /// 凭据按 **spec 里的 URL** 解析：克隆时还没有仓库，拿不到远端列表，
+    /// 而这正是"第一次接触远端"的路径——私有仓库没有凭据就必然失败。
     pub fn clone(&self, spec: &CloneSpec, progress: &ProgressSink) -> AppResult<OpenedRepository> {
         precheck_clone_target(&spec.into)?;
-        let info = self.engines.write().clone(spec.clone(), progress)?;
+        let context = CredentialContext::resolve(self.credentials, &spec.url, None)?;
+        let info = match self
+            .engines
+            .write()
+            .clone(spec.clone(), progress, context.auth())
+        {
+            Ok(info) => info,
+            Err(error) => return Err(context.describe_failure(error)),
+        };
+        context.note_success();
         self.finish_open(info)
     }
 

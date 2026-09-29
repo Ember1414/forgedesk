@@ -29,9 +29,7 @@ use crate::audit;
 use crate::jobs;
 use crate::state::AppState;
 use forgedesk_services::AuditEntry;
-use forgedesk_services::{
-    AuditArgs, AuditEntry as ServicesAuditEntry, CredentialGate, SyncService,
-};
+use forgedesk_services::{AuditArgs, AuditEntry as ServicesAuditEntry, SyncService};
 
 /// 任务结果（`job:done` 的 payload；都是结构化 outcome）。
 #[derive(Debug, Serialize)]
@@ -49,20 +47,6 @@ pub struct SyncJobResult {
     #[serde(skip_serializing_if = "Option::is_none")]
     /// push 的结果（`git_push` 任务成功时存在）。
     pub push: Option<PushOutcome>,
-}
-
-/// 给同步服务接上凭据门。
-///
-/// `None` 表示宿主拿不到自身可执行文件路径（无法充当 askpass 程序），
-/// 此时网络操作退化为匿名/SSH——如实降级，而不是拿一个空路径去骗 git。
-fn with_credentials<'a>(
-    service: SyncService<'a>,
-    credentials: Option<&'a CredentialGate>,
-) -> SyncService<'a> {
-    match credentials {
-        Some(gate) => service.with_credentials(gate),
-        None => service,
-    }
 }
 
 /// 把仓库上下文补进错误里的"测试连接"动作。
@@ -106,14 +90,12 @@ pub fn git_fetch(
     let credential_gate = state.credential_gate.clone();
     let job_id = state.jobs.spawn(jobs::reporter_for(app), move |context| {
         let progress = jobs::progress_sink(&context);
-        let service = with_credentials(
-            SyncService::new(
-                &engines,
-                forgedesk_storage::RepositoryStore::new(&database),
-                snapshots.as_ref(),
-            ),
-            credential_gate.as_deref(),
-        );
+        let service = SyncService::new(
+            &engines,
+            forgedesk_storage::RepositoryStore::new(&database),
+            snapshots.as_ref(),
+        )
+        .with_credential_gate(credential_gate.as_deref());
         let outcome = service
             .fetch(repo_id, spec, &progress, &context.cancellation())
             .map_err(|error| attach_repo_context(error, repo_id))?;
@@ -145,14 +127,12 @@ pub fn git_pull(
     let credential_gate = state.credential_gate.clone();
     let job_id = state.jobs.spawn(jobs::reporter_for(app), move |context| {
         let progress = jobs::progress_sink(&context);
-        let service = with_credentials(
-            SyncService::new(
-                &engines,
-                forgedesk_storage::RepositoryStore::new(&database),
-                snapshots.as_ref(),
-            ),
-            credential_gate.as_deref(),
-        );
+        let service = SyncService::new(
+            &engines,
+            forgedesk_storage::RepositoryStore::new(&database),
+            snapshots.as_ref(),
+        )
+        .with_credential_gate(credential_gate.as_deref());
         let outcome = service
             .pull(repo_id, spec, &progress, &context.cancellation())
             .map_err(|error| attach_repo_context(error, repo_id))?;
@@ -188,14 +168,12 @@ pub fn git_push(
     let credential_gate = state.credential_gate.clone();
     let job_id = state.jobs.spawn(jobs::reporter_for(app), move |context| {
         let progress = jobs::progress_sink(&context);
-        let service = with_credentials(
-            SyncService::new(
-                &engines,
-                forgedesk_storage::RepositoryStore::new(&database),
-                snapshots.as_ref(),
-            ),
-            credential_gate.as_deref(),
-        );
+        let service = SyncService::new(
+            &engines,
+            forgedesk_storage::RepositoryStore::new(&database),
+            snapshots.as_ref(),
+        )
+        .with_credential_gate(credential_gate.as_deref());
         let spec_ref = &spec;
         let operation = audit::record_with(
             &forgedesk_services::AuditLog::new(forgedesk_storage::OperationStore::new(

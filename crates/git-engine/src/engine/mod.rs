@@ -191,7 +191,16 @@ pub trait GitEngine: Send + Sync {
     fn init(&self, path: &Path, spec: InitSpec) -> AppResult<RepositoryInfo>;
 
     /// 克隆仓库。
-    fn clone(&self, spec: CloneSpec, progress: &ProgressSink) -> AppResult<RepositoryInfo>;
+    /// 克隆远端仓库。
+    ///
+    /// `auth` 由调用方按 **URL** 解析（克隆时还没有仓库，拿不到远端列表）：
+    /// 私有仓库的克隆同样要凭据，这是"第一次接触远端"的路径。
+    fn clone(
+        &self,
+        spec: CloneSpec,
+        progress: &ProgressSink,
+        auth: &NetworkAuth,
+    ) -> AppResult<RepositoryInfo>;
 
     /// 暂存。
     fn stage(&self, repo: &RepoId, spec: StageSpec) -> AppResult<()>;

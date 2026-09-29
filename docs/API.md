@@ -1332,8 +1332,10 @@ identity 文件）、`TLS_CERTIFICATE_REJECTED`（自签名或证书链不完整
 命名惯例的**候选**判定，界面文案不得写成断言。它不能回答"服务端是否接受这把公钥"，
 那只有 `credential_test_remote` 实际连一次才能知道。
 
-> 尚未接线：`auth_login_device_*`（OAuth 设备码）与多账号模型属于 T4.4，会复用本节的存储层；
-> `clone` 尚未接入凭据通道（私有仓库克隆仍会以 `AUTH_REQUIRED` 失败）。
+`repo_clone` 也在同一通道上：克隆时还没有仓库，因此按 **spec 里的 URL** 解析凭据
+（这正是"第一次接触远端"的路径，私有仓库没有凭据必然失败）。
+
+> 尚未接线：`auth_login_device_*`（OAuth 设备码）与多账号模型属于 T4.4，会复用本节的存储层。
 
 ### 文件监听与设置键（T1.10）
 

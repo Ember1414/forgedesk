@@ -293,6 +293,104 @@ impl CredentialGate {
     }
 }
 
+/// 一次网络操作的凭据上下文：解析注入方案 + 认证失败的记账。
+///
+/// # 为什么把这三件事收在一处
+///
+/// "解析注入方案""记录一次认证失败""成功后清零"必须给出**同一个答案**。
+/// 而网络操作分散在 clone / fetch / pull / push / 探活若干条路径上，各写一遍迟早
+/// 会出现"某条路径忘了计数"或"忘了清零"——用户看到的是莫名其妙的锁死，
+/// 或者明明刚改好凭据却仍被挡住。
+pub struct CredentialContext<'a> {
+    gate: Option<&'a CredentialGate>,
+    /// 参与失败计数的 host（URL 认不出来时为 `None`）。
+    host: Option<String>,
+    auth: NetworkAuth,
+}
+
+impl std::fmt::Debug for CredentialContext<'_> {
+    /// 手写而非 `derive`：这个类型带着注入方案（其环境变量里有明文）。
+    ///
+    /// 两个字段自身的 `Debug` 都已脱敏（[`NetworkAuth`] 只打印程序路径与变量**个数**，
+    /// [`CredentialGate`] 只打印 askpass 程序与后端种类），因此这里可以安全地打印。
+    /// 写出来是为了让"它能被打印"这件事**有据可查**，而不是靠读者去追两个 impl。
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("CredentialContext")
+            .field("host", &self.host)
+            .field("auth", &self.auth)
+            .finish()
+    }
+}
+
+impl<'a> CredentialContext<'a> {
+    /// 不注入任何凭据，也不记账（本地路径、SSH、解析不出远端时）。
+    pub fn anonymous() -> Self {
+        Self {
+            gate: None,
+            host: None,
+            auth: NetworkAuth::none(),
+        }
+    }
+
+    /// 按 URL 解析。`login_hint` 是 URL 里带的用户名（`https://user@host/…`）；
+    /// 为空时凭据门会自己从 URL 里取。
+    ///
+    /// 已达"连续失败上限"时**直接拒绝**：继续发起网络操作只会把账号刷到锁定，
+    /// 而用户需要的是"去检查凭据"这条明确的下一步。
+    pub fn resolve(
+        gate: Option<&'a CredentialGate>,
+        url: &str,
+        login_hint: Option<&str>,
+    ) -> AppResult<Self> {
+        let host = remote_host(url);
+        let Some(gate) = gate else {
+            // 没有凭据门：如实降级为匿名/SSH
+            return Ok(Self {
+                gate: None,
+                host,
+                auth: NetworkAuth::none(),
+            });
+        };
+
+        if let Some(host) = host.as_deref() {
+            if gate.is_exhausted(host) {
+                return Err(AppError::new(
+                    ErrorCode::AuthRequired,
+                    "authentication has failed repeatedly; not retrying until the credential is updated",
+                )
+                .with_hint(host.to_owned()));
+            }
+        }
+
+        Ok(Self {
+            gate: Some(gate),
+            host,
+            auth: gate.auth_for(url, login_hint)?,
+        })
+    }
+
+    /// 注入方案（没有保存过凭据时是"什么都不注入"）。
+    pub fn auth(&self) -> &NetworkAuth {
+        &self.auth
+    }
+
+    /// 失败时按认证类错误记账；达到上限后换成"不再自动重试"的说法。
+    pub fn describe_failure(&self, error: AppError) -> AppError {
+        match (self.gate, self.host.as_deref()) {
+            (Some(gate), Some(host)) => gate.describe_failure(host, error),
+            _ => error,
+        }
+    }
+
+    /// 成功一次即清零该 host 的连续失败计数（"连续"的字面含义）。
+    pub fn note_success(&self) {
+        if let (Some(gate), Some(host)) = (self.gate, self.host.as_deref()) {
+            gate.note_success(host);
+        }
+    }
+}
+
 /// 设置页要展示的凭据状态。
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -954,6 +1052,77 @@ mod tests {
             remote_host("https://gitlab.com/team/repo.git").as_deref(),
             Some("gitlab.com")
         );
+    }
+
+    #[test]
+    fn a_credential_context_resolves_the_plan_and_records_failures() {
+        let gate = gate();
+        save(&gate, "github.com", "octocat", "ghp_x");
+
+        let context =
+            CredentialContext::resolve(Some(&gate), "https://github.com/octocat/repo.git", None)
+                .expect("上下文");
+
+        assert!(!context.auth().is_none());
+
+        // 解析、记账、清零绑在一处：否则某条网络路径漏掉一步，用户会看到
+        // "明明改好了凭据却仍被挡住"（漏清零）或"被刷到锁定"（漏计数）
+        let error = AppError::new(ErrorCode::AuthRequired, "authentication is required");
+        context.describe_failure(error);
+        assert_eq!(
+            gate.remaining_attempts("github.com"),
+            MAX_CONSECUTIVE_AUTH_FAILURES - 1
+        );
+
+        context.note_success();
+        assert_eq!(
+            gate.remaining_attempts("github.com"),
+            MAX_CONSECUTIVE_AUTH_FAILURES
+        );
+    }
+
+    #[test]
+    fn a_context_without_a_gate_is_anonymous_and_does_not_count_failures() {
+        let context = CredentialContext::resolve(None, "https://github.com/octocat/repo.git", None)
+            .expect("上下文");
+
+        assert!(context.auth().is_none());
+
+        // 没有门就没有上限：错误原样返回，运营者不会被"连续失败"挡住
+        let error = AppError::new(ErrorCode::AuthRequired, "authentication is required");
+        assert_eq!(
+            context.describe_failure(error.clone()).message,
+            error.message
+        );
+        context.note_success();
+    }
+
+    #[test]
+    fn an_exhausted_host_is_refused_before_any_network_call() {
+        let gate = gate();
+        let error = AppError::new(ErrorCode::AuthRequired, "authentication is required");
+        for _ in 0..MAX_CONSECUTIVE_AUTH_FAILURES {
+            gate.describe_failure("github.com", error.clone());
+        }
+
+        let refused = CredentialContext::resolve(Some(&gate), "https://github.com/x/y.git", None)
+            .expect_err("达到上限必须直接拒绝");
+
+        assert_eq!(refused.code, ErrorCode::AuthRequired);
+        assert!(refused.message.contains("failed repeatedly"), "{refused:?}");
+        assert_eq!(refused.hint.as_deref(), Some("github.com"));
+    }
+
+    #[test]
+    fn a_local_remote_gets_no_credentials_even_when_a_gate_is_present() {
+        // `file://` 远端不需要凭据：注入令牌只会在握手时被拒
+        let gate = gate();
+        save(&gate, "github.com", "octocat", "ghp_x");
+
+        let context = CredentialContext::resolve(Some(&gate), "file:///srv/git/repo.git", None)
+            .expect("上下文");
+
+        assert!(context.auth().is_none());
     }
 
     /// 临时 SSH 目录（用例自己造密钥文件；**不碰**用户真实的 `~/.ssh`）。

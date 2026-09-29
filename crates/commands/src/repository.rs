@@ -470,12 +470,16 @@ pub fn repo_clone(
     // 监听要在克隆**成功之后**才启动：克隆过程中目标目录还不存在，
     // 提前 watch 只会得到一个失败
     let watchers = Arc::clone(&state.watchers);
+    // 凭据门：任务闭包只拿得到 Arc 克隆（用不了 AppState 上的便捷方法），
+    // 漏接这一处就会让私有仓库的克隆永远以 AUTH_REQUIRED 失败
+    let credential_gate = state.credential_gate.clone();
 
     let job_id = state.jobs.spawn(reporter_for(app), move |context| {
         let progress = crate::jobs::progress_sink(&context);
         let opened = {
             let service =
-                RepositoryService::new(&engines, RepositoryStore::new(&database), &open_repos);
+                RepositoryService::new(&engines, RepositoryStore::new(&database), &open_repos)
+                    .with_credential_gate(credential_gate.as_deref());
 
             // 审计（T1.11）：克隆是 `Network` 级操作，却在任务线程里执行，
             // 因此记录也在这里写。仓库记录 id 要等克隆成功才存在，

@@ -86,6 +86,8 @@ impl AppState {
             RepositoryStore::new(&self.database),
             &self.open_repos,
         )
+        // 克隆也要凭据：私有仓库没有它必然失败（T2.7）
+        .with_credential_gate(self.credential_gate.as_deref())
     }
 
     /// 绑定当前状态构造工作区用例服务（状态 / 文件级暂存 / 放弃）。
@@ -141,16 +143,13 @@ impl AppState {
     /// 快照管理器与提交/分支路径共享同一个实例：pull 的 `PreSync` 快照
     /// 落在同一份历史里。
     pub fn sync_service(&self) -> SyncService<'_> {
-        let service = SyncService::new(
+        SyncService::new(
             &self.engines,
             RepositoryStore::new(&self.database),
             self.snapshots.as_ref(),
-        );
+        )
         // 有凭据门就接上（T2.7）：fetch/pull/push 才会带上保存过的凭据
-        match self.credential_gate.as_deref() {
-            Some(gate) => service.with_credentials(gate),
-            None => service,
-        }
+        .with_credential_gate(self.credential_gate.as_deref())
     }
 
     /// 凭据存储（T2.7）：设置页的账号面板直接用它。

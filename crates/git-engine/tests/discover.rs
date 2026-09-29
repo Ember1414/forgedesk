@@ -17,6 +17,8 @@ use std::path::Path;
 use forgedesk_domain::git::{CloneSpec, RepoId};
 use forgedesk_domain::ErrorCode;
 use forgedesk_git_engine::engine::{CliGitEngine, GitEngine, Libgit2Engine, ProgressSink};
+// 克隆的凭据方案：`file://` 远端不需要凭据，因此这些用例一律传匿名方案
+use forgedesk_git_engine::process::NetworkAuth;
 use support::{commit_all, git, git_ok, init_repo, write, TempDir};
 
 fn cli() -> CliGitEngine {
@@ -53,6 +55,7 @@ fn default_branch_comes_from_origin_head_when_there_is_a_remote() {
         .clone(
             CloneSpec::new(file_url(source_dir.path()), &clone_path),
             &ProgressSink::none(),
+            &NetworkAuth::none(),
         )
         .expect("克隆失败");
 
@@ -106,6 +109,7 @@ fn a_shallow_clone_is_reported_as_shallow() {
         .clone(
             CloneSpec::new(file_url(source_dir.path()), &target).with_depth(1),
             &ProgressSink::none(),
+            &NetworkAuth::none(),
         )
         .expect("浅克隆失败");
 

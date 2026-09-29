@@ -44,6 +44,7 @@ pub(super) fn clone(
     engine: &CliGitEngine,
     spec: &CloneSpec,
     progress: &ProgressSink,
+    auth: &NetworkAuth,
 ) -> AppResult<RepositoryInfo> {
     // clone 的目标目录还不存在，因此工作目录取它的父目录
     let cwd = spec
@@ -55,15 +56,13 @@ pub(super) fn clone(
     // 克隆（T1.9）尚未接取消令牌：传一个永不触发的令牌保持行为不变；
     // T2.6 的 fetch/pull/push 全部真取消
     let never = tokio_util::sync::CancellationToken::new();
-    // 克隆也走网络，但**尚未**接凭据注入：克隆是"还没有仓库"的路径，
-    // 凭据要在仓库与远端建立之后才有宿主（账号模型见 T4.4）。
-    // 现状：私有仓库的克隆仍会以 AUTH_REQUIRED 失败（已知缺口，见 T2.7 交接说明）。
+    // 凭据（T2.7）：克隆的 URL 来自 spec（此时还没有仓库，因此由调用方按 URL 解析）
     engine.run_network(
         &cwd,
         GitInvocation::new(args::clone_args(spec)),
         progress,
         &never,
-        &NetworkAuth::none(),
+        auth,
     )?;
     read::discover(engine, &spec.into)
 }

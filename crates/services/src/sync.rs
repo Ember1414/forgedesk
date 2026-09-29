@@ -32,12 +32,12 @@ use forgedesk_domain::{AppError, AppResult, ErrorCode};
 use forgedesk_git_engine::engine::progress::ProgressSink;
 use forgedesk_git_engine::engine::GitEngine;
 use forgedesk_git_engine::engines::GitEngines;
-use forgedesk_git_engine::process::NetworkAuth;
+
 use forgedesk_snapshot::{SnapshotKind, SnapshotManager, SnapshotRequest};
 
 use forgedesk_storage::RepositoryStore;
 
-use crate::credentials::{remote_host, resolve_remote_url, CredentialGate};
+use crate::credentials::{resolve_remote_url, CredentialContext, CredentialGate};
 
 /// 远端同步服务。
 pub struct SyncService<'a> {
@@ -70,6 +70,17 @@ impl<'a> SyncService<'a> {
         self
     }
 
+    /// 接上凭据门；`None`（宿主拿不到自身可执行文件路径）时退化为匿名/SSH。
+    ///
+    /// 存在的理由：调用方持有的往往是 `Option<Arc<CredentialGate>>`（任务闭包里
+    /// 只能克隆 Arc），用这个形态可以一行接上，不必在每处写一遍 `match`——
+    /// 而"漏接一次"正是 T2.7 已经踩过的坑（凭据门没接上，网络操作悄悄变成匿名）。
+    #[must_use]
+    pub fn with_credential_gate(mut self, credentials: Option<&'a CredentialGate>) -> Self {
+        self.credentials = credentials;
+        self
+    }
+
     fn resolve_workdir(&self, repo_id: i64) -> AppResult<PathBuf> {
         let record = self.store.find_by_id(repo_id)?.ok_or(
             AppError::new(ErrorCode::NotFound, "the repository record does not exist")
@@ -78,49 +89,19 @@ impl<'a> SyncService<'a> {
         Ok(PathBuf::from(record.path))
     }
 
-    /// 解析这次操作要用的注入方案，并顺带做"连续失败上限"的闸门判断。
+    /// 解析这次操作要用的凭据上下文（含"连续失败上限"的闸门判断）。
     ///
-    /// 返回 `(方案, host)`：`host` 供成功后清零计数使用。
+    /// 远端名不存在时返回**匿名**上下文：交给 git 报"远端不存在"，
+    /// 比我们编一个错误更准确；那种情况下也没有 host 可以记账。
     fn auth_context(
         &self,
         workdir: &Path,
         remote: Option<&str>,
-    ) -> AppResult<(NetworkAuth, Option<String>)> {
-        let Some(gate) = self.credentials else {
-            return Ok((NetworkAuth::none(), None));
-        };
+    ) -> AppResult<CredentialContext<'a>> {
         let Some(url) = resolve_remote_url(self.engines, workdir, remote)? else {
-            // 远端名不存在：交给 git 报"远端不存在"，比我们编一个错误更准确
-            return Ok((NetworkAuth::none(), None));
+            return Ok(CredentialContext::anonymous());
         };
-        let host = remote_host(&url);
-        if let Some(host) = host.as_deref() {
-            if gate.is_exhausted(host) {
-                // 连续失败到上限：**不再**发起网络操作。继续重试只会把账号刷到锁定，
-                // 而用户需要的是"去检查凭据"这条明确的下一步。
-                return Err(AppError::new(
-                    ErrorCode::AuthRequired,
-                    "authentication has failed repeatedly; not retrying until the credential is updated",
-                )
-                .with_hint(host.to_owned()));
-            }
-        }
-        Ok((gate.auth_for(&url, None)?, host))
-    }
-
-    /// 把认证类失败交给凭据门处理（计数 + 达到上限时换文案）。
-    fn describe_auth_failure(&self, host: Option<&str>, error: AppError) -> AppError {
-        match (self.credentials, host) {
-            (Some(gate), Some(host)) => gate.describe_failure(host, error),
-            _ => error,
-        }
-    }
-
-    /// 成功一次即清零该 host 的连续失败计数。
-    fn note_success(&self, host: Option<&str>) {
-        if let (Some(gate), Some(host)) = (self.credentials, host) {
-            gate.note_success(host);
-        }
+        CredentialContext::resolve(self.credentials, &url, None)
     }
 
     // ------------------------------------------------------------ 同步
@@ -134,17 +115,18 @@ impl<'a> SyncService<'a> {
         cancel: &CancellationToken,
     ) -> AppResult<FetchOutcome> {
         let workdir = self.resolve_workdir(repo_id)?;
-        let (auth, host) = self.auth_context(&workdir, spec.remote.as_deref())?;
+        let context = self.auth_context(&workdir, spec.remote.as_deref())?;
         let repo = RepoId::new(workdir);
-        let outcome = match self
-            .engines
-            .write()
-            .fetch(&repo, spec, progress, cancel, &auth)
-        {
-            Ok(outcome) => outcome,
-            Err(error) => return Err(self.describe_auth_failure(host.as_deref(), error)),
-        };
-        self.note_success(host.as_deref());
+        let outcome =
+            match self
+                .engines
+                .write()
+                .fetch(&repo, spec, progress, cancel, context.auth())
+            {
+                Ok(outcome) => outcome,
+                Err(error) => return Err(context.describe_failure(error)),
+            };
+        context.note_success();
         Ok(outcome)
     }
 
@@ -157,18 +139,18 @@ impl<'a> SyncService<'a> {
         cancel: &CancellationToken,
     ) -> AppResult<PullOutcome> {
         let workdir = self.resolve_workdir(repo_id)?;
-        let (auth, host) = self.auth_context(&workdir, spec.remote.as_deref())?;
+        let context = self.auth_context(&workdir, spec.remote.as_deref())?;
         self.snapshot_before(repo_id, &workdir, "pull");
         let repo = RepoId::new(workdir);
         let outcome = match self
             .engines
             .write()
-            .pull(&repo, spec, progress, cancel, &auth)
+            .pull(&repo, spec, progress, cancel, context.auth())
         {
             Ok(outcome) => outcome,
-            Err(error) => return Err(self.describe_auth_failure(host.as_deref(), error)),
+            Err(error) => return Err(context.describe_failure(error)),
         };
-        self.note_success(host.as_deref());
+        context.note_success();
         Ok(outcome)
     }
 
@@ -181,17 +163,17 @@ impl<'a> SyncService<'a> {
         cancel: &CancellationToken,
     ) -> AppResult<PushOutcome> {
         let workdir = self.resolve_workdir(repo_id)?;
-        let (auth, host) = self.auth_context(&workdir, spec.remote.as_deref())?;
+        let context = self.auth_context(&workdir, spec.remote.as_deref())?;
         let repo = RepoId::new(workdir);
         let outcome = match self
             .engines
             .write()
-            .push(&repo, spec, progress, cancel, &auth)
+            .push(&repo, spec, progress, cancel, context.auth())
         {
             Ok(outcome) => outcome,
-            Err(error) => return Err(self.describe_auth_failure(host.as_deref(), error)),
+            Err(error) => return Err(context.describe_failure(error)),
         };
-        self.note_success(host.as_deref());
+        context.note_success();
         if let Some(rejection) = outcome.rejections.iter().find(|r| r.non_fast_forward) {
             // 任务书要求 4：non-ff 拒绝转成带 actions 的结构化错误。
             // label_key 走 errors 命名空间的既有键（"重试"类文案由前端 i18n 渲染），
@@ -262,17 +244,19 @@ impl<'a> SyncService<'a> {
             }
         };
 
-        let auth = match self.credentials {
-            Some(gate) => gate.auth_for(&target_url, None)?,
-            None => NetworkAuth::none(),
-        };
-        let host = remote_host(&target_url);
-        match self.engines.write().probe_remote(&cwd, &target_url, &auth) {
+        // 探活也是一次真实的凭据尝试：同样计数、同样受"连续失败上限"约束。
+        // 否则用户可以在被锁之后继续用"测试连接"刷账号——而那正是上限要防的事。
+        let context = CredentialContext::resolve(self.credentials, &target_url, None)?;
+        match self
+            .engines
+            .write()
+            .probe_remote(&cwd, &target_url, context.auth())
+        {
             Ok(refs) => {
-                self.note_success(host.as_deref());
+                context.note_success();
                 Ok(refs)
             }
-            Err(error) => Err(self.describe_auth_failure(host.as_deref(), error)),
+            Err(error) => Err(context.describe_failure(error)),
         }
     }
 

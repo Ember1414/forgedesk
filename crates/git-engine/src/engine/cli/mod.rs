@@ -495,8 +495,13 @@ impl GitEngine for CliGitEngine {
         write::init(self, path, &spec)
     }
 
-    fn clone(&self, spec: CloneSpec, progress: &ProgressSink) -> AppResult<RepositoryInfo> {
-        write::clone(self, &spec, progress)
+    fn clone(
+        &self,
+        spec: CloneSpec,
+        progress: &ProgressSink,
+        auth: &NetworkAuth,
+    ) -> AppResult<RepositoryInfo> {
+        write::clone(self, &spec, progress, auth)
     }
 
     fn stage(&self, repo: &RepoId, spec: StageSpec) -> AppResult<()> {
