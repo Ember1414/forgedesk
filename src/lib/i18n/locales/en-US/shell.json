@@ -136,7 +136,41 @@
     },
     "repoConflict": {
       "title": "Conflicts",
-      "description": "Multi-pane merge view for conflicted files with hunk-by-hunk resolution."
+      "description": "Conflict status overview and per-file resolution (the three-pane merge editor ships later).",
+      "empty": "No merge, rebase, cherry-pick or revert operation is in progress.",
+      "emptyHint": "Operations that hit conflicts (merge, pull, cherry-pick, revert, rebase) bring the repository here.",
+      "op": {
+        "merge": "Merge",
+        "rebase": "Rebase",
+        "cherryPick": "Cherry-pick",
+        "revert": "Revert"
+      },
+      "progress": "Step {{current}} of {{total}}",
+      "intoBranch": "into {{branch}}",
+      "headName": "rebasing {{name}}",
+      "unresolved": "{{count}} unresolved files",
+      "allResolved": "All conflicts resolved - ready to continue",
+      "refresh": "Refresh",
+      "markResolved": "Mark resolved",
+      "continue": "Continue",
+      "skip": "Skip current commit",
+      "abort": "Abort operation",
+      "abortTitle": "Abort this operation?",
+      "abortImpact": "Aborting undoes all changes this operation made to the worktree and index and moves HEAD back to where it started; a snapshot is created before aborting.",
+      "abortDescription": "All changes this operation made to the worktree and index will be undone, returning to the state before it started. A snapshot is created automatically and can be restored later.",
+      "abortConfirm": "Abort",
+      "cancel": "Cancel",
+      "kind": {
+        "text": "Text conflict",
+        "binary": "Binary conflict",
+        "deletedByUs": "Deleted by us",
+        "deletedByThem": "Deleted by them",
+        "addedByBoth": "Added by both",
+        "addedByUs": "Added by us",
+        "addedByThem": "Added by them"
+      },
+      "contentUnavailable": "Binary, oversized or non-UTF-8 file; content is not shown",
+      "versions": "base / ours / theirs"
     },
     "repoTerminal": {
       "title": "Terminal",
@@ -401,6 +435,10 @@
         "cherryPick": "Cherry-pick",
         "revert": "Revert",
         "reflogBranch": "Reflog recovery",
+        "conflictResolve": "Mark conflict resolved",
+        "conflictContinue": "Continue conflict operation",
+        "conflictAbort": "Abort conflict operation",
+        "conflictSkip": "Skip conflicted commit",
         "snapshotRestore": "Restore snapshot",
         "snapshotPrune": "Prune snapshots",
         "auditExport": "Export history",

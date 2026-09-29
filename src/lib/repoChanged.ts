@@ -32,6 +32,7 @@ import {
   BRANCHES_QUERY_KEY,
   AUTHORS_QUERY_KEY,
   COMMIT_DETAIL_QUERY_KEY,
+  CONFLICT_QUERY_KEY,
   DIFF_KEY_PATH_INDEX,
   DIFF_QUERY_KEY,
   LOG_QUERY_KEY,
@@ -64,10 +65,12 @@ export function queryKeysForChange(
 ): readonly (readonly unknown[])[] {
   switch (kind) {
     case 'workspace':
-      // 储藏会搬走工作区里的改动：stash 面板必须跟着刷新（T2.8）
+      // 储藏会搬走工作区里的改动：stash 面板必须跟着刷新（T2.8）；
+      // 冲突状态随 index 变化（mark_resolved 让文件从冲突清单里消失，T3.1）
       return [
         [STATUS_QUERY_KEY, repoId],
         [STASH_QUERY_KEY, repoId],
+        [CONFLICT_QUERY_KEY, repoId],
       ];
     case 'refs':
       return [
@@ -82,6 +85,8 @@ export function queryKeysForChange(
         // 丢 stash / 恢复分支都会动 refs，也都会改变这两份列表
         [STASH_QUERY_KEY, repoId],
         [REFLOG_QUERY_KEY, repoId],
+        // continue / abort 会移动 HEAD，冲突状态随之结束或推进
+        [CONFLICT_QUERY_KEY, repoId],
       ];
     case 'large':
       return [
@@ -95,6 +100,7 @@ export function queryKeysForChange(
         [SYNC_STATUS_QUERY_KEY, repoId],
         [STASH_QUERY_KEY, repoId],
         [REFLOG_QUERY_KEY, repoId],
+        [CONFLICT_QUERY_KEY, repoId],
       ];
     default:
       // 认不出的类别（例如载荷来自更早的版本）按"大量变更"处理：
@@ -110,6 +116,7 @@ export function queryKeysForChange(
         [SYNC_STATUS_QUERY_KEY, repoId],
         [STASH_QUERY_KEY, repoId],
         [REFLOG_QUERY_KEY, repoId],
+        [CONFLICT_QUERY_KEY, repoId],
       ];
   }
 }

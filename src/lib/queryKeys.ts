@@ -154,6 +154,14 @@ export function reflogKey(repoId: number): readonly [string, number] {
   return [REFLOG_QUERY_KEY, repoId];
 }
 
+/** 冲突状态（`git_conflict_state`，T3.1）。 */
+export const CONFLICT_QUERY_KEY = 'conflict';
+
+/** 某仓库冲突状态的查询键。 */
+export function conflictKey(repoId: number): readonly [string, number] {
+  return [CONFLICT_QUERY_KEY, repoId];
+}
+
 /**
  * 同步状态（T2.6）：当前分支、上游名、ahead/behind。
  *

@@ -86,6 +86,22 @@ export {
   gitStashSave,
   gitStashShow,
 } from './historyOps';
+export {
+  gitConflictAbort,
+  gitConflictContinue,
+  gitConflictMarkResolved,
+  gitConflictSkip,
+  gitConflictState,
+} from './conflict';
+export type {
+  ConflictAbortOutcome,
+  ConflictBlob,
+  ConflictContinueOutcome,
+  ConflictFile,
+  ConflictKind,
+  ConflictOpKind,
+  ConflictState,
+} from './conflict';
 export type {
   CommitSummary,
   ReflogEntry,

@@ -162,6 +162,8 @@ declare global {
     __credCalls?: MockCredentialCall[];
     /** stash e2e 的 mock 调用记录（T2.10：断言 apply / drop 到达后端）。 */
     __calls?: readonly { readonly command: string; readonly index?: number }[];
+    /** 冲突页 e2e 的 mock 调用记录（T3.1：断言 resolve / continue / abort 到达后端）。 */
+    __conflictCalls?: readonly { readonly command: string; readonly args?: unknown }[];
     /** reset e2e 的执行计数（T2.10：断言取消后 execute 从未被调用）。 */
     __resetExecuted?: number;
   }

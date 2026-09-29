@@ -7,6 +7,10 @@
     "title": "There are unresolved conflicts",
     "hint": "Resolve them on the Conflicts screen and continue, or abort to return to the previous state."
   },
+  "CONFLICT_UNRESOLVED": {
+    "title": "Some conflicts are still unresolved",
+    "hint": "Resolve the listed files (file names are in the hint), mark them resolved, then continue."
+  },
   "AUTH_REQUIRED": {
     "title": "Sign-in required",
     "hint": "Connect your hosting account in Settings, or configure an access token for this remote."

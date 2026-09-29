@@ -32,6 +32,7 @@ import { pushToast } from '@/stores/toastStore';
 export const ERROR_CODES = [
   'PATH_NOT_REPO',
   'GIT_CONFLICT',
+  'CONFLICT_UNRESOLVED',
   'AUTH_REQUIRED',
   'AUTH_EXPIRED',
   'SSH_HOST_KEY_UNVERIFIED',

@@ -136,7 +136,41 @@
     },
     "repoConflict": {
       "title": "冲突",
-      "description": "冲突文件的多栏合并视图与逐块解决流程。"
+      "description": "冲突状态总览与逐文件解决（三栏合并编辑器在后续任务交付）。",
+      "empty": "当前没有进行中的合并、变基、拣选或反转操作。",
+      "emptyHint": "产生冲突的操作（合并、拉取、拣选、反转、变基）会把仓库带到这个页面。",
+      "op": {
+        "merge": "合并",
+        "rebase": "变基",
+        "cherryPick": "拣选",
+        "revert": "反转"
+      },
+      "progress": "第 {{current}} / {{total}} 步",
+      "intoBranch": "并入 {{branch}}",
+      "headName": "变基分支 {{name}}",
+      "unresolved": "{{count}} 个未解决文件",
+      "allResolved": "全部冲突已解决，可以继续",
+      "refresh": "刷新",
+      "markResolved": "标记已解决",
+      "continue": "继续",
+      "skip": "跳过当前提交",
+      "abort": "中止操作",
+      "abortTitle": "中止当前操作？",
+      "abortImpact": "本次中止将撤销当前操作对工作区与索引的全部改动，并把 HEAD 移回操作开始前的位置；中止前会自动创建快照。",
+      "abortDescription": "将撤销本次操作对工作区与索引的全部改动，回到操作开始前的状态。中止前会自动创建快照，可稍后回滚。",
+      "abortConfirm": "中止",
+      "cancel": "取消",
+      "kind": {
+        "text": "文本冲突",
+        "binary": "二进制冲突",
+        "deletedByUs": "本侧已删除",
+        "deletedByThem": "对方已删除",
+        "addedByBoth": "两侧同时新增",
+        "addedByUs": "仅本侧新增",
+        "addedByThem": "仅对方新增"
+      },
+      "contentUnavailable": "二进制、超大或非 UTF-8 文件，内容不可显示",
+      "versions": "基线 / 本侧 / 对方"
     },
     "repoTerminal": {
       "title": "终端",
@@ -401,6 +435,10 @@
         "cherryPick": "拣选提交",
         "revert": "反转提交",
         "reflogBranch": "reflog 恢复分支",
+        "conflictResolve": "标记冲突已解决",
+        "conflictContinue": "继续冲突操作",
+        "conflictAbort": "中止冲突操作",
+        "conflictSkip": "跳过冲突提交",
         "snapshotRestore": "回滚快照",
         "snapshotPrune": "清理快照",
         "auditExport": "导出操作历史",
