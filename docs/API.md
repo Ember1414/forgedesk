@@ -46,7 +46,7 @@ interface FixAction {
 **错误码清单**（只增不改；新增时同步 `src/lib/errors.ts` 的 `ERROR_CODES` 与
 `src/lib/i18n/locales/*/errors.json`，由 `src/lib/errors.test.ts` 断言三者一致）：
 
-`PATH_NOT_REPO`、`GIT_CONFLICT`、`AUTH_REQUIRED`、`AUTH_EXPIRED`、`PERMISSION_DENIED`、
+`PATH_NOT_REPO`、`GIT_CONFLICT`、`CONFLICT_UNRESOLVED`、`AUTH_REQUIRED`、`AUTH_EXPIRED`、`PERMISSION_DENIED`、
 `NOT_FOUND`、`VALIDATION`、`NETWORK`、`RATE_LIMITED`、`PATCH_APPLY_FAILED`、`PLAN_STALE`、
 `HOOK_REJECTED`、`PUSH_REJECTED`、`EMPTY_COMMIT`、`RESTORE_VERIFY_FAILED`、`KEYRING_UNAVAILABLE`、`STORAGE`、
 `PTY_UNSUPPORTED`、`UNSUPPORTED_BY_ENGINE`、`CANCELLED`、`INTERNAL`
@@ -1399,6 +1399,34 @@ identity 文件）、`TLS_CERTIFICATE_REJECTED`（自签名或证书链不完整
 - 执行前的三道闸：计划只能用一次（重复用 = `PLAN_STALE`）；执行时 HEAD 与计划生成时
   不一致 = `PLAN_STALE`（重新预览即可）；`--hard` 要输入确认词。
 - 所有模式执行前都打 `pre-head-move` 快照（HEAD 都会动），`snapshotId` 随结果返回。
+
+### 冲突状态机（T3.1）
+
+冲突是**结果不是错误**（T2.8 起的约定）：merge / rebase / cherry-pick / revert 撞上冲突后，
+仓库进入一个可查询、可继续、可中止的状态。数据来源是 **index stage**
+（`git ls-files -u` 与 `git cat-file` 按 oid 读三方内容），不依赖工作区文件的
+`<<<<<<<` 标记——标记可能被用户手动删掉而 index 仍然冲突。
+
+服务 / 命令 / 前端位置：`crates/services/src/conflict.rs`、`crates/commands/src/conflict.rs`、
+`src/lib/ipc/conflict.ts`、`src/features/repo/RepoConflictPage.tsx`。
+冲突查询的引擎实现**只有 CLI**（stage 三方内容 + 2 MiB 阈值 + 二进制判定的语义以 git CLI
+为准，libgit2 侧返回 `UNSUPPORTED_BY_ENGINE`，见 `docs/GIT-ENGINE-DIFF.md` §4）。
+
+| 命令 | 能力 | 参数 | 返回/说明 |
+| --- | --- | --- | --- |
+| `git_conflict_state` | ReadOnly（`async`） | `{ repoId }` | `ConflictState`。无进行中操作时返回空态（`opKind: null`），不报错；冲突文件含 base/ours/theirs 三方 blob（内容超过 2 MiB、二进制或非 UTF-8 时 `content: null`）；rebase 进度从 `rebase-merge/msgnum`/`end` 读取 |
+| `git_conflict_mark_resolved` | Mutating（`async`） | `{ repoId, paths: string[] }` | `null`。执行 `git add` 并校验这些路径的 stage 条目已清空；仍冲突时返回 `CONFLICT_UNRESOLVED`（`hint` 列出未解决路径）。写审计（`conflict_resolve`），不打快照（与暂存同一取舍） |
+| `git_conflict_continue` | Mutating（`async`） | `{ repoId }` | `ConflictContinueOutcome { oid, conflicts }`。仍有未解决文件时返回 `CONFLICT_UNRESOLVED`；成功时 `oid` 为完成后的 HEAD；`conflicts` 非空 = 序列重放又停在新的冲突上（**正常结果**，界面刷新状态不弹错误）。merge 的 continue 是 `git commit --no-edit`；全部动作带 `GIT_EDITOR=true` 防止编辑器阻塞。写审计（`conflict_continue`），不打快照 |
+| `git_conflict_abort` | Mutating（`async`） | `{ repoId }` | `ConflictAbortOutcome { headOid, headRef, snapshotId }`。**先打 `pre-head-move` 快照再 abort**（rebase 的回滚基线是 `orig-head`），abort 后校验 HEAD 与分支名回到操作前状态，不一致返回 `INTERNAL` 并带实际状态。写审计（`conflict_abort`），`snapshotId` 写进操作记录 |
+| `git_conflict_skip` | Mutating（`async`） | `{ repoId }` | `ConflictContinueOutcome`。只有 rebase 支持（其余操作返回 `VALIDATION`）；跳过后撞上新的冲突同样是正常结果。写审计（`conflict_skip`） |
+
+事件：`git_conflict_mark_resolved` 成功后发 `repo:changed`（`workspace`）；
+`git_conflict_continue` / `git_conflict_skip` / `git_conflict_abort` 成功后发
+`workspace` + `refs`（可能移动 HEAD）。前端查询键 `[conflict, repoId]`
+（`src/lib/repoChanged.ts` 的三类失效均已包含）。
+
+错误码：`CONFLICT_UNRESOLVED`（T3.1 新增，与 `GIT_CONFLICT` 的区别：后者说"仓库里有冲突"，
+前者说"你想继续，但这些文件还没解决"，`hint` 携带文件清单）。
 
 ---
 
