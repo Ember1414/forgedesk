@@ -101,6 +101,14 @@ pub mod op_type {
     pub const REVERT: &str = "revert";
     /// 从 reflog 恢复成新分支。
     pub const REFLOG_BRANCH: &str = "reflog_branch";
+    /// 标记冲突文件已解决（T3.1）。
+    pub const CONFLICT_RESOLVE: &str = "conflict_resolve";
+    /// 继续进行中的操作（merge commit / rebase / 拣选 / 反转的 continue）。
+    pub const CONFLICT_CONTINUE: &str = "conflict_continue";
+    /// 中止进行中的操作（abort：打快照的可回滚操作）。
+    pub const CONFLICT_ABORT: &str = "conflict_abort";
+    /// 跳过当前提交（rebase skip）。
+    pub const CONFLICT_SKIP: &str = "conflict_skip";
     /// 导出审计（导出本身也是一次操作）。
     pub const AUDIT_EXPORT: &str = "audit_export";
     /// 清理审计（同上）。

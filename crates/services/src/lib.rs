@@ -25,6 +25,7 @@ pub mod audit;
 pub mod branch;
 pub mod commit;
 pub mod commit_detail;
+pub mod conflict;
 pub mod credentials;
 pub mod engines;
 pub mod history;
@@ -49,6 +50,7 @@ pub use commit::{
 pub use commit_detail::{
     CommitDetail, CommitDetailService, CommitFileChange, CommitMeta, CommitStats, FULL_OID_LENGTH,
 };
+pub use conflict::ConflictService;
 pub use credentials::{
     remote_host, remote_provider, remote_url, resolve_remote_url, ssh_inventory, tracking_remote,
     CredentialContext, CredentialGate, CredentialMode, CredentialsService, CredentialsStatus,
