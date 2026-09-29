@@ -365,7 +365,7 @@ pub struct NewBranchDto {
 }
 
 /// 仓储 id 的校验（命令层统一入口，避免每个命令重复写 NotFound）。
-fn require_repo(repo_id: i64) -> AppResult<i64> {
+pub(crate) fn require_repo(repo_id: i64) -> AppResult<i64> {
     if repo_id <= 0 {
         return Err(AppError::new(
             ErrorCode::Validation,

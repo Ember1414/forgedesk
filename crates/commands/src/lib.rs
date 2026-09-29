@@ -31,6 +31,7 @@ pub mod audit;
 pub mod branch;
 pub mod commit;
 pub mod commit_detail;
+pub mod conflict;
 pub mod credentials;
 pub mod debug;
 pub mod error;
@@ -61,6 +62,10 @@ pub use commit::{
     MessageHintDto, PlannedFileDto, PrepareCommitRequest,
 };
 pub use commit_detail::git_commit_detail;
+pub use conflict::{
+    git_conflict_abort, git_conflict_continue, git_conflict_mark_resolved, git_conflict_skip,
+    git_conflict_state,
+};
 pub use credentials::{
     credential_test_remote, credentials_delete, credentials_list, credentials_save,
     credentials_ssh_inventory, credentials_status, credentials_vault_create,

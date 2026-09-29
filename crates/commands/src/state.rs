@@ -25,9 +25,9 @@ use forgedesk_jobs::JobRunner;
 use forgedesk_services::repository::OpenRepoRegistry;
 use forgedesk_services::{
     AuditLog, BranchService, CommitDetailService, CommitPlanRegistry, CommitService,
-    CredentialGate, CredentialsService, GitEngines, HistoryOpsService, HistoryService,
-    LogPageCache, RepositoryService, ResetPlanRegistry, StagingService, StashService, SyncService,
-    WorkspaceService,
+    ConflictService, CredentialGate, CredentialsService, GitEngines, HistoryOpsService,
+    HistoryService, LogPageCache, RepositoryService, ResetPlanRegistry, StagingService,
+    StashService, SyncService, WorkspaceService,
 };
 use forgedesk_snapshot::SnapshotManager;
 use forgedesk_storage::{Database, OperationStore, RepositoryStore};
@@ -174,6 +174,18 @@ impl AppState {
     /// 绑定当前状态构造储藏服务（T2.8）。
     pub fn stash_service(&self) -> StashService<'_> {
         StashService::new(
+            &self.engines,
+            RepositoryStore::new(&self.database),
+            self.snapshots.as_ref(),
+        )
+    }
+
+    /// 绑定当前状态构造冲突状态机服务（T3.1）。
+    ///
+    /// 快照管理器与 stash / sync 路径共享同一个实例：abort 的
+    /// `PreHeadMove` 快照落在同一份历史里，回滚页一并列出。
+    pub fn conflict_service(&self) -> ConflictService<'_> {
+        ConflictService::new(
             &self.engines,
             RepositoryStore::new(&self.database),
             self.snapshots.as_ref(),
