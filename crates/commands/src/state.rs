@@ -25,8 +25,9 @@ use forgedesk_jobs::JobRunner;
 use forgedesk_services::repository::OpenRepoRegistry;
 use forgedesk_services::{
     AuditLog, BranchService, CommitDetailService, CommitPlanRegistry, CommitService,
-    CredentialGate, CredentialsService, GitEngines, HistoryService, RepositoryService,
-    StagingService, SyncService, WorkspaceService,
+    CredentialGate, CredentialsService, GitEngines, HistoryOpsService, HistoryService,
+    RepositoryService, ResetPlanRegistry, StagingService, StashService, SyncService,
+    WorkspaceService,
 };
 use forgedesk_snapshot::SnapshotManager;
 use forgedesk_storage::{Database, OperationStore, RepositoryStore};
@@ -72,6 +73,11 @@ pub struct AppState {
     /// `None` 表示拿不到自身可执行文件路径（无法充当 askpass 程序）——
     /// 此时不做注入，网络操作退化为匿名/SSH。
     pub credential_gate: Option<Arc<CredentialGate>>,
+    /// 待执行的重置计划（T2.8，进程内）。
+    ///
+    /// 与 `commit_plans` 同理：`git_reset_prepare` 与 `git_reset_execute` 是两次
+    /// 独立调用，各自 new 一个注册表会让执行永远找不到刚刚预览过的计划。
+    pub reset_plans: Arc<ResetPlanRegistry>,
 }
 
 impl AppState {
@@ -155,6 +161,28 @@ impl AppState {
     /// 凭据存储（T2.7）：设置页的账号面板直接用它。
     pub fn credentials_service(&self) -> &CredentialsService {
         &self.credentials
+    }
+
+    /// 绑定当前状态构造储藏服务（T2.8）。
+    pub fn stash_service(&self) -> StashService<'_> {
+        StashService::new(
+            &self.engines,
+            RepositoryStore::new(&self.database),
+            self.snapshots.as_ref(),
+        )
+    }
+
+    /// 绑定当前状态构造历史操作服务（T2.8：拣选 / 反转 / 重置 / reflog）。
+    ///
+    /// 重置计划的注册表来自状态本身：与 `commit_plans` 同理，
+    /// prepare 与 execute 必须看到同一个注册表。
+    pub fn history_ops_service(&self) -> HistoryOpsService<'_> {
+        HistoryOpsService::new(
+            &self.engines,
+            RepositoryStore::new(&self.database),
+            self.snapshots.as_ref(),
+            &self.reset_plans,
+        )
     }
 
     /// 绑定当前状态构造分支/标签管理服务（T2.5）。

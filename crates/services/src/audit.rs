@@ -85,6 +85,22 @@ pub mod op_type {
     pub const SNAPSHOT_RESTORE: &str = "snapshot_restore";
     /// 清理旧快照。
     pub const SNAPSHOT_PRUNE: &str = "snapshot_prune";
+    /// 储藏当前改动（T2.8）。
+    pub const STASH_SAVE: &str = "stash_save";
+    /// 应用储藏（`apply` 与 `pop` 都算：用户看的是"把改动拿回来"）。
+    pub const STASH_APPLY: &str = "stash_apply";
+    /// 丢弃储藏（`drop` 与 `clear` 都算：都是**不可逆**的删除）。
+    pub const STASH_DROP: &str = "stash_drop";
+    /// 从储藏创建分支。
+    pub const STASH_BRANCH: &str = "stash_branch";
+    /// 重置（soft / mixed / hard）。
+    pub const RESET: &str = "reset";
+    /// 拣选提交。
+    pub const CHERRY_PICK: &str = "cherry_pick";
+    /// 反转提交。
+    pub const REVERT: &str = "revert";
+    /// 从 reflog 恢复成新分支。
+    pub const REFLOG_BRANCH: &str = "reflog_branch";
     /// 导出审计（导出本身也是一次操作）。
     pub const AUDIT_EXPORT: &str = "audit_export";
     /// 清理审计（同上）。

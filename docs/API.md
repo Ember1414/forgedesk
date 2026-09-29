@@ -1365,6 +1365,41 @@ identity 文件）、`TLS_CERTIFICATE_REJECTED`（自签名或证书链不完整
 | 只读访问、仅元数据变化（权限 / mtime） | 丢弃（`touch` 不改变 git 看到的内容） |
 | 一个窗口内超过 2000 个路径 | 只发一次 `large`（不列路径），界面整体失效并说明原因 |
 
+### 储藏与历史操作（T2.8）
+
+全部是**本地**操作，因此都是同步命令（不进 `job:*` 通道）；写操作完成或进入冲突状态后
+广播 `repo:changed`（`workspace` 或 `refs`，重置/拣选/反转这类"整仓库都可能变"的用 `large`）。
+快照在 services 层动手之前打；审计在命令层写，操作类型为
+`stash_save` / `stash_apply` / `stash_drop` / `stash_branch` / `reset` / `cherry_pick` /
+`revert` / `reflog_branch`。
+
+| 命令 | 能力 | 参数 | 返回 |
+| --- | --- | --- | --- |
+| `git_stash_save` | Mutating | `{ message?, includeUntracked, keepIndex, paths? }` | `{ stashed, entry? }`。**`stashed=false` 不是失败**（没有可储藏的内容）；储藏前打 `pre-worktree-change` 快照 |
+| `git_stash_list` | ReadOnly | `repoId` | `StashEntry[]`（`{ index, oid, baseOid, message, createdAt?, includesUntracked, untrackedOid? }`） |
+| `git_stash_show` | ReadOnly | `repoId, index` | `{ entry, diff, untracked? }`：`diff` 是**相对 base** 的变更；`-u` 创建的 stash 里未跟踪文件**不在** `diff` 里，单独放在 `untracked`（与空树比较，全是新增）。界面对 `-u` 的 stash 必须两份都展示，只展示 `diff` 会让人以为 stash 是完整的 |
+| `git_stash_apply` / `git_stash_pop` | Mutating | `{ index, restoreIndex? }`（`restoreIndex` = `--index`） | `StashOutcome { conflicts }`。**冲突不是错误**：仓库已进入冲突状态，`conflicts` 列出冲突文件，`pop` 冲突时**不会**删除该条 |
+| `git_stash_drop` / `git_stash_clear` | Dangerous | `repoId[, index]` | `{ dropped: StashEntry[] }`（含 oid）。**不打快照**（有意为之：快照记录的是 HEAD/索引/工作区，不含 stash 内容，打了只会制造假安心）；安全网是返回并审计被丢的 oid——`gc` 回收之前都能按 oid 找回 |
+| `git_stash_branch` | Mutating | `{ index, name }` | `{ branch }`；从 stash 的 base 建分支并应用（**会切换分支**，先打 `pre-head-move` 快照）。pop 冲突时的正规出路：新分支从 base 开始，一定干净 |
+| `git_cherry_pick` | Mutating | `{ revision, recordSource?, noCommit? }`（`revision` 可以是 `A..B` 区间） | `MergeOutcome`（复用 pull 的冲突形状）。`recordSource` = `-x`（提交信息里附来源） |
+| `git_revert` | Mutating | `{ revision, mainline?, noCommit? }` | `MergeOutcome`。**反转合并提交必须给 `mainline`**（从 1 开始），猜错主父会反转出相反的结果，因此没有缺省值 |
+| `git_reset_prepare` | ReadOnly | `{ revision, mode }`（`mode ∈ "soft" \| "mixed" \| "hard"`） | `ResetPlan`（见下）。不写仓库 |
+| `git_reset_execute` | Mutating | `{ planId, confirmation? }` | `ResetOutcome { mode, headBefore, headAfter, discardedCount, snapshotId? }`。`--hard` 必须带 `confirmation="reset"`（大小写与首尾空白不敏感），否则 `VALIDATION` |
+| `git_reflog` | ReadOnly | `repoId, limit?`（缺省 100，上限 1000） | `ReflogEntry[]`（`{ index, oid, branchName?, subject, timestamp? }`，新的在前） |
+| `git_reflog_create_branch` | Mutating | `{ index, name }` | `{ branch }`。**不移动任何现有引用**，因此是 reflog 恢复的首选入口 |
+
+**重置的两段式契约**（红线 R7）：
+
+- 计划回答四件事：将被丢弃的提交（最多列 30 条，`discardedCount` 是精确总数）、
+  将被丢弃的已暂存/工作区改动、会被覆盖的未跟踪文件（仅 `--hard`：`git reset --hard`
+  会删掉"挡在路上"的未跟踪文件）、**远端是否已有这些提交**（`remote.notOnRemote`——
+  它是"丢弃后还能不能从远端找回"的唯一依据；没有上游时等于提交总数）。
+- `--soft` 不碰索引与工作区，因此计划里 `lostStaged`/`lostWorktree` 恒为空；
+  `--mixed` 只丢已暂存改动。
+- 执行前的三道闸：计划只能用一次（重复用 = `PLAN_STALE`）；执行时 HEAD 与计划生成时
+  不一致 = `PLAN_STALE`（重新预览即可）；`--hard` 要输入确认词。
+- 所有模式执行前都打 `pre-head-move` 快照（HEAD 都会动），`snapshotId` 随结果返回。
+
 ---
 
 ## 4. 新增命令的检查清单

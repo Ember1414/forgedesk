@@ -17,7 +17,9 @@ use forgedesk_platform::session::{detect_previous_session, start_session, Sessio
 use forgedesk_platform::watcher::NotifyFileWatcher;
 use forgedesk_platform::{install_panic_hook, non_blocking_writer, LogFlushGuard, LogPolicy};
 use forgedesk_services::repository::OpenRepoRegistry;
-use forgedesk_services::{CommitPlanRegistry, CredentialGate, CredentialsService, GitEngines};
+use forgedesk_services::{
+    CommitPlanRegistry, CredentialGate, CredentialsService, GitEngines, ResetPlanRegistry,
+};
 use forgedesk_snapshot::RefSnapshotManager;
 use forgedesk_storage::{migrate, Database};
 use tauri::{Manager, RunEvent};
@@ -186,6 +188,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     Arc::clone(&database),
                 )),
                 commit_plans: Arc::new(CommitPlanRegistry::new()),
+                reset_plans: Arc::new(ResetPlanRegistry::new()),
                 credentials,
                 credential_gate,
                 watchers,
@@ -262,6 +265,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         forgedesk_commands::git_branch_set_upstream,
         forgedesk_commands::git_tag_create,
         forgedesk_commands::git_tag_delete,
+        forgedesk_commands::git_stash_save,
+        forgedesk_commands::git_stash_list,
+        forgedesk_commands::git_stash_show,
+        forgedesk_commands::git_stash_apply,
+        forgedesk_commands::git_stash_pop,
+        forgedesk_commands::git_stash_drop,
+        forgedesk_commands::git_stash_clear,
+        forgedesk_commands::git_stash_branch,
+        forgedesk_commands::git_cherry_pick,
+        forgedesk_commands::git_revert,
+        forgedesk_commands::git_reset_prepare,
+        forgedesk_commands::git_reset_execute,
+        forgedesk_commands::git_reflog,
+        forgedesk_commands::git_reflog_create_branch,
         forgedesk_commands::credentials_list,
         forgedesk_commands::credentials_save,
         forgedesk_commands::credentials_delete,
@@ -328,6 +345,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         forgedesk_commands::git_branch_set_upstream,
         forgedesk_commands::git_tag_create,
         forgedesk_commands::git_tag_delete,
+        forgedesk_commands::git_stash_save,
+        forgedesk_commands::git_stash_list,
+        forgedesk_commands::git_stash_show,
+        forgedesk_commands::git_stash_apply,
+        forgedesk_commands::git_stash_pop,
+        forgedesk_commands::git_stash_drop,
+        forgedesk_commands::git_stash_clear,
+        forgedesk_commands::git_stash_branch,
+        forgedesk_commands::git_cherry_pick,
+        forgedesk_commands::git_revert,
+        forgedesk_commands::git_reset_prepare,
+        forgedesk_commands::git_reset_execute,
+        forgedesk_commands::git_reflog,
+        forgedesk_commands::git_reflog_create_branch,
         forgedesk_commands::git_commit_detail,
         forgedesk_commands::credentials_list,
         forgedesk_commands::credentials_save,

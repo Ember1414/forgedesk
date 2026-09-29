@@ -35,6 +35,7 @@ pub mod credentials;
 pub mod debug;
 pub mod error;
 pub mod history;
+pub mod history_ops;
 pub mod jobs;
 pub mod logs;
 pub mod repository;
@@ -69,6 +70,14 @@ pub use credentials::{
 pub use debug::{debug_panic, debug_throw_error};
 pub use error::{to_app_error, Fallible};
 pub use history::{git_branch_list, git_log_authors, git_log_page};
+pub use history_ops::{
+    git_cherry_pick, git_reflog, git_reflog_create_branch, git_reset_execute, git_reset_prepare,
+    git_revert, git_stash_apply, git_stash_branch, git_stash_clear, git_stash_drop, git_stash_list,
+    git_stash_pop, git_stash_save, git_stash_show, CherryPickRequest, CommitSummaryDto,
+    NewBranchDto, ResetOutcomeDto, ResetPlanDto, ResetRemoteImpactDto, ResetRequest, RevertRequest,
+    StashApplyRequest, StashBranchRequest, StashDiscardDto, StashSaveDto, StashSaveRequest,
+    StashShowDto,
+};
 pub use jobs::{job_cancel, TauriJobReporter};
 pub use logs::{logs_open, logs_tail};
 pub use repository::{

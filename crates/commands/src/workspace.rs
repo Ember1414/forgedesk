@@ -74,7 +74,8 @@ pub struct FileChangeDto {
 }
 
 impl FileChangeDto {
-    fn from_entry(entry: &forgedesk_domain::git::FileChange) -> Self {
+    /// 由领域条目构造（历史操作的重置计划 DTO 也用它：同一份形状，前端只需一套渲染）。
+    pub(crate) fn from_entry(entry: &forgedesk_domain::git::FileChange) -> Self {
         Self {
             path: entry.path.to_string_lossy().into_owned(),
             old_path: entry
@@ -1138,7 +1139,8 @@ pub struct DiffReportDto {
 }
 
 impl DiffReportDto {
-    fn from_domain(report: &DiffReport) -> Self {
+    /// 由领域报告构造（stash 的 diff 也用它：前端复用同一套 DiffView）。
+    pub(crate) fn from_domain(report: &DiffReport) -> Self {
         Self {
             files: report.files.iter().map(FileDiffDto::from_domain).collect(),
             truncated_files: report.truncated_files,
