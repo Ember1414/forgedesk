@@ -168,25 +168,25 @@ pub fn compute_merge_blocks(base: &str, ours: &str, theirs: &str) -> Vec<MergeBl
         let mut theirs_group: Vec<Hunk> = Vec::new();
         loop {
             let mut grew = false;
-            while let Some(hunk) = ours_hunks.last() {
-                if hunk.base_start <= group_end {
-                    let hunk = ours_hunks.pop().unwrap();
-                    group_end = group_end.max(hunk.base_end);
-                    ours_group.push(hunk);
-                    grew = true;
-                } else {
+            // last() 复制判断（Hunk 是 Copy）后再 pop：不需要 unwrap，
+            // 生产代码不写 panic 式调用（workspace lints 的红线）
+            while let Some(&hunk) = ours_hunks.last() {
+                if hunk.base_start > group_end {
                     break;
                 }
+                ours_hunks.pop();
+                group_end = group_end.max(hunk.base_end);
+                ours_group.push(hunk);
+                grew = true;
             }
-            while let Some(hunk) = theirs_hunks.last() {
-                if hunk.base_start <= group_end {
-                    let hunk = theirs_hunks.pop().unwrap();
-                    group_end = group_end.max(hunk.base_end);
-                    theirs_group.push(hunk);
-                    grew = true;
-                } else {
+            while let Some(&hunk) = theirs_hunks.last() {
+                if hunk.base_start > group_end {
                     break;
                 }
+                theirs_hunks.pop();
+                group_end = group_end.max(hunk.base_end);
+                theirs_group.push(hunk);
+                grew = true;
             }
             if !grew {
                 break;
