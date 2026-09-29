@@ -6,7 +6,7 @@
       "menuLabel": "Choose a repository",
       "empty": "No recently opened repository",
       "opened": "Open",
-      "openPending": "Opening, cloning and initialising repositories has no interface yet; for now this list switches between repositories you have already opened."
+      "addRepo": "Add a repository (open / clone / init)"
     },
     "search": {
       "label": "Global search",

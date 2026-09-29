@@ -51,7 +51,10 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(function 
         className={cn(
           'fd-transition min-h-20 w-full resize-y rounded-md border border-line bg-surface px-2.5 py-1.5 text-13 text-fg',
           'placeholder:text-fg-subtle hover:border-line-strong',
-          'focus:border-brand disabled:cursor-not-allowed disabled:opacity-50',
+          // 与 Input 同一策略：focus 时 border + outline 双保险（高 DPI 下
+          // 1px 边框可能单边被亚像素渲染弱化）
+          'focus:border-brand focus:outline focus:outline-1 focus:outline-brand/40',
+          'disabled:cursor-not-allowed disabled:opacity-50',
           error !== undefined && 'border-danger focus:border-danger',
           className,
         )}

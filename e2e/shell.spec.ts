@@ -76,12 +76,12 @@ test('repository-scoped entries are disabled without a repo and enabled after pi
 test('the switcher lists repositories from local records, not sample data', async ({ page }) => {
   await page.getByRole('button', { name: '当前仓库' }).click();
   const items = page.getByRole('menuitem');
-  await expect(items).toHaveCount(2);
+  // 两个最近仓库 + 一个"添加仓库"直达入口（指向仪表盘）
+  await expect(items).toHaveCount(3);
   await expect(items.first()).toContainText('ForgeDesk');
   await expect(items.first()).toContainText('E:\\Projects\\ForgeDesk');
   await expect(items.nth(1)).toContainText('notes');
-  // 打开/克隆的入口还没实现：必须如实说明，而不是给一个点了必然失败的菜单项
-  await expect(page.getByText(/打开 \/ 克隆 \/ 初始化仓库的界面还没做/)).toBeVisible();
+  await expect(items.nth(2)).toContainText('添加仓库');
 });
 
 test('every sidebar entry opens its own page', async ({ page }) => {

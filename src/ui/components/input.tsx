@@ -33,7 +33,9 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
   const hasHint = hint !== undefined && hint !== null;
 
   return (
-    <div className="flex w-full flex-col gap-1">
+    // min-w-0：在 flex 行里与按钮并排时，收缩压力由输入框承担——
+    // 否则 w-full 的 wrapper 会把旁边的按钮挤到文字换行（仪表盘"浏览"按钮事故）
+    <div className="flex w-full min-w-0 flex-col gap-1">
       {label !== undefined ? (
         <label htmlFor={inputId} className="text-12 font-medium text-fg-muted">
           {label}
@@ -49,7 +51,11 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
         className={cn(
           'fd-transition h-8 w-full rounded-md border border-line bg-surface px-2.5 text-13 text-fg',
           'placeholder:text-fg-subtle hover:border-line-strong',
-          'focus:border-brand disabled:cursor-not-allowed disabled:opacity-50',
+          // focus 用 border + 1px outline 双保险：高 DPI 缩放下 WebView2 可能把
+          // 1px 边框的某一条边渲染到亚像素而弱化（用户报告"紫色线缺左边"），
+          // outline 沿边框外沿再画一圈，四边在任何缩放下都可见
+          'focus:border-brand focus:outline focus:outline-1 focus:outline-brand/40',
+          'disabled:cursor-not-allowed disabled:opacity-50',
           error !== undefined && 'border-danger focus:border-danger',
           className,
         )}

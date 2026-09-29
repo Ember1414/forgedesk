@@ -1,4 +1,4 @@
-import { ChevronDown } from 'lucide-react';
+import { ChevronDown, Plus } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 
@@ -102,8 +102,16 @@ export function RepoSwitcher() {
         )}
 
         <DropdownMenuSeparator />
-        {/* 打开/克隆/初始化的入口还没做：如实说明，而不是给一个点了必然失败的菜单项 */}
-        <p className="px-2 py-1 text-12 text-fg-subtle">{t('titleBar.repoSwitcher.openPending')}</p>
+        {/* 打开 / 克隆 / 初始化由仪表盘承载（bd89b48）；这里给一个直达入口，
+            替代 T0.4 的"界面还没做"占位——那个说明在入口落地后就过时了 */}
+        <DropdownMenuItem
+          onSelect={() => void navigate('/')}
+          className="data-[highlighted]:bg-surface-sunken"
+          data-testid="repo-switcher-add"
+        >
+          <Plus aria-hidden className="size-4" />
+          {t('titleBar.repoSwitcher.addRepo')}
+        </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );
