@@ -8,6 +8,11 @@
 > 因此"同一份状态经两条路径必须得到同一个结论"。差异不会报错，只会让界面
 > 时而显示 A、时而显示 B——那是用户无法自助排查的一类问题。
 >
+> **T2.10 后的特例**：状态读（`WorkspaceService::status`）按索引条目数分流——
+> 大仓库（≥ [`STATUS_CLI_ENTRY_THRESHOLD`] = 2000）切到 CLI（libgit2 在该形状上
+> 慢约 10 倍，见 `docs/PERF-BASELINE.md` §3.1），其余仍走 libgit2。两条路径的
+> 结果一致性由差分测试逐仓库对拍；富化对两条路径共用，界面无字段差异。
+>
 > 配套测试：`crates/git-engine/tests/differential.rs`（16 项通过、1 项 `#[ignore]`）
 > 与 `crates/git-engine/tests/discover.rs`（15 项通过）。
 
