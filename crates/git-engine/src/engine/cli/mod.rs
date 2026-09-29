@@ -24,11 +24,12 @@ use forgedesk_diagnostics::sanitize_log;
 use forgedesk_domain::git::{
     ApplyPatchSpec, Branch, BranchCreateSpec, BranchDeleteSpec, BranchRenameSpec,
     BranchSetUpstreamSpec, CheckoutSpec, CherryPickSpec, CloneSpec, Commit, CommitSpec,
-    ConflictAbortOutcome, ConflictContinueOutcome, ConflictOpKind, ConflictState, DiffReport,
-    DiffSpec, DiscardSpec, FetchOutcome, FetchSpec, InitSpec, LogQuery, MergeOutcome, MergeSpec,
-    Page, PullOutcome, PullSpec, PushOutcome, PushSpec, ReflogEntry, Remote, ReorderSpec, RepoId,
-    RepoPath, RepositoryInfo, ResetSpec, RevertSpec, StageSpec, StashEntry, StashOutcome,
-    StashSpec, StatusQuery, StatusReport, SwitchStrategy, Tag, TagCreateSpec, TagDeleteSpec,
+    ConflictAbortOutcome, ConflictContinueOutcome, ConflictFileDetail, ConflictOpKind,
+    ConflictState, DiffReport, DiffSpec, DiscardSpec, FetchOutcome, FetchSpec, InitSpec,
+    LineEnding, LogQuery, MergeOutcome, MergeSpec, Page, PullOutcome, PullSpec, PushOutcome,
+    PushSpec, ReflogEntry, Remote, ReorderSpec, RepoId, RepoPath, RepositoryInfo, ResetSpec,
+    RevertSpec, StageSpec, StashEntry, StashOutcome, StashSpec, StatusQuery, StatusReport,
+    SwitchStrategy, Tag, TagCreateSpec, TagDeleteSpec, TakeSide,
 };
 use forgedesk_domain::{AppError, AppResult, ErrorCode};
 
@@ -669,6 +670,34 @@ impl GitEngine for CliGitEngine {
         op: ConflictOpKind,
     ) -> AppResult<ConflictContinueOutcome> {
         conflict::skip_operation(self, repo, op)
+    }
+
+    fn conflict_file_detail(
+        &self,
+        repo: &RepoId,
+        path: &RepoPath,
+    ) -> AppResult<ConflictFileDetail> {
+        conflict::file_detail(self, repo, path)
+    }
+
+    fn conflict_take_side(&self, repo: &RepoId, path: &RepoPath, side: TakeSide) -> AppResult<()> {
+        conflict::take_side(self, repo, path, side)
+    }
+
+    fn conflict_apply_resolution(
+        &self,
+        repo: &RepoId,
+        path: &RepoPath,
+        content: &str,
+        eol: LineEnding,
+        bom: bool,
+        trailing_newline: bool,
+    ) -> AppResult<()> {
+        conflict::apply_resolution(self, repo, path, content, eol, bom, trailing_newline)
+    }
+
+    fn conflict_remove_file(&self, repo: &RepoId, path: &RepoPath) -> AppResult<()> {
+        conflict::remove_conflict_file(self, repo, path)
     }
 
     fn fetch(

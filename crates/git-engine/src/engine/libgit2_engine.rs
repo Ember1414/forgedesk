@@ -1253,6 +1253,39 @@ impl GitEngine for Libgit2Engine {
     ) -> AppResult<forgedesk_domain::git::ConflictContinueOutcome> {
         Err(unsupported(EngineId::Libgit2, "conflict_skip"))
     }
+
+    fn conflict_file_detail(
+        &self,
+        _repo: &RepoId,
+        _path: &RepoPath,
+    ) -> AppResult<forgedesk_domain::git::ConflictFileDetail> {
+        Err(unsupported(EngineId::Libgit2, "conflict_file_detail"))
+    }
+
+    fn conflict_take_side(
+        &self,
+        _repo: &RepoId,
+        _path: &RepoPath,
+        _side: forgedesk_domain::git::TakeSide,
+    ) -> AppResult<()> {
+        Err(unsupported(EngineId::Libgit2, "conflict_take_side"))
+    }
+
+    fn conflict_apply_resolution(
+        &self,
+        _repo: &RepoId,
+        _path: &RepoPath,
+        _content: &str,
+        _eol: forgedesk_domain::git::LineEnding,
+        _bom: bool,
+        _trailing_newline: bool,
+    ) -> AppResult<()> {
+        Err(unsupported(EngineId::Libgit2, "conflict_apply_resolution"))
+    }
+
+    fn conflict_remove_file(&self, _repo: &RepoId, _path: &RepoPath) -> AppResult<()> {
+        Err(unsupported(EngineId::Libgit2, "conflict_remove_file"))
+    }
 }
 
 /// 远端默认分支（`refs/remotes/origin/HEAD` 指向的分支短名）。

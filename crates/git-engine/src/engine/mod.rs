@@ -45,11 +45,12 @@ use std::path::Path;
 use crate::process::NetworkAuth;
 use forgedesk_domain::git::{
     ApplyPatchSpec, Branch, CheckoutSpec, CherryPickSpec, CloneSpec, Commit, CommitSpec,
-    ConflictAbortOutcome, ConflictContinueOutcome, ConflictOpKind, ConflictState, DiffReport,
-    DiffSpec, DiscardSpec, FetchOutcome, FetchSpec, InitSpec, LogQuery, MergeOutcome, MergeSpec,
-    Page, PullOutcome, PullSpec, PushOutcome, PushSpec, ReflogEntry, Remote, ReorderSpec, RepoId,
-    RepoPath, RepositoryInfo, ResetSpec, RevertSpec, StageSpec, StashEntry, StashOutcome,
-    StashSpec, StatusQuery, StatusReport, Tag,
+    ConflictAbortOutcome, ConflictContinueOutcome, ConflictFileDetail, ConflictOpKind,
+    ConflictState, DiffReport, DiffSpec, DiscardSpec, FetchOutcome, FetchSpec, InitSpec,
+    LineEnding, LogQuery, MergeOutcome, MergeSpec, Page, PullOutcome, PullSpec, PushOutcome,
+    PushSpec, ReflogEntry, Remote, ReorderSpec, RepoId, RepoPath, RepositoryInfo, ResetSpec,
+    RevertSpec, StageSpec, StashEntry, StashOutcome, StashSpec, StatusQuery, StatusReport, Tag,
+    TakeSide,
 };
 use forgedesk_domain::{AppError, AppResult, ErrorCode};
 
@@ -426,6 +427,30 @@ pub trait GitEngine: Send + Sync {
         repo: &RepoId,
         op: ConflictOpKind,
     ) -> AppResult<ConflictContinueOutcome>;
+
+    /// 单个冲突文件的完整详情：三方 blob、工作区文件形状（EOL/BOM/末尾换行）
+    /// 与 diff3 合并块（T3.2）。编辑器打开一个文件时才做这次较重的查询。
+    fn conflict_file_detail(&self, repo: &RepoId, path: &RepoPath)
+        -> AppResult<ConflictFileDetail>;
+
+    /// 整个文件采用一方（`git checkout --ours/--theirs` + 标记已解决）。
+    /// 二进制冲突与删除类冲突的"保留一方"走这里。
+    fn conflict_take_side(&self, repo: &RepoId, path: &RepoPath, side: TakeSide) -> AppResult<()>;
+
+    /// 把编辑器的结果文本写回工作区（保持探测到的 EOL/BOM/末尾换行）
+    /// 并标记已解决（`git add` + 校验）。
+    fn conflict_apply_resolution(
+        &self,
+        repo: &RepoId,
+        path: &RepoPath,
+        content: &str,
+        eol: LineEnding,
+        bom: bool,
+        trailing_newline: bool,
+    ) -> AppResult<()>;
+
+    /// 以"删除该文件"解决删除类冲突（`git rm -f` + 校验）。
+    fn conflict_remove_file(&self, repo: &RepoId, path: &RepoPath) -> AppResult<()>;
 
     /// 拉取远端引用。
     ///

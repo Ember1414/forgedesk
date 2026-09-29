@@ -23,7 +23,8 @@
 use std::path::{Path, PathBuf};
 
 use forgedesk_domain::git::{
-    ConflictAbortOutcome, ConflictContinueOutcome, ConflictOpKind, ConflictState, RepoId, RepoPath,
+    ConflictAbortOutcome, ConflictContinueOutcome, ConflictFileDetail, ConflictOpKind,
+    ConflictState, LineEnding, RepoId, RepoPath, TakeSide,
 };
 use forgedesk_domain::{AppError, AppResult, ErrorCode};
 use forgedesk_git_engine::engine::enrich::resolve_git_dir;
@@ -122,6 +123,45 @@ impl<'a> ConflictService<'a> {
         let state = engine.conflict_state(&repo)?;
         let op = require_operation(&state)?;
         engine.conflict_skip(&repo, op)
+    }
+
+    /// 单个冲突文件的详情（三方 blob + 工作区形状 + 合并块）。只读。
+    pub fn file_detail(&self, repo_id: i64, path: &RepoPath) -> AppResult<ConflictFileDetail> {
+        let repo = RepoId::new(self.resolve_workdir(repo_id)?);
+        self.engines.write().conflict_file_detail(&repo, path)
+    }
+
+    /// 整个文件采用一方（二进制 / 删除类冲突的"保留一方"）。
+    pub fn take_side(&self, repo_id: i64, path: &RepoPath, side: TakeSide) -> AppResult<()> {
+        let repo = RepoId::new(self.resolve_workdir(repo_id)?);
+        self.engines.write().conflict_take_side(&repo, path, side)
+    }
+
+    /// 把编辑器结果写回工作区并标记已解决（EOL/BOM 由引擎按原文件形状重建）。
+    pub fn apply_resolution(
+        &self,
+        repo_id: i64,
+        path: &RepoPath,
+        content: &str,
+        eol: LineEnding,
+        bom: bool,
+        trailing_newline: bool,
+    ) -> AppResult<()> {
+        let repo = RepoId::new(self.resolve_workdir(repo_id)?);
+        self.engines.write().conflict_apply_resolution(
+            &repo,
+            path,
+            content,
+            eol,
+            bom,
+            trailing_newline,
+        )
+    }
+
+    /// 以"删除该文件"解决删除类冲突。
+    pub fn remove_file(&self, repo_id: i64, path: &RepoPath) -> AppResult<()> {
+        let repo = RepoId::new(self.resolve_workdir(repo_id)?);
+        self.engines.write().conflict_remove_file(&repo, path)
     }
 
     /// 中止进行中的操作：快照 → abort → 校验回到操作前状态。

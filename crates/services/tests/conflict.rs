@@ -17,7 +17,9 @@
 
 mod support;
 
-use forgedesk_domain::git::{ConflictKind, ConflictOpKind, RepoPath};
+use forgedesk_domain::git::{
+    ConflictKind, ConflictOpKind, LineEnding, MergeBlock, RepoPath, TakeSide,
+};
 use forgedesk_domain::ErrorCode;
 use forgedesk_git_engine::engines::GitEngines;
 use forgedesk_services::ConflictService;
@@ -539,5 +541,254 @@ fn continue_and_skip_do_not_create_snapshots() {
         fixture.snapshots.keys().is_empty(),
         "continue 不应打快照：{:?}",
         fixture.snapshots.keys()
+    );
+}
+
+// ---------------------------------------------------------------- 编辑器路径（T3.2）
+
+#[test]
+fn file_detail_reports_blocks_and_the_worktree_shape() {
+    let fixture = merge_conflict_fixture("conflict-detail-blocks");
+    let detail = fixture
+        .conflict()
+        .file_detail(fixture.repo_id, &RepoPath::from("a.txt"))
+        .expect("file_detail 失败");
+
+    assert_eq!(detail.kind, ConflictKind::Text);
+    assert!(detail.worktree_exists);
+    assert_eq!(detail.eol, LineEnding::Lf);
+    assert!(detail.trailing_newline);
+    assert!(!detail.bom);
+
+    // a.txt：base="base"、ours="main"、theirs="feature" → 单行冲突
+    assert_eq!(detail.blocks.len(), 1);
+    assert_eq!(
+        detail.blocks[0],
+        MergeBlock::Conflict {
+            base: vec!["base".into()],
+            ours: vec!["main".into()],
+            theirs: vec!["feature".into()],
+        }
+    );
+}
+
+#[test]
+fn file_detail_rejects_paths_that_are_not_conflicted() {
+    let fixture = merge_conflict_fixture("conflict-detail-validation");
+    let error = fixture
+        .conflict()
+        .file_detail(fixture.repo_id, &RepoPath::from("no/such/file.txt"))
+        .expect_err("非冲突路径必须失败");
+    assert_eq!(error.code, ErrorCode::Validation, "{error:?}");
+}
+
+#[test]
+fn apply_resolution_writes_back_and_marks_resolved() {
+    let fixture = merge_conflict_fixture("conflict-apply");
+    let conflict = fixture.conflict();
+
+    conflict
+        .apply_resolution(
+            fixture.repo_id,
+            &RepoPath::from("a.txt"),
+            "a hand-built resolution
+",
+            LineEnding::Lf,
+            false,
+            true,
+        )
+        .expect("apply_resolution 失败");
+
+    let content = std::fs::read_to_string(fixture.path().join("a.txt")).unwrap();
+    assert_eq!(
+        content,
+        "a hand-built resolution
+"
+    );
+    assert!(fixture.state().files.is_empty());
+
+    // 全部解决后可以直接 continue
+    let outcome = conflict
+        .continue_operation(fixture.repo_id)
+        .expect("continue 失败");
+    assert!(!outcome.has_conflicts());
+}
+
+#[test]
+fn apply_resolution_rebuilds_crlf_and_bom_from_the_original_shape() {
+    let fixture = merge_conflict_fixture("conflict-apply-crlf");
+    // 原文件带 BOM + CRLF（模拟 Windows 编辑器产生的文件）：
+    // 重新写入带 BOM/CRLF 的内容到 stage（用 apply 之前的真实路径：直接改工作区
+    // 文件再 git add 会丢冲突态，所以只验证"写回时按参数重建"这一层）
+    fixture
+        .conflict()
+        .apply_resolution(
+            fixture.repo_id,
+            &RepoPath::from("a.txt"),
+            "windows line
+",
+            LineEnding::Crlf,
+            true,
+            true,
+        )
+        .expect("apply_resolution 失败");
+
+    let bytes = std::fs::read(fixture.path().join("a.txt")).unwrap();
+    assert_eq!(&bytes[..3], &[0xEF, 0xBB, 0xBF], "必须写回 UTF-8 BOM");
+    // CRLF：0x0D 0x0A 两个字节的相邻窗口
+    assert!(
+        bytes.windows(2).any(|pair| pair == [0x0D, 0x0A]),
+        "必须写回 CRLF"
+    );
+    assert!(fixture.state().files.is_empty());
+}
+
+#[test]
+fn take_side_restores_the_ours_version_and_resolves() {
+    let fixture = merge_conflict_fixture("conflict-take-side");
+    fixture
+        .conflict()
+        .take_side(fixture.repo_id, &RepoPath::from("a.txt"), TakeSide::Ours)
+        .expect("take_side 失败");
+
+    let content = std::fs::read_to_string(fixture.path().join("a.txt")).unwrap();
+    assert_eq!(
+        content,
+        "main
+",
+        "采用 ours 后工作区是 main 的版本"
+    );
+    assert!(fixture.state().files.is_empty());
+}
+
+#[test]
+fn take_side_theirs_restores_their_version() {
+    let fixture = merge_conflict_fixture("conflict-take-theirs");
+    fixture
+        .conflict()
+        .take_side(fixture.repo_id, &RepoPath::from("a.txt"), TakeSide::Theirs)
+        .expect("take_side 失败");
+
+    let content = std::fs::read_to_string(fixture.path().join("a.txt")).unwrap();
+    assert_eq!(
+        content,
+        "feature
+"
+    );
+    assert!(fixture.state().files.is_empty());
+}
+
+#[test]
+fn remove_file_resolves_a_conflict_by_deleting_it() {
+    let fixture = merge_conflict_fixture("conflict-remove-file");
+    fixture
+        .conflict()
+        .remove_file(fixture.repo_id, &RepoPath::from("a.txt"))
+        .expect("remove_file 失败");
+
+    assert!(
+        !fixture.path().join("a.txt").exists(),
+        "工作区文件必须被删除"
+    );
+    assert!(fixture.state().files.is_empty());
+
+    // 删除也是合法的解决方式：continue 应该照常完成
+    let outcome = fixture
+        .conflict()
+        .continue_operation(fixture.repo_id)
+        .expect("continue 失败");
+    assert!(!outcome.has_conflicts());
+}
+
+#[test]
+fn file_detail_of_a_both_added_conflict_has_no_base() {
+    // 双方都新增同名文件：没有 stage 1，blocks 的冲突块没有 base
+    let fixture = Fixture::new("conflict-both-added");
+    write(
+        fixture.path(),
+        "readme.md",
+        b"base readme
+",
+    );
+    commit_all(fixture.path(), "base");
+    git_ok(fixture.path(), &["checkout", "-b", "feature"]);
+    write(
+        fixture.path(),
+        "new.txt",
+        b"from feature
+",
+    );
+    commit_all(fixture.path(), "feature adds");
+    git_ok(fixture.path(), &["checkout", "main"]);
+    write(
+        fixture.path(),
+        "new.txt",
+        b"from main
+",
+    );
+    commit_all(fixture.path(), "main adds");
+    let _ = git(fixture.path(), &["merge", "feature"]);
+
+    let detail = fixture
+        .conflict()
+        .file_detail(fixture.repo_id, &RepoPath::from("new.txt"))
+        .expect("file_detail 失败");
+    assert_eq!(detail.kind, ConflictKind::AddedByBoth);
+    assert!(detail.base.is_none());
+    // 两个相同前缀的不同文件：整文件都是一方内容 → 单个冲突块
+    match &detail.blocks[0] {
+        MergeBlock::Conflict { base, ours, theirs } => {
+            assert!(base.is_empty());
+            assert_eq!(ours, &vec!["from main".to_owned()]);
+            assert_eq!(theirs, &vec!["from feature".to_owned()]);
+        }
+        other => panic!("期望冲突块，得到 {other:?}"),
+    }
+}
+
+#[test]
+fn auto_resolved_sections_are_reported_as_resolved_blocks() {
+    // theirs 在文件末尾追加一行（ours 未动该行）→ Resolved(Theirs)
+    let fixture = Fixture::new("conflict-auto-resolved");
+    write(
+        fixture.path(),
+        "a.txt",
+        b"line1
+",
+    );
+    commit_all(fixture.path(), "base");
+    git_ok(fixture.path(), &["checkout", "-b", "feature"]);
+    write(
+        fixture.path(),
+        "a.txt",
+        b"line1
+line2
+",
+    );
+    commit_all(fixture.path(), "feature appends");
+    git_ok(fixture.path(), &["checkout", "main"]);
+    write(
+        fixture.path(),
+        "a.txt",
+        b"changed line1
+",
+    );
+    commit_all(fixture.path(), "main changes");
+    let _ = git(fixture.path(), &["merge", "feature"]);
+
+    let detail = fixture
+        .conflict()
+        .file_detail(fixture.repo_id, &RepoPath::from("a.txt"))
+        .expect("file_detail 失败");
+    // 双方都动了 line1（ours 改写、theirs 保留并追加 line2）：同一行的
+    // 修改与追加重叠 → 一个冲突块，与 git 的合并行为一致
+    assert_eq!(detail.blocks.len(), 1, "{:?}", detail.blocks);
+    assert_eq!(
+        detail.blocks[0],
+        MergeBlock::Conflict {
+            base: vec!["line1".into()],
+            ours: vec!["changed line1".into()],
+            theirs: vec!["line1".into(), "line2".into()],
+        }
     );
 }

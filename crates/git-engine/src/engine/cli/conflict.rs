@@ -18,9 +18,10 @@
 use std::collections::HashMap;
 
 use forgedesk_domain::git::{
-    ConflictAbortOutcome, ConflictContinueOutcome, ConflictFile, ConflictKind, ConflictOpKind,
-    ConflictState, FileBlob, OperationState, RepoId, RepoPath, StageEntry, StageSpec,
-    UnmergedStage, MAX_CONFLICT_BLOB_BYTES,
+    compute_merge_blocks, ConflictAbortOutcome, ConflictContinueOutcome, ConflictFile,
+    ConflictFileDetail, ConflictKind, ConflictOpKind, ConflictState, FileBlob, LineEnding,
+    OperationState, RepoId, RepoPath, StageEntry, StageSpec, TakeSide, UnmergedStage,
+    MAX_CONFLICT_BLOB_BYTES,
 };
 use forgedesk_domain::{AppError, AppResult, ErrorCode};
 
@@ -392,4 +393,217 @@ pub(super) fn mark_resolved(
         "the paths are still conflicted after staging",
     )
     .with_hint(unresolved.join(", ")))
+}
+
+/// 读取单个冲突文件的三方内容、工作区文件形状与 diff3 合并块（T3.2）。
+///
+/// 路径以 pathspec 传给 `git ls-files -u`：编辑器只对用户**正在看的**文件
+/// 做三方读取与块计算（state 清单页不需要），路径来自该清单。
+pub(super) fn file_detail(
+    engine: &CliGitEngine,
+    repo: &RepoId,
+    path: &RepoPath,
+) -> AppResult<ConflictFileDetail> {
+    let workdir = repo.root();
+    let output = engine.run_read(
+        repo,
+        GitInvocation::new(vec![
+            "ls-files".to_owned(),
+            "-u".to_owned(),
+            "-z".to_owned(),
+            "--".to_owned(),
+            path.to_string_lossy().into_owned(),
+        ]),
+    )?;
+    let entries = parse_ls_files_stage(&output.stdout);
+    if entries.is_empty() {
+        return Err(AppError::new(
+            ErrorCode::Validation,
+            "the path has no unmerged stages (it is not conflicted)",
+        )
+        .with_hint(path.to_string_lossy().into_owned()));
+    }
+
+    let mut slots: [Option<StageEntry>; 3] = [None, None, None];
+    for entry in &entries {
+        let slot = match entry.stage {
+            UnmergedStage::Base => 0,
+            UnmergedStage::Ours => 1,
+            UnmergedStage::Theirs => 2,
+        };
+        slots[slot] = Some(StageEntry {
+            mode: entry.mode,
+            oid: entry.oid.clone(),
+        });
+    }
+
+    let oids: Vec<&str> = slots
+        .iter()
+        .flatten()
+        .map(|stage| stage.oid.as_str())
+        .collect();
+    let sizes = blob_sizes(engine, repo, &oids)?;
+    let base = stage_blob(engine, repo, slots[0].as_ref(), &sizes)?;
+    let ours = stage_blob(engine, repo, slots[1].as_ref(), &sizes)?;
+    let theirs = stage_blob(engine, repo, slots[2].as_ref(), &sizes)?;
+
+    let worktree_file = workdir.join(path.to_string_lossy().as_ref());
+    let worktree_exists = std::fs::metadata(&worktree_file).is_ok();
+    // 工作区文件形状：写回时保持原样（T3.2 任务书第 5 条）；文件不在工作区
+    // （删除类冲突）时给安全默认值——反正 result 没有可参照的原文件
+    let (eol, bom, trailing_newline) = std::fs::read(&worktree_file)
+        .map(|bytes| probe_worktree_shape(&bytes))
+        .unwrap_or((LineEnding::Lf, false, false));
+
+    // 块计算在三方都"可用文本"时进行：缺失的 stage（AddedByBoth 这类没有
+    // base）按空文本参与；某个 stage 存在但内容不可用（二进制 / 超大 /
+    // 非 UTF-8）则整体不算——编辑器走"采用一方"路径。BOM 从内容剥掉
+    // （它在文件级由 bom 字段记录，混进第一行只会污染 diff），写回时按
+    // bom 字段加回。
+    let computable = [&base, &ours, &theirs].iter().all(|blob| match blob {
+        None => true,
+        Some(blob) => blob.content.is_some(),
+    });
+    // 嵌套 fn 而不是闭包：两个输入引用的生命周期省略在这里推不动
+    fn blob_text(blob: &Option<FileBlob>) -> &str {
+        strip_bom(
+            blob.as_ref()
+                .and_then(|b| b.content.as_deref())
+                .unwrap_or_default(),
+        )
+    }
+    let blocks = if computable {
+        compute_merge_blocks(blob_text(&base), blob_text(&ours), blob_text(&theirs))
+    } else {
+        Vec::new()
+    };
+
+    Ok(ConflictFileDetail {
+        path: path.clone(),
+        kind: ConflictKind::classify(base.as_ref(), ours.as_ref(), theirs.as_ref()),
+        base,
+        ours,
+        theirs,
+        worktree_exists,
+        eol,
+        bom,
+        trailing_newline,
+        blocks,
+    })
+}
+
+/// 探测工作区文件的换行风格、BOM 与末尾换行。
+fn probe_worktree_shape(bytes: &[u8]) -> (LineEnding, bool, bool) {
+    const UTF8_BOM: &[u8] = &[0xEF, 0xBB, 0xBF];
+    let bom = bytes.starts_with(UTF8_BOM);
+    let eol = match bytes.iter().position(|byte| *byte == b'\n') {
+        Some(index) if index > 0 && bytes[index - 1] == b'\r' => LineEnding::Crlf,
+        Some(_) => LineEnding::Lf,
+        None if bytes.contains(&b'\r') => LineEnding::Cr,
+        None => LineEnding::Lf,
+    };
+    let trailing_newline = matches!(bytes.last(), Some(b'\n') | Some(b'\r'));
+    (eol, bom, trailing_newline)
+}
+
+/// 剥一次 UTF-8 BOM（diff 的第一行不该被它污染）。
+fn strip_bom(text: &str) -> &str {
+    text.strip_prefix('\u{feff}').unwrap_or(text)
+}
+
+/// 整个文件采用一方（二进制冲突与文件级快捷操作的路径）。
+///
+/// `git checkout --ours/--theirs` 把 stage 的 blob 恢复到工作区，
+/// 随后走与 [`mark_resolved`] 相同的 add + 校验。
+pub(super) fn take_side(
+    engine: &CliGitEngine,
+    repo: &RepoId,
+    path: &RepoPath,
+    side: TakeSide,
+) -> AppResult<()> {
+    let flag = match side {
+        TakeSide::Ours => "--ours",
+        TakeSide::Theirs => "--theirs",
+    };
+    engine.run_write(
+        repo,
+        GitInvocation::new(vec![
+            "checkout".to_owned(),
+            flag.to_owned(),
+            "--".to_owned(),
+            path.to_string_lossy().into_owned(),
+        ]),
+    )?;
+    mark_resolved(engine, repo, std::slice::from_ref(path))
+}
+
+/// 把编辑器产出的结果文本写回工作区并标记已解决（T3.2 任务书第 5 条）。
+///
+/// 换行风格 / BOM / 末尾换行由调用方按 [`file_detail`] 探测的**原文件形状**
+/// 传回，这里负责忠实重建——前端拿到的编辑文本是纯 LF 世界，
+/// 文件系统才是 CRLF 的世界，转换必须只发生在一处。
+pub(super) fn apply_resolution(
+    engine: &CliGitEngine,
+    repo: &RepoId,
+    path: &RepoPath,
+    content: &str,
+    eol: LineEnding,
+    bom: bool,
+    trailing_newline: bool,
+) -> AppResult<()> {
+    let newline: &str = match eol {
+        LineEnding::Lf => "\n",
+        LineEnding::Crlf => "\r\n",
+        LineEnding::Cr => "\r",
+    };
+    let mut bytes: Vec<u8> = Vec::with_capacity(content.len() + 8);
+    if bom {
+        bytes.extend_from_slice(&[0xEF, 0xBB, 0xBF]);
+    }
+    let lines: Vec<&str> = content.lines().collect();
+    for (index, line) in lines.iter().enumerate() {
+        if index > 0 {
+            bytes.extend_from_slice(newline.as_bytes());
+        }
+        bytes.extend_from_slice(line.as_bytes());
+    }
+    if trailing_newline && !lines.is_empty() {
+        bytes.extend_from_slice(newline.as_bytes());
+    }
+    let worktree_file = repo.root().join(path.to_string_lossy().as_ref());
+    std::fs::write(&worktree_file, bytes).map_err(|error| {
+        AppError::new(ErrorCode::Internal, "failed to write the resolved file")
+            .with_hint(worktree_file.to_string_lossy().into_owned())
+            .with_detail(error.to_string())
+    })?;
+    // 写完即 add + 校验 stage 清空（与手动标记同一收口）
+    mark_resolved(engine, repo, std::slice::from_ref(path))
+}
+
+/// 以"删除该文件"解决删除类冲突（`git rm -f`：工作区与索引一起删）。
+pub(super) fn remove_conflict_file(
+    engine: &CliGitEngine,
+    repo: &RepoId,
+    path: &RepoPath,
+) -> AppResult<()> {
+    engine.run_write(
+        repo,
+        GitInvocation::new(vec![
+            "rm".to_owned(),
+            "-f".to_owned(),
+            "--".to_owned(),
+            path.to_string_lossy().into_owned(),
+        ]),
+    )?;
+    let still_unmerged = unmerged_paths(engine, repo)?
+        .iter()
+        .any(|remaining| remaining == path);
+    if still_unmerged {
+        return Err(AppError::new(
+            ErrorCode::ConflictUnresolved,
+            "the path is still conflicted after removal",
+        )
+        .with_hint(path.to_string_lossy().into_owned()));
+    }
+    Ok(())
 }
