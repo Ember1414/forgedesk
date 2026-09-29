@@ -55,8 +55,12 @@ function StashFiles({ outcome }: { readonly outcome: StashShowOutcome }) {
   const { t } = useTranslation('shell');
 
   const tracked = outcome.diff as { readonly files: readonly { readonly path: string }[] };
-  const untracked = outcome.untracked as
-    { readonly files: readonly { readonly path: string }[] } | undefined;
+  // 后端 `Option<DiffReportDto>` 经 serde 序列化为 **null**（不是 undefined）：
+  // 无未跟踪文件的 stash 是常态，用 `!== undefined` 判断会在真实数据下崩掉
+  // 整个状态页（e2e/stash-reset.spec.ts 抓到）。
+  const untracked = (outcome.untracked ?? null) as {
+    readonly files: readonly { readonly path: string }[];
+  } | null;
 
   return (
     <div className="flex flex-col gap-2 pl-2" data-testid="stash-files">
@@ -65,7 +69,7 @@ function StashFiles({ outcome }: { readonly outcome: StashShowOutcome }) {
           <li key={file.path}>{file.path}</li>
         ))}
       </ul>
-      {untracked !== undefined && untracked.files.length > 0 ? (
+      {untracked !== null && untracked.files.length > 0 ? (
         <div className="flex flex-col gap-1">
           {/* 未跟踪文件在 stash 的第三个父提交里：单独列出，否则用户以为清单是完整的 */}
           <p className="text-12 text-fg-muted">{t('stash.untrackedFiles')}</p>
