@@ -1320,7 +1320,10 @@ SSH 远端（`git@host:path` / `ssh://`）与本地路径**永不**注入令牌�
 identity 文件）、`TLS_CERTIFICATE_REJECTED`（自签名或证书链不完整）、`PROXY_FAILED`（代理
 拒绝连接或 407）。分类在 `ErrorCode::classify`（纯字符串逻辑，有 ≥ 10 条真实 stderr 样本的单测），
 顺序上 SSH/TLS/代理**先于**通用的认证与网络规则——因为 `Permission denied (publickey)`
-里也含 `permission denied`。这四类码各带一个"测试连接"动作（`command = "credential_test_remote"`）。
+里也含 `permission denied`。这四类码各带一个"测试连接"动作
+（`command = "credential_test_remote"`，`args = { repoId }`）：领域层只产出动作骨架，
+`repoId` 由命令层在错误离开任务时补上——前端会照 `args` 原样 invoke，缺参数的按钮点下去
+只会得到一条 `VALIDATION`。已有自带动作的错误（如 `PUSH_REJECTED` 的三条路径）不会被叠加。
 
 > 尚未接线：`auth_login_device_*`（OAuth 设备码）与多账号模型属于 T4.4，会复用本节的存储层。
 
