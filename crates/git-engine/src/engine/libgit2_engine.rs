@@ -15,16 +15,20 @@
 //! | --- | --- | --- | --- |
 //! | `FileChange` 的模式与 oid | 有值 | 全为 `None` | libgit2 的状态 API 不暴露它们 |
 //! | 冲突条目的 `XY` | `UU`/`AA`/`DU`… | 统一为 `UU` | libgit2 只给 `CONFLICTED` 位 |
-//! | `Commit.refs` | 有值 | 空 | libgit2 没有等价的 `%D`，需要自己遍历全部 ref |
 //! | `Commit.signature` | 来自 `%G?` | `Unknown` | libgit2 不做 GPG 校验 |
 //! | 子模块状态细节 | 有 | 部分 | 依赖 `StatusOptions` 的开关 |
 //! | `RepositoryInfo.worktrees` | 完整列表 | 只有主工作区 | `Repository::worktrees` 只返回工作区**名称**，没有路径与 HEAD |
+//!
+//! `Commit.refs` 曾经也在这个表里（libgit2 侧留空，历史图的 ref 胶囊因此
+//! 全空——T2.10 修复的 P1）；现在由 [`RefDecorations`] 用一次引用枚举给出
+//! 与 `%D` 同形的 token，差分测试按"排序后的 token 序列相等"钉住。
 //!
 //! 界面不得依赖这些字段的"两边都一致"——`services` 层读走 libgit2，
 //! 因此以 libgit2 的能力为准。**例外**是 `discover`：打开仓库是一次性的、
 //! 用户发起的探测，且与仓库配置审计、git 版本检查同属一个动作，
 //! 因此 `services` 用 CLI 实现做 `discover`（见 `services::repository` 的说明）。
 
+use std::collections::HashMap;
 use std::path::Path;
 use std::path::PathBuf;
 
@@ -129,8 +133,105 @@ fn entry_kind(status: git2::Status) -> EntryKind {
     }
 }
 
+/// 引用装饰表：`git log --decorate`（`%D`）的 libgit2 等价实现（T2.10 修复）。
+///
+/// # 为什么要有它
+///
+/// libgit2 没有 `%D` 的等价物，此前 `Commit.refs` 恒为空，历史图的 ref 胶囊
+/// 因此一片空白（用户可见的 P1）。git 的装饰语义并不神秘：一次引用枚举 +
+/// 按提交 oid 归组，每次 log/show 调用做一遍的成本是 O(引用数)（几百个引用
+/// 不到 1ms），与 10 万提交的 walk 相比可以忽略。
+///
+/// # token 形状刻意模仿 `%D`
+///
+///   - HEAD 指向分支：`HEAD -> main`（该分支的裸名被 HEAD 消费，不再单独出现）；
+///   - 分离 HEAD：`HEAD`；
+///   - 标签（含附注）：`tag: v1`，附注标签装饰在它**解引用后的提交**上；
+///   - 本地 / 远程跟踪分支：`main` / `origin/main`。
+///
+/// 排序也模仿 git：HEAD 最前，其余按**完整引用名**的字典序
+/// （refs/heads < refs/remotes < refs/tags）。`tests/differential.rs`
+/// 以"排序后的 token 序列两侧相等"钉住这份模仿。
+struct RefDecorations {
+    by_oid: HashMap<git2::Oid, Vec<String>>,
+}
+
+impl RefDecorations {
+    /// 枚举全部引用并按提交归组。
+    fn build(repository: &git2::Repository) -> RefDecorations {
+        // (完整引用名, 展示 token, 装饰目标 oid)：先收集再排序，保证顺序稳定
+        let mut entries: Vec<(String, String, git2::Oid)> = Vec::new();
+        let Ok(references) = repository.references() else {
+            return RefDecorations {
+                by_oid: HashMap::new(),
+            };
+        };
+        for reference in references {
+            let Ok(reference) = reference else { continue };
+            let Some(full) = reference.name() else {
+                continue;
+            };
+            // 只装饰 git 默认装饰的三类命名空间（refs/stash 等与 git 行为一致，不装饰）
+            let token = if let Some(name) = full.strip_prefix("refs/heads/") {
+                name.to_owned()
+            } else if let Some(name) = full.strip_prefix("refs/remotes/") {
+                name.to_owned()
+            } else if let Some(name) = full.strip_prefix("refs/tags/") {
+                format!("tag: {name}")
+            } else {
+                continue;
+            };
+            // 附注标签的引用目标是 tag 对象；装饰要落在它指向的提交上
+            let Some(target) = reference.target() else {
+                continue;
+            };
+            let oid = match reference.peel_to_commit() {
+                Ok(commit) => commit.id(),
+                Err(_) => target,
+            };
+            entries.push((full.to_owned(), token, oid));
+        }
+        entries.sort_by(|left, right| left.0.cmp(&right.0));
+
+        let mut by_oid: HashMap<git2::Oid, Vec<String>> = HashMap::new();
+        // HEAD 最前（与 git 的装饰顺序一致）。
+        // 注意 `Repository::head()` 返回的是**解析后**的引用：符号 HEAD 会变成
+        // refs/heads/x 的直接引用（symbolic_target 为 None），分离 HEAD 则仍叫
+        // "HEAD"——用引用名区分两种形态，别用 symbolic_target 判断。
+        if let Ok(head) = repository.head() {
+            if let Some(name) = head.name() {
+                if let Ok(commit) = head.peel_to_commit() {
+                    if let Some(branch) = name.strip_prefix("refs/heads/") {
+                        by_oid
+                            .entry(commit.id())
+                            .or_default()
+                            .push(format!("HEAD -> {branch}"));
+                        // 该分支的裸名被 HEAD 消费：按完整引用名剔除
+                        // （避免误伤恰好同短名的远端/标签）
+                        entries.retain(|(full, _, _)| full != name);
+                    } else {
+                        by_oid
+                            .entry(commit.id())
+                            .or_default()
+                            .push("HEAD".to_owned());
+                    }
+                }
+            }
+        }
+        for (_, token, oid) in entries {
+            by_oid.entry(oid).or_default().push(token);
+        }
+        RefDecorations { by_oid }
+    }
+
+    /// 某个提交 oid 的装饰 token（按 %D 的顺序）。
+    fn of(&self, oid: &git2::Oid) -> Vec<String> {
+        self.by_oid.get(oid).cloned().unwrap_or_default()
+    }
+}
+
 /// 把 libgit2 的提交对象转成领域 [`Commit`]。
-fn to_commit(commit: &git2::Commit<'_>) -> Commit {
+fn to_commit(commit: &git2::Commit<'_>, refs: Vec<String>) -> Commit {
     let signature = |who: &git2::Signature<'_>| Signature {
         name: String::from_utf8_lossy(who.name_bytes()).into_owned(),
         email: String::from_utf8_lossy(who.email_bytes()).into_owned(),
@@ -142,10 +243,10 @@ fn to_commit(commit: &git2::Commit<'_>) -> Commit {
         parents: commit.parent_ids().map(|oid| oid.to_string()).collect(),
         author: signature(&commit.author()),
         committer: signature(&commit.committer()),
-        // libgit2 没有 `%D` 的等价物：要拿到"哪些 ref 指向它"必须遍历全部 ref，
-        // 这在每次分页查询里做一次是纯浪费（CLI 实现由 git 顺带给出）
-        refs: Vec::new(),
-        // 同上：GPG 校验需要调用 gpg，libgit2 不提供
+        // 引用装饰来自 [`RefDecorations`]（`%D` 的等价实现，形状与 CLI 一致）；
+        // 由调用方在每次 log/show 时构建一次
+        refs,
+        // GPG 校验需要调用 gpg，libgit2 不提供
         signature: SignatureStatus::Unknown,
         subject: String::from_utf8_lossy(commit.summary_bytes().unwrap_or_default()).into_owned(),
         body: commit
@@ -497,6 +598,9 @@ impl GitEngine for Libgit2Engine {
         }
 
         let mut commits = Vec::new();
+        // 引用装饰每次调用构建一份（O(引用数)，几百个引用 <1ms）；
+        // `to_commit` 按提交 oid 查表填 `Commit.refs`
+        let decorations = RefDecorations::build(&repository);
         // 过滤与 skip 都必须发生在"凑满一页"的计数之前：CLI 的 `--author` /
         // `--grep` / `--merges` / `--skip` 全部作用在**过滤后的流**上（`--skip N`
         // 跳过的是第 N 条**匹配**，不是第 N 条提交）。这里逐条走过滤器、过滤器
@@ -560,7 +664,7 @@ impl GitEngine for Libgit2Engine {
                 continue;
             }
 
-            commits.push(to_commit(&commit));
+            commits.push(to_commit(&commit, decorations.of(&commit.id())));
             if commits.len() >= query.limit.saturating_add(1) {
                 break;
             }
@@ -572,7 +676,10 @@ impl GitEngine for Libgit2Engine {
     fn show(&self, repo: &RepoId, revision: &str) -> AppResult<Commit> {
         let repository = open(repo)?;
         let commit = find_commit(&repository, revision)?;
-        Ok(to_commit(&commit))
+        // 详情服务的 ref 胶囊数据源走 CLI 的 %D；libgit2 侧的装饰与它同形
+        // （差分测试钉住两侧排序后的 token 序列相等）
+        let decorations = RefDecorations::build(&repository);
+        Ok(to_commit(&commit, decorations.of(&commit.id())))
     }
 
     fn branch_list(&self, repo: &RepoId) -> AppResult<Vec<Branch>> {

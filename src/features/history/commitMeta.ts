@@ -13,10 +13,10 @@
  * 权威的分类（哪些是本地分支、哪些是远端跟踪）属于 T2.3 的分支列表，
  * 到那时本函数应改为直接消费结构化数据。
  *
- * 另一件需要如实说明的事：`services` 层走 libgit2 引擎，而 libgit2 没有 `%D`
- * 的等价物，`Commit.refs` 恒为空（见 `docs/GIT-ENGINE-DIFF.md`）。
- * 因此 ref 胶囊在真实数据下暂时不会出现，只有 CLI 引擎与测试夹具能触发它。
- * 渲染层必须能优雅地处理"没有 ref"，这一点由 `layoutRefCapsules` 保证。
+ * 另一件曾经要如实说明的事（T2.10 已修复）：libgit2 没有 `%D` 的等价物，
+ * 此前 `Commit.refs` 恒为空、ref 胶囊在真实数据下从未出现；现在引擎侧用
+ * `RefDecorations` 给出与 `%D` 同形的 token（差分测试钉住两侧一致）。
+ * 渲染层仍必须优雅地处理"没有 ref"，这一点由 `layoutRefCapsules` 保证。
  */
 import type { Commit, GraphRow } from '@/lib/ipc/history';
 import type { RefLabel } from '@/features/history/graphGeometry';

@@ -46,6 +46,11 @@ impl StashEntry {
 pub struct StashOutcome {
     /// 冲突的路径（无冲突时为空）。
     pub conflicts: Vec<super::path::RepoPath>,
+    /// 操作前打的快照 id（服务层填；引擎构造的临时值恒为 `None`）。
+    ///
+    /// 随 IPC 契约（`snapshotId`）流向前端与审计表——apply / pop 的工作区
+    /// 改动因此可以在操作历史里回滚（T2.10 补上的断链）。
+    pub snapshot_id: Option<i64>,
 }
 
 impl StashOutcome {
@@ -80,10 +85,12 @@ mod tests {
         // 冲突是**结果**：界面据此把用户送到冲突页，而不是弹一个红色错误
         let outcome = StashOutcome {
             conflicts: vec![crate::git::RepoPath::from("a.txt")],
+            snapshot_id: None,
         };
         assert!(outcome.has_conflicts());
         assert!(!StashOutcome {
-            conflicts: Vec::new()
+            conflicts: Vec::new(),
+            snapshot_id: None,
         }
         .has_conflicts());
     }

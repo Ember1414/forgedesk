@@ -699,6 +699,12 @@ pub struct MergeOutcome {
     pub oid: Option<String>,
     /// 冲突文件（`kind == Conflicted` 时非空）。
     pub conflicts: Vec<RepoPath>,
+    /// 操作前打的快照 id（服务层填；引擎构造的临时值恒为 `None`）。
+    ///
+    /// 它随 IPC 契约（`snapshotId`）流向前端与审计表——`operation_records.
+    /// snapshot_id` 就是从这个字段提取的，少了它 cherry-pick / revert 的
+    /// "能不能回滚"在操作历史里永远是"否"（T2.10 修复的断链）。
+    pub snapshot_id: Option<i64>,
 }
 
 impl MergeOutcome {
@@ -740,6 +746,8 @@ pub struct PullOutcome {
     pub up_to_date: bool,
     /// 合并 / 快进阶段的结果；`up_to_date` 时为 `None`。
     pub merge: Option<MergeOutcome>,
+    /// 操作前打的 `PreSync` 快照 id（服务层填；引擎构造的临时值恒为 `None`）。
+    pub snapshot_id: Option<i64>,
 }
 
 impl PullOutcome {
@@ -1351,13 +1359,16 @@ mod tests {
                 kind: MergeKind::Conflicted,
                 oid: None,
                 conflicts: vec!["a.txt".into()],
+                snapshot_id: None,
             }),
+            snapshot_id: None,
         };
         let fast_forwarded = PullOutcome {
             merge: Some(MergeOutcome {
                 kind: MergeKind::FastForward,
                 oid: Some("abc".to_owned()),
                 conflicts: Vec::new(),
+                snapshot_id: None,
             }),
             ..conflicted.clone()
         };
@@ -1373,6 +1384,7 @@ mod tests {
             strategy: PullStrategy::FastForwardOnly,
             up_to_date: true,
             merge: None,
+            snapshot_id: None,
         };
 
         assert!(!outcome.has_conflicts());
@@ -1448,10 +1460,13 @@ mod tests {
             strategy: PullStrategy::FastForwardOnly,
             up_to_date: true,
             merge: None,
+            snapshot_id: Some(7),
         };
         let json = serde_json::to_value(&pulled).unwrap();
         assert_eq!(json["upToDate"], true, "{json}");
         assert_eq!(json["strategy"], "fastForwardOnly");
+        // snapshotId 也在契约里：审计表的关联列就是从这个字段提取的（T2.10）
+        assert_eq!(json["snapshotId"], 7, "{json}");
 
         let rejection = PushRejection {
             name: "main".to_owned(),
@@ -1465,6 +1480,7 @@ mod tests {
             kind: MergeKind::Conflicted,
             oid: None,
             conflicts: Vec::new(),
+            snapshot_id: None,
         };
         assert_eq!(serde_json::to_value(&merge).unwrap()["kind"], "conflicted");
     }

@@ -22,7 +22,7 @@
 | --- | --- | --- |
 | 状态 | `(路径, 标记, 来源路径)` 的**集合** | 未跟踪统一记为 `??`（porcelain 用 `?`，libgit2 用 `WT_NEW` 位）；冲突统一记为 `conflicted`（porcelain 能区分 `UU`/`AA`/`DU`，libgit2 只有 `CONFLICTED` 位） |
 | diff | `(路径, 来源路径, 新增行, 删除行, 是否二进制)` 的**集合** | 集合比较：两个引擎的条目顺序不保证一致 |
-| log | oid **序列**，以及每个 oid 的父提交、subject、提交时间 | 序列比较（顺序是语义的一部分）；`refs` 与 `signature` 不参与比较 |
+| log | oid **序列**，以及每个 oid 的父提交、subject、提交时间 | 序列比较（顺序是语义的一部分）；`signature` 不参与比较。`refs` 自 T2.10 起在 `show` 侧比较（排序后的 token 序列） |
 
 ### 测试夹具的确定性措施
 
@@ -84,7 +84,7 @@
 | --- | --- | --- | --- |
 | `FileChange` 的模式与 oid（`mode_*` / `oid_*`） | 有值 | 全为 `None` | libgit2 的状态 API 不暴露它们 |
 | 冲突条目的 `XY` | `UU` / `AA` / `DU` / `UD` / `AU` / `UA` / `DD` | 统一 `UU` | libgit2 只有 `CONFLICTED` 位，不区分冲突类型 |
-| `Commit.refs` | 有值（`%D`） | 空 | 需要自己遍历全部 ref；每次分页查询都做一遍是纯浪费 |
+| ~~`Commit.refs`~~（T2.10 起移出本表） | 有值（`%D`） | 有值（`RefDecorations`，token 形状与排序模仿 `%D`） | 曾经 libgit2 侧留空（历史图 ref 胶囊因此全空，T2.10 修复的 P1）；现在一次引用枚举建装饰表（O(引用数)，<1ms），差分测试按"排序后 token 序列相等"钉住 |
 | `Commit.signature` | `%G?` 的真实结果 | `Unknown` | libgit2 不做 GPG 校验 |
 | `Branch.upstream_gone` | 可判定（`[gone]`） | 恒为 `false` | libgit2 无法区分"没有上游"与"上游已删除" |
 | `Tag.message` | 附注标签有值 | 附注标签有值 | 一致（轻量标签两边都不填：`%(contents:subject)` 给的是提交标题，不是标签信息） |

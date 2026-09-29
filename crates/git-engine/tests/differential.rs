@@ -18,7 +18,9 @@
 //!    （porcelain 能区分 `UU`/`AA`/`DU`，libgit2 只有 `CONFLICTED` 位）。
 //! 2. **diff**：比较 `(路径, 来源路径, 新增行, 删除行, 是否二进制)` 的集合。
 //! 3. **log**：比较 oid 序列，以及每个 oid 的父提交、subject、提交时间。
-//!    `refs` 与 `signature` 不在比较范围内（见上）。
+//!    `signature` 不在比较范围内（见上）。`refs` 在 log 里同样不比，但
+//!    `show` 侧逐提交比较排序后的 token 序列（详见
+//!    `commit_detail_inputs_are_consistent_across_engines`）。
 //!
 //! # 夹具的确定性
 //!
@@ -955,10 +957,13 @@ fn the_index_and_head_tree_oids_agree_across_engines() {
 ///
 /// # 契约的不对称部分也要钉住
 ///
-/// `show` 的 refs 与 signature **只有 CLI 给得出**（libgit2 的 `to_commit`
-/// 有意留空，见引擎侧注释）——详情服务的元数据因此刻意走 CLI。这里把这条
-/// 不对称写成断言：如果哪天有人给 libgit2 补了 refs/签名，或者反过来 CLI
-/// 侧丢了它们，这条测试会先红，提醒同步详情服务与 `docs/GIT-ENGINE-DIFF.md`。
+/// `show` 的 signature **只有 CLI 给得出**（libgit2 不做 GPG 校验，见引擎侧
+/// 注释）——详情服务的签名徽标因此以 CLI 为准。这条不对称写成断言：如果哪天
+/// libgit2 补了校验或 CLI 侧丢了它，这条测试会先红。
+///
+/// `refs` 曾在同一个不对称表里（T2.10 之前 libgit2 恒为空，历史图 ref 胶囊
+/// 因此全空）；现在 libgit2 用 `RefDecorations` 模仿 `%D`，两侧按"排序后的
+/// token 序列相等"断言——形状或顺序的模仿走样都会在这里现形。
 #[test]
 fn commit_detail_inputs_are_consistent_across_engines() {
     let dir = TempDir::new("diff-detail");
@@ -995,14 +1000,23 @@ fn commit_detail_inputs_are_consistent_across_engines() {
         assert_eq!(from_cli.subject, from_libgit2.subject, "oid {}", commit.oid);
         assert_eq!(from_cli.body, from_libgit2.body, "oid {}", commit.oid);
 
-        // 契约的不对称：refs 与签名状态只在 CLI 一侧
-        assert!(
-            from_libgit2.refs.is_empty(),
-            "libgit2 的 Commit 契约是 refs 留空；若改变了，请同步详情服务与 GIT-ENGINE-DIFF.md"
-        );
+        // 签名状态的契约不对称仍然成立：只有 CLI 做 GPG 校验
         assert_eq!(
             from_libgit2.signature,
             forgedesk_domain::git::SignatureStatus::Unknown
+        );
+
+        // refs 自 T2.10 起两侧都有（libgit2 用 RefDecorations 模仿 %D）：
+        // 排序后的 token 序列必须相等——这是历史图 ref 胶囊的数据源，
+        // 两侧不一致会让同一提交在详情面板和图页显示不同的 ref 集合
+        let mut sorted_cli = from_cli.refs.clone();
+        sorted_cli.sort();
+        let mut sorted_libgit2 = from_libgit2.refs.clone();
+        sorted_libgit2.sort();
+        assert_eq!(
+            sorted_cli, sorted_libgit2,
+            "oid {} 的 ref 装饰两侧不一致",
+            commit.oid
         );
     }
     // CLI 侧的 merge 提交带 HEAD -> main 装饰（详情面板的 ref 胶囊数据源）

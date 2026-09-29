@@ -423,6 +423,7 @@ fn outcome_from(
             kind: MergeKind::Conflicted,
             oid: None,
             conflicts,
+            snapshot_id: None,
         });
     }
 
@@ -459,6 +460,7 @@ fn outcome_from(
         kind,
         oid: head,
         conflicts: Vec::new(),
+        snapshot_id: None,
     })
 }
 
@@ -476,7 +478,10 @@ pub(super) fn stash(
 
     let conflicts = unmerged_paths(engine, repo)?;
     if !conflicts.is_empty() {
-        return Ok(StashOutcome { conflicts });
+        return Ok(StashOutcome {
+            conflicts,
+            snapshot_id: None,
+        });
     }
 
     if !output.success() {
@@ -489,6 +494,7 @@ pub(super) fn stash(
 
     Ok(StashOutcome {
         conflicts: Vec::new(),
+        snapshot_id: None,
     })
 }
 
@@ -549,7 +555,9 @@ pub(super) fn pull(
                 kind: MergeKind::Conflicted,
                 oid: None,
                 conflicts,
+                snapshot_id: None,
             }),
+            snapshot_id: None,
         });
     }
 
@@ -572,8 +580,10 @@ pub(super) fn pull(
                 kind: MergeKind::FastForward,
                 oid: head_oid(engine, repo)?,
                 conflicts: Vec::new(),
+                snapshot_id: None,
             })
         },
+        snapshot_id: None,
     })
 }
 
