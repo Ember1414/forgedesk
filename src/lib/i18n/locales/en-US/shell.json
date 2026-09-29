@@ -89,6 +89,26 @@
     "settings": "Settings categories"
   },
   "dashboard": {
+    "addRepo": {
+      "title": "Add a repository",
+      "modeLabel": "How to add",
+      "mode": {
+        "open": "Open",
+        "clone": "Clone",
+        "init": "Initialize"
+      },
+      "pathPlaceholder": "Repository path, e.g. D:\\projects\\my-repo",
+      "urlPlaceholder": "Remote URL, e.g. https://github.com/user/repo.git",
+      "targetPlaceholder": "Clone into, e.g. D:\\projects\\my-repo",
+      "initPathPlaceholder": "New repository directory (created), e.g. D:\\projects\new-repo",
+      "branchPlaceholder": "Initial branch name (blank = default main)",
+      "browse": "Browse…",
+      "pickTitle": "Choose a folder",
+      "openSubmit": "Open repository",
+      "cloneSubmit": "Start cloning",
+      "cloneRunning": "Cloning in progress; the repository opens automatically when done…",
+      "initSubmit": "Initialize repository"
+    },
     "jobsTitle": "Background jobs",
     "jobsEmpty": "No job is running right now",
     "recentTitle": "Recently opened repositories",

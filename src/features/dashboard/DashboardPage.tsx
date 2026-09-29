@@ -1,6 +1,7 @@
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 
+import { AddRepoCard } from '@/features/dashboard/AddRepoCard';
 import { repoIdOf, useRecentRepos } from '@/features/repo/recentRepos';
 import { useJobStore } from '@/stores/jobStore';
 import { useUiStore } from '@/stores/uiStore';
@@ -42,6 +43,10 @@ export function DashboardPage() {
         </div>
         <p className="text-13 text-fg-muted">{t('pages.dashboard.description')}</p>
       </header>
+
+      {/* GIT-01/02/03：打开 / 克隆 / 初始化。放在最近列表之前——
+          首次启动时它是唯一能用的东西 */}
+      <AddRepoCard />
 
       <div className="grid gap-4 lg:grid-cols-2">
         <article className="rounded-lg border border-line bg-surface p-4">

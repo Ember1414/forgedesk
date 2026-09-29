@@ -89,6 +89,26 @@
     "settings": "设置分类"
   },
   "dashboard": {
+    "addRepo": {
+      "title": "添加仓库",
+      "modeLabel": "添加方式",
+      "mode": {
+        "open": "打开",
+        "clone": "克隆",
+        "init": "初始化"
+      },
+      "pathPlaceholder": "仓库路径，例如 D:\\projects\\my-repo",
+      "urlPlaceholder": "远端地址，例如 https://github.com/user/repo.git",
+      "targetPlaceholder": "克隆到，例如 D:\\projects\\my-repo",
+      "initPathPlaceholder": "新仓库目录（会创建），例如 D:\\projects\\new-repo",
+      "branchPlaceholder": "初始分支名（留空用默认 main）",
+      "browse": "浏览…",
+      "pickTitle": "选择目录",
+      "openSubmit": "打开仓库",
+      "cloneSubmit": "开始克隆",
+      "cloneRunning": "克隆进行中，完成后会自动打开……",
+      "initSubmit": "初始化仓库"
+    },
     "jobsTitle": "后台任务",
     "jobsEmpty": "当前没有运行中的任务",
     "recentTitle": "最近打开的仓库",
