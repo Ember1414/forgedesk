@@ -31,6 +31,7 @@ forgedesk-services.workspace = true
 # （如实回答"没有快照"），T1.9 换成真实实现时只改这一行。
 forgedesk-snapshot.workspace = true
 forgedesk-storage.workspace = true
+tauri-plugin-dialog = "2.7.3"
 
 [lints]
 workspace = true

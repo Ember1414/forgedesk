@@ -22,6 +22,7 @@
  */
 export { invokeCommand, isTauriRuntime, listenEvent } from './client';
 export type { Unlisten } from './client';
+export { pickFolder } from './dialog';
 
 import { invokeCommand } from './client';
 

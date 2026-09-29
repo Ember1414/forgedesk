@@ -81,6 +81,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let builder = tauri::Builder::default()
+        // 目录/文件选择对话框（GIT-01/02/03 的"打开/克隆/初始化"入口用）：
+        // 权限在 capabilities/default.json 里显式声明（dialog:default 只含打开
+        // 选择器，不含保存/消息框之外的任何能力）
+        .plugin(tauri_plugin_dialog::init())
         // 日志、panic hook、数据库都在 setup 中初始化：
         // 因为 `app_log_dir()` / `app_data_dir()` 只有在拿到 App 句柄后才可用。
         // 代价是 Tauri 自身在 setup 之前的那几行日志不会被记录——那些是框架内部
