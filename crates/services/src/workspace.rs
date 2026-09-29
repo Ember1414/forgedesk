@@ -32,6 +32,18 @@ use crate::repository::OpenRepoRegistry;
 use forgedesk_git_engine::engine::GitEngine;
 use forgedesk_storage::RepositoryStore;
 
+/// 状态读切到 CLI 引擎的索引条目阈值（方案 B，用户 2026-09-29 批准）。
+///
+/// 取值与前端性能模式（`performanceMode`，2000 条）呼应：两边描述的是同一个
+/// "开始变慢"的位置。低于阈值时 libgit2 无进程开销的优势占主导（11ms 级）；
+/// 超过后 libgit2 的状态计算进入秒级而 CLI 仍是亚秒，切换没有悬念。
+pub const STATUS_CLI_ENTRY_THRESHOLD: u64 = 2_000;
+
+/// 分流决策（纯函数，便于单测）：索引条目数达到阈值即走 CLI。
+pub fn should_route_status_to_cli(index_entry_count: u64) -> bool {
+    index_entry_count >= STATUS_CLI_ENTRY_THRESHOLD
+}
+
 /// 工作区用例：状态读取与文件级变更操作（暂存 / 取消暂存 / 放弃）。
 pub struct WorkspaceService<'a> {
     engines: &'a GitEngines,
@@ -67,14 +79,28 @@ impl WorkspaceService<'_> {
 
     /// 读取工作区状态。
     ///
-    /// 读路径走 libgit2（无进程开销，状态面板会高频刷新）；
+    /// 读路径**默认走 libgit2**（无进程开销，状态面板会高频刷新）；
     /// `include_ignored` 的成本说明见 [`StatusQuery`]。
+    ///
+    /// # 大仓库分流（方案 B，T2.10 后的用户决策）
+    ///
+    /// libgit2 的状态计算在"索引上万条、工作区全改"的形状上比 git CLI 慢约
+    /// 10 倍（6.0s vs 0.61s，`docs/PERF-BASELINE.md` §3.1）。每次刷新前先用
+    /// `index_entry_count` 做一次**只解析索引文件**的廉价探测（1 万条约
+    /// 5ms，实测），超过 [`STATUS_CLI_ENTRY_THRESHOLD`] 就把这一次读切到
+    /// CLI——两条路径的结果一致性由差分测试逐仓库对拍，富化（enrich）对
+    /// 两条路径共用，因此界面上没有任何可感知差异，只有快慢。
     pub fn status(&self, repo_id: i64, include_ignored: bool) -> AppResult<StatusReport> {
         let workdir = self.resolve_workdir(repo_id)?;
         let repo = RepoId::new(workdir);
-        self.engines
-            .read()
-            .status(&repo, &StatusQuery { include_ignored })
+        let query = StatusQuery { include_ignored };
+
+        let entry_count = self.engines.read().index_entry_count(&repo)?;
+        if should_route_status_to_cli(entry_count) {
+            self.engines.write().status(&repo, &query)
+        } else {
+            self.engines.read().status(&repo, &query)
+        }
     }
 
     /// 读取 diff（行级内容）。
@@ -148,4 +174,19 @@ where
     let workdir = service.resolve_workdir(repo_id)?;
     let repo = RepoId::new(workdir);
     operation(&repo, service.engines)
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod tests {
+    use super::{should_route_status_to_cli, STATUS_CLI_ENTRY_THRESHOLD};
+
+    #[test]
+    fn routing_kicks_in_exactly_at_the_threshold() {
+        assert!(!should_route_status_to_cli(0));
+        assert!(!should_route_status_to_cli(STATUS_CLI_ENTRY_THRESHOLD - 1));
+        assert!(should_route_status_to_cli(STATUS_CLI_ENTRY_THRESHOLD));
+        assert!(should_route_status_to_cli(STATUS_CLI_ENTRY_THRESHOLD + 1));
+        assert!(should_route_status_to_cli(u64::MAX));
+    }
 }
