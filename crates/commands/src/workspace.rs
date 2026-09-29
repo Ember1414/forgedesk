@@ -228,7 +228,14 @@ pub(crate) fn emit_changed(app: &AppHandle, repo_id: i64, kind: WatchKind, paths
 ///
 /// `include_ignored` 缺省 `false`；`true` 时额外返回被忽略条目并统计数量
 /// （需要一次全目录扫描，界面上的开关才打开它）。
-#[tauri::command]
+///
+/// # 为什么是 `(async)`
+///
+/// Tauri 2 的无 `async` 命令在**主线程**（WebView2 事件循环线程）上同步执行，
+/// 而 libgit2 的状态计算在"索引上万条、工作区全改"的形状上要秒级
+/// （`docs/PERF-BASELINE.md` §3.1）——主线程会被整窗冻结。`(async)` 让同步
+/// 函数体改跑在异步运行时的线程池上（T2.9）；引擎选型是另一项待决策，这里不掺和。
+#[tauri::command(async)]
 pub fn workspace_status(
     state: State<'_, AppState>,
     repo_id: i64,

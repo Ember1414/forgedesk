@@ -27,7 +27,13 @@ use crate::state::AppState;
 ///
 /// 只读遍历不改仓库状态，因此不需要经 `SnapshotManager` 打点，
 /// 也不写审计日志（与 `workspace_status` 同一等级）。
-#[tauri::command]
+///
+/// # 为什么是 `(async)`
+///
+/// Tauri 2 的无 `async` 命令在**主线程**（WebView2 事件循环线程）上同步执行；
+/// 10 万提交的仓库取一页要几百毫秒，主线程会整窗冻结。`(async)` 让同步函数体
+/// 改跑在异步运行时的线程池上——与 `workspace_status` 同一处理（T2.9）。
+#[tauri::command(async)]
 pub fn git_log_page(
     state: State<'_, AppState>,
     repo_id: i64,
