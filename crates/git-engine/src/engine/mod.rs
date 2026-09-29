@@ -44,10 +44,11 @@ use std::path::Path;
 
 use crate::process::NetworkAuth;
 use forgedesk_domain::git::{
-    ApplyPatchSpec, Branch, CheckoutSpec, CloneSpec, Commit, CommitSpec, DiffReport, DiffSpec,
-    DiscardSpec, FetchOutcome, FetchSpec, InitSpec, LogQuery, MergeOutcome, MergeSpec, Page,
-    PullOutcome, PullSpec, PushOutcome, PushSpec, ReflogEntry, Remote, ReorderSpec, RepoId,
-    RepositoryInfo, ResetSpec, StageSpec, StashEntry, StashSpec, StatusQuery, StatusReport, Tag,
+    ApplyPatchSpec, Branch, CheckoutSpec, CherryPickSpec, CloneSpec, Commit, CommitSpec,
+    DiffReport, DiffSpec, DiscardSpec, FetchOutcome, FetchSpec, InitSpec, LogQuery, MergeOutcome,
+    MergeSpec, Page, PullOutcome, PullSpec, PushOutcome, PushSpec, ReflogEntry, Remote,
+    ReorderSpec, RepoId, RepositoryInfo, ResetSpec, RevertSpec, StageSpec, StashEntry,
+    StashOutcome, StashSpec, StatusQuery, StatusReport, Tag,
 };
 use forgedesk_domain::{AppError, AppResult, ErrorCode};
 
@@ -169,6 +170,13 @@ pub trait GitEngine: Send + Sync {
 
     /// 查询单条提交（含正文）。
     fn show(&self, repo: &RepoId, revision: &str) -> AppResult<Commit>;
+
+    /// 统计 `range` 中**不被** `exclude` 任一引用可达的提交数。
+    ///
+    /// 语义 = `git rev-list --count <range> --not <exclude…>`；`exclude` 为空时就是
+    /// 区间里的提交总数。用途（T2.8）：reset 的计划必须回答"将被丢弃的提交里，
+    /// 有几个远端也没有"——那是"丢弃后还能不能从远端找回"的唯一依据。
+    fn count_commits(&self, repo: &RepoId, range: &str, exclude: &[String]) -> AppResult<u32>;
 
     /// 分支列表（含远程跟踪分支）。
     fn branch_list(&self, repo: &RepoId) -> AppResult<Vec<Branch>>;
@@ -352,14 +360,20 @@ pub trait GitEngine: Send + Sync {
     /// 合并。
     fn merge(&self, repo: &RepoId, spec: MergeSpec) -> AppResult<MergeOutcome>;
 
-    /// 拣选提交。
-    fn cherry_pick(&self, repo: &RepoId, revision: &str) -> AppResult<MergeOutcome>;
+    /// 拣选提交（单个 rev 或 `A..B` 区间）。
+    ///
+    /// 结果复用 [`MergeOutcome`]：与 merge 的冲突语义完全一致（停在冲突状态 +
+    /// 冲突文件清单），因此调用方（services）不必为它多写一条分支。
+    fn cherry_pick(&self, repo: &RepoId, spec: CherryPickSpec) -> AppResult<MergeOutcome>;
 
-    /// 反转提交。
-    fn revert(&self, repo: &RepoId, revision: &str) -> AppResult<MergeOutcome>;
+    /// 反转提交（单个 rev 或 `A..B` 区间）。
+    fn revert(&self, repo: &RepoId, spec: RevertSpec) -> AppResult<MergeOutcome>;
 
     /// stash 操作。
-    fn stash(&self, repo: &RepoId, spec: StashSpec) -> AppResult<()>;
+    ///
+    /// `apply` / `pop` 可能停在冲突状态：这时返回的 [`StashOutcome`] 里带着冲突清单
+    /// （不是错误），调用方据此把用户送到冲突页。
+    fn stash(&self, repo: &RepoId, spec: StashSpec) -> AppResult<StashOutcome>;
 
     /// 拉取远端引用。
     ///

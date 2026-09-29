@@ -31,9 +31,9 @@
 use std::path::PathBuf;
 
 use forgedesk_domain::git::{
-    ApplyDirection, ApplyPatchSpec, ApplyTarget, CheckoutSpec, CloneSpec, CommitSpec, DiffSpec,
-    DiffTarget, FetchSpec, InitSpec, LogQuery, MergeSpec, PullSpec, PushSpec, ReorderSpec,
-    RepoPath, ResetSpec, StageSpec, StashAction, StashSpec,
+    ApplyDirection, ApplyPatchSpec, ApplyTarget, CheckoutSpec, CherryPickSpec, CloneSpec,
+    CommitSpec, DiffSpec, DiffTarget, FetchSpec, InitSpec, LogQuery, MergeSpec, PullSpec, PushSpec,
+    ReorderSpec, RepoPath, ResetSpec, RevertSpec, StageSpec, StashAction, StashSpec,
 };
 use forgedesk_domain::{AppError, AppResult, ErrorCode};
 
@@ -633,23 +633,67 @@ pub fn merge_args(spec: &MergeSpec) -> Vec<String> {
 }
 
 /// `git cherry-pick`。
-pub fn cherry_pick_args(revision: &str) -> Vec<String> {
-    vec!["cherry-pick".to_owned(), revision.to_owned()]
+///
+/// `-x` / `--no-commit` 的顺序无关紧要，但**一定**放在 revision 之前：
+/// `git cherry-pick <rev> -x` 里的 `-x` 会被当成路径分隔之后的参数，
+/// 而 `--` 之后的选项 git 一律按路径理解。
+pub fn cherry_pick_args(spec: &CherryPickSpec) -> Vec<String> {
+    let mut args = vec!["cherry-pick".to_owned()];
+    if spec.record_source {
+        args.push("-x".to_owned());
+    }
+    if spec.no_commit {
+        args.push("--no-commit".to_owned());
+    }
+    args.push(spec.revision.clone());
+    args
 }
 
 /// `git revert`。
-pub fn revert_args(revision: &str) -> Vec<String> {
-    vec![
+pub fn revert_args(spec: &RevertSpec) -> Vec<String> {
+    let mut args = vec![
         "revert".to_owned(),
         // 非交互环境里没有编辑器，不传 --no-edit 会让进程挂住等输入
         "--no-edit".to_owned(),
-        revision.to_owned(),
-    ]
+    ];
+    if let Some(mainline) = spec.mainline {
+        args.push("-m".to_owned());
+        args.push(mainline.to_string());
+    }
+    if spec.no_commit {
+        args.push("--no-commit".to_owned());
+    }
+    args.push(spec.revision.clone());
+    args
+}
+
+/// `git rev-list --count <range> --not <exclude…>`。
+///
+/// 用来回答"将被丢弃的提交里，有几个远端也没有"。`--not` 的语义是**排除可达集合**：
+/// `rev-list --count A..B --not C` = 在 `A..B` 里但不在 `C` 的历史里的提交数。
+///
+/// 为什么不用 `rev-list --count A..B` 再自己减：那需要先算两个集合的交集，
+/// 而 git 已经有一个精确表达它的写法——自己减还会在合并历史上算错。
+pub fn rev_list_count_args(range: &str, exclude: &[String]) -> Vec<String> {
+    let mut args = vec![
+        "rev-list".to_owned(),
+        "--count".to_owned(),
+        range.to_owned(),
+        "--not".to_owned(),
+    ];
+    args.extend(exclude.iter().cloned());
+    args
 }
 
 /// `git stash`。
-pub fn stash_args(spec: &StashSpec) -> Vec<String> {
-    match &spec.action {
+///
+/// 返回 `GitInvocation`（而不是裸参数数组）是因为 `push` 支持路径过滤：含非 UTF-8
+/// 路径时要走 stdin 的 pathspec 文件，只有这个类型能带上 stdin（见模块头）。
+/// 这些路径同样只能用 `--` 之后的位置参数表达（`git stash push` 不接受 `--pathspec`），
+/// 因此 `apply`/`pop`/`drop`/`clear`/`branch` 一律**忽略**路径过滤——
+/// 它们的作用对象是整条 stash，不是工作区路径。
+pub fn stash_args(spec: &StashSpec) -> AppResult<GitInvocation> {
+    let (args, paths, supports_stdin) = match &spec.action {
         StashAction::Push => {
             let mut args = vec!["stash".to_owned(), "push".to_owned()];
             if spec.include_untracked {
@@ -662,30 +706,55 @@ pub fn stash_args(spec: &StashSpec) -> Vec<String> {
                 args.push("-m".to_owned());
                 args.push(message.clone());
             }
-            args
+            (args, PathSpecArgs::from_paths(&spec.paths), true)
         }
-        StashAction::Apply { index } => {
-            vec![
-                "stash".to_owned(),
-                "apply".to_owned(),
-                format!("stash@{{{index}}}"),
-            ]
-        }
-        StashAction::Pop { index } => {
-            vec![
-                "stash".to_owned(),
-                "pop".to_owned(),
-                format!("stash@{{{index}}}"),
-            ]
-        }
-        StashAction::Drop { index } => {
+        StashAction::Apply { index } => (
+            stash_with_index("apply", spec.restore_index, *index),
+            PathSpecArgs::None,
+            false,
+        ),
+        StashAction::Pop { index } => (
+            stash_with_index("pop", spec.restore_index, *index),
+            PathSpecArgs::None,
+            false,
+        ),
+        StashAction::Drop { index } => (
             vec![
                 "stash".to_owned(),
                 "drop".to_owned(),
                 format!("stash@{{{index}}}"),
-            ]
-        }
+            ],
+            PathSpecArgs::None,
+            false,
+        ),
+        StashAction::Clear => (
+            vec!["stash".to_owned(), "clear".to_owned()],
+            PathSpecArgs::None,
+            false,
+        ),
+        StashAction::Branch { index, name } => (
+            vec![
+                "stash".to_owned(),
+                "branch".to_owned(),
+                name.clone(),
+                format!("stash@{{{index}}}"),
+            ],
+            PathSpecArgs::None,
+            false,
+        ),
+    };
+
+    invocation(args, &paths, supports_stdin)
+}
+
+/// `stash apply|pop [--index] stash@{n}`。
+fn stash_with_index(subcommand: &str, restore_index: bool, index: usize) -> Vec<String> {
+    let mut args = vec!["stash".to_owned(), subcommand.to_owned()];
+    if restore_index {
+        args.push("--index".to_owned());
     }
+    args.push(format!("stash@{{{index}}}"));
+    args
 }
 
 /// `git fetch`。
@@ -1334,32 +1403,108 @@ mod tests {
 
     #[test]
     fn revert_never_opens_an_editor() {
-        let args = revert_args("abc123");
+        let args = revert_args(&RevertSpec::new("abc123"));
 
         assert!(args.contains(&"--no-edit".to_owned()));
     }
 
     #[test]
+    fn cherry_pick_options_come_before_the_revision() {
+        // 顺序不是审美问题：`git cherry-pick <rev> -x` 里 `-x` 落在路径位置，
+        // 会被当成路径而不是选项（git 在 `--` 之后一律按路径理解参数）
+        let spec = CherryPickSpec {
+            record_source: true,
+            no_commit: true,
+            ..CherryPickSpec::new("main..feature")
+        };
+
+        let args = cherry_pick_args(&spec);
+
+        assert_eq!(args[0], "cherry-pick");
+        assert!(args.contains(&"-x".to_owned()));
+        assert!(args.contains(&"--no-commit".to_owned()));
+        let revision_at = args.iter().position(|arg| arg == "main..feature").unwrap();
+        let flag_at = args.iter().position(|arg| arg == "-x").unwrap();
+        assert!(flag_at < revision_at, "{args:?}");
+    }
+
+    #[test]
+    fn revert_mainline_is_passed_as_a_number() {
+        // `-m` 用在合并提交上；传错主父会反转出与意图相反的结果
+        let spec = RevertSpec {
+            mainline: Some(2),
+            ..RevertSpec::new("merge123")
+        };
+
+        let args = revert_args(&spec);
+
+        let flag_at = args.iter().position(|arg| arg == "-m").unwrap();
+        assert_eq!(args[flag_at + 1], "2");
+        assert!(flag_at < args.iter().position(|arg| arg == "merge123").unwrap());
+    }
+
+    #[test]
+    fn rev_list_count_excludes_each_reference_after_a_single_not() {
+        let args = rev_list_count_args(
+            "abc123..HEAD",
+            &["origin/main".to_owned(), "abc123".to_owned()],
+        );
+
+        assert_eq!(
+            args,
+            vec![
+                "rev-list".to_owned(),
+                "--count".to_owned(),
+                "abc123..HEAD".to_owned(),
+                "--not".to_owned(),
+                "origin/main".to_owned(),
+                "abc123".to_owned(),
+            ]
+        );
+    }
+
+    #[test]
     fn stash_actions_map_to_their_subcommands() {
         assert_eq!(
-            joined(&stash_args(&StashSpec::push(Some("wip".to_owned())))),
+            joined(
+                &stash_args(&StashSpec::push(Some("wip".to_owned())))
+                    .unwrap()
+                    .args
+            ),
             "stash push -m wip"
         );
         assert_eq!(
-            joined(&stash_args(&StashSpec {
-                include_untracked: true,
-                ..StashSpec::pop(2)
-            })),
+            joined(
+                &stash_args(&StashSpec {
+                    include_untracked: true,
+                    ..StashSpec::pop(2)
+                })
+                .unwrap()
+                .args
+            ),
             "stash pop stash@{2}"
         );
         assert_eq!(
-            joined(&stash_args(&StashSpec {
-                action: StashAction::Drop { index: 0 },
-                message: None,
-                include_untracked: false,
-                keep_index: false,
-            })),
+            joined(&stash_args(&StashSpec::drop(0)).unwrap().args),
             "stash drop stash@{0}"
+        );
+        assert_eq!(
+            joined(&stash_args(&StashSpec::clear()).unwrap().args),
+            "stash clear"
+        );
+        // `git stash branch <name> <stash>`：名字在前、stash 在后
+        assert_eq!(
+            joined(&stash_args(&StashSpec::branch(1, "recover")).unwrap().args),
+            "stash branch recover stash@{1}"
+        );
+        // `--index` 只在 apply/pop 上出现，且必须在 stash 引用之前
+        assert_eq!(
+            joined(
+                &stash_args(&StashSpec::apply(0).with_restore_index(true))
+                    .unwrap()
+                    .args
+            ),
+            "stash apply --index stash@{0}"
         );
     }
 

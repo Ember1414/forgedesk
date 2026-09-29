@@ -16,10 +16,11 @@ use std::path::{Path, PathBuf};
 use forgedesk_diagnostics::sanitize_log;
 use forgedesk_domain::git::{
     AmendMode, ApplyPatchSpec, BranchCreateSpec, BranchDeleteSpec, BranchRenameSpec,
-    BranchSetUpstreamSpec, CheckoutSpec, CloneSpec, CommitSpec, DiscardSpec, FetchOutcome,
-    FetchSpec, InitSpec, MergeKind, MergeOutcome, MergeSpec, PullOutcome, PullSpec, PushOutcome,
-    PushRejection, PushSpec, RefUpdate, RefUpdateKind, RepoId, RepositoryInfo, ResetSpec,
-    StageSpec, StashSpec, SwitchStrategy, TagCreateSpec, TagDeleteSpec,
+    BranchSetUpstreamSpec, CheckoutSpec, CherryPickSpec, CloneSpec, CommitSpec, DiscardSpec,
+    FetchOutcome, FetchSpec, InitSpec, MergeKind, MergeOutcome, MergeSpec, PullOutcome, PullSpec,
+    PushOutcome, PushRejection, PushSpec, RefUpdate, RefUpdateKind, RepoId, RepositoryInfo,
+    ResetSpec, RevertSpec, StageSpec, StashOutcome, StashSpec, SwitchStrategy, TagCreateSpec,
+    TagDeleteSpec,
 };
 use forgedesk_domain::{AppError, AppResult, ErrorCode};
 
@@ -369,28 +370,34 @@ pub(super) fn merge(
 pub(super) fn cherry_pick(
     engine: &CliGitEngine,
     repo: &RepoId,
-    revision: &str,
+    spec: &CherryPickSpec,
 ) -> AppResult<MergeOutcome> {
     let output = engine.run_at(
         repo.root(),
-        GitInvocation::new(args::cherry_pick_args(revision)),
+        GitInvocation::new(args::cherry_pick_args(spec)),
         RunKind::Write,
     )?;
-    outcome_from(engine, repo, &output, revision, MergeMessage::CherryPick)
+    outcome_from(
+        engine,
+        repo,
+        &output,
+        &spec.revision,
+        MergeMessage::CherryPick,
+    )
 }
 
 /// 反转提交。
 pub(super) fn revert(
     engine: &CliGitEngine,
     repo: &RepoId,
-    revision: &str,
+    spec: &RevertSpec,
 ) -> AppResult<MergeOutcome> {
     let output = engine.run_at(
         repo.root(),
-        GitInvocation::new(args::revert_args(revision)),
+        GitInvocation::new(args::revert_args(spec)),
         RunKind::Write,
     )?;
-    outcome_from(engine, repo, &output, revision, MergeMessage::Revert)
+    outcome_from(engine, repo, &output, &spec.revision, MergeMessage::Revert)
 }
 
 /// 冲突时给用户的提示前缀（写进 `detail`，不是用户可见文案）。
@@ -456,9 +463,33 @@ fn outcome_from(
 }
 
 /// stash 操作。
-pub(super) fn stash(engine: &CliGitEngine, repo: &RepoId, spec: &StashSpec) -> AppResult<()> {
-    engine.run_write(repo, GitInvocation::new(args::stash_args(spec)))?;
-    Ok(())
+///
+/// 用 raw 输出而不是 `run_write`：`apply` / `pop` 冲突时 git 以非零退出码结束，
+/// 但仓库已经进入冲突状态、索引里留下了未合并条目——那是**要交给用户的结果**
+/// （与 merge / cherry-pick 同一处理，见本模块头）。
+pub(super) fn stash(
+    engine: &CliGitEngine,
+    repo: &RepoId,
+    spec: &StashSpec,
+) -> AppResult<StashOutcome> {
+    let output = engine.run_at(repo.root(), args::stash_args(spec)?, RunKind::Write)?;
+
+    let conflicts = unmerged_paths(engine, repo)?;
+    if !conflicts.is_empty() {
+        return Ok(StashOutcome { conflicts });
+    }
+
+    if !output.success() {
+        let stderr = output.stderr_lossy();
+        let code = ErrorCode::classify(&stderr);
+        return Err(
+            AppError::new(code, "the stash operation failed").with_detail(sanitize_log(&stderr))
+        );
+    }
+
+    Ok(StashOutcome {
+        conflicts: Vec::new(),
+    })
 }
 
 /// 拉取远端引用。

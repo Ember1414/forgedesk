@@ -10,7 +10,8 @@ use super::path::RepoPath;
 use super::refs::RefUpdate;
 
 /// 重置模式（`git reset --soft|--mixed|--hard`）。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum ResetMode {
     /// `--soft`：只移动 HEAD，索引与工作区不动。
     Soft,
@@ -39,7 +40,12 @@ impl ResetMode {
 }
 
 /// 重置操作的参数。
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// 只派生 `Serialize`（审计与快照标签要落库），**不**派生 `Deserialize`：
+/// 它带着 [`RepoPath`]（保真的字节路径），而"从 JSON 反序列化出一条路径"需要一个
+/// 线上表示（T1.4 的 DTO 层工作）。IPC 请求侧用的是 commands 里的 `ResetRequest`。
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ResetSpec {
     /// 目标提交（oid、分支名或相对引用）。
     pub revision: String,
@@ -917,7 +923,8 @@ impl CheckoutSpec {
 }
 
 /// stash 子操作。
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum StashAction {
     /// 储藏当前改动。
     Push,
@@ -936,17 +943,37 @@ pub enum StashAction {
         /// `stash@{n}` 里的 n。
         index: usize,
     },
+    /// 删除**全部** stash（`git stash clear`）。**不可逆**（Dangerous）。
+    Clear,
+    /// 从某条 stash 创建分支并把它应用过去（`git stash branch <name> <stash>`）。
+    ///
+    /// 这是"pop 冲突之后的正规出路"：新分支从 stash 的 base 提交开始，
+    /// 因此那条 stash 一定可以干净地应用上去（冲突的产生原因是 base 变了）。
+    /// 注意它会**切换分支**（移动 HEAD），执行前必须打快照。
+    Branch {
+        /// `stash@{n}` 里的 n。
+        index: usize,
+        /// 新分支名（先过 [`validate_ref_name`]）。
+        name: String,
+    },
 }
 
 impl StashAction {
     /// 该动作是否会丢失数据。
+    ///
+    /// `Drop` / `Clear` 会**删掉** stash 提交：在 `gc` 真正回收之前它们还能按 oid
+    /// 找回，但界面上必须按"不可逆"对待（红线 R7）。
     pub const fn is_destructive(&self) -> bool {
-        matches!(self, Self::Drop { .. })
+        matches!(self, Self::Drop { .. } | Self::Clear)
     }
 }
 
 /// stash 操作的参数。
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// 与 [`ResetSpec`] 同理只派生 `Serialize`：`paths` 是保真的 [`RepoPath`]，
+/// 它的线上表示属于 DTO 层（commands 里的请求结构体负责）。
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct StashSpec {
     /// 要执行的子操作。
     pub action: StashAction,
@@ -956,6 +983,16 @@ pub struct StashSpec {
     pub include_untracked: bool,
     /// 是否保留索引（`--keep-index`）。
     pub keep_index: bool,
+    /// 只储藏这些路径（空 = 全部改动）。
+    ///
+    /// 与 `git stash push -- <paths>` 同一语义：**只影响 worktree 侧**——
+    /// 路径之外的改动留在原地。
+    pub paths: Vec<RepoPath>,
+    /// `apply` / `pop` 时同时恢复索引（`--index`）。
+    ///
+    /// 不传时的行为是 git 的默认：把 stash 的全部改动放进**工作区**（不还原暂存态）。
+    /// 界面的"恢复暂存状态"勾选框直接映射到它。
+    pub restore_index: bool,
 }
 
 impl StashSpec {
@@ -966,22 +1003,92 @@ impl StashSpec {
             message,
             include_untracked: false,
             keep_index: false,
+            paths: Vec::new(),
+            restore_index: false,
         }
     }
 
-    /// 应用某个 stash。
+    /// 应用某个 stash（`apply`，保留该条）。
+    pub fn apply(index: usize) -> Self {
+        Self {
+            action: StashAction::Apply { index },
+            message: None,
+            include_untracked: false,
+            keep_index: false,
+            paths: Vec::new(),
+            restore_index: false,
+        }
+    }
+
+    /// 应用并删除某个 stash（`pop`）。
     pub fn pop(index: usize) -> Self {
         Self {
             action: StashAction::Pop { index },
             message: None,
             include_untracked: false,
             keep_index: false,
+            paths: Vec::new(),
+            restore_index: false,
         }
+    }
+
+    /// 删除某个 stash（不可逆）。
+    pub fn drop(index: usize) -> Self {
+        Self {
+            action: StashAction::Drop { index },
+            message: None,
+            include_untracked: false,
+            keep_index: false,
+            paths: Vec::new(),
+            restore_index: false,
+        }
+    }
+
+    /// 删除全部 stash（不可逆）。
+    pub fn clear() -> Self {
+        Self {
+            action: StashAction::Clear,
+            message: None,
+            include_untracked: false,
+            keep_index: false,
+            paths: Vec::new(),
+            restore_index: false,
+        }
+    }
+
+    /// 从某条 stash 创建分支（会切换分支）。
+    pub fn branch(index: usize, name: impl Into<String>) -> Self {
+        Self {
+            action: StashAction::Branch {
+                index,
+                name: name.into(),
+            },
+            message: None,
+            include_untracked: false,
+            keep_index: false,
+            paths: Vec::new(),
+            restore_index: false,
+        }
+    }
+
+    /// 只储藏这些路径。
+    #[must_use]
+    pub fn with_paths(mut self, paths: Vec<RepoPath>) -> Self {
+        self.paths = paths;
+        self
+    }
+
+    /// 同时恢复索引（`apply` / `pop`）。
+    #[must_use]
+    pub fn with_restore_index(mut self, restore_index: bool) -> Self {
+        self.restore_index = restore_index;
+        self
     }
 }
 
 /// 一条 reflog 记录。
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ReflogEntry {
     /// `HEAD@{n}` 里的 n（从 0 开始，0 是最新）。
     pub index: usize,
@@ -1001,6 +1108,101 @@ impl ReflogEntry {
     /// `HEAD@{n}` 形式的选择器。
     pub fn selector(&self) -> String {
         format!("{}@{{{}}}", self.reference, self.index)
+    }
+}
+
+/// 拣选（`git cherry-pick`）参数。
+///
+/// 结果复用 [`MergeOutcome`]：cherry-pick 与 merge 的冲突语义完全一样（都会让仓库
+/// 停在冲突状态并给出冲突文件清单），另造一个 outcome 类型只会让前端多一套分支。
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CherryPickSpec {
+    /// 要拣选的提交：单个 rev，或 `A..B` 区间（多个提交）。
+    pub revision: String,
+    /// 在提交信息里附上来源（`-x`，形如 `(cherry picked from commit 1a2b3c4)`）。
+    ///
+    /// 只在**能追溯来源**的场合有意义：跨分支移植时这是别人事后判断
+    /// "这段改动从哪来"的唯一线索。
+    pub record_source: bool,
+    /// 只应用改动、不提交（`--no-commit`）。区间拣选时用它一次改完再自己写一条提交。
+    pub no_commit: bool,
+}
+
+impl CherryPickSpec {
+    /// 拣选单个提交，默认行为（提交、不记录来源）。
+    pub fn new(revision: impl Into<String>) -> Self {
+        Self {
+            revision: revision.into(),
+            record_source: false,
+            no_commit: false,
+        }
+    }
+}
+
+/// 反转（`git revert`）参数。
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RevertSpec {
+    /// 要反转的提交：单个 rev，或 `A..B` 区间。
+    pub revision: String,
+    /// 反转**合并提交**时指定主父（`-m <n>`，从 1 开始）。
+    ///
+    /// 合并提交有两个父，`revert` 必须知道"以哪一边为主线来反转"：猜错会得到
+    /// 与意图相反的结果。因此这里没有默认值，界面必须让用户明确选择。
+    pub mainline: Option<u32>,
+    /// 只应用改动、不提交（`--no-commit`）。
+    pub no_commit: bool,
+}
+
+impl RevertSpec {
+    /// 反转单个提交，默认行为（提交、不指定主父）。
+    pub fn new(revision: impl Into<String>) -> Self {
+        Self {
+            revision: revision.into(),
+            mainline: None,
+            no_commit: false,
+        }
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod t28_wire_shape_tests {
+    use super::{CherryPickSpec, RevertSpec, StashAction, StashSpec};
+
+    #[test]
+    fn history_operation_specs_serialise_in_the_documented_camel_case_shape() {
+        // 契约（docs/API.md §1）：DTO 一律 camelCase。前端把 `recordSource` /
+        // `noCommit` / `mainline` 直接拼进请求，形状错了不会报错——只是选项被静默忽略
+        // （用户以为勾了"记录来源"，提交信息里却没有）。
+        let pick = CherryPickSpec {
+            record_source: true,
+            no_commit: true,
+            ..CherryPickSpec::new("main..feature")
+        };
+        let json = serde_json::to_value(&pick).unwrap();
+        assert_eq!(json["recordSource"], true, "{json}");
+        assert_eq!(json["noCommit"], true);
+        assert_eq!(json["revision"], "main..feature");
+
+        let revert = RevertSpec {
+            mainline: Some(2),
+            no_commit: false,
+            ..RevertSpec::new("abc123")
+        };
+        let json = serde_json::to_value(&revert).unwrap();
+        assert_eq!(json["mainline"], 2, "{json}");
+        assert_eq!(json["noCommit"], false);
+
+        let stash = StashSpec {
+            action: StashAction::Drop { index: 1 },
+            include_untracked: true,
+            ..StashSpec::push(None)
+        };
+        let json = serde_json::to_value(&stash).unwrap();
+        assert_eq!(json["action"]["drop"]["index"], 1, "{json}");
+        assert_eq!(json["includeUntracked"], true);
     }
 }
 
@@ -1037,11 +1239,18 @@ mod tests {
     }
 
     #[test]
-    fn only_stash_drop_is_destructive() {
+    fn only_stash_drop_and_clear_are_destructive() {
         assert!(!StashAction::Push.is_destructive());
         assert!(!StashAction::Apply { index: 0 }.is_destructive());
         assert!(!StashAction::Pop { index: 0 }.is_destructive());
+        // 建分支会移动 HEAD，但那条 stash 还在（由 `--index`/快照兜底），不算丢数据
+        assert!(!StashAction::Branch {
+            index: 0,
+            name: "recover".to_owned()
+        }
+        .is_destructive());
         assert!(StashAction::Drop { index: 0 }.is_destructive());
+        assert!(StashAction::Clear.is_destructive());
     }
 
     #[test]

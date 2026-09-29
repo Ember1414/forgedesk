@@ -22,11 +22,11 @@ use std::time::Duration;
 use forgedesk_diagnostics::sanitize_log;
 use forgedesk_domain::git::{
     ApplyPatchSpec, Branch, BranchCreateSpec, BranchDeleteSpec, BranchRenameSpec,
-    BranchSetUpstreamSpec, CheckoutSpec, CloneSpec, Commit, CommitSpec, DiffReport, DiffSpec,
-    DiscardSpec, FetchOutcome, FetchSpec, InitSpec, LogQuery, MergeOutcome, MergeSpec, Page,
-    PullOutcome, PullSpec, PushOutcome, PushSpec, ReflogEntry, Remote, ReorderSpec, RepoId,
-    RepositoryInfo, ResetSpec, StageSpec, StashEntry, StashSpec, StatusQuery, StatusReport,
-    SwitchStrategy, Tag, TagCreateSpec, TagDeleteSpec,
+    BranchSetUpstreamSpec, CheckoutSpec, CherryPickSpec, CloneSpec, Commit, CommitSpec, DiffReport,
+    DiffSpec, DiscardSpec, FetchOutcome, FetchSpec, InitSpec, LogQuery, MergeOutcome, MergeSpec,
+    Page, PullOutcome, PullSpec, PushOutcome, PushSpec, ReflogEntry, Remote, ReorderSpec, RepoId,
+    RepositoryInfo, ResetSpec, RevertSpec, StageSpec, StashEntry, StashOutcome, StashSpec,
+    StatusQuery, StatusReport, SwitchStrategy, Tag, TagCreateSpec, TagDeleteSpec,
 };
 use forgedesk_domain::{AppError, AppResult, ErrorCode};
 
@@ -471,6 +471,10 @@ impl GitEngine for CliGitEngine {
         read::show(self, repo, revision)
     }
 
+    fn count_commits(&self, repo: &RepoId, range: &str, exclude: &[String]) -> AppResult<u32> {
+        read::count_commits(self, repo, range, exclude)
+    }
+
     fn branch_list(&self, repo: &RepoId) -> AppResult<Vec<Branch>> {
         read::branch_list(self, repo)
     }
@@ -618,15 +622,15 @@ impl GitEngine for CliGitEngine {
         write::merge(self, repo, &spec)
     }
 
-    fn cherry_pick(&self, repo: &RepoId, revision: &str) -> AppResult<MergeOutcome> {
-        write::cherry_pick(self, repo, revision)
+    fn cherry_pick(&self, repo: &RepoId, spec: CherryPickSpec) -> AppResult<MergeOutcome> {
+        write::cherry_pick(self, repo, &spec)
     }
 
-    fn revert(&self, repo: &RepoId, revision: &str) -> AppResult<MergeOutcome> {
-        write::revert(self, repo, revision)
+    fn revert(&self, repo: &RepoId, spec: RevertSpec) -> AppResult<MergeOutcome> {
+        write::revert(self, repo, &spec)
     }
 
-    fn stash(&self, repo: &RepoId, spec: StashSpec) -> AppResult<()> {
+    fn stash(&self, repo: &RepoId, spec: StashSpec) -> AppResult<StashOutcome> {
         write::stash(self, repo, &spec)
     }
 

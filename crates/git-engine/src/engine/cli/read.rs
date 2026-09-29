@@ -698,6 +698,34 @@ fn parse_remotes(text: &str) -> Vec<Remote> {
     out
 }
 
+// ---------------------------------------------------------------- 计划辅助
+
+/// 统计 `range` 中**不被** `exclude` 任一引用可达的提交数。
+///
+/// 只用于 reset 的计划预览（T2.8）：它要回答"将被丢弃的提交里，有几个远端也没有"。
+/// 解析失败按 `Internal` 上报而不是当成 0——把"读不出来"说成"远端都有"会让用户
+/// 放心地丢弃只存在于本地的提交。
+pub(super) fn count_commits(
+    engine: &CliGitEngine,
+    repo: &RepoId,
+    range: &str,
+    exclude: &[String],
+) -> AppResult<u32> {
+    let output = run(
+        engine,
+        repo,
+        GitInvocation::new(args::rev_list_count_args(range, exclude)),
+    )?;
+    let text = String::from_utf8_lossy(&output.stdout);
+    text.trim().parse::<u32>().map_err(|error| {
+        AppError::new(
+            ErrorCode::Internal,
+            "git did not report a commit count we can read",
+        )
+        .with_detail(format!("{error}: {}", text.trim()))
+    })
+}
+
 // ---------------------------------------------------------------- stash / reflog
 
 /// stash 列表。
@@ -734,6 +762,9 @@ fn parse_stash_list(input: &[u8]) -> Vec<StashEntry> {
             created_at: fields[3].trim().parse::<i64>().ok(),
             // `-u` 创建的 stash 有第三个父提交（未跟踪文件的提交）
             includes_untracked: parents.len() >= 3,
+            // 第三个父提交的 oid：相对 base 的 diff 里**没有**未跟踪文件，
+            // 它们全在这个提交里（见 StashEntry::untracked_oid 的说明）
+            untracked_oid: parents.get(2).map(|oid| (*oid).to_owned()),
         });
     }
     out

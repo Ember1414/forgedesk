@@ -711,23 +711,22 @@ impl GitEngine for Libgit2Engine {
         let mut out = Vec::new();
         for (index, message, oid) in collected {
             let commit = repository.find_commit(oid).ok();
-            let parent_count = commit
+            let parent_ids: Vec<git2::Oid> = commit
                 .as_ref()
-                .map(|commit| commit.parent_count())
+                .map(|commit| commit.parent_ids().collect())
                 .unwrap_or_default();
 
             out.push(StashEntry {
                 index,
                 oid: oid.to_string(),
-                base_oid: commit
-                    .as_ref()
-                    .and_then(|commit| commit.parent_ids().next())
-                    .map(|oid| oid.to_string()),
+                base_oid: parent_ids.first().map(git2::Oid::to_string),
                 message,
                 created_at: commit
                     .as_ref()
                     .map(|commit| commit.committer().when().seconds()),
-                includes_untracked: parent_count >= 3,
+                includes_untracked: parent_ids.len() >= 3,
+                // 第三个父提交是未跟踪文件（`-u` 才有），与 CLI 侧的解析同一语义
+                untracked_oid: parent_ids.get(2).map(git2::Oid::to_string),
             });
         }
 
@@ -1001,7 +1000,7 @@ impl GitEngine for Libgit2Engine {
     fn cherry_pick(
         &self,
         _repo: &RepoId,
-        _revision: &str,
+        _spec: forgedesk_domain::git::CherryPickSpec,
     ) -> AppResult<forgedesk_domain::git::MergeOutcome> {
         Err(unsupported(EngineId::Libgit2, "cherry_pick"))
     }
@@ -1009,12 +1008,23 @@ impl GitEngine for Libgit2Engine {
     fn revert(
         &self,
         _repo: &RepoId,
-        _revision: &str,
+        _spec: forgedesk_domain::git::RevertSpec,
     ) -> AppResult<forgedesk_domain::git::MergeOutcome> {
         Err(unsupported(EngineId::Libgit2, "revert"))
     }
 
-    fn stash(&self, _repo: &RepoId, _spec: forgedesk_domain::git::StashSpec) -> AppResult<()> {
+    fn count_commits(&self, _repo: &RepoId, _range: &str, _exclude: &[String]) -> AppResult<u32> {
+        // 计数本身 libgit2 做得到，但 `--not` 的可达集合语义要与 CLI 完全一致：
+        // 两个实现各算一遍，任何一处边界差异都会变成"计划里说远端没有、其实有"。
+        // 这条路径只在 reset 的计划预览里用（一次），交给 CLI 没有性能代价。
+        Err(unsupported(EngineId::Libgit2, "count_commits"))
+    }
+
+    fn stash(
+        &self,
+        _repo: &RepoId,
+        _spec: forgedesk_domain::git::StashSpec,
+    ) -> AppResult<forgedesk_domain::git::StashOutcome> {
         Err(unsupported(EngineId::Libgit2, "stash"))
     }
 

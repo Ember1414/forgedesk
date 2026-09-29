@@ -884,7 +884,9 @@ fn libgit2_engine_refuses_every_write_operation_explicitly() {
                 ),
             )
             .map(|_| ()),
-        libgit2.stash(&repo, forgedesk_domain::git::StashSpec::push(None)),
+        libgit2
+            .stash(&repo, forgedesk_domain::git::StashSpec::push(None))
+            .map(|_| ()),
     ];
 
     for error in errors {
