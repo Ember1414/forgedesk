@@ -15,7 +15,7 @@ use std::fmt;
 /// 仓库内路径（相对仓库根，或 Git 输出的绝对路径，视调用场景而定）。
 ///
 /// 原始字节可通过 [`RepoPath::as_bytes`] 取出；展示用 [`RepoPath::to_string_lossy`]。
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct RepoPath {
     bytes: Vec<u8>,
 }
@@ -80,6 +80,16 @@ impl fmt::Display for RepoPath {
     }
 }
 
+impl serde::Serialize for RepoPath {
+    // 手写 Serialize 而不是 derive：derive 会把 `bytes: Vec<u8>` 序列化成
+    // JSON 数字数组，而前端契约（`MergeOutcome.conflicts` 等）按**字符串**定义
+    // （文件路径对界面是展示数据，UTF-8 之外的字节已无意义）。T3.1 接入
+    // ConflictState 时顺手修正了这个 T2.6 起就存在的前后端形状不一致。
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&self.to_string_lossy())
+    }
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
@@ -104,5 +114,24 @@ mod tests {
         assert!(path.is_utf8());
         assert_eq!(path.as_str(), Some("中文 目录/文件.txt"));
         assert_eq!(path.to_string(), "中文 目录/文件.txt");
+    }
+
+    #[test]
+    fn serde_serializes_paths_as_strings_not_byte_arrays() {
+        // 前端契约按字符串定义（MergeOutcome.conflicts / ConflictFile.path）；
+        // 派生 Serialize 会给出数字数组（T2.6 起的形状不一致，T3.1 修正）
+        let path = RepoPath::from("src/a.ts");
+        assert_eq!(
+            serde_json::to_value(&path).unwrap(),
+            serde_json::Value::String("src/a.ts".to_owned())
+        );
+
+        // 非 UTF-8 字节：序列化是 lossy 的（U+FFFD）——界面上无意义的原始字节
+        // 换成替代符，总好过一串数字
+        let raw = RepoPath::from_bytes(vec![0xE4, 0xB8, 0xAD, 0xFF, b'.', b't']);
+        assert_eq!(
+            serde_json::to_value(&raw).unwrap(),
+            serde_json::Value::String("中\u{FFFD}.t".to_owned())
+        );
     }
 }

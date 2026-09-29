@@ -30,6 +30,7 @@
 pub mod audit;
 pub mod commit;
 pub mod commit_plan;
+pub mod conflict;
 pub mod diff;
 pub mod index;
 pub mod path;
@@ -52,6 +53,10 @@ pub use commit_plan::{
     compose_message, equivalent_command, review_message, CommitPlan, EquivalentCommandInput,
     MessageIssue, MessageReview, PlannedFile, SignMode, COMMIT_PLAN_TTL_MS, EMPTY_TREE_OID,
     EQUIVALENT_COMMAND_FILE_LIMIT, SUBJECT_RECOMMENDED_MAX_CHARS,
+};
+pub use conflict::{
+    ConflictAbortOutcome, ConflictContinueOutcome, ConflictFile, ConflictKind, ConflictOpKind,
+    ConflictState, FileBlob, MAX_CONFLICT_BLOB_BYTES,
 };
 pub use diff::{
     DiffChangeKind, DiffHunk, DiffLine, DiffLineKind, DiffReport, DiffSpec, DiffTarget, FileDiff,

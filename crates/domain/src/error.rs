@@ -22,6 +22,12 @@ pub enum ErrorCode {
     PathNotRepo,
     /// 存在未解决的合并 / rebase / cherry-pick 冲突。
     GitConflict,
+    /// 继续操作（continue）前仍有未解决的冲突文件。
+    ///
+    /// 为什么与 [`Self::GitConflict`] 分开：`GIT_CONFLICT` 说的是"仓库里有冲突"
+    /// （查询/探测时），`CONFLICT_UNRESOLVED` 说的是"你想继续，但这些文件还没解决"
+    /// —— 它携带未解决文件清单（`hint`），界面要指着文件名让用户逐个处理。
+    ConflictUnresolved,
     /// 需要认证：未登录、未提供凭据或凭据不足。
     AuthRequired,
     /// 凭据已过期或被撤销，需要重新登录。
@@ -106,6 +112,7 @@ impl ErrorCode {
     pub const ALL: &'static [Self] = &[
         Self::PathNotRepo,
         Self::GitConflict,
+        Self::ConflictUnresolved,
         Self::AuthRequired,
         Self::AuthExpired,
         Self::SshHostKeyUnverified,
@@ -136,6 +143,7 @@ impl ErrorCode {
         match self {
             Self::PathNotRepo => "PATH_NOT_REPO",
             Self::GitConflict => "GIT_CONFLICT",
+            Self::ConflictUnresolved => "CONFLICT_UNRESOLVED",
             Self::AuthRequired => "AUTH_REQUIRED",
             Self::AuthExpired => "AUTH_EXPIRED",
             Self::SshHostKeyUnverified => "SSH_HOST_KEY_UNVERIFIED",
@@ -184,6 +192,9 @@ impl ErrorCode {
         match self {
             Self::PathNotRepo => "the path is not a Git repository",
             Self::GitConflict => "the repository has unresolved conflicts",
+            Self::ConflictUnresolved => {
+                "the operation cannot continue: some conflicts are still unresolved"
+            }
             Self::AuthRequired => "authentication is required",
             Self::AuthExpired => "the stored credential has expired or was revoked",
             Self::SshHostKeyUnverified => {
@@ -814,6 +825,7 @@ mod tests {
         match code {
             ErrorCode::PathNotRepo => "PATH_NOT_REPO",
             ErrorCode::GitConflict => "GIT_CONFLICT",
+            ErrorCode::ConflictUnresolved => "CONFLICT_UNRESOLVED",
             ErrorCode::AuthRequired => "AUTH_REQUIRED",
             ErrorCode::AuthExpired => "AUTH_EXPIRED",
             ErrorCode::SshHostKeyUnverified => "SSH_HOST_KEY_UNVERIFIED",
@@ -842,8 +854,8 @@ mod tests {
 
     #[test]
     fn all_lists_every_variant_exactly_once() {
-        // 25 个变体（新增时必须同时改 ALL 与本断言里的数字）
-        assert_eq!(ErrorCode::ALL.len(), 25);
+        // 26 个变体（新增时必须同时改 ALL 与本断言里的数字）
+        assert_eq!(ErrorCode::ALL.len(), 26);
 
         let mut seen = std::collections::BTreeSet::new();
         for code in ErrorCode::ALL {
