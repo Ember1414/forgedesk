@@ -18,7 +18,8 @@ use forgedesk_platform::watcher::NotifyFileWatcher;
 use forgedesk_platform::{install_panic_hook, non_blocking_writer, LogFlushGuard, LogPolicy};
 use forgedesk_services::repository::OpenRepoRegistry;
 use forgedesk_services::{
-    CommitPlanRegistry, CredentialGate, CredentialsService, GitEngines, ResetPlanRegistry,
+    CommitPlanRegistry, CredentialGate, CredentialsService, GitEngines, LogPageCache,
+    ResetPlanRegistry,
 };
 use forgedesk_snapshot::RefSnapshotManager;
 use forgedesk_storage::{migrate, Database};
@@ -189,6 +190,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 )),
                 commit_plans: Arc::new(CommitPlanRegistry::new()),
                 reset_plans: Arc::new(ResetPlanRegistry::new()),
+                log_pages: Arc::new(LogPageCache::new()),
                 credentials,
                 credential_gate,
                 watchers,

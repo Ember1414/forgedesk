@@ -26,7 +26,7 @@ use forgedesk_services::repository::OpenRepoRegistry;
 use forgedesk_services::{
     AuditLog, BranchService, CommitDetailService, CommitPlanRegistry, CommitService,
     CredentialGate, CredentialsService, GitEngines, HistoryOpsService, HistoryService,
-    RepositoryService, ResetPlanRegistry, StagingService, StashService, SyncService,
+    LogPageCache, RepositoryService, ResetPlanRegistry, StagingService, StashService, SyncService,
     WorkspaceService,
 };
 use forgedesk_snapshot::SnapshotManager;
@@ -78,6 +78,12 @@ pub struct AppState {
     /// 与 `commit_plans` 同理：`git_reset_prepare` 与 `git_reset_execute` 是两次
     /// 独立调用，各自 new 一个注册表会让执行永远找不到刚刚预览过的计划。
     pub reset_plans: Arc<ResetPlanRegistry>,
+    /// 日志分页缓存（T2.9）：累积各查询形状的 walk 前缀，深分页与重复首页
+    /// 不再从 tip 重扫。
+    ///
+    /// Arc 而不是裸值，与 `engines`/`jobs` 同一理由：它是**有状态的全进程资源**，
+    /// 且未来的长任务闭包只拿得到 Arc 克隆（T2.7 的"漏接"教训）。
+    pub log_pages: Arc<LogPageCache>,
 }
 
 impl AppState {
@@ -140,8 +146,10 @@ impl AppState {
     ///
     /// 与其它工厂方法共用同一批引擎与同一个数据库；
     /// `HistoryService` 需要 `RepositoryStore` 来把 `repo_id` 解析为工作区路径。
+    /// 日志分页缓存（T2.9）在这里接上：全进程共享同一份前缀。
     pub fn history_service(&self) -> HistoryService<'_> {
         HistoryService::new(&self.engines, RepositoryStore::new(&self.database))
+            .with_log_cache(self.log_pages.as_ref())
     }
 
     /// 绑定当前状态构造远端同步服务（T2.6）。
