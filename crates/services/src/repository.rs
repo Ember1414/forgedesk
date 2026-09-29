@@ -563,6 +563,10 @@ mod tests {
             display_name(Path::new("/home/u/projects/api"), false),
             "api"
         );
+        // Windows 盘符路径只在 Windows 上有"分隔符"语义：Linux 的 `Path` 把
+        // 反斜杠当普通字符（CI runner 正是 Linux，这条断言在那里必挂——
+        // 2026-09-28 起红灯的第二个根因）。产品在 Linux 上也遇不到这种输入。
+        #[cfg(windows)]
         assert_eq!(
             display_name(Path::new(r"E:\work\service"), false),
             "service"
