@@ -200,18 +200,39 @@ export function GraphOverlay({
 
   // ---------------------------------------------------------------- 右键目标
 
-  const menuOid = hoverTarget?.oid ?? null;
+  /**
+   * 菜单目标在**右键那一刻冻结**，不持续跟随 hover。
+   *
+   * 为什么（T3.6 的 E2E 实测踩到）：菜单一打开，Radix 的 overlay 立刻接管
+   * 指针，hit layer 收到 pointerleave → `reportHover(null)` → `hoverOid` 变
+   * null。如果菜单内容持续从 hover 推导目标，依赖目标的菜单项（整理提交、
+   * 单提交动作…）会在菜单出现的同一瞬间把自己禁用——用户看到的是"菜单里
+   * 全是灰的"。以前没暴露是因为旧的写操作项本来就是硬禁用。
+   *
+   * 目标源仍读 **store**（`handleContextMenu` 在 hit layer 的 handler 之后
+   * 冒泡执行，store 的写入是同步的），`hoverTarget` 只用于卡片渲染。
+   */
+  const [menuOid, setMenuOid] = useState<string | null>(null);
   const menuCommit = menuOid === null ? undefined : model.commitByOid.get(menuOid);
 
+  const handleMenuOpenChange = useCallback((open: boolean) => {
+    if (!open) {
+      setMenuOid(null);
+    }
+  }, []);
+
   /**
-   * 空白处右键不出菜单。
+   * 空白处右键不出菜单；命中时冻结目标。
    *
    * 读 store 而不是 `hoverTarget`：见文件头"为什么右键的空目标判定读 store"。
    */
   const handleContextMenu = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
-    if (useGraphSelectionStore.getState().hoverOid === null) {
+    const hovered = useGraphSelectionStore.getState().hoverOid;
+    if (hovered === null) {
       event.preventDefault();
+      return;
     }
+    setMenuOid(hovered);
   }, []);
 
   const handleCopyOid = useCallback(() => {
@@ -284,7 +305,7 @@ export function GraphOverlay({
     hoverTarget?.text?.refs ?? (cardCommit === undefined ? NO_REFS : parseRefs(cardCommit.refs));
 
   return (
-    <ContextMenu>
+    <ContextMenu onOpenChange={handleMenuOpenChange}>
       <ContextMenuTrigger asChild>
         <div
           data-testid="graph-overlay"

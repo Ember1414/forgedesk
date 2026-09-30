@@ -168,5 +168,23 @@ declare global {
     __mergeCalls?: readonly { readonly command: string; readonly args?: unknown }[];
     /** reset e2e 的执行计数（T2.10：断言取消后 execute 从未被调用）。 */
     __resetExecuted?: number;
+    /**
+     * rebase 面板 e2e 的 mock 调用记录（T3.6）。
+     *
+     * 记录 preview 与 execute 的 steps：验收要求"执行的新历史与预览一致"，
+     * 在 E2E 层的等价断言是两份 steps 逐字相同（界面不能执行时换计划）。
+     */
+    __rebaseCalls?: readonly {
+      readonly command: string;
+      readonly steps?: readonly {
+        readonly oid: string;
+        readonly action: string;
+        readonly newMessage?: string;
+      }[];
+    }[];
+    /** rebase 面板 e2e：自定义执行结局（冲突 / edit 暂停场景）。 */
+    __rebaseExecuteOutcome?: unknown;
+    /** rebase 面板 e2e：自定义 continue_edit 结局。 */
+    __rebaseContinueOutcome?: unknown;
   }
 }
