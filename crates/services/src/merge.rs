@@ -24,7 +24,8 @@ use std::sync::MutexGuard;
 
 use forgedesk_domain::git::{
     default_merge_message, equivalent_merge_command, CommitSummary, ConflictState, LogQuery,
-    MergeOutcome, MergePlan, MergePreviewReport, MergeSpec, RepoId,
+    MergeOutcome, MergePlan, MergePreviewReport, MergeSpec, RebaseOutcome, RebasePlan,
+    RebasePreview, RepoId,
 };
 use forgedesk_domain::{AppError, AppResult, ErrorCode};
 use forgedesk_git_engine::engine::GitEngine;
@@ -285,6 +286,132 @@ impl<'a> MergeService<'a> {
             oid: engine.head_oid(&repo)?,
             conflicts: Vec::new(),
             snapshot_id: None,
+        })
+    }
+}
+
+// ---------------------------------------------------------------- rebase（T3.7）
+
+/// rebase 计划执行（T3.7）：快照 → 注入 todo → 三种结局的编排。
+///
+/// 实际的 todo 注入与结局判定在引擎（`GitEngine::rebase`）；这一层负责：
+/// 执行前的 `PreHeadMove` 快照（rebase 重写历史、移动 HEAD——回滚的唯一依据）、
+/// edit 暂停的恢复编排（`commit --amend` 接住用户改好的内容，再 continue）、
+/// 以及继续的幂等（没有进行中的 rebase 时明确拒绝）。
+pub struct RebaseService<'a> {
+    engines: &'a GitEngines,
+    store: RepositoryStore<'a>,
+    snapshots: &'a dyn SnapshotManager,
+}
+
+impl<'a> RebaseService<'a> {
+    /// 组装服务。
+    pub fn new(
+        engines: &'a GitEngines,
+        store: RepositoryStore<'a>,
+        snapshots: &'a dyn SnapshotManager,
+    ) -> Self {
+        Self {
+            engines,
+            store,
+            snapshots,
+        }
+    }
+
+    /// 记录 id → 工作区路径。
+    fn resolve_workdir(&self, repo_id: i64) -> AppResult<PathBuf> {
+        let record = self.store.find_by_id(repo_id)?.ok_or(
+            AppError::new(ErrorCode::NotFound, "the repository record does not exist")
+                .with_detail(format!("repo_id: {repo_id}")),
+        )?;
+        Ok(PathBuf::from(record.path))
+    }
+
+    fn snapshot(&self, repo_id: i64, workdir: &std::path::Path) -> Option<SnapshotId> {
+        let request = SnapshotRequest {
+            repo_id,
+            workdir,
+            label: SnapshotKind::PreHeadMove.key(),
+            kind: SnapshotKind::PreHeadMove,
+        };
+        match self.snapshots.create(&request) {
+            Ok(id) => Some(id),
+            Err(error) => {
+                tracing::warn!(
+                    error = %error.message(),
+                    kind = SnapshotKind::PreHeadMove.key(),
+                    "rebase 执行前未能创建快照"
+                );
+                None
+            }
+        }
+    }
+
+    /// 预演（不修改仓库）：GraphView 装配 + 校验 + 预览，给 T3.6 面板做
+    /// "执行前校验"。走引擎的 `rebase_preview`（只读）。
+    pub fn preview_only(&self, repo_id: i64, plan: &RebasePlan) -> AppResult<RebasePreview> {
+        let repo = RepoId::new(self.resolve_workdir(repo_id)?);
+        self.engines.write().rebase_preview(&repo, plan)
+    }
+
+    /// 执行 rebase 计划：快照 → 引擎执行 → 结局（完成 / 冲突 / edit 暂停）。
+    pub fn execute(&self, repo_id: i64, plan: &RebasePlan) -> AppResult<RebaseOutcome> {
+        let workdir = self.resolve_workdir(repo_id)?;
+        let repo = RepoId::new(workdir.clone());
+        self.snapshot(repo_id, &workdir);
+        self.engines.write().rebase(&repo, plan.clone())
+    }
+
+    /// edit 暂停的恢复：用户改完工作区内容后调用——
+    /// `git commit --amend`（接住新内容，沿用原信息）→ `git rebase --continue`。
+    ///
+    /// 幂等：不在 edit 停点时明确拒绝（重复调用不会产生重复提交）。
+    pub fn continue_after_edit(&self, repo_id: i64) -> AppResult<RebaseOutcome> {
+        let workdir = self.resolve_workdir(repo_id)?;
+        let repo = RepoId::new(workdir.clone());
+        let engine = self.engines.write();
+
+        let git_dir = forgedesk_git_engine::engine::enrich::resolve_git_dir(&workdir);
+        let edit_paused = git_dir.join("rebase-merge/amend").is_file()
+            || git_dir.join("rebase-merge/am").is_file();
+        if !edit_paused {
+            return Err(AppError::new(
+                ErrorCode::Validation,
+                "the rebase is not paused on an edit step",
+            ));
+        }
+
+        // amend 接住用户的工作区改动。rebase 的 edit 语义是"改内容、信息
+        // 不变"——而引擎的 commit 总是经 --file=- 喂信息，所以把 REBASE_HEAD
+        // 的原信息读出来原样喂回（--amend + 同信息 = 信息不变）。
+        let edit_commit = engine.show(&repo, "REBASE_HEAD")?;
+        let original_message = match &edit_commit.body {
+            Some(body) if !body.trim().is_empty() => {
+                format!(
+                    "{}
+{body}",
+                    edit_commit.subject
+                )
+            }
+            _ => edit_commit.subject.clone(),
+        };
+        engine.commit(
+            &repo,
+            forgedesk_domain::git::CommitSpec {
+                message: original_message,
+                paths: Vec::new(),
+                amend: true,
+                allow_empty: false,
+                sign: None,
+                sign_off: false,
+                amend_mode: forgedesk_domain::git::AmendMode::IncludeStaged,
+                author: None,
+                no_verify: false,
+            },
+        )?;
+        engine.conflict_continue(&repo, forgedesk_domain::git::ConflictOpKind::Rebase)?;
+        Ok(RebaseOutcome::Completed {
+            oid: engine.head_oid(&repo)?.unwrap_or_default(),
         })
     }
 }

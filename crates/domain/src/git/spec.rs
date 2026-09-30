@@ -802,7 +802,8 @@ impl PushSpec {
 }
 
 /// rebase / 重排计划中的单个步骤。
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ReorderStep {
     /// 被操作的提交 oid。
     pub oid: String,
@@ -813,7 +814,8 @@ pub struct ReorderStep {
 }
 
 /// rebase 计划里对单个提交的动作（与 `git rebase -i` 的指令一一对应）。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum ReorderAction {
     /// 保留提交。
     Pick,

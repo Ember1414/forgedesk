@@ -39,7 +39,7 @@ use forgedesk_domain::git::{
     Commit, CommitSpec, DiffReport, DiffSpec, DiffTarget, EntryKind, LogQuery, Page, RepoId,
     RepoPath, StageSpec, StatusQuery, StatusReport,
 };
-use forgedesk_git_engine::engine::{CliGitEngine, GitEngine, Libgit2Engine, ProgressSink};
+use forgedesk_git_engine::engine::{CliGitEngine, GitEngine, Libgit2Engine};
 use support::{
     commit_all, commit_all_with_author, git_ok, git_with_env, init_repo, write, TempDir,
 };
@@ -838,27 +838,23 @@ fn cli_engine_drives_a_full_read_write_lifecycle() {
 }
 
 #[test]
-fn cli_engine_reports_unsupported_for_rebase_until_m3() {
+fn libgit2_engine_reports_unsupported_for_rebase() {
     let dir = TempDir::new("rebase-stub");
-    let (cli, libgit2) = engines();
+    let (_, libgit2) = engines();
     let repo = RepoId::new(dir.path());
-    let plan = forgedesk_domain::git::ReorderSpec {
-        onto: "HEAD~1".to_owned(),
+    // 空 steps 的计划仍然走到引擎边界：拒绝发生在"libgit2 不做写操作"这层
+    let plan = forgedesk_domain::git::RebasePlan {
+        base: "HEAD~1".to_owned(),
+        head: "HEAD".to_owned(),
         steps: Vec::new(),
+        allow_flatten_merges: false,
+        autosquash: false,
     };
 
-    let from_cli = cli
-        .rebase(&repo, plan.clone(), &ProgressSink::none())
-        .expect_err("rebase 在 M3 之前必须明确失败");
     let from_libgit2 = libgit2
-        .rebase(&repo, plan, &ProgressSink::none())
+        .rebase(&repo, plan)
         .expect_err("libgit2 不支持 rebase");
 
-    assert!(
-        from_cli.message.contains("not implemented"),
-        "CLI 的 rebase 应当是「尚未实现」而不是「不支持」：{}",
-        from_cli.message
-    );
     assert_eq!(
         from_libgit2.code,
         forgedesk_domain::ErrorCode::UnsupportedByEngine

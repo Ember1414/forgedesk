@@ -81,14 +81,6 @@ pub enum PlanError {
         /// 越界的提交 oid。
         oid: String,
     },
-    /// 步骤顺序违反拓扑（父提交**也在 steps 里**却排在本条之后——从旧到新
-    /// 的清单必须祖先先于后代）。
-    TopologyOrder {
-        /// 顺序不当的提交。
-        oid: String,
-        /// 它的父提交（被排到了后面）。
-        parent: String,
-    },
 }
 
 impl PlanError {
@@ -100,7 +92,6 @@ impl PlanError {
             Self::SquashOnMerge { .. } => "squashOnMerge",
             Self::DuplicateOid { .. } => "duplicateOid",
             Self::OidOutsideRange { .. } => "oidOutsideRange",
-            Self::TopologyOrder { .. } => "topologyOrder",
         }
     }
 }
@@ -132,16 +123,6 @@ impl RebasePlan {
 
         // 区间集合：head 的祖先中、base 之前的全部提交（含 merge 的全部父链）
         let in_range = ancestors_until(graph, &self.head, &self.base);
-
-        // steps 内部的位置表（拓扑规则只约束 **steps 内部**的相对顺序：
-        // todo 只重排被列入的提交；区间内但未被列入的祖先——比如 merge 的
-        // 第二父侧——不要求出现）
-        let step_positions: HashMap<&str, usize> = self
-            .steps
-            .iter()
-            .enumerate()
-            .map(|(index, step)| (step.oid.as_str(), index))
-            .collect();
 
         let mut seen: HashSet<&str> = HashSet::new();
         for (index, step) in self.steps.iter().enumerate() {
@@ -175,20 +156,9 @@ impl RebasePlan {
                     oid: step.oid.clone(),
                 });
             }
-            // 规则：拓扑顺序——父提交若**也在 steps 里**，必须出现在本条之前
-            //（从旧到新的清单里后代先于祖先 = 违规）。父不在 steps 里则无约束。
-            if let Some(node) = graph.commits.get(&step.oid) {
-                for parent in &node.parents {
-                    if let Some(&parent_index) = step_positions.get(parent.as_str()) {
-                        if parent_index > index {
-                            errors.push(PlanError::TopologyOrder {
-                                oid: step.oid.clone(),
-                                parent: parent.clone(),
-                            });
-                        }
-                    }
-                }
-            }
+            // 拓扑顺序**不做校验**：git rebase -i 接受任意重排（线性链交换
+            // 相邻提交是常见操作，重放冲突时自然暂停），校验它反而会把用户
+            // 的合法拖拽挡在门外。
         }
 
         // 规则：禁止 drop 全部提交（清一色 Drop 等于把区间整体丢掉）
@@ -364,6 +334,37 @@ fn short_oid(oid: &str) -> &str {
     &oid[..oid.len().min(7)]
 }
 
+/// 执行 rebase 计划的结局（T3.7）。
+///
+/// rebase 是**一次进程**：要么跑完，要么停在某个暂停点（冲突 / edit）。
+/// 暂停不是错误——仓库处于可恢复的中间态（T3.1 的冲突状态机负责继续/中止）。
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase", tag = "kind")]
+pub enum RebaseOutcome {
+    /// 完成：HEAD 是重写后的新顶端。
+    Completed {
+        /// 完成后的 HEAD oid。
+        oid: String,
+    },
+    /// 停在冲突上：走 T3.1 的冲突状态机（continue / skip / abort）。
+    PausedConflict {
+        /// 冲突文件清单。
+        conflicts: Vec<super::path::RepoPath>,
+    },
+    /// 停在 edit 步骤：用户改完内容后由应用 `commit --amend` + continue。
+    PausedEdit {
+        /// 被编辑的提交 oid（REBASE_HEAD）。
+        oid: String,
+    },
+}
+
+impl RebaseOutcome {
+    /// 是否停在暂停点（界面据此决定跳冲突页还是提示"改完点继续"）。
+    pub const fn is_paused(&self) -> bool {
+        matches!(self, Self::PausedConflict { .. } | Self::PausedEdit { .. })
+    }
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
@@ -489,19 +490,6 @@ mod tests {
         assert!(errors
             .iter()
             .any(|error| error.as_str() == "oidOutsideRange"));
-    }
-
-    #[test]
-    fn topology_order_violations_are_rejected() {
-        let graph = linear_graph();
-        // c2 在 c1 之前（从旧到新的清单里后代先出现）
-        let errors = plan(vec![
-            step("c2", ReorderAction::Pick),
-            step("c1", ReorderAction::Pick),
-        ])
-        .validate(&graph)
-        .unwrap_err();
-        assert!(errors.iter().any(|error| error.as_str() == "topologyOrder"));
     }
 
     #[test]

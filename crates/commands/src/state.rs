@@ -26,8 +26,9 @@ use forgedesk_services::repository::OpenRepoRegistry;
 use forgedesk_services::{
     AuditLog, BranchService, CommitDetailService, CommitPlanRegistry, CommitService,
     ConflictService, CredentialGate, CredentialsService, GitEngines, HistoryOpsService,
-    HistoryService, LogPageCache, MergePlanRegistry, MergeService, RepositoryService,
-    ResetPlanRegistry, StagingService, StashService, SyncService, WorkspaceService,
+    HistoryService, LogPageCache, MergePlanRegistry, MergeService, RebaseService,
+    RepositoryService, ResetPlanRegistry, StagingService, StashService, SyncService,
+    WorkspaceService,
 };
 use forgedesk_snapshot::SnapshotManager;
 use forgedesk_storage::{Database, OperationStore, RepositoryStore};
@@ -217,6 +218,18 @@ impl AppState {
             RepositoryStore::new(&self.database),
             self.snapshots.as_ref(),
             &self.merge_plans,
+        )
+    }
+
+    /// 绑定当前状态构造 rebase 执行服务（T3.7）。
+    ///
+    /// 快照管理器与 merge 路径共享同一实例：rebase 的 `PreHeadMove`
+    /// 快照落在同一份历史里。
+    pub fn rebase_service(&self) -> RebaseService<'_> {
+        RebaseService::new(
+            &self.engines,
+            RepositoryStore::new(&self.database),
+            self.snapshots.as_ref(),
         )
     }
 

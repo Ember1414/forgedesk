@@ -68,7 +68,9 @@ pub use index::{StageEntry, UnmergedEntry, UnmergedStage};
 pub use merge_blocks::{compute_merge_blocks, ChangeSource, MergeBlock, MergeBlockReport};
 pub use path::RepoPath;
 pub use query::{summarize_authors, AuthorSummary, LogQuery, Page};
-pub use rebase::{GraphCommit, GraphView, PlanError, PreviewCommit, RebasePlan, RebasePreview};
+pub use rebase::{
+    GraphCommit, GraphView, PlanError, PreviewCommit, RebaseOutcome, RebasePlan, RebasePreview,
+};
 pub use refs::{Branch, RefUpdate, RefUpdateKind, Remote, RemoteKind, Tag};
 pub use repository::{BranchLabel, RepoId, RepositoryInfo, Worktree};
 pub use reset::{CommitSummary, ResetOutcome, ResetPlan, ResetRemoteImpact};

@@ -48,9 +48,9 @@ use forgedesk_domain::git::{
     ConflictAbortOutcome, ConflictContinueOutcome, ConflictFileDetail, ConflictOpKind,
     ConflictState, DiffReport, DiffSpec, DiscardSpec, FetchOutcome, FetchSpec, InitSpec,
     LineEnding, LogQuery, MergeOutcome, MergePreviewReport, MergeSpec, Page, PullOutcome, PullSpec,
-    PushOutcome, PushSpec, ReflogEntry, Remote, ReorderSpec, RepoId, RepoPath, RepositoryInfo,
-    ResetSpec, RevertSpec, StageSpec, StashEntry, StashOutcome, StashSpec, StatusQuery,
-    StatusReport, Tag, TakeSide,
+    PushOutcome, PushSpec, RebaseOutcome, RebasePlan, RebasePreview, ReflogEntry, Remote, RepoId,
+    RepoPath, RepositoryInfo, ResetSpec, RevertSpec, StageSpec, StashEntry, StashOutcome,
+    StashSpec, StatusQuery, StatusReport, Tag, TakeSide,
 };
 use forgedesk_domain::{AppError, AppResult, ErrorCode};
 
@@ -525,15 +525,14 @@ pub trait GitEngine: Send + Sync {
     /// 改远端 URL。
     fn remote_set_url(&self, repo: &RepoId, name: &str, url: &str) -> AppResult<()>;
 
-    /// 按计划重排提交（交互式 rebase）。
+    /// 执行 rebase 计划（T3.7 执行引擎；todo 经 GIT_SEQUENCE_EDITOR 注入）。
     ///
-    /// M3 才实现（T3.6）；两个实现当前都返回 [`not_implemented`]。
-    /// 提前放进 trait 是为了让签名在 M3 不需要改动——改 trait 意味着
-    /// 两套实现与全部调用点一起改。
-    fn rebase(
-        &self,
-        repo: &RepoId,
-        plan: ReorderSpec,
-        progress: &ProgressSink,
-    ) -> AppResult<MergeOutcome>;
+    /// 三种结局都是**正常结果**：完成 / 停在冲突（走 T3.1 冲突状态机）/
+    /// 停在 edit（服务层 amend 后 continue）。执行前由服务层打快照。
+    /// 只有 CLI 实现（libgit2 不做写操作）。
+    fn rebase(&self, repo: &RepoId, plan: RebasePlan) -> AppResult<RebaseOutcome>;
+
+    /// 预演 rebase 计划（只读）：装区间图 → 校验 → 预览。给 T3.6 面板的
+    /// "执行前校验"；不碰工作区与索引。
+    fn rebase_preview(&self, repo: &RepoId, plan: &RebasePlan) -> AppResult<RebasePreview>;
 }

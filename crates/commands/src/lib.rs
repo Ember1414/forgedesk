@@ -40,6 +40,7 @@ pub mod history_ops;
 pub mod jobs;
 pub mod logs;
 pub mod merge;
+pub mod rebase;
 pub mod repository;
 pub mod settings;
 pub mod snapshots;
@@ -90,6 +91,10 @@ pub use logs::{logs_open, logs_tail};
 pub use merge::{
     git_merge_continue, git_merge_execute, git_merge_prepare, MergeExecuteRequest, MergePlanDto,
     MergeRequest,
+};
+pub use rebase::{
+    git_rebase_continue_edit, git_rebase_execute, git_rebase_preview_only, RebaseExecuteRequest,
+    RebaseOutcomeDto, RebasePreviewDto, RebaseStepRequest,
 };
 pub use repository::{
     repo_clone, repo_close, repo_discover, repo_forget, repo_init, repo_open, repo_recent_list,

@@ -27,14 +27,15 @@ use forgedesk_domain::git::{
     ConflictAbortOutcome, ConflictContinueOutcome, ConflictFileDetail, ConflictOpKind,
     ConflictState, DiffReport, DiffSpec, DiscardSpec, FetchOutcome, FetchSpec, InitSpec,
     LineEnding, LogQuery, MergeOutcome, MergePreviewReport, MergeSpec, Page, PullOutcome, PullSpec,
-    PushOutcome, PushSpec, ReflogEntry, Remote, ReorderSpec, RepoId, RepoPath, RepositoryInfo,
-    ResetSpec, RevertSpec, StageSpec, StashEntry, StashOutcome, StashSpec, StatusQuery,
-    StatusReport, SwitchStrategy, Tag, TagCreateSpec, TagDeleteSpec, TakeSide,
+    PushOutcome, PushSpec, RebaseOutcome, RebasePlan, RebasePreview, ReflogEntry, Remote, RepoId,
+    RepoPath, RepositoryInfo, ResetSpec, RevertSpec, StageSpec, StashEntry, StashOutcome,
+    StashSpec, StatusQuery, StatusReport, SwitchStrategy, Tag, TagCreateSpec, TagDeleteSpec,
+    TakeSide,
 };
 use forgedesk_domain::{AppError, AppResult, ErrorCode};
 
 use super::progress::ProgressSink;
-use super::{not_implemented, EngineId, GitEngine, ProbeOutput};
+use super::{EngineId, GitEngine, ProbeOutput};
 use crate::process::{GitOutput, GitProcess, GitRunOpts, NetworkAuth};
 
 /// 本地操作的超时。
@@ -761,15 +762,26 @@ impl GitEngine for CliGitEngine {
         write::remote_set_url(self, repo, name, url)
     }
 
-    fn rebase(
-        &self,
-        _repo: &RepoId,
-        _plan: ReorderSpec,
-        _progress: &ProgressSink,
-    ) -> AppResult<MergeOutcome> {
-        // 交互式 rebase 需要接管编辑器与逐条提交的重放，属于 M3（T3.6）。
-        // 提前放进 trait 只是为了让签名提前稳定。
-        Err(not_implemented("rebase", "T3.6"))
+    fn rebase(&self, repo: &RepoId, plan: RebasePlan) -> AppResult<RebaseOutcome> {
+        write::rebase_plan(self, repo, &plan)
+    }
+
+    fn rebase_preview(&self, repo: &RepoId, plan: &RebasePlan) -> AppResult<RebasePreview> {
+        let graph = write::rebase_graph(self, repo, &plan.base, &plan.head)?;
+        plan.validate(&graph).map_err(|errors| {
+            forgedesk_domain::AppError::new(
+                forgedesk_domain::ErrorCode::Validation,
+                "the rebase plan is invalid",
+            )
+            .with_detail(
+                errors
+                    .iter()
+                    .map(|e| e.as_str())
+                    .collect::<Vec<_>>()
+                    .join(","),
+            )
+        })?;
+        Ok(plan.preview(&graph))
     }
 }
 

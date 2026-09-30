@@ -60,6 +60,9 @@ pub struct OperationDetection {
     pub total_steps: Option<u32>,
     /// 被 rebase 的分支名（`head-name`；其余操作为 `None`）。
     pub head_name: Option<String>,
+    /// rebase 因 `edit` 步骤暂停（`rebase-merge/amend` 标记；git 老版本是 `am`）。
+    /// 用户改完内容后由应用执行 `commit --amend` + `rebase --continue`。
+    pub edit_paused: bool,
 }
 
 /// 判定进行中的操作并采集进度（T3.1 的状态机数据源）。
@@ -80,6 +83,7 @@ pub fn detect_operation_with_details(git_dir: &Path) -> OperationDetection {
             current_step: read_marker_number(&dir.join("msgnum")),
             total_steps: read_marker_number(&dir.join("end")),
             head_name: read_marker_text(&dir.join("head-name")),
+            edit_paused: dir.join("amend").is_file() || dir.join("am").is_file(),
         };
     }
 
@@ -104,6 +108,7 @@ pub fn detect_operation_with_details(git_dir: &Path) -> OperationDetection {
                 current_step: Some(done + 1),
                 total_steps: Some(done + todo),
                 head_name: None,
+                edit_paused: false,
             };
         }
     }
@@ -120,6 +125,7 @@ impl OperationDetection {
             current_step: None,
             total_steps: None,
             head_name: None,
+            edit_paused: false,
         }
     }
 }

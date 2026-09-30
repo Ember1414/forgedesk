@@ -1452,6 +1452,27 @@ prepare 与 execute 之间 HEAD 被外部改动 → `PLAN_STALE`。
 事件：execute / continue 成功后发 `repo:changed`（`workspace` + `refs`）。
 合并进行中的检测走既有 `workspace_status` 的 `operation: "merge"`。
 
+### rebase 执行（T3.7）
+
+两段式 + 暂停语义：`git_rebase_preview_only` 预演（只读：装配区间图 → 校验 → 预览），
+`git_rebase_execute` 执行（`PreHeadMove` 快照后注入 todo，结局三选一）。暂停是
+**结果不是错误**：`kind: "pausedConflict"` 走冲突页（T3.1 状态机），`kind: "pausedEdit"`
+由 `git_rebase_continue_edit` 在用户改完内容后恢复（`commit --amend` 接住暂存改动 +
+`rebase --continue`，信息沿用原提交；不在 edit 停点时返回 `VALIDATION`——幂等保护）。
+
+todo 注入机制：`GIT_SEQUENCE_EDITOR="cp '<file>'"`（git 把自己的 todo 路径作为
+editor 的第一个参数追加，cp 完成替换；`GIT_EDITOR=true` 让 reword 编辑器原样退出）。
+只有 CLI 实现（同冲突状态机/合并预检的取舍）。
+
+| 命令 | 能力 | 参数 | 返回/说明 |
+| --- | --- | --- | --- |
+| `git_rebase_preview_only` | ReadOnly（`async`） | `{ repoId, spec: { base, head, steps[], allowFlattenMerges?, autosquash? } }` | `RebasePreview { surviving, dropped, reworded, squashed, affectedCount, touchesPushed }`。`touchesPushed` 为真时界面必须提示 force-with-lease。计划非法返回 `VALIDATION`（detail 列规则短名） |
+| `git_rebase_execute` | Dangerous（`async`） | 同上 | `RebaseOutcome`：`{ kind: "completed", oid }` / `{ kind: "pausedConflict", conflicts }` / `{ kind: "pausedEdit", oid }`。执行前打 `pre-head-move` 快照。写审计（`rebase`） |
+| `git_rebase_continue_edit` | Dangerous（`async`） | `{ repoId }` | `RebaseOutcome`。edit 暂停的恢复；不在 edit 停点返回 `VALIDATION`。写审计（`rebase`） |
+
+事件：execute / continue 成功后发 `repo:changed`（`large` + `refs`——rebase 重写历史）。
+域模型见 `crates/domain/src/git/rebase.rs`（validate 六规则 + todo 生成 + preview 纯函数）。
+
 ---
 
 ## 4. 新增命令的检查清单

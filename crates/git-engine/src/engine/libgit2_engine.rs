@@ -1213,10 +1213,17 @@ impl GitEngine for Libgit2Engine {
     fn rebase(
         &self,
         _repo: &RepoId,
-        _plan: forgedesk_domain::git::ReorderSpec,
-        _progress: &ProgressSink,
-    ) -> AppResult<forgedesk_domain::git::MergeOutcome> {
+        _plan: forgedesk_domain::git::RebasePlan,
+    ) -> AppResult<forgedesk_domain::git::RebaseOutcome> {
         Err(unsupported(EngineId::Libgit2, "rebase"))
+    }
+
+    fn rebase_preview(
+        &self,
+        _repo: &RepoId,
+        _plan: &forgedesk_domain::git::RebasePlan,
+    ) -> AppResult<forgedesk_domain::git::RebasePreview> {
+        Err(unsupported(EngineId::Libgit2, "rebase_preview"))
     }
 
     // 冲突状态机（T3.1）整体走 CLI：stage 三方内容 + 2 MiB 阈值 + 二进制判定

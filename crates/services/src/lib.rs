@@ -63,7 +63,7 @@ pub use history::{
 };
 pub use history_cache::{LogPageCache, MAX_ENTRIES as MAX_LOG_CACHE_ENTRIES};
 pub use history_ops::{HistoryOpsService, ResetPlanRegistry};
-pub use merge::{MergePlanRegistry, MergeService};
+pub use merge::{MergePlanRegistry, MergeService, RebaseService};
 pub use repository::{
     InitExtras, LicenseSpec, MillisClock, OpenRepoRegistry, OpenedRepository, RecentRepository,
     RepositoryService,

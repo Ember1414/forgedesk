@@ -14,13 +14,15 @@
 use std::path::{Path, PathBuf};
 
 use forgedesk_diagnostics::sanitize_log;
+use std::collections::{HashMap, HashSet};
+
 use forgedesk_domain::git::{
     AmendMode, ApplyPatchSpec, BranchCreateSpec, BranchDeleteSpec, BranchRenameSpec,
     BranchSetUpstreamSpec, CheckoutSpec, CherryPickSpec, CloneSpec, CommitSpec, DiscardSpec,
-    FetchOutcome, FetchSpec, InitSpec, MergeKind, MergeOutcome, MergeSpec, MergeStrategy,
-    PullOutcome, PullSpec, PushOutcome, PushRejection, PushSpec, RefUpdate, RefUpdateKind, RepoId,
-    RepositoryInfo, ResetSpec, RevertSpec, StageSpec, StashOutcome, StashSpec, SwitchStrategy,
-    TagCreateSpec, TagDeleteSpec,
+    FetchOutcome, FetchSpec, GraphCommit, GraphView, InitSpec, MergeKind, MergeOutcome, MergeSpec,
+    MergeStrategy, PullOutcome, PullSpec, PushOutcome, PushRejection, PushSpec, RebaseOutcome,
+    RebasePlan, RefUpdate, RefUpdateKind, RepoId, RepositoryInfo, ResetSpec, RevertSpec, StageSpec,
+    StashOutcome, StashSpec, SwitchStrategy, TagCreateSpec, TagDeleteSpec,
 };
 use forgedesk_domain::{AppError, AppResult, ErrorCode};
 
@@ -881,6 +883,142 @@ pub(super) fn remote_set_url(
 ) -> AppResult<()> {
     engine.run_write(repo, args::remote_set_url_args(name, url))?;
     Ok(())
+}
+
+/// 装配 rebase 区间的 [`GraphView`]（T3.5 验证过的 NUL 分隔记录格式）。
+///
+/// 放在引擎层：`to_todo_file` 与 `validate` 都需要它，而 services 拿不到
+/// 仓库输出的原始字节（那是引擎的能力）。
+pub(super) fn rebase_graph(
+    engine: &CliGitEngine,
+    repo: &RepoId,
+    base: &str,
+    head: &str,
+) -> AppResult<GraphView> {
+    let output = engine.run_read(
+        repo,
+        GitInvocation::new(vec![
+            "log".to_owned(),
+            "--format=%H %P%x00%s%x00".to_owned(),
+            format!("{base}..{head}"),
+        ]),
+    )?;
+    let stdout = output.stdout_lossy();
+    let mut commits = HashMap::new();
+    // %x00 把每条提交切成 header（oid+父）与 subject 两个交替的段，
+    // 段间有记录分隔的换行（在下一 header 的开头）
+    let mut chunks = stdout.split('\u{0}');
+    while let (Some(header), Some(subject)) = (chunks.next(), chunks.next()) {
+        let header = header.trim_start_matches('\n');
+        if header.is_empty() {
+            continue;
+        }
+        let mut ids = header.split_whitespace();
+        let Some(oid) = ids.next() else { continue };
+        commits.insert(
+            oid.to_owned(),
+            GraphCommit {
+                parents: ids.map(str::to_owned).collect(),
+                subject: subject.trim_start_matches('\n').to_owned(),
+            },
+        );
+    }
+    Ok(GraphView {
+        commits,
+        pushed_oids: HashSet::new(),
+    })
+}
+
+/// 执行 rebase 计划（T3.7）。
+///
+/// todo 文件经 `GIT_SEQUENCE_EDITOR="cat '<file>' >"` 注入真实 `git rebase -i`：
+/// editor 收到的第二个参数是 rebase 自己的 todo 路径，重定向完成替换
+///（单引号保护含空格路径；反斜杠在 sh 单引号内是字面量，Windows 路径先转 `/`）。
+/// `GIT_EDITOR=true` 让 reword 的信息编辑器"原样保存退出"，不挂死。
+///
+/// 三种结局（见 [`RebaseOutcome`]）都不是错误；rebase 自身失败（todo 拒绝、
+/// 无法快进等）才按常规分类返回错误。
+pub(super) fn rebase_plan(
+    engine: &CliGitEngine,
+    repo: &RepoId,
+    plan: &RebasePlan,
+) -> AppResult<RebaseOutcome> {
+    // 区间图 + 兜底校验（services 已校验；这里再校一次，非法计划在动手前拦住）
+    let graph = rebase_graph(engine, repo, &plan.base, &plan.head)?;
+    plan.validate(&graph).map_err(|errors| {
+        AppError::new(ErrorCode::Validation, "the rebase plan is invalid").with_detail(
+            errors
+                .iter()
+                .map(|error| error.as_str())
+                .collect::<Vec<_>>()
+                .join(","),
+        )
+    })?;
+
+    let todo = plan.to_todo_file(&graph);
+    // 并行测试共享同一进程 pid：文件名必须含唯一计数，否则互相覆盖
+    //（CI/本地都真实咬过：两个 rebase 测试并行时 todo 被换成了对方的）
+    static TODO_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let todo_serial = TODO_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let todo_path = repo.root().join(".git").join(format!(
+        "forgedesk-rebase-todo-{}-{todo_serial}",
+        std::process::id()
+    ));
+    std::fs::write(&todo_path, todo.as_bytes()).map_err(|error| {
+        AppError::new(ErrorCode::Internal, "failed to write the rebase todo")
+            .with_hint(todo_path.to_string_lossy().into_owned())
+            .with_detail(error.to_string())
+    })?;
+    // 路径进 sh 单引号：反斜杠转 `/`，空格由引号保护
+    let editor = format!("cp '{}'", todo_path.to_string_lossy().replace('\\', "/"));
+
+    let output = engine.run_at(
+        repo.root(),
+        GitInvocation::new(vec![
+            "rebase".to_owned(),
+            "-i".to_owned(),
+            plan.base.clone(),
+        ])
+        .with_env("GIT_SEQUENCE_EDITOR", editor.as_str())
+        .with_env("GIT_EDITOR", "true"),
+        RunKind::Write,
+    );
+    let _ = std::fs::remove_file(&todo_path);
+    let output = output?;
+
+    // 结局判定：冲突 > edit 暂停 > 完成（rebase 的非零退出在暂停时是正常结局）
+    let conflicts = unmerged_paths(engine, repo)?;
+    if !conflicts.is_empty() {
+        return Ok(RebaseOutcome::PausedConflict { conflicts });
+    }
+    let git_dir = crate::engine::enrich::resolve_git_dir(repo.root());
+    let detection = crate::engine::enrich::detect_operation_with_details(&git_dir);
+    if detection.edit_paused {
+        // REBASE_HEAD 指向正在被编辑的提交
+        let oid = read_marker(&git_dir.join("REBASE_HEAD")).unwrap_or_default();
+        return Ok(RebaseOutcome::PausedEdit { oid });
+    }
+    if !output.success() {
+        let stderr = output.stderr_lossy();
+        let code = ErrorCode::classify(&stderr);
+        return Err(AppError::new(code, "git rebase failed")
+            .with_detail(sanitize_log(&stderr))
+            .with_hint(plan.base.clone()));
+    }
+    Ok(RebaseOutcome::Completed {
+        oid: head_oid(engine, repo)?.unwrap_or_default(),
+    })
+}
+
+/// 读一个标记文件的单行内容（REBASE_HEAD；缺失/空返回 None）。
+fn read_marker(path: &std::path::Path) -> Option<String> {
+    let text = std::fs::read_to_string(path).ok()?;
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_owned())
+    }
 }
 
 #[cfg(test)]

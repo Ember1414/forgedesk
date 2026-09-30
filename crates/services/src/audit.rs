@@ -97,6 +97,8 @@ pub mod op_type {
     pub const RESET: &str = "reset";
     /// 合并（execute；prepare 是只读预览不记审计）。
     pub const MERGE: &str = "merge";
+    /// rebase 执行（execute；preview_only 是只读预演不记审计）。
+    pub const REBASE: &str = "rebase";
     /// 拣选提交。
     pub const CHERRY_PICK: &str = "cherry_pick";
     /// 反转提交。
