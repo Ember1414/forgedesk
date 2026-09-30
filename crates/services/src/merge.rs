@@ -387,11 +387,11 @@ impl<'a> RebaseService<'a> {
         let edit_commit = engine.show(&repo, "REBASE_HEAD")?;
         let original_message = match &edit_commit.body {
             Some(body) if !body.trim().is_empty() => {
-                format!(
-                    "{}
-{body}",
-                    edit_commit.subject
-                )
+                // Git 惯例：subject + 空行 + body。这里曾在写入时把 `\n\n`
+                // 的转义写成了真实换行（信息变成 `subject\nbody`，缺少空行
+                // 分隔），带 body 的提交在 edit 恢复后信息格式被改写。
+                // 修复由带 body 的 edit 测试逐字断言钉住。
+                format!("{}\n\n{body}", edit_commit.subject)
             }
             _ => edit_commit.subject.clone(),
         };

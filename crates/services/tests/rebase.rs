@@ -349,6 +349,12 @@ fn an_edit_step_pauses_and_continue_after_edit_amends_and_finishes() {
 ",
     );
     commit_all(fixture.path(), "one");
+    // 附带 body：钉住 edit 恢复对完整信息（subject + 空行 + body）的保真
+    //（曾出现过 `\n\n` 被写成真实换行 + 行首冒号的事故）
+    git_ok(
+        fixture.path(),
+        &["commit", "--amend", "-q", "-m", "one", "-m", "one body"],
+    );
     write(
         fixture.path(),
         "f2.txt",
@@ -419,6 +425,13 @@ fn an_edit_step_pauses_and_continue_after_edit_amends_and_finishes() {
 "
     );
     assert_ne!(fixture.head(), head_at_pause);
+    // edit 恢复必须逐字保留带 body 的提交信息（subject + 空行 + body）
+    let edit_log = git(fixture.path(), &["log", "-1", "--format=%B", "HEAD~1"]);
+    assert_eq!(
+        edit_log.stdout_lossy().replace("\r\n", "\n").trim_end(),
+        "one\n\none body",
+        "edit 恢复后带 body 的提交信息必须逐字不变（曾出现缺失空行的事故）"
+    );
     let subjects = git(
         fixture.path(),
         &["log", "--format=%s", &format!("{base}..HEAD")],
