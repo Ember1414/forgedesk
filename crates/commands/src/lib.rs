@@ -115,9 +115,10 @@ pub use repository::{
 pub use settings::{settings_all, settings_get, settings_set};
 pub use snapshots::{
     snapshot_cleanup, snapshot_create, snapshot_diff, snapshot_estimate, snapshot_list,
-    snapshot_prune, snapshot_restore, snapshot_usage, CleanupOutcomeDto, RestoreReportDto,
-    SnapshotDiffDto, SnapshotEstimateDto, SnapshotMetaDto, SnapshotOutcomeDto, SnapshotUsageDto,
-    SnapshotWarningDto,
+    snapshot_prune, snapshot_restore, snapshot_restore_abandon, snapshot_restore_pending,
+    snapshot_usage, CleanupOutcomeDto, EmergencyGuidanceDto, PendingRestoreDto, RestoreReportDto,
+    RestoreStageDto, SnapshotDiffDto, SnapshotEstimateDto, SnapshotMetaDto, SnapshotOutcomeDto,
+    SnapshotUsageDto, SnapshotWarningDto,
 };
 pub use state::AppState;
 pub use sync::{

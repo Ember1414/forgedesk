@@ -14,10 +14,10 @@ use std::sync::Arc;
 
 use forgedesk_git_engine::engines::GitEngines;
 use forgedesk_snapshot::{
-    RefSnapshotManager, RetentionPolicy, SnapshotKind, SnapshotLimits, SnapshotManager,
-    SnapshotRequest, SnapshotWarning,
+    RefSnapshotManager, RestoreOutcomeKind, RestoreStage, RetentionPolicy, SnapshotKind,
+    SnapshotLimits, SnapshotManager, SnapshotRequest, SnapshotWarning,
 };
-use forgedesk_storage::{Database, RepositoryStore, RepositoryUpsert};
+use forgedesk_storage::{Database, RepositoryStore, RepositoryUpsert, SnapshotStore};
 
 /// 一个自动清理的临时目录。
 struct TempDir {
@@ -547,6 +547,221 @@ fn restoring_the_same_snapshot_twice_changes_nothing_the_second_time() {
         git(dir.path(), &["rev-parse", "HEAD"]),
         head_after_first,
         "第二次回滚不能移动 HEAD"
+    );
+}
+
+// ------------------------------------------------- T3.9 回滚校验与失败安全
+
+/// 带数据库句柄的管理器：崩溃恢复的测试要直接写"未完成回滚"标记。
+fn manager_and_database(dir: &Path) -> (RefSnapshotManager, i64, Arc<Database>) {
+    let database = Arc::new(Database::open_in_memory().expect("打开内存库失败"));
+    let repo_id = registered_repo(&database, dir);
+    let engines = Arc::new(GitEngines::new().expect("创建引擎失败"));
+    (
+        RefSnapshotManager::new(engines, Arc::clone(&database)),
+        repo_id,
+        database,
+    )
+}
+
+/// 执行一条恢复指引里的命令（形如 `git reset --hard <oid>`）。
+///
+/// 指引是给用户复制的，所以它必须是**纯粹可跑的命令行**；这里按空格拆开当真跑，
+/// 就是在验证这件事：包含占位符、引号或者解释性文字的命令会在这里炸掉。
+fn run_guidance_command(dir: &Path, command: &str) -> String {
+    let args: Vec<&str> = command.split_whitespace().collect();
+    assert_eq!(
+        args.first().copied(),
+        Some("git"),
+        "指引命令必须是可直接执行的 git 命令：{command}"
+    );
+    git(dir, &args[1..])
+}
+
+/// 故障注入：HEAD 阶段失败 → **自动退回保护点**，仓库不留在中间态。
+#[test]
+fn a_failure_in_the_head_stage_rolls_back_to_the_protection_point() {
+    let dir = init_repo("restore-head-failure");
+    let (manager, repo_id) = manager(dir.path());
+
+    let snapshot = manager
+        .create(&manual_request(repo_id, dir.path()))
+        .expect("创建快照失败");
+
+    // 破坏之后才是"动手之前"的样子：保护点会打在那一刻
+    destructive_operation(dir.path());
+    std::fs::write(dir.path().join("scratch.txt"), b"changed by hand\n").unwrap();
+    let before_restore = facts(dir.path());
+
+    // 注入一次 HEAD 阶段失败（真实世界里对应"写 HEAD/工作区时报错"）
+    // 只失败一次：回退到保护点这一趟是好的，于是结局是"回到动手之前"
+    manager.inject_restore_failure(RestoreStage::Head, 1);
+    let report = manager
+        .restore(repo_id, snapshot.id)
+        .expect("回滚失败也必须返回报告，而不是错误");
+
+    assert_eq!(report.outcome, RestoreOutcomeKind::RolledBack);
+    assert!(!report.verified, "没成功的回滚不能报告校验通过");
+
+    // 阶段清单要说清"失败在哪一步、为什么"
+    let failed = report
+        .stages
+        .iter()
+        .find(|stage| !stage.ok)
+        .expect("报告里必须有失败的阶段");
+    assert_eq!(failed.stage, RestoreStage::Head);
+    assert!(
+        failed
+            .detail
+            .as_deref()
+            .unwrap_or_default()
+            .contains("injected"),
+        "失败原因要保留原文：{:?}",
+        failed.detail
+    );
+    assert!(
+        report
+            .report_lines
+            .iter()
+            .any(|line| line.starts_with("head: failed")),
+        "报告行里要有那一步的结论：{:?}",
+        report.report_lines
+    );
+
+    // 没有中间态：仓库回到了保护点（= 动手之前）
+    assert_eq!(
+        report.head_oid, before_restore.1,
+        "报告里的 HEAD 应是保护点的"
+    );
+    assert_eq!(
+        facts(dir.path()),
+        before_restore,
+        "仓库必须逐项回到动手之前"
+    );
+
+    // 回滚结束后不该留下"未完成"标记（留下它意味着进程被强杀了）
+    assert!(
+        manager.pending_restore(repo_id).unwrap().is_none(),
+        "正常结束的回滚必须清掉进行中标记"
+    );
+}
+
+/// 回退也失败 → 紧急模式：给出**真的能跑**的恢复指引。
+#[test]
+fn a_failure_that_also_breaks_the_rollback_hands_over_runnable_commands() {
+    let dir = init_repo("restore-emergency");
+    let (manager, repo_id) = manager(dir.path());
+
+    let snapshot = manager
+        .create(&manual_request(repo_id, dir.path()))
+        .expect("创建快照失败");
+    destructive_operation(dir.path());
+    let before_restore = facts(dir.path());
+
+    // 让 HEAD 阶段失败**两次**：目标回滚失败，退回保护点那一趟也失败。
+    // 现实里这对应"这个仓库现在根本写不动"（权限、磁盘、被外部进程占着）
+    manager.inject_restore_failure(RestoreStage::Head, 2);
+
+    let report = manager
+        .restore(repo_id, snapshot.id)
+        .expect("回滚失败也必须返回报告");
+
+    assert_eq!(report.outcome, RestoreOutcomeKind::Emergency);
+    assert!(!report.verified);
+    let guidance = report.emergency.as_ref().expect("紧急模式必须给出恢复指引");
+    assert_eq!(
+        guidance.snapshot_id, snapshot.id,
+        "指引要点出用户原本想回到的那份快照"
+    );
+    assert_ne!(
+        guidance.target_snapshot_id, snapshot.id,
+        "指引的目标是保护点（动手之前），不是那份恢复不动的快照"
+    );
+    assert!(
+        !guidance.notes.is_empty(),
+        "指引必须带上说明（这些命令做什么、做完之后怎么办）"
+    );
+    let stage = report.stages.iter().find(|s| !s.ok).expect("应有失败阶段");
+    assert_eq!(stage.stage, RestoreStage::Head);
+
+    // 指引必须真的能跑：逐条执行，仓库应回到目标状态
+    for command in &guidance.commands {
+        run_guidance_command(dir.path(), command);
+    }
+
+    let after = facts(dir.path());
+    assert_eq!(after.1, before_restore.1, "执行指引后 HEAD 应回到目标点");
+    assert_eq!(after.0, before_restore.0, "执行指引后工作区应回到目标点");
+    // 仓库仍然可用（能读能写）：这才是"指引有效"的最终判据
+    git(dir.path(), &["status", "--porcelain=v2"]);
+    assert!(
+        manager.pending_restore(repo_id).unwrap().is_none(),
+        "给出指引之后不该再留着未完成标记"
+    );
+}
+
+/// 崩溃恢复：未完成的回滚会被报出来，且可以被"放弃"。
+#[test]
+fn an_unfinished_restore_is_reported_and_can_be_abandoned() {
+    let dir = init_repo("restore-pending");
+    let (manager, repo_id, database) = manager_and_database(dir.path());
+    let snapshot = manager
+        .create(&manual_request(repo_id, dir.path()))
+        .expect("创建快照失败");
+
+    // 干净时没有待处理的回滚
+    assert!(manager.pending_restore(repo_id).unwrap().is_none());
+
+    // 模拟"应用在回滚中途被杀"：进程被强杀时留下的正是这个形状
+    SnapshotStore::new(&database)
+        .set_restore_progress(
+            snapshot.id,
+            true,
+            Some(RestoreStage::Index.key()),
+            Some(1_700),
+        )
+        .expect("写标记失败");
+
+    let pending = manager
+        .pending_restore(repo_id)
+        .expect("查询失败")
+        .expect("应报告未完成的回滚");
+    assert_eq!(pending.snapshot_id, snapshot.id);
+    assert_eq!(pending.stage, Some(RestoreStage::Index));
+    assert_eq!(pending.started_at_ms, Some(1_700));
+
+    // 用户选择"放弃"：标记被清掉（不回退任何东西——界面已经把事实摆给他了）
+    assert_eq!(manager.abandon_restore(repo_id).expect("清除失败"), 1);
+    assert!(manager.pending_restore(repo_id).unwrap().is_none());
+}
+
+/// 幂等（T3.9 的加强版断言）：第二次回滚后**指纹**逐项不变。
+#[test]
+fn a_second_restore_leaves_the_fingerprint_unchanged() {
+    let dir = init_repo("restore-fingerprint");
+    let backup_root = TempDir::new("restore-fingerprint-store");
+    let (manager, repo_id) =
+        manager_with_backup(dir.path(), backup_root.path(), SnapshotLimits::default());
+
+    let snapshot = manager
+        .create(&manual_request(repo_id, dir.path()))
+        .expect("创建快照失败");
+    git(dir.path(), &["reset", "--hard", "HEAD"]);
+    git(dir.path(), &["clean", "-fdx"]);
+
+    let first = manager.restore(repo_id, snapshot.id).expect("回滚失败");
+    assert_eq!(first.outcome, RestoreOutcomeKind::Completed);
+    let after_first = manager.fingerprint(repo_id).expect("捕获指纹失败");
+
+    let second = manager
+        .restore(repo_id, snapshot.id)
+        .expect("第二次回滚失败");
+    assert_eq!(second.outcome, RestoreOutcomeKind::Completed);
+    let after_second = manager.fingerprint(repo_id).expect("捕获指纹失败");
+
+    assert!(
+        after_first.identical_to(&after_second),
+        "第二次回滚不该改变任何一项：{after_first:?} vs {after_second:?}"
     );
 }
 

@@ -89,6 +89,8 @@ pub mod op_type {
     pub const SNAPSHOT_CREATE: &str = "snapshot_create";
     /// 手动清理快照缓存（T3.8：孤儿目录 + 总占用回收）。
     pub const SNAPSHOT_CLEANUP: &str = "snapshot_cleanup";
+    /// 放弃未完成的回滚标记（T3.9：崩溃恢复的"放弃"出口）。
+    pub const SNAPSHOT_RESTORE_ABANDON: &str = "snapshot_restore_abandon";
     /// 储藏当前改动（T2.8）。
     pub const STASH_SAVE: &str = "stash_save";
     /// 应用储藏（`apply` 与 `pop` 都算：用户看的是"把改动拿回来"）。

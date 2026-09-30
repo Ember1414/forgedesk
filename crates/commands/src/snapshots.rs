@@ -83,6 +83,56 @@ pub struct RestoreReportDto {
     pub untracked_extra: Vec<String>,
     /// 恢复后的完整校验是否通过（HEAD / 索引 / 备份内容逐字节）。
     pub verified: bool,
+    /// 本次回滚的结局（T3.9）：`completed` / `rolledBack` / `emergency`。
+    pub outcome: String,
+    /// 各阶段的结果（按执行顺序）——界面据此展示"哪一步成了、哪一步没成"。
+    pub stages: Vec<RestoreStageDto>,
+    /// 人话报告行（与日志同源）。
+    pub report_lines: Vec<String>,
+    /// 紧急模式的恢复指引；仅 `emergency` 时出现。
+    pub emergency: Option<EmergencyGuidanceDto>,
+}
+
+/// 回滚的一个阶段。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RestoreStageDto {
+    /// 阶段短名（`protection` / `head` / `index` / `untracked` / `verify`）。
+    pub stage: String,
+    /// 是否成功。
+    pub ok: bool,
+    /// 失败原因（人话）；成功为 `null`。
+    pub detail: Option<String>,
+    /// 该阶段耗时（毫秒）。
+    pub duration_ms: i64,
+}
+
+/// 紧急模式的恢复指引（可复制、可执行的 git 命令）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EmergencyGuidanceDto {
+    /// 用户原本想回到的快照。
+    pub snapshot_id: SnapshotId,
+    /// 指引命令的目标（通常是回滚前保护点）。
+    pub target_snapshot_id: SnapshotId,
+    /// 目标快照的内容备份目录（可能已被清理）。
+    pub backup_dir: Option<String>,
+    /// 按顺序执行的 git 命令。
+    pub commands: Vec<String>,
+    /// 说明（这些命令做什么、做完之后怎么办）。
+    pub notes: Vec<String>,
+}
+
+/// 未完成的回滚（崩溃恢复）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PendingRestoreDto {
+    /// 当时正在回滚的快照。
+    pub snapshot_id: SnapshotId,
+    /// 停在哪一个阶段（认不出时为 `null`）。
+    pub stage: Option<String>,
+    /// 开始时间（Unix 毫秒）。
+    pub started_at_ms: Option<i64>,
 }
 
 /// 快照与当前状态的差异摘要。
@@ -277,7 +327,18 @@ pub fn snapshot_restore(
     let report = match result {
         Ok(report) => {
             if let Some(operation) = operation {
-                operation.finish(&Ok::<(), AppError>(()), report.pre_restore_snapshot_id);
+                if report.outcome.is_success() {
+                    operation.finish(&Ok::<(), AppError>(()), report.pre_restore_snapshot_id);
+                } else {
+                    // 回滚没成功（已退回保护点 / 需要人工恢复）：审计里必须记成失败。
+                    // 记成成功会让"操作历史"把一次没达成的回滚说成成功——
+                    // 而这份历史正是用户判断"我的仓库现在安不安全"的依据
+                    let error = snapshot_error(SnapshotError::RestoreFailed(format!(
+                        "restore ended with {}",
+                        report.outcome.key()
+                    )));
+                    operation.finish::<()>(&Err(error), report.pre_restore_snapshot_id);
+                }
             }
             report
         }
@@ -402,6 +463,49 @@ pub fn snapshot_estimate(
         .map(to_estimate_dto)
 }
 
+/// 未完成的回滚（T3.9 崩溃恢复）。能力等级：`ReadOnly`。
+///
+/// 宿主启动或打开仓库时查询：有值 = 上一次回滚**没走完**（应用被强杀），
+/// 界面据此提示"继续 / 查看详情 / 放弃"——继续就是再调一次
+/// [`snapshot_restore`]（幂等），详情看快照 ID 与停在哪一步。
+#[tauri::command]
+pub fn snapshot_restore_pending(
+    state: State<'_, AppState>,
+    repo_id: i64,
+) -> AppResult<Option<PendingRestoreDto>> {
+    ensure_repo_id(repo_id)?;
+    state
+        .snapshots
+        .pending_restore(repo_id)
+        .map_err(snapshot_error)
+        .map(|pending| {
+            pending.map(|item| PendingRestoreDto {
+                snapshot_id: item.snapshot_id,
+                stage: item.stage.map(|stage| stage.key().to_owned()),
+                started_at_ms: item.started_at_ms,
+            })
+        })
+}
+
+/// 放弃未完成的回滚标记（用户选择"放弃"）。能力等级：`Mutating`；记审计。
+///
+/// **不回退任何东西**：它只把"上次没走完"标记为已处理。用户之所以敢选它，
+/// 是因为界面已经把当时的快照 ID 与停在哪一步摆在他面前了。
+#[tauri::command]
+pub fn snapshot_restore_abandon(state: State<'_, AppState>, repo_id: i64) -> AppResult<usize> {
+    ensure_repo_id(repo_id)?;
+    crate::audit::record(
+        &state,
+        AuditEntry::new(repo_id, op_type::SNAPSHOT_RESTORE_ABANDON),
+        || {
+            state
+                .snapshots
+                .abandon_restore(repo_id)
+                .map_err(snapshot_error)
+        },
+    )
+}
+
 /// 立即清理快照缓存（孤儿目录 + 保留策略 + 总占用回收）。能力等级：`Mutating`。
 ///
 /// 与 `snapshot_prune` 的区别：prune 只按保留策略（条数 / 天数）走，
@@ -476,6 +580,28 @@ fn to_report_dto(report: &RestoreReport) -> RestoreReportDto {
         untracked_failed: report.untracked_failed.clone(),
         untracked_extra: report.untracked_extra.clone(),
         verified: report.verified,
+        outcome: report.outcome.key().to_owned(),
+        stages: report
+            .stages
+            .iter()
+            .map(|stage| RestoreStageDto {
+                stage: stage.stage.key().to_owned(),
+                ok: stage.ok,
+                detail: stage.detail.clone(),
+                duration_ms: stage.duration_ms,
+            })
+            .collect(),
+        report_lines: report.report_lines.clone(),
+        emergency: report
+            .emergency
+            .as_ref()
+            .map(|guidance| EmergencyGuidanceDto {
+                snapshot_id: guidance.snapshot_id,
+                target_snapshot_id: guidance.target_snapshot_id,
+                backup_dir: guidance.backup_dir.clone(),
+                commands: guidance.commands.clone(),
+                notes: guidance.notes.clone(),
+            }),
     }
 }
 

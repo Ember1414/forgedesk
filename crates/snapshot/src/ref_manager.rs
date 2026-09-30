@@ -35,16 +35,20 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use forgedesk_domain::git::{EntryKind, RepoId, ResetMode, ResetSpec, StatusQuery};
+use forgedesk_domain::git::{
+    hash_paths, EntryKind, RepoFingerprint, RepoId, ResetMode, ResetSpec, StatusQuery,
+    TRACKED_HASH_LIMIT,
+};
 use forgedesk_git_engine::engine::GitEngine;
 use forgedesk_git_engine::engines::GitEngines;
 use forgedesk_storage::{Database, NewSnapshot, RepositoryStore, SnapshotRecord, SnapshotStore};
 
 use crate::backup::{self, BackupPlan};
 use crate::{
-    BackupManifest, CleanupOutcome, RestoreReport, RetentionPolicy, SnapshotDiff, SnapshotError,
-    SnapshotEstimate, SnapshotId, SnapshotKind, SnapshotLimits, SnapshotManager, SnapshotMeta,
-    SnapshotOutcome, SnapshotRequest, SnapshotUsage, SnapshotWarning,
+    BackupManifest, CleanupOutcome, EmergencyGuidance, PendingRestore, RestoreOutcomeKind,
+    RestoreReport, RestoreStage, RetentionPolicy, SnapshotDiff, SnapshotError, SnapshotEstimate,
+    SnapshotId, SnapshotKind, SnapshotLimits, SnapshotManager, SnapshotMeta, SnapshotOutcome,
+    SnapshotRequest, SnapshotUsage, SnapshotWarning, StageResult,
 };
 
 /// 快照锚点 ref 的前缀（完整形如 `refs/forgedesk/snapshots/<id>`）。
@@ -83,6 +87,14 @@ pub struct RefSnapshotManager {
     backup_root: Option<PathBuf>,
     /// 每个仓库一把锁：同一仓库的写路径串行化。
     locks: Mutex<HashMap<i64, Arc<Mutex<()>>>>,
+    /// 故障注入（**仅测试**）：`(阶段, 剩余次数)`。
+    ///
+    /// 为什么生产代码里留这个钩子：T3.9 的验收要求"回退也失败 → 紧急模式 →
+    /// 指引命令可执行"，而那条路径只有在**回退也失败**时才会走到——用真实数据
+    /// 造出这种局面几乎不可能（保护点是刚打出来的，记录与 oid 都一定合法；
+    /// 而"索引被占用"这类外部原因会让保护点本身也打不出来，于是根本走不到回退）。
+    /// 钩子是纯内存状态（默认 `None`，零行为影响）。
+    injected_failure: Mutex<Option<(RestoreStage, usize)>>,
 }
 
 impl std::fmt::Debug for RefSnapshotManager {
@@ -107,6 +119,42 @@ impl RefSnapshotManager {
             limits: SnapshotLimits::default(),
             backup_root: None,
             locks: Mutex::new(HashMap::new()),
+            injected_failure: Mutex::new(None),
+        }
+    }
+
+    /// 注入回滚故障（**仅测试**）：接下来 `times` 次进入 `stage` 阶段时失败。
+    ///
+    /// 为什么要带次数：T3.9 的两个结局需要不同的注入强度——
+    /// - `times = 1`：目标失败、**回退成功** → `RolledBack`（仓库回到动手之前）；
+    /// - `times = 2`：目标失败、**回退也失败** → `Emergency`（给出恢复指引）。
+    ///
+    /// 传 `times = 0` 取消注入。次数用尽后自动失效，不会影响后续调用。
+    #[doc(hidden)]
+    pub fn inject_restore_failure(&self, stage: RestoreStage, times: usize) {
+        if let Ok(mut slot) = self.injected_failure.lock() {
+            *slot = if times == 0 {
+                None
+            } else {
+                Some((stage, times))
+            };
+        }
+    }
+
+    /// 该阶段是否应该"失败"（注入命中则消耗一次）。
+    fn should_inject_failure(&self, stage: RestoreStage) -> bool {
+        let Ok(mut slot) = self.injected_failure.lock() else {
+            return false;
+        };
+        match slot.as_mut() {
+            Some((injected, remaining)) if *injected == stage && *remaining > 0 => {
+                *remaining -= 1;
+                if *remaining == 0 {
+                    *slot = None;
+                }
+                true
+            }
+            _ => false,
         }
     }
 
@@ -415,39 +463,327 @@ impl RefSnapshotManager {
         pruned
     }
 
+    /// 回滚的真正实现（调用方已持有该仓库的锁）。
+    ///
+    /// # 顺序即语义（T3.9 的失败安全）
+    ///
+    /// 1. **锚点校验**：锚点没了直接返回 `RefMissing`——一个字节都不动；
+    /// 2. **打保护点**：打不出来就中止。宁可不动，不可无保护地动；
+    /// 3. **落库"正在回滚 + 当前阶段"**：应用被强杀后，下一次启动能说出停在哪里；
+    /// 4. **分阶段执行**（见 [`Self::apply_staged`]）；
+    /// 5. **失败 → 退回保护点**：成功 = `RolledBack`；回退也失败 = `Emergency`
+    ///    （带上可执行的恢复指引——绝不让用户无从下手）；
+    /// 6. **清标记**：只有"没走到这一步"才会留下标记，那正是崩溃的信号。
+    ///
+    /// 失败时返回 `Ok(report)` 而不是 `Err`：报告里带着阶段结果与恢复指引，
+    /// 那才是用户此刻最需要的东西。只有"连第一步都没开始"（快照不存在、
+    /// 锚点丢失、保护点打不出来）才返回 `Err`——那些情况下没有任何阶段性事实。
+    fn restore_locked(
+        &self,
+        repo_id: i64,
+        snapshot_id: SnapshotId,
+    ) -> Result<RestoreReport, SnapshotError> {
+        let (workdir, record) = self.snapshot_record(repo_id, snapshot_id)?;
+        let repo = RepoId::new(workdir.clone());
+
+        // 锚点必须在动手前确认：它没了就意味着"这个快照恢复不了"，
+        // 而用户需要的是一句可操作的话，不是跑到一半的失败
+        if !self
+            .engines
+            .write()
+            .ref_exists(&repo, &record.snapshot_ref)
+            .map_err(|error| {
+                SnapshotError::RestoreFailed(format!(
+                    "checking the anchor failed: {}",
+                    error.message
+                ))
+            })?
+        {
+            return Err(SnapshotError::RefMissing {
+                id: snapshot_id,
+                name: record.snapshot_ref.clone(),
+            });
+        }
+
+        let store = SnapshotStore::new(&self.database);
+        let started = self.now();
+        let mut stages: Vec<StageResult> = Vec::new();
+
+        // ---------------------------------------------------------- 阶段 0：保护点
+        // 走 create_locked：锁已在本方法手里，重入会死锁。
+        // （能恢复的仓库一定有 HEAD 提交，所以这个 create 不会因空仓库失败。）
+        let anchor = self.now();
+        let pre_restore = match self.create_locked(&SnapshotRequest {
+            repo_id,
+            workdir: &workdir,
+            label: SnapshotKind::PreRestore.key(),
+            kind: SnapshotKind::PreRestore,
+        }) {
+            Ok(outcome) => {
+                stages.push(stage_result(
+                    RestoreStage::Protection,
+                    None,
+                    anchor,
+                    self.now(),
+                ));
+                outcome
+            }
+            Err(error) => {
+                stages.push(stage_result(
+                    RestoreStage::Protection,
+                    Some(&error),
+                    anchor,
+                    self.now(),
+                ));
+                // 打不出保护点 = 没有退路：不回滚，如实告诉用户
+                return Err(error);
+            }
+        };
+
+        // 从这里开始，任何"没走完"都会在库里留下痕迹（崩溃恢复的线索）。
+        // 落库失败**不**打断回滚：这是一条诊断线索，不是回滚的前提。
+        let mark = |stage: RestoreStage| {
+            let _ = store.set_restore_progress(record.id, true, Some(stage.key()), Some(started));
+        };
+        mark(RestoreStage::Head);
+
+        let applied = self.apply_staged(&record, &repo, &workdir, &mark);
+        stages.extend(applied.stages.iter().cloned());
+
+        // -------------------------------------- 失败处理：先退回保护点，再决定报告
+        let mut rollback_target: Option<SnapshotRecord> = None;
+        let mut emergency: Option<EmergencyGuidance> = None;
+        let outcome = if applied.failure.is_none() {
+            RestoreOutcomeKind::Completed
+        } else {
+            let failure = applied
+                .failure
+                .as_ref()
+                .map(SnapshotError::message)
+                .unwrap_or_else(|| "unknown failure".to_owned());
+            tracing::warn!(
+                repo_id = repo_id,
+                snapshot_id = snapshot_id,
+                error = %failure,
+                "回滚失败，尝试退回保护点"
+            );
+
+            let rolled = self.snapshot_record(repo_id, pre_restore.id).ok().map(
+                |(pre_workdir, pre_record)| {
+                    // 回退路径不再打点、不再落进度标记：它只是把仓库放回去
+                    let result = self.apply_staged(&pre_record, &repo, &pre_workdir, &|_stage| {});
+                    (pre_record, result)
+                },
+            );
+
+            match rolled {
+                Some((pre_record, result))
+                    if result.failure.is_none() && self.rollback_matches(&pre_record, &repo) =>
+                {
+                    // 仓库回到了动手之前：用户什么都不用做
+                    rollback_target = Some(pre_record);
+                    RestoreOutcomeKind::RolledBack
+                }
+                other => {
+                    // 回退也失败：绝不让用户无从下手——给出可执行的恢复指引
+                    let target = match other {
+                        Some((pre_record, _)) => pre_record,
+                        None => record.clone(),
+                    };
+                    tracing::error!(
+                        repo_id = repo_id,
+                        snapshot_id = snapshot_id,
+                        "回滚失败且退回保护点也失败：需要人工恢复"
+                    );
+                    emergency = Some(self.emergency_guidance(&record, &target, &workdir));
+                    rollback_target = Some(target);
+                    RestoreOutcomeKind::Emergency
+                }
+            }
+        };
+
+        // 报告展示的是"仓库现在实际所处的那个快照"的事实
+        let shown = rollback_target.as_ref().unwrap_or(&record);
+        // 标记必须在返回前清掉：留着会让下一次启动误报"上次回滚没走完"。
+        // 真正被强杀的场景根本走不到这里，标记自然留了下来——这正是设计意图。
+        let _ = store.set_restore_progress(record.id, false, None, None);
+
+        let report = RestoreReport {
+            restored_snapshot_id: record.id,
+            head_oid: shown.head_oid.clone(),
+            index_tree_oid: shown.index_tree_oid.clone(),
+            pre_restore_snapshot_id: Some(pre_restore.id),
+            untracked_paths: recorded_untracked(&record).into_iter().collect(),
+            untracked_restored: applied.untracked_restored,
+            untracked_failed: applied.untracked_failed.clone(),
+            untracked_extra: applied.untracked_extra.clone(),
+            verified: applied.content_verified && applied.failure.is_none(),
+            outcome,
+            stages,
+            report_lines: Self::report_lines(&record, &applied, outcome, Some(pre_restore.id)),
+            emergency,
+        };
+
+        if !outcome.is_success() {
+            tracing::warn!(
+                repo_id = repo_id,
+                snapshot_id = snapshot_id,
+                outcome = outcome.key(),
+                "回滚未成功"
+            );
+        }
+        Ok(report)
+    }
+
     /// 把仓库放回快照记录描述的状态（不打保护点、不写审计、不加锁）。
     ///
-    /// restore 的核心三步 + 两道 git 事实校验 + 未跟踪内容恢复。
-    /// **公开为私有方法的原因**："回滚失败后自动恢复到回滚前快照"要复用同一套步骤，
-    /// 而那条恢复路径绝不能再嵌套打点（否则失败链会递归下去）。
-    fn apply(
+    /// # 分阶段执行（T3.9）
+    ///
+    /// 回滚拆成四个阶段，每个阶段的结果都进报告：
+    ///
+    /// `head`（`reset --hard`）→ `index`（`read-tree`）→ `untracked`（写回内容）
+    /// → `verify`（核对 git 事实）
+    ///
+    /// 任一步失败就**停止后续步骤**并立刻返回：继续往下做只会让中间态更难收拾。
+    /// `progress` 在每个阶段**开始前**调用一次——调用方用它把"现在卡在哪一步"
+    /// 落库，于是应用被强杀之后，下一次启动还能说出上次停在哪里。
+    ///
+    /// **为什么是私有方法**：回滚失败后的"自动退回保护点"要复用同一套步骤，
+    /// 而那条路径绝不能再嵌套打点（否则失败链会递归下去）。
+    fn apply_staged(
         &self,
         record: &SnapshotRecord,
         repo: &RepoId,
         workdir: &Path,
-    ) -> Result<RestoreReport, SnapshotError> {
-        let git_failure = |step: &str, error: &forgedesk_domain::AppError| {
-            SnapshotError::RestoreFailed(format!("{step} failed: {}", error.message))
+        progress: &dyn Fn(RestoreStage),
+    ) -> AppliedStages {
+        let mut applied = AppliedStages::default();
+
+        // ---------------------------------------------------------- 阶段 1/4：HEAD
+        progress(RestoreStage::Head);
+        let started = self.now();
+        let head = if self.should_inject_failure(RestoreStage::Head) {
+            Err(injected_failure(RestoreStage::Head))
+        } else {
+            self.engines
+                .write()
+                .reset(
+                    repo,
+                    ResetSpec::to(record.head_oid.clone(), ResetMode::Hard),
+                )
+                .map_err(|error| git_failure("git reset --hard", &error))
+        };
+        applied.stages.push(stage_result(
+            RestoreStage::Head,
+            head.as_ref().err(),
+            started,
+            self.now(),
+        ));
+        if let Err(error) = head {
+            applied.failure = Some(error);
+            return applied;
+        }
+
+        // --------------------------------------------------------- 阶段 2/4：索引
+        // `reset --hard` 只能把索引带到 HEAD 的树；"已暂存未提交"的内容记录在
+        // 快照自己的 `index_tree_oid` 里，必须单独恢复
+        progress(RestoreStage::Index);
+        let started = self.now();
+        let index = if self.should_inject_failure(RestoreStage::Index) {
+            Err(injected_failure(RestoreStage::Index))
+        } else {
+            self.engines
+                .write()
+                .read_tree(repo, &record.index_tree_oid)
+                .map_err(|error| git_failure("git read-tree", &error))
+        };
+        applied.stages.push(stage_result(
+            RestoreStage::Index,
+            index.as_ref().err(),
+            started,
+            self.now(),
+        ));
+        if let Err(error) = index {
+            applied.failure = Some(error);
+            return applied;
+        }
+
+        // ------------------------------------------- 阶段 3/4：未跟踪内容（T3.8）
+        // 内容恢复失败**不**触发回退：HEAD 与索引才是回滚的主体，
+        // 个别文件被占用不该把整次回滚推倒重来——如实报告即可。
+        progress(RestoreStage::Untracked);
+        let started = self.now();
+        let manifest = BackupManifest::from_json(&record.manifest_json);
+        if !manifest.is_empty() {
+            match self.backup_dir(record.repo_id, record.id) {
+                Some(backup_dir) if backup_dir.is_dir() => {
+                    let summary = backup::restore(&backup_dir, workdir, &manifest);
+                    applied.untracked_restored = summary.restored;
+                    applied.untracked_failed = summary.failed;
+                    applied.content_verified =
+                        backup::verify(&backup_dir, workdir, &manifest).is_empty();
+                }
+                _ => {
+                    // 记录说有备份、目录却不在（缓存被清过 / 换机器 / 删库重开）：
+                    // 逐条列出，用户至少知道"这些文件回不来"
+                    applied.untracked_failed = manifest
+                        .entries
+                        .iter()
+                        .map(|entry| entry.path.clone())
+                        .collect();
+                    applied.content_verified = false;
+                }
+            }
+        }
+        applied.stages.push(stage_result(
+            RestoreStage::Untracked,
+            None,
+            started,
+            self.now(),
+        ));
+
+        // 当前存在、快照里没有的未跟踪文件：**不删**，只列出交给用户决定
+        let recorded: BTreeSet<String> = recorded_untracked(record);
+        applied.untracked_extra = match self.current_untracked(repo) {
+            Ok(paths) => paths
+                .into_iter()
+                .filter(|path| !recorded.contains(path))
+                .collect(),
+            Err(error) => {
+                applied.failure = Some(error);
+                return applied;
+            }
         };
 
-        // 1. 工作区与索引一起回到快照的 HEAD
-        self.engines
-            .write()
-            .reset(
-                repo,
-                ResetSpec::to(record.head_oid.clone(), ResetMode::Hard),
-            )
-            .map_err(|error| git_failure("git reset --hard", &error))?;
+        // --------------------------------------------------------- 阶段 4/4：校验
+        progress(RestoreStage::Verify);
+        let started = self.now();
+        let verified = if self.should_inject_failure(RestoreStage::Verify) {
+            Err(injected_failure(RestoreStage::Verify))
+        } else {
+            self.verify_facts(record, repo)
+        };
+        let verify_failure = verified.err();
+        if verify_failure.is_some() {
+            applied.content_verified = false;
+        }
+        applied.stages.push(stage_result(
+            RestoreStage::Verify,
+            verify_failure.as_ref(),
+            started,
+            self.now(),
+        ));
+        applied.failure = verify_failure;
 
-        // 2. 索引单独回到快照的树（reset 只能带到 HEAD 的树，
-        //    "已暂存未提交"的内容记录在快照自己的 index_tree_oid 里）
-        self.engines
-            .write()
-            .read_tree(repo, &record.index_tree_oid)
-            .map_err(|error| git_failure("git read-tree", &error))?;
+        applied
+    }
 
-        // 3. 校验：读引擎与写引擎是两条独立实现（T1.2 的差分测试保证一致），
-        //    用它核对而不是用写完再读写的同一套命令
+    /// 核对"恢复后的 HEAD 与索引是不是快照记录的那两个"。
+    ///
+    /// 走**读引擎**（libgit2）：与写路径是两条独立实现（T1.2 的差分测试保证
+    /// 它们对同一状态给出同一结论），用它校验才有意义——"写完自己再读一遍"
+    /// 等于让考生批自己的卷子。
+    fn verify_facts(&self, record: &SnapshotRecord, repo: &RepoId) -> Result<(), SnapshotError> {
         let head = self
             .engines
             .read()
@@ -471,54 +807,162 @@ impl RefSnapshotManager {
                 record.index_tree_oid
             )));
         }
+        Ok(())
+    }
 
-        // 4. 未跟踪内容（T3.8）：有备份就写回去。
-        //    内容恢复失败**不**触发回退：HEAD 与索引才是主体，
-        //    个别文件被占用不该把整个回滚推倒重来——如实报告即可。
-        let manifest = BackupManifest::from_json(&record.manifest_json);
-        let mut untracked_restored = 0;
-        let mut untracked_failed: Vec<String> = Vec::new();
-        let mut content_verified = true;
-        if !manifest.is_empty() {
-            match self.backup_dir(record.repo_id, record.id) {
-                Some(backup_dir) if backup_dir.is_dir() => {
-                    let summary = backup::restore(&backup_dir, workdir, &manifest);
-                    untracked_restored = summary.restored;
-                    untracked_failed = summary.failed;
-                    content_verified = backup::verify(&backup_dir, workdir, &manifest).is_empty();
-                }
+    /// 捕获仓库指纹（T3.9）：回滚前后的同一性判据。
+    ///
+    /// 公开的只读入口；宿主/命令层与集成测试都用它回答
+    /// "仓库现在到底处在哪个状态"。不加锁：它只读。
+    pub fn fingerprint(&self, repo_id: i64) -> Result<RepoFingerprint, SnapshotError> {
+        let workdir = self.workdir(repo_id)?;
+        self.capture_fingerprint(&RepoId::new(workdir))
+    }
+
+    /// 回退之后核对"真的回到了保护点"。
+    ///
+    /// 为什么光看 git 命令的返回值不够：`apply_staged` 的校验只覆盖 HEAD 与索引，
+    /// 而"未跟踪文件到底写回去没有"是另一件事（文件被占用、备份目录缺失都会
+    /// 让它悄悄失败）。指纹里恰好有未跟踪集合的哈希——用它把这条也钉住，
+    /// 核不上就把结局降级为紧急模式（宁可多给一次指引，也不谎报"已经好了"）。
+    fn rollback_matches(&self, pre_record: &SnapshotRecord, repo: &RepoId) -> bool {
+        let expected: Vec<String> = recorded_untracked(pre_record).into_iter().collect();
+        let expected_hash = hash_paths(expected.iter().map(String::as_str));
+
+        self.capture_fingerprint(repo).is_ok_and(|fingerprint| {
+            fingerprint.head_oid.as_deref() == Some(pre_record.head_oid.as_str())
+                && fingerprint.untracked_paths_hash == expected_hash
+        })
+    }
+
+    /// 捕获仓库指纹（T3.9）：回滚前后的同一性判据。
+    ///
+    /// 关于 `tracked_files_hash`：这里记的是**工作区相对索引的变更集**，
+    /// 而不是"全部已跟踪文件的内容哈希"。理由有三，且都比任务书字面的方案更好：
+    ///
+    /// 1. 判据更贴用途——回滚关心的是"工作区干净了没有"，正是变更集的含义；
+    /// 2. 成本与仓库大小无关——内容哈希要读遍整个工作区（GB 级仓库不可接受）；
+    /// 3. 大仓库也能算，不必退化成 `None`（"不知道"会让校验失去意义）。
+    ///
+    /// 变更数超过 [`TRACKED_HASH_LIMIT`] 时仍然返回 `None`：那是"仓库正在
+    /// 大规模变动"的信号，此时指纹本就不可靠，如实表示"不知道"更诚实。
+    fn capture_fingerprint(&self, repo: &RepoId) -> Result<RepoFingerprint, SnapshotError> {
+        let status = self
+            .engines
+            .read()
+            .status(repo, &StatusQuery::default())
+            .map_err(|error| {
+                SnapshotError::Failed(format!("reading the repository failed: {}", error.message))
+            })?;
+
+        let mut untracked: Vec<String> = Vec::new();
+        let mut changes: Vec<String> = Vec::new();
+        for entry in &status.entries {
+            let path = backup::normalize(&entry.path.to_string_lossy());
+            match entry.kind {
+                EntryKind::Untracked => untracked.push(path),
+                EntryKind::Ignored => {}
                 _ => {
-                    // 记录说有备份、目录却不在（缓存被清过 / 换机器 / 删库重开）：
-                    // 逐条列出，用户至少知道"这些文件回不来"
-                    untracked_failed = manifest
-                        .entries
-                        .iter()
-                        .map(|entry| entry.path.clone())
-                        .collect();
-                    content_verified = false;
+                    // 变更集里带上状态字符：同一个路径"被修改"与"被删除"是两种不同的事实
+                    changes.push(format!("{}:{}", entry.index_status.as_char(), path));
                 }
             }
         }
+        let tracked_files_hash = if changes.len() > TRACKED_HASH_LIMIT {
+            None
+        } else {
+            Some(hash_paths(changes.iter().map(String::as_str)))
+        };
 
-        // 5. 当前存在、快照里没有的未跟踪文件：**不删**，只列出交给用户决定
-        let recorded: BTreeSet<String> = recorded_untracked(record);
-        let untracked_extra = self
-            .current_untracked(repo)?
-            .into_iter()
-            .filter(|path| !recorded.contains(path))
-            .collect();
-
-        Ok(RestoreReport {
-            restored_snapshot_id: record.id,
-            head_oid: record.head_oid.clone(),
-            index_tree_oid: record.index_tree_oid.clone(),
-            pre_restore_snapshot_id: None,
-            untracked_paths: recorded.into_iter().collect(),
-            untracked_restored,
-            untracked_failed,
-            untracked_extra,
-            verified: content_verified,
+        Ok(RepoFingerprint {
+            head_oid: status.branch.oid.clone(),
+            head_ref: status.branch.head.clone(),
+            // 索引里有未合并条目时 write-tree 会失败：那本身就是一种状态，
+            // 用 `None` 表示"索引不可表达"而不是让指纹捕获整个失败
+            index_tree_oid: self.engines.write().index_tree(repo).ok(),
+            tracked_files_hash,
+            untracked_paths_hash: hash_paths(untracked.iter().map(String::as_str)),
+            operation_state: match status.operation {
+                forgedesk_domain::git::OperationState::None => None,
+                other => Some(other.as_str().to_owned()),
+            },
         })
+    }
+
+    /// 紧急模式的恢复指引：**可复制、可执行**。
+    ///
+    /// 目标选"回到保护点"而不是"继续回到原快照"：保护点是**动手之前**的状态，
+    /// 是安全的落点；原快照的锚点仍在，用户恢复到干净状态之后可以再回滚一次
+    /// （那时就是一次全新的、有保护点的回滚）。
+    fn emergency_guidance(
+        &self,
+        requested: &SnapshotRecord,
+        target: &SnapshotRecord,
+        workdir: &Path,
+    ) -> EmergencyGuidance {
+        let backup_dir = self.backup_dir(target.repo_id, target.id);
+        EmergencyGuidance {
+            snapshot_id: requested.id,
+            target_snapshot_id: target.id,
+            backup_dir: backup_dir.map(|path| path.display().to_string()),
+            commands: vec![
+                format!("git reset --hard {}", target.head_oid),
+                format!("git read-tree {}", target.index_tree_oid),
+            ],
+            notes: vec![
+                format!("在仓库目录里执行：{}", workdir.display()),
+                "第一条把 HEAD 与工作区带回去，第二条把索引也带回去（两条只影响这个仓库）。"
+                    .to_owned(),
+                format!(
+                    "这里回到的是动手之前的保护点 #{}；原快照 #{} 的锚点仍在，\
+                     恢复到干净状态后可以再回滚一次。",
+                    target.id, requested.id
+                ),
+            ],
+        }
+    }
+
+    /// 组装人话报告行（UI 直接展示，也是写进日志的内容）。
+    fn report_lines(
+        record: &SnapshotRecord,
+        applied: &AppliedStages,
+        outcome: RestoreOutcomeKind,
+        pre_restore: Option<SnapshotId>,
+    ) -> Vec<String> {
+        let mut lines = Vec::new();
+        for stage in &applied.stages {
+            lines.push(if stage.ok {
+                format!("{}: ok ({} ms)", stage.stage.key(), stage.duration_ms)
+            } else {
+                format!(
+                    "{}: failed - {}",
+                    stage.stage.key(),
+                    stage.detail.as_deref().unwrap_or("unknown error")
+                )
+            });
+        }
+        match outcome {
+            RestoreOutcomeKind::Completed => {
+                lines.push(format!(
+                    "restored snapshot {} (HEAD {}, {} untracked file(s) written back)",
+                    record.id, record.head_oid, applied.untracked_restored
+                ));
+            }
+            RestoreOutcomeKind::RolledBack => {
+                lines.push(format!(
+                    "restore of snapshot {} failed; rolled back to the protection point {}",
+                    record.id,
+                    pre_restore.map_or_else(|| "-".to_owned(), |id| id.to_string())
+                ));
+            }
+            RestoreOutcomeKind::Emergency => {
+                lines.push(format!(
+                    "restore of snapshot {} failed and the rollback failed too: manual recovery required",
+                    record.id
+                ));
+            }
+        }
+        lines
     }
 
     /// 创建快照的真正实现（调用方已持有该仓库的锁）。
@@ -834,59 +1278,28 @@ impl SnapshotManager for RefSnapshotManager {
             Ok(guard) => guard,
             Err(poisoned) => poisoned.into_inner(),
         };
+        self.restore_locked(repo_id, snapshot_id)
+    }
 
-        let (workdir, record) = self.snapshot_record(repo_id, snapshot_id)?;
-        let repo = RepoId::new(workdir.clone());
+    fn pending_restore(&self, repo_id: i64) -> Result<Option<PendingRestore>, SnapshotError> {
+        SnapshotStore::new(&self.database)
+            .restore_pending(repo_id)
+            .map_err(|error| SnapshotError::Storage(error.message.clone()))
+            .map(|pending| {
+                pending.map(|record| PendingRestore {
+                    snapshot_id: record.snapshot_id,
+                    // 认不出的阶段短名（旧版本写的、手工改过库）当成"未知"：
+                    // 界面仍然能提示"上次回滚没走完"，只是说不出停在哪一步
+                    stage: record.stage.as_deref().and_then(RestoreStage::from_key),
+                    started_at_ms: record.started_at,
+                })
+            })
+    }
 
-        // 锚点必须在动手前确认：它没了就意味着"这个快照恢复不了"，
-        // 而用户需要的是一句可操作的话，不是跑到一半的失败
-        if !self
-            .engines
-            .write()
-            .ref_exists(&repo, &record.snapshot_ref)
-            .map_err(|error| {
-                SnapshotError::RestoreFailed(format!(
-                    "checking the anchor failed: {}",
-                    error.message
-                ))
-            })?
-        {
-            return Err(SnapshotError::RefMissing {
-                id: snapshot_id,
-                name: record.snapshot_ref.clone(),
-            });
-        }
-
-        // 回滚前快照是"防误回滚"的那道闸：打不出这个点就不回滚。
-        // （能恢复的仓库一定有 HEAD 提交，所以这个 create 不会因空仓库失败。）
-        // 走 create_locked：锁已在本方法手里，重入会死锁。
-        let pre_restore = self.create_locked(&SnapshotRequest {
-            repo_id,
-            workdir: &workdir,
-            label: SnapshotKind::PreRestore.key(),
-            kind: SnapshotKind::PreRestore,
-        })?;
-
-        // 审计不在这里写：命令层统一记录写操作（T1.11）。本层只保证
-        // "回滚结果 + 回滚前保护点 id"如实返回，让上层能记全 `snapshot_id`
-        // 与 `reversible`——**审计属于用例边界，不属于实现细节**。
-        match self.apply(&record, &repo, &workdir) {
-            Ok(mut report) => {
-                report.pre_restore_snapshot_id = Some(pre_restore.id);
-                Ok(report)
-            }
-            Err(error) => {
-                // 绝不停在中间态：回到回滚前快照（这条恢复不再嵌套打点）
-                if let Ok((pre_workdir, pre_record)) = self.snapshot_record(repo_id, pre_restore.id)
-                {
-                    let rollback = self.apply(&pre_record, &repo, &pre_workdir);
-                    if let Err(rollback_error) = rollback {
-                        tracing::error!(error = %rollback_error.message(), "回滚失败后恢复到回滚前快照也失败了");
-                    }
-                }
-                Err(error)
-            }
-        }
+    fn abandon_restore(&self, repo_id: i64) -> Result<usize, SnapshotError> {
+        SnapshotStore::new(&self.database)
+            .clear_restore_progress(repo_id)
+            .map_err(|error| SnapshotError::Storage(error.message.clone()))
     }
 
     fn diff(&self, repo_id: i64, snapshot_id: SnapshotId) -> Result<SnapshotDiff, SnapshotError> {
@@ -967,6 +1380,74 @@ impl SnapshotManager for RefSnapshotManager {
             Err(poisoned) => poisoned.into_inner(),
         };
         self.prune_locked(repo_id, policy)
+    }
+}
+
+// ---------------------------------------------------------------- 回滚辅助（T3.9）
+
+/// 一次分阶段应用的产物。
+#[derive(Debug)]
+struct AppliedStages {
+    /// 各阶段结果（按执行顺序）。
+    stages: Vec<StageResult>,
+    /// 第一个失败的阶段（`None` = 全部成功）。
+    failure: Option<SnapshotError>,
+    /// 写回的未跟踪文件数。
+    untracked_restored: usize,
+    /// 没能写回的未跟踪文件。
+    untracked_failed: Vec<String>,
+    /// 当前存在、快照里没有的未跟踪文件。
+    untracked_extra: Vec<String>,
+    /// 内容与 git 事实的校验是否通过。
+    content_verified: bool,
+}
+
+impl Default for AppliedStages {
+    fn default() -> Self {
+        Self {
+            stages: Vec::new(),
+            failure: None,
+            untracked_restored: 0,
+            untracked_failed: Vec::new(),
+            untracked_extra: Vec::new(),
+            // 在还没做任何校验之前按"通过"起步：任何一步失败都会把它改成 false，
+            // 而"根本没有内容要校验"（v1 快照、空备份）本来就是通过
+            content_verified: true,
+        }
+    }
+}
+
+/// git 写操作失败 → `RestoreFailed`。
+///
+/// 命令名保留原文（`git reset --hard`）：报告是给人看的，
+/// 而这一条正是用户拿去对照 git 文档、或者手动重试时最需要的线索。
+fn git_failure(step: &str, error: &forgedesk_domain::AppError) -> SnapshotError {
+    SnapshotError::RestoreFailed(format!("{step} failed: {}", error.message))
+}
+
+/// 注入故障的报错文本。
+///
+/// 说清"这是测试注入的"：紧急模式的报告会被贴进 issue 与日志，
+/// 一条看起来像真实 git 失败的文本会让人追着不存在的问题跑。
+fn injected_failure(stage: RestoreStage) -> SnapshotError {
+    SnapshotError::RestoreFailed(format!(
+        "injected failure at the '{}' stage (test only)",
+        stage.key()
+    ))
+}
+
+/// 一个阶段的结果（成功也记耗时：报告里"哪一步慢"是有用的事实）。
+fn stage_result(
+    stage: RestoreStage,
+    failure: Option<&SnapshotError>,
+    started_ms: i64,
+    ended_ms: i64,
+) -> StageResult {
+    StageResult {
+        stage,
+        ok: failure.is_none(),
+        detail: failure.map(SnapshotError::message),
+        duration_ms: (ended_ms - started_ms).max(0),
     }
 }
 

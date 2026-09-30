@@ -400,6 +400,18 @@ pub struct SnapshotEstimate {
 }
 
 /// 一次回滚的结果。
+///
+/// # 失败也用它表达（T3.9）
+///
+/// "回滚没成功"分两种，用户能做的动作完全不同：
+///
+/// - **自动回退成功**（`outcome = RolledBack`）：仓库已经回到动手之前的样子，
+///   用户什么都不用做——报告里说清"失败在哪一步、已经回到哪里"；
+/// - **回退也失败**（`outcome = Emergency`）：仓库停在中间态，
+///   报告必须带**可执行的恢复指引**（`emergency`），否则用户真的无从下手。
+///
+/// 只有"连第一步都没开始"（快照不存在、锚点丢失）才返回 `Err`：
+/// 那种情况下没有任何阶段性事实可说。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RestoreReport {
     /// 被恢复的快照。
@@ -424,6 +436,130 @@ pub struct RestoreReport {
     pub untracked_extra: Vec<String>,
     /// 恢复后的完整校验是否通过（HEAD / 索引 / 备份内容逐字节）。
     pub verified: bool,
+    /// 本次回滚的结局（T3.9）。
+    pub outcome: RestoreOutcomeKind,
+    /// 各阶段的结果（按执行顺序；未执行到的阶段不出现）。
+    pub stages: Vec<StageResult>,
+    /// 人话报告行：UI 直接展示，也是写进日志的内容（同一条事实只写一次）。
+    pub report_lines: Vec<String>,
+    /// 紧急模式的恢复指引；仅在 [`RestoreOutcomeKind::Emergency`] 时出现。
+    pub emergency: Option<EmergencyGuidance>,
+}
+
+/// 回滚的结局。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RestoreOutcomeKind {
+    /// 全部阶段成功，仓库已回到快照时刻。
+    Completed,
+    /// 中途失败，但已经自动回退到"回滚前快照"——仓库回到了动手之前。
+    RolledBack,
+    /// 中途失败且回退也失败：**需要用户介入**，报告里带可执行的恢复指引。
+    Emergency,
+}
+
+impl RestoreOutcomeKind {
+    /// 稳定短名（IPC 契约 + i18n key 后缀）。
+    pub const fn key(self) -> &'static str {
+        match self {
+            Self::Completed => "completed",
+            Self::RolledBack => "rolledBack",
+            Self::Emergency => "emergency",
+        }
+    }
+
+    /// 是否算成功（`RolledBack` 不算：包回到动手之前 ≠ 用户要的回滚成功）。
+    pub const fn is_success(self) -> bool {
+        matches!(self, Self::Completed)
+    }
+}
+
+/// 回滚的一个阶段（顺序即执行顺序）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RestoreStage {
+    /// 给当前状态打"回滚前保护点"。
+    Protection,
+    /// `git reset --hard`：HEAD 与工作区。
+    Head,
+    /// `git read-tree`：索引（"已暂存未提交"的内容在这里）。
+    Index,
+    /// 写回未跟踪内容。
+    Untracked,
+    /// 用读引擎核对 git 事实。
+    Verify,
+}
+
+impl RestoreStage {
+    /// 全部阶段，按执行顺序。
+    pub const ALL: [Self; 5] = [
+        Self::Protection,
+        Self::Head,
+        Self::Index,
+        Self::Untracked,
+        Self::Verify,
+    ];
+
+    /// 稳定短名（IPC 契约 + i18n key 后缀 + `restore_stage` 落库值）。
+    pub const fn key(self) -> &'static str {
+        match self {
+            Self::Protection => "protection",
+            Self::Head => "head",
+            Self::Index => "index",
+            Self::Untracked => "untracked",
+            Self::Verify => "verify",
+        }
+    }
+
+    /// 从落库的短名还原（认不出返回 `None`：损坏的标记不该让启动流程崩掉）。
+    pub fn from_key(key: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|stage| stage.key() == key)
+    }
+}
+
+/// 一个阶段的结果。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StageResult {
+    /// 阶段。
+    pub stage: RestoreStage,
+    /// 是否成功。
+    pub ok: bool,
+    /// 失败原因（人话；成功为 `None`）。
+    pub detail: Option<String>,
+    /// 该阶段耗时（毫秒）。
+    pub duration_ms: i64,
+}
+
+/// 紧急模式的恢复指引：**可复制、可执行**。
+///
+/// 任务书要求"输出可执行的恢复指引（测试中真的执行指引命令并断言仓库可用）"，
+/// 所以 `commands` 是纯粹逐条可跑的 `git ...` 命令，不含占位符、不含解释；
+/// 解释放在 `notes` 里。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EmergencyGuidance {
+    /// 用户**原本想回到**的快照（报告里显式展示：那是他点下按钮时的心愿）。
+    pub snapshot_id: SnapshotId,
+    /// 指引命令的目标——通常是"回滚前保护点"。
+    ///
+    /// 为什么指引退到保护点而不是继续冲原快照：保护点是**动手之前**的状态，
+    /// 是最安全的落点；而原快照此刻已经被证明"恢复不动"。先把仓库放回干净状态，
+    /// 之后可以再来一次有保护点的回滚。
+    pub target_snapshot_id: SnapshotId,
+    /// 目标快照的内容备份目录（可能已被清理，缺失时也如实给出路径）。
+    pub backup_dir: Option<String>,
+    /// 按顺序执行的 git 命令。
+    pub commands: Vec<String>,
+    /// 说明：这些命令做什么、为什么、做完之后怎么办。
+    pub notes: Vec<String>,
+}
+
+/// 一次未完成回滚的标记（崩溃恢复）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PendingRestore {
+    /// 当时正在回滚的快照。
+    pub snapshot_id: SnapshotId,
+    /// 落库的阶段短名（认不出时为 `None`）。
+    pub stage: Option<RestoreStage>,
+    /// 开始时间（Unix 毫秒）。
+    pub started_at_ms: Option<i64>,
 }
 
 /// 快照的保留策略：**两个条件先到者生效**。
@@ -551,6 +687,26 @@ pub trait SnapshotManager: Send + Sync + std::fmt::Debug {
         repo_id: i64,
         policy: &RetentionPolicy,
     ) -> Result<Vec<SnapshotId>, SnapshotError>;
+
+    /// 是否有未完成的回滚（T3.9 崩溃恢复）。
+    ///
+    /// 宿主启动或打开仓库时查询：`Ok(Some(_))` = 上次回滚没走完，
+    /// 界面据此提示"继续 / 查看详情 / 放弃"。
+    ///
+    /// **有默认实现**（返回"没有"）：快照能力之外的替身（测试夹具、
+    /// 将来的远端快照实现）不该被迫写一个空方法；对它们而言"没有未完成回滚"
+    /// 也正是事实。
+    fn pending_restore(&self, _repo_id: i64) -> Result<Option<PendingRestore>, SnapshotError> {
+        Ok(None)
+    }
+
+    /// 放弃未完成的回滚标记（用户选择"放弃"），返回清掉的标记数。
+    ///
+    /// **不回退任何东西**：它只是把"上次没走完"标记为已处理——
+    /// 用户之所以能选它，是因为界面已经把当时的快照 ID 与阶段摆在他面前了。
+    fn abandon_restore(&self, _repo_id: i64) -> Result<usize, SnapshotError> {
+        Ok(0)
+    }
 }
 
 /// 未启用快照的实现。
