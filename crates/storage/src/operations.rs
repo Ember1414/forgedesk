@@ -85,10 +85,20 @@ pub struct OperationQuery {
     pub repo_id: Option<i64>,
     /// 只查某类操作（稳定短名）。
     pub op_type: Option<String>,
+    /// 只查这几类操作（多值白名单）。
+    ///
+    /// 用途是操作历史的"只看危险操作"：那份清单住在用例层（`services::audit`），
+    /// 存储层只接收"要哪几类"——它不该知道哪些操作算危险。
+    /// **空列表与 `None` 同义**（不筛选）：界面清空筛选时不该得到空结果。
+    pub op_types: Option<Vec<String>>,
+    /// 关键词：在参数摘要与 stderr 摘要里做包含匹配。
+    pub keyword: Option<String>,
     /// 起始时间（含，Unix 毫秒）。
     pub from_ms: Option<i64>,
     /// 结束时间（含，Unix 毫秒）。
     pub to_ms: Option<i64>,
+    /// 只看"有快照且当时判定为可回滚"的记录。
+    pub reversible_only: bool,
     /// 跳过条数（分页）。
     pub offset: usize,
     /// 返回条数上限（夹在 `1..=500`）。
@@ -114,8 +124,11 @@ impl Default for OperationQuery {
         Self {
             repo_id: None,
             op_type: None,
+            op_types: None,
+            keyword: None,
             from_ms: None,
             to_ms: None,
+            reversible_only: false,
             offset: 0,
             limit: Self::DEFAULT_LIMIT,
         }
@@ -417,6 +430,31 @@ fn filter_sql(query: &OperationQuery) -> (String, Vec<Value>) {
         values.push(Value::Text(op_type.clone()));
         conditions.push(format!("op_type = ?{}", values.len()));
     }
+    // 多值白名单；空列表按"不筛选"处理（见字段文档）
+    if let Some(op_types) = &query.op_types {
+        if !op_types.is_empty() {
+            let mut placeholders: Vec<String> = Vec::with_capacity(op_types.len());
+            for op_type in op_types {
+                values.push(Value::Text(op_type.clone()));
+                placeholders.push(format!("?{}", values.len()));
+            }
+            conditions.push(format!("op_type IN ({})", placeholders.join(", ")));
+        }
+    }
+    if let Some(keyword) = query.keyword.as_deref().map(str::trim) {
+        if !keyword.is_empty() {
+            // 两条摘要都可能命中；`LIKE` 对 ASCII 不区分大小写（SQLite 默认），
+            // 这正是界面搜索想要的语义
+            let pattern = format!("%{}%", escape_like(keyword));
+            values.push(Value::Text(pattern.clone()));
+            let args_index = values.len();
+            values.push(Value::Text(pattern));
+            let stderr_index = values.len();
+            conditions.push(format!(
+                "(args_json LIKE ?{args_index} ESCAPE '\\' OR stderr_summary LIKE ?{stderr_index} ESCAPE '\\')"
+            ));
+        }
+    }
     if let Some(from_ms) = query.from_ms {
         values.push(Value::Integer(from_ms));
         conditions.push(format!("started_at >= ?{}", values.len()));
@@ -425,11 +463,31 @@ fn filter_sql(query: &OperationQuery) -> (String, Vec<Value>) {
         values.push(Value::Integer(to_ms));
         conditions.push(format!("started_at <= ?{}", values.len()));
     }
+    if query.reversible_only {
+        // `reversible` 是"操作当时有没有留下回滚点"，`snapshot_id` 保证它真的指向一份
+        conditions.push("snapshot_id IS NOT NULL AND reversible = 1".to_owned());
+    }
 
     if conditions.is_empty() {
         return (String::new(), values);
     }
     (format!(" WHERE {}", conditions.join(" AND ")), values)
+}
+
+/// 把 `LIKE` 的通配符转义成字面量（`\` 自身也要转义）。
+///
+/// 用户搜 `100%` 时想找的就是含 `100%` 的记录，而不是"以 100 开头的任意内容"；
+/// 搜索框里出现一个通配符就改变整个查询语义，是那种"偶尔才发生、但发生了
+/// 就很难解释"的 bug。
+fn escape_like(value: &str) -> String {
+    let mut escaped = String::with_capacity(value.len());
+    for character in value.chars() {
+        if matches!(character, '%' | '_' | '\\') {
+            escaped.push('\\');
+        }
+        escaped.push(character);
+    }
+    escaped
 }
 
 #[cfg(test)]

@@ -125,6 +125,37 @@ pub mod op_type {
     pub const AUDIT_PRUNE: &str = "audit_prune";
 }
 
+/// "危险操作"清单：会在用户仓库里**丢掉东西**的那些（T3.10）。
+///
+/// 判据不是"写操作"（提交也是写），而是"这一步之后，用户可能想要回滚"：
+/// 丢弃未提交内容、改写已提交历史、删掉储藏或可回滚点、中止进行中的多步操作。
+/// 操作历史页据此提供"只看危险操作"的筛选，状态栏也据此找"最近可回滚点"。
+///
+/// 为什么不塞进 `op_type` 模块：那是"短名 ↔ 常量"的映射（只增不改），
+/// 而这份清单是**产品判断**——哪些操作值得提醒，会随交互设计变化。
+/// 两者变化的原因不同，就不该住在同一个地方。
+///
+/// `STASH_APPLY` 与 `CONFLICT_RESOLVE` 刻意不在此列：它们把内容**带回来**
+/// 或者解决冲突，属于"修复"而不是"丢弃"。
+pub const DANGEROUS_OP_TYPES: &[&str] = &[
+    op_type::DISCARD,
+    op_type::RESET,
+    op_type::MERGE,
+    op_type::REBASE,
+    op_type::CHERRY_PICK,
+    op_type::REVERT,
+    op_type::REFLOG_BRANCH,
+    op_type::STASH_DROP,
+    op_type::CONFLICT_ABORT,
+    op_type::SNAPSHOT_RESTORE,
+    op_type::SNAPSHOT_CLEANUP,
+];
+
+/// 某个操作类型是否属于"危险操作"。
+pub fn is_dangerous(op_type_name: &str) -> bool {
+    DANGEROUS_OP_TYPES.contains(&op_type_name)
+}
+
 /// 参数摘要构造器。
 ///
 /// 为什么不直接让调用方拼字符串：手拼 JSON 一定会遇到转义（Windows 路径里的

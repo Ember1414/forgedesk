@@ -765,6 +765,47 @@ fn a_second_restore_leaves_the_fingerprint_unchanged() {
     );
 }
 
+/// `restorable`（T3.10）：锚点还在 = 可回滚；锚点被外部删掉 = 不可回滚。
+#[test]
+fn only_snapshots_whose_anchor_survives_are_reported_restorable() {
+    let dir = init_repo("restorable");
+    let (manager, repo_id) = manager(dir.path());
+
+    let first = manager
+        .create(&manual_request(repo_id, dir.path()))
+        .expect("创建失败");
+    let second = manager
+        .create(&manual_request(repo_id, dir.path()))
+        .expect("创建失败");
+
+    let ids = vec![first.id, second.id];
+    assert_eq!(
+        manager.restorable(repo_id, &ids).expect("查询失败").len(),
+        2,
+        "锚点都在时两份都应可回滚"
+    );
+
+    // 外部把一份的锚点删掉（手工删 ref、别的工具 gc、clone 之后没带过来）
+    git(
+        dir.path(),
+        &[
+            "update-ref",
+            "-d",
+            &format!("refs/forgedesk/snapshots/{}", first.id),
+        ],
+    );
+
+    assert_eq!(
+        manager.restorable(repo_id, &ids).expect("查询失败"),
+        vec![second.id],
+        "锚点没了的快照不该被报成可回滚——那会给用户一个点下去必然失败的按钮"
+    );
+
+    // 边界：空输入与不存在的 id 都不该炸
+    assert!(manager.restorable(repo_id, &[]).expect("查询失败").is_empty());
+    assert!(manager.restorable(repo_id, &[9999]).expect("查询失败").is_empty());
+}
+
 /// 同一仓库的并发创建被串行化：各自独立、不留半成品。
 #[test]
 fn concurrent_creations_on_one_repository_are_serialized() {

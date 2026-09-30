@@ -707,6 +707,21 @@ pub trait SnapshotManager: Send + Sync + std::fmt::Debug {
     fn abandon_restore(&self, _repo_id: i64) -> Result<usize, SnapshotError> {
         Ok(0)
     }
+
+    /// 这些快照现在**还能不能回滚**（锚点 ref 是否仍在），返回仍可回滚的子集。
+    ///
+    /// 锚点会消失（外部 clone、`git gc`、手工删 ref），而记录还在：操作历史
+    /// 若不核对就给出一排"回滚"按钮，用户点下去只会收到一个到不了的目标。
+    ///
+    /// 默认实现返回**空**：没有快照能力的实现如实回答"一个都回滚不了"，
+    /// 比乐观地说"都可以"安全得多——后者会让界面给出一堆必然失败的按钮。
+    fn restorable(
+        &self,
+        _repo_id: i64,
+        _snapshot_ids: &[SnapshotId],
+    ) -> Result<Vec<SnapshotId>, SnapshotError> {
+        Ok(Vec::new())
+    }
 }
 
 /// 未启用快照的实现。

@@ -1296,6 +1296,45 @@ impl SnapshotManager for RefSnapshotManager {
             })
     }
 
+    fn restorable(
+        &self,
+        repo_id: i64,
+        snapshot_ids: &[SnapshotId],
+    ) -> Result<Vec<SnapshotId>, SnapshotError> {
+        if snapshot_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        // 工作区只解析一次：同一批 id 都属于同一个仓库
+        let workdir = self.workdir(repo_id)?;
+        let repo = RepoId::new(workdir);
+        let store = SnapshotStore::new(&self.database);
+
+        let mut restorable = Vec::new();
+        for snapshot_id in snapshot_ids {
+            // 记录不在（被清理了）、或不属于这个仓库：如实当作"不可回滚"
+            let Ok(Some(record)) = store.find(*snapshot_id) else {
+                continue;
+            };
+            if record.repo_id != repo_id {
+                continue;
+            }
+            // 用**写引擎**查锚点：`ref_exists` 目前只有 CLI 实现（libgit2 那条路
+            // 返回"不支持"），而 CLI 正是 restore 内部校验锚点时用的那条路——
+            // 两边必须问同一个地方，否则会出现"这里说可回滚、点下去说锚点没了"。
+            // 查询失败（仓库不可读）时保守地算"不可回滚"：给一个大概率失败的
+            // 按钮，比不给按钮更糟。
+            if self
+                .engines
+                .write()
+                .ref_exists(&repo, &record.snapshot_ref)
+                .unwrap_or(false)
+            {
+                restorable.push(*snapshot_id);
+            }
+        }
+        Ok(restorable)
+    }
+
     fn abandon_restore(&self, repo_id: i64) -> Result<usize, SnapshotError> {
         SnapshotStore::new(&self.database)
             .clear_restore_progress(repo_id)
