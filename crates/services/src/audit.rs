@@ -85,6 +85,10 @@ pub mod op_type {
     pub const SNAPSHOT_RESTORE: &str = "snapshot_restore";
     /// 清理旧快照。
     pub const SNAPSHOT_PRUNE: &str = "snapshot_prune";
+    /// 手动创建快照（T3.8：用户主动打点）。
+    pub const SNAPSHOT_CREATE: &str = "snapshot_create";
+    /// 手动清理快照缓存（T3.8：孤儿目录 + 总占用回收）。
+    pub const SNAPSHOT_CLEANUP: &str = "snapshot_cleanup";
     /// 储藏当前改动（T2.8）。
     pub const STASH_SAVE: &str = "stash_save";
     /// 应用储藏（`apply` 与 `pop` 都算：用户看的是"把改动拿回来"）。

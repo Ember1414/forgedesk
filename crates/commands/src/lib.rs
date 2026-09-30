@@ -109,8 +109,10 @@ pub use repository::{
 };
 pub use settings::{settings_all, settings_get, settings_set};
 pub use snapshots::{
-    snapshot_diff, snapshot_list, snapshot_prune, snapshot_restore, RestoreReportDto,
-    SnapshotDiffDto, SnapshotMetaDto,
+    snapshot_cleanup, snapshot_create, snapshot_diff, snapshot_estimate, snapshot_list,
+    snapshot_prune, snapshot_restore, snapshot_usage, CleanupOutcomeDto, RestoreReportDto,
+    SnapshotDiffDto, SnapshotEstimateDto, SnapshotMetaDto, SnapshotOutcomeDto, SnapshotUsageDto,
+    SnapshotWarningDto,
 };
 pub use state::AppState;
 pub use sync::{
