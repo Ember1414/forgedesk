@@ -75,7 +75,11 @@ test.beforeEach(async ({ page }) => {
 test('操作历史列出时间/操作/结果/耗时/快照，并显示失败原话', async ({ page }) => {
   await page.goto('/#/settings/advanced');
 
-  await expect(page.getByText('操作历史')).toBeVisible({ timeout: 10_000 });
+  // 侧栏（T3.10 起）也有一个叫"操作历史"的入口：必须限定在内容区里找，
+  // 否则严格模式会因为"两个元素同名"直接判失败
+  await expect(page.locator('#main-content').getByText('操作历史')).toBeVisible({
+    timeout: 10_000,
+  });
   // 断言限定在表格里：外壳导航里也有"提交"这类词，按全文找会撞上
   const table = page.getByRole('table');
   await expect(table.getByText('提交')).toBeVisible();

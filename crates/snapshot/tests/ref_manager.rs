@@ -802,8 +802,14 @@ fn only_snapshots_whose_anchor_survives_are_reported_restorable() {
     );
 
     // 边界：空输入与不存在的 id 都不该炸
-    assert!(manager.restorable(repo_id, &[]).expect("查询失败").is_empty());
-    assert!(manager.restorable(repo_id, &[9999]).expect("查询失败").is_empty());
+    assert!(manager
+        .restorable(repo_id, &[])
+        .expect("查询失败")
+        .is_empty());
+    assert!(manager
+        .restorable(repo_id, &[9999])
+        .expect("查询失败")
+        .is_empty());
 }
 
 /// 同一仓库的并发创建被串行化：各自独立、不留半成品。

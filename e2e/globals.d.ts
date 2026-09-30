@@ -174,6 +174,10 @@ declare global {
     __restoreOutcome?: unknown;
     /** 快照页 e2e：注入一个"上次回滚没走完"的标记（T3.9 崩溃恢复）。 */
     __pendingRestore?: unknown;
+    /** 操作历史 e2e：mock 的记录清单（T3.10，可随时替换以模拟"刚做完一次操作"）。 */
+    __opRecords?: unknown[];
+    /** 操作历史 e2e：回滚执行次数（断言"再滚一次"真的到了后端）。 */
+    __restoreCount?: number;
     /**
      * rebase 面板 e2e 的 mock 调用记录（T3.6）。
      *

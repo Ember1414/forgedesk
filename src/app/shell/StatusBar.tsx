@@ -17,7 +17,10 @@ import { countActiveJobs, useJobStore } from '@/stores/jobStore';
  */
 function useLatestRollbackPoint(repoId: number | null) {
   const query = useQuery({
-    queryKey: [OPERATION_HISTORY_QUERY_KEY, 'latest', repoId ?? 0],
+    // key 的前缀必须是 `[OPERATION_HISTORY_QUERY_KEY, repoId]`：`repo:changed`
+    // 事件按前缀失效，写成 `[KEY, 'latest', repoId]` 的话，危险操作完成后
+    // 这个指示器不会刷新——而它恰恰是"刚做完一次操作"时最该更新的东西
+    queryKey: [OPERATION_HISTORY_QUERY_KEY, repoId ?? 0, 'latest'],
     queryFn: () => operationHistory(repoId ?? 0, { onlyReversible: true }, 1, 0),
     enabled: repoId !== null && Number.isFinite(repoId),
     // 状态栏不追实时：10 秒内复用结果，避免每次路由切换都打一次 IPC
