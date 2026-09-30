@@ -47,10 +47,10 @@ use forgedesk_domain::git::{
     ApplyPatchSpec, Branch, CheckoutSpec, CherryPickSpec, CloneSpec, Commit, CommitSpec,
     ConflictAbortOutcome, ConflictContinueOutcome, ConflictFileDetail, ConflictOpKind,
     ConflictState, DiffReport, DiffSpec, DiscardSpec, FetchOutcome, FetchSpec, InitSpec,
-    LineEnding, LogQuery, MergeOutcome, MergeSpec, Page, PullOutcome, PullSpec, PushOutcome,
-    PushSpec, ReflogEntry, Remote, ReorderSpec, RepoId, RepoPath, RepositoryInfo, ResetSpec,
-    RevertSpec, StageSpec, StashEntry, StashOutcome, StashSpec, StatusQuery, StatusReport, Tag,
-    TakeSide,
+    LineEnding, LogQuery, MergeOutcome, MergePreviewReport, MergeSpec, Page, PullOutcome, PullSpec,
+    PushOutcome, PushSpec, ReflogEntry, Remote, ReorderSpec, RepoId, RepoPath, RepositoryInfo,
+    ResetSpec, RevertSpec, StageSpec, StashEntry, StashOutcome, StashSpec, StatusQuery,
+    StatusReport, Tag, TakeSide,
 };
 use forgedesk_domain::{AppError, AppResult, ErrorCode};
 
@@ -451,6 +451,12 @@ pub trait GitEngine: Send + Sync {
 
     /// 以"删除该文件"解决删除类冲突（`git rm -f` + 校验）。
     fn conflict_remove_file(&self, repo: &RepoId, path: &RepoPath) -> AppResult<()>;
+
+    /// 合并预检（T3.4）：快进裁决 + `merge-tree --write-tree` 的冲突清单。
+    ///
+    /// 只读、不碰工作区与索引；git < 2.38 时 `preview.available = false`
+    /// （界面退化为"执行后再报冲突"）。只有 CLI 实现。
+    fn merge_preview(&self, repo: &RepoId, source: &str) -> AppResult<MergePreviewReport>;
 
     /// 拉取远端引用。
     ///

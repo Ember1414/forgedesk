@@ -1286,6 +1286,14 @@ impl GitEngine for Libgit2Engine {
     fn conflict_remove_file(&self, _repo: &RepoId, _path: &RepoPath) -> AppResult<()> {
         Err(unsupported(EngineId::Libgit2, "conflict_remove_file"))
     }
+
+    fn merge_preview(
+        &self,
+        _repo: &RepoId,
+        _source: &str,
+    ) -> AppResult<forgedesk_domain::git::MergePreviewReport> {
+        Err(unsupported(EngineId::Libgit2, "merge_preview"))
+    }
 }
 
 /// 远端默认分支（`refs/remotes/origin/HEAD` 指向的分支短名）。

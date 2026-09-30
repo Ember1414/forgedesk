@@ -1432,6 +1432,26 @@ identity 文件）、`TLS_CERTIFICATE_REJECTED`（自签名或证书链不完整
 错误码：`CONFLICT_UNRESOLVED`（T3.1 新增，与 `GIT_CONFLICT` 的区别：后者说"仓库里有冲突"，
 前者说"你想继续，但这些文件还没解决"，`hint` 携带文件清单）。
 
+### 合并流程（T3.4）
+
+两段式契约（红线 R7 的计划形态）：prepare 生成计划（快进裁决、source 独有提交、
+`merge-tree` 冲突预检、默认信息、等价命令），execute 只认 planId 且**取走即失效**；
+prepare 与 execute 之间 HEAD 被外部改动 → `PLAN_STALE`。
+
+服务 / 命令 / 前端位置：`crates/services/src/merge.rs`、`crates/commands/src/merge.rs`、
+`src/lib/ipc/merge.ts`。预检数据源是 `git merge-tree --write-tree`（git ≥ 2.38；
+太旧时 `previewAvailable: false`，界面退化为"执行后再报冲突"）与
+`git merge-base`（快进裁决）。只有 CLI 实现（同冲突状态机的取舍）。
+
+| 命令 | 能力 | 参数 | 返回/说明 |
+| --- | --- | --- | --- |
+| `git_merge_prepare` | ReadOnly（`async`） | `{ repoId, spec: { source, strategy? } }` | `MergePlanDto`。strategy ∈ `merge \| noFf \| squash \| fastForwardOnly \| ours \| theirs`，缺省 `merge`；`verdict ∈ upToDate \| fastForward \| trueMerge`；`conflicted` 非空 = 预检到冲突；source 不存在返回 `VALIDATION` |
+| `git_merge_execute` | Mutating（`async`） | `{ repoId, spec: { planId, message? } }` | `MergeOutcome { kind, oid, conflicts, snapshotId }`。`kind ∈ alreadyUpToDate \| fastForward \| mergeCommit \| squash \| conflicted`（squash：变更进索引、HEAD 不动、无提交）；执行前打 `PreSync` 快照（`snapshotId` 随结果返回）；冲突时返回清单（不是错误）。写审计（`merge`） |
+| `git_merge_continue` | Mutating（`async`） | `{ repoId, message? }` | `MergeOutcome`。冲突解决后的"继续合并"；`message` 提供时用 `git commit -m`（可编辑信息），否则沿用 `MERGE_MSG`。未解决冲突返回 `CONFLICT_UNRESOLVED`。写审计（`merge`） |
+
+事件：execute / continue 成功后发 `repo:changed`（`workspace` + `refs`）。
+合并进行中的检测走既有 `workspace_status` 的 `operation: "merge"`。
+
 ---
 
 ## 4. 新增命令的检查清单

@@ -19,7 +19,7 @@ use forgedesk_platform::{install_panic_hook, non_blocking_writer, LogFlushGuard,
 use forgedesk_services::repository::OpenRepoRegistry;
 use forgedesk_services::{
     CommitPlanRegistry, CredentialGate, CredentialsService, GitEngines, LogPageCache,
-    ResetPlanRegistry,
+    MergePlanRegistry, ResetPlanRegistry,
 };
 use forgedesk_snapshot::RefSnapshotManager;
 use forgedesk_storage::{migrate, Database};
@@ -194,6 +194,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 )),
                 commit_plans: Arc::new(CommitPlanRegistry::new()),
                 reset_plans: Arc::new(ResetPlanRegistry::new()),
+                merge_plans: Arc::new(MergePlanRegistry::new()),
                 log_pages: Arc::new(LogPageCache::new()),
                 credentials,
                 credential_gate,
@@ -281,6 +282,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         forgedesk_commands::git_stash_branch,
         forgedesk_commands::git_cherry_pick,
         forgedesk_commands::git_revert,
+        forgedesk_commands::git_merge_prepare,
+        forgedesk_commands::git_merge_execute,
+        forgedesk_commands::git_merge_continue,
         forgedesk_commands::git_conflict_state,
         forgedesk_commands::git_conflict_file_detail,
         forgedesk_commands::git_conflict_mark_resolved,
@@ -370,6 +374,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         forgedesk_commands::git_stash_branch,
         forgedesk_commands::git_cherry_pick,
         forgedesk_commands::git_revert,
+        forgedesk_commands::git_merge_prepare,
+        forgedesk_commands::git_merge_execute,
+        forgedesk_commands::git_merge_continue,
         forgedesk_commands::git_conflict_state,
         forgedesk_commands::git_conflict_file_detail,
         forgedesk_commands::git_conflict_mark_resolved,

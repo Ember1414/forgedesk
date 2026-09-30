@@ -8,6 +8,7 @@
 use super::commit::Signature;
 use super::path::RepoPath;
 use super::refs::RefUpdate;
+use super::reset::CommitSummary;
 
 /// 重置模式（`git reset --soft|--mixed|--hard`）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
@@ -444,16 +445,40 @@ pub fn validate_ref_name(name: &str) -> Result<(), &'static str> {
     Ok(())
 }
 
+/// 合并策略（T3.4）。
+///
+/// `git` 没有原生的 `-s theirs`：`Theirs` 用 `-X theirs` 表达（**冲突偏向对方**，
+/// 非冲突变更仍采用本方）——与 `Ours`（`-s ours`，整树采用本方）语义不同，
+/// 界面文案必须区分这两者，不能都写成"采用对方"。
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize,
+)]
+#[serde(rename_all = "camelCase")]
+pub enum MergeStrategy {
+    /// 默认合并：可以快进就快进，否则产生合并提交。
+    #[default]
+    Merge,
+    /// `--no-ff`：总是产生合并提交。
+    NoFf,
+    /// `--squash`：把对方变更压进索引，**不产生合并提交**（也不自动提交）。
+    Squash,
+    /// `--ff-only`：只允许快进，否则失败。
+    FastForwardOnly,
+    /// `-s ours`：整树采用本方（对方的变更全部丢弃）。
+    Ours,
+    /// `-X theirs`：冲突偏向对方（非冲突变更仍采用本方）。
+    Theirs,
+}
+
 /// 合并参数。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MergeSpec {
     /// 要合并进来的引用。
     pub revision: String,
-    /// 禁止快进（`--no-ff`），总是产生合并提交。
-    pub no_ff: bool,
-    /// 只允许快进（`--ff-only`），否则失败。
-    pub ff_only: bool,
-    /// 合并提交信息（`no_ff` 时使用）。
+    /// 合并策略（T3.4：替代此前的 `no_ff` / `ff_only` 两个布尔——
+    /// 策略是互斥的一组选择，两个布尔表达不了 `--squash` / `-s ours`）。
+    pub strategy: MergeStrategy,
+    /// 合并提交信息（产生合并提交的策略使用）。
     pub message: Option<String>,
 }
 
@@ -462,10 +487,170 @@ impl MergeSpec {
     pub fn new(revision: impl Into<String>) -> Self {
         Self {
             revision: revision.into(),
-            no_ff: false,
-            ff_only: false,
+            strategy: MergeStrategy::Merge,
             message: None,
         }
+    }
+
+    /// 指定策略。
+    #[must_use]
+    pub fn with_strategy(mut self, strategy: MergeStrategy) -> Self {
+        self.strategy = strategy;
+        self
+    }
+
+    /// 指定合并提交信息。
+    #[must_use]
+    pub fn with_message(mut self, message: impl Into<String>) -> Self {
+        self.message = Some(message.into());
+        self
+    }
+}
+
+/// 快进判定（纯函数，T3.4 的合并预览用）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FfVerdict {
+    /// HEAD 已包含 source，无事可做。
+    UpToDate,
+    /// 可以快进（HEAD 是 source 的祖先）。
+    FastForward,
+    /// 需要真正的合并提交。
+    TrueMerge,
+}
+
+impl FfVerdict {
+    /// 稳定短名（DTO 与日志用）。
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::UpToDate => "upToDate",
+            Self::FastForward => "fastForward",
+            Self::TrueMerge => "trueMerge",
+        }
+    }
+}
+
+/// 快进判定：`head_oid` / `merge_base_oid` / `source_oid` 三个 oid 的关系。
+///
+/// 无关历史（merge-base 解析不出来）由调用方传空串 → 判为真合并
+/// （git 执行时会拒绝无关历史合并，预检不替它猜）。
+pub fn ff_verdict(head_oid: &str, merge_base_oid: &str, source_oid: &str) -> FfVerdict {
+    if head_oid == source_oid {
+        FfVerdict::UpToDate
+    } else if merge_base_oid == head_oid && !merge_base_oid.is_empty() {
+        FfVerdict::FastForward
+    } else {
+        FfVerdict::TrueMerge
+    }
+}
+
+/// 默认合并信息（git 惯例；`into` 是被合并进的分支名，游离 HEAD 时为 `None`）。
+pub fn default_merge_message(source: &str, into: Option<&str>) -> String {
+    match into {
+        Some(into) => format!("Merge branch '{source}' into {into}"),
+        None => format!("Merge branch '{source}'"),
+    }
+}
+
+/// 等价命令字符串（纯函数）。
+///
+/// `--squash` 与 `--ff-only` 不产生合并提交，即使给了 message 也不带 `-m`
+/// （信息没有载体）；`Merge` / `NoFf` / `Ours` / `Theirs` 产生合并提交，带 `-m`。
+pub fn equivalent_merge_command(
+    source: &str,
+    strategy: MergeStrategy,
+    message: Option<&str>,
+) -> String {
+    let base = match strategy {
+        MergeStrategy::Merge => format!("git merge {source}"),
+        MergeStrategy::NoFf => format!("git merge --no-ff {source}"),
+        MergeStrategy::Squash => format!("git merge --squash {source}"),
+        MergeStrategy::FastForwardOnly => format!("git merge --ff-only {source}"),
+        MergeStrategy::Ours => format!("git merge -s ours {source}"),
+        MergeStrategy::Theirs => format!("git merge -X theirs {source}"),
+    };
+    let takes_message = matches!(
+        strategy,
+        MergeStrategy::Merge | MergeStrategy::NoFf | MergeStrategy::Ours | MergeStrategy::Theirs
+    );
+    match (takes_message, message) {
+        (true, Some(message)) => format!("{base} -m {message:?}"),
+        _ => base,
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod merge_strategy_tests {
+    use super::{
+        default_merge_message, equivalent_merge_command, ff_verdict, FfVerdict, MergeSpec,
+        MergeStrategy,
+    };
+
+    #[test]
+    fn default_merge_allows_fast_forward_and_chains() {
+        let spec = MergeSpec::new("feature");
+        assert_eq!(spec.strategy, MergeStrategy::Merge);
+        let spec = spec
+            .with_strategy(MergeStrategy::NoFf)
+            .with_message("merge it");
+        assert_eq!(spec.strategy, MergeStrategy::NoFf);
+        assert_eq!(spec.message.as_deref(), Some("merge it"));
+    }
+
+    #[test]
+    fn strategy_serializes_as_camel_case() {
+        let value = serde_json::to_value(MergeStrategy::FastForwardOnly).unwrap();
+        assert_eq!(value, serde_json::Value::String("fastForwardOnly".into()));
+    }
+
+    #[test]
+    fn ff_verdict_covers_the_three_relations() {
+        assert_eq!(ff_verdict("aaa", "bbb", "aaa"), FfVerdict::UpToDate);
+        assert_eq!(ff_verdict("aaa", "aaa", "ccc"), FfVerdict::FastForward);
+        assert_eq!(ff_verdict("aaa", "bbb", "ccc"), FfVerdict::TrueMerge);
+        // 无关历史：merge-base 解析不出来（空串）——git 会拒绝，预检不猜
+        assert_eq!(ff_verdict("aaa", "", "ccc"), FfVerdict::TrueMerge);
+    }
+
+    #[test]
+    fn default_message_follows_git_conventions() {
+        assert_eq!(
+            default_merge_message("feature", None),
+            "Merge branch 'feature'"
+        );
+        assert_eq!(
+            default_merge_message("feature", Some("main")),
+            "Merge branch 'feature' into main"
+        );
+    }
+
+    #[test]
+    fn equivalent_command_maps_every_strategy() {
+        assert_eq!(
+            equivalent_merge_command("feat", MergeStrategy::Merge, None),
+            "git merge feat"
+        );
+        assert_eq!(
+            equivalent_merge_command("feat", MergeStrategy::NoFf, Some("m")),
+            "git merge --no-ff feat -m \"m\""
+        );
+        // squash / ff-only 不产生合并提交：信息没有载体，不带 -m
+        assert_eq!(
+            equivalent_merge_command("feat", MergeStrategy::Squash, Some("m")),
+            "git merge --squash feat"
+        );
+        assert_eq!(
+            equivalent_merge_command("feat", MergeStrategy::FastForwardOnly, Some("m")),
+            "git merge --ff-only feat"
+        );
+        assert_eq!(
+            equivalent_merge_command("feat", MergeStrategy::Ours, Some("m")),
+            "git merge -s ours feat -m \"m\""
+        );
+        assert_eq!(
+            equivalent_merge_command("feat", MergeStrategy::Theirs, None),
+            "git merge -X theirs feat"
+        );
     }
 }
 
@@ -685,8 +870,54 @@ pub enum MergeKind {
     FastForward,
     /// 产生了合并提交。
     MergeCommit,
+    /// squash（`--squash`）：变更压进索引、HEAD 不动、**没有**产生任何提交。
+    Squash,
     /// 产生冲突，停在冲突状态。
     Conflicted,
+}
+
+/// 合并预检报告（T3.4：`git merge-tree --write-tree` 的封装）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MergePreviewReport {
+    /// 快进裁决（HEAD / merge-base / source 的关系）。
+    pub verdict: FfVerdict,
+    /// 冲突预检：`available` 为假表示 git 太旧、预检不可用（界面退化为
+    /// "执行后再报冲突"——任务书允许的权衡，必须明示而不是假装预检过）。
+    pub preview: MergePreview,
+}
+
+/// 冲突预检结果。
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct MergePreview {
+    /// 预检是否可用。
+    pub available: bool,
+    /// 预检发现的冲突文件（available 且非空 = 预检到冲突）。
+    pub conflicted: Vec<RepoPath>,
+}
+
+/// 合并计划（prepare 的产物；execute 只认 plan_id，HEAD 变了即 PLAN_STALE）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MergePlan {
+    /// 计划句柄。
+    pub plan_id: String,
+    /// 要合并进来的引用。
+    pub source: String,
+    /// 合并策略。
+    pub strategy: MergeStrategy,
+    /// 快进裁决。
+    pub verdict: FfVerdict,
+    /// source 独有的提交（HEAD..source，新到旧，最多 30 条）。
+    pub source_only_commits: Vec<CommitSummary>,
+    /// source 独有提交的精确总数。
+    pub source_commit_count: usize,
+    /// 冲突预检。
+    pub preview: MergePreview,
+    /// 默认合并信息（用户可在预览里编辑；编辑值经 execute 传入）。
+    pub default_message: String,
+    /// 等价命令（教育价值：让用户看到"这就是 git merge …"）。
+    pub equivalent_command: String,
+    /// 计划生成时的 HEAD（执行时不一致即 [`crate::ErrorCode::PlanStale`]）。
+    pub head_before: String,
 }
 
 /// 合并结果。

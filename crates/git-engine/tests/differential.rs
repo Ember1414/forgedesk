@@ -880,6 +880,9 @@ fn libgit2_engine_reports_unsupported_for_the_whole_conflict_state_machine() {
     let state_error = libgit2
         .conflict_state(&repo)
         .expect_err("libgit2 不支持冲突状态查询");
+    let preview_error = libgit2
+        .merge_preview(&repo, "main")
+        .expect_err("libgit2 不支持合并预检");
     let continue_error = libgit2
         .conflict_continue(&repo, op)
         .expect_err("libgit2 不支持冲突 continue");
@@ -890,13 +893,57 @@ fn libgit2_engine_reports_unsupported_for_the_whole_conflict_state_machine() {
         .conflict_skip(&repo, op)
         .expect_err("libgit2 不支持冲突 skip");
 
-    for error in [state_error, continue_error, abort_error, skip_error] {
+    for error in [
+        state_error,
+        continue_error,
+        abort_error,
+        skip_error,
+        preview_error,
+    ] {
         assert_eq!(
             error.code,
             forgedesk_domain::ErrorCode::UnsupportedByEngine,
             "必须报 UNSUPPORTED_BY_ENGINE：{error:?}"
         );
     }
+}
+
+#[test]
+fn merge_preview_reports_fast_forward_on_a_linear_history() {
+    // main 与 feature 线性：HEAD..feature 可快进，无冲突
+    let dir = TempDir::new("merge-preview-ff");
+    init_repo(dir.path());
+    write(
+        dir.path(),
+        "a.txt",
+        b"base
+",
+    );
+    commit_all(dir.path(), "base", 1);
+    let (cli, _) = engines();
+    let repo = RepoId::new(dir.path());
+    // 引擎的 branch_create 只建分支不切换（checkout 由 services 编排），
+    // 因此直接用 git 建并切换
+    git_ok(dir.path(), &["checkout", "-b", "feature"]);
+
+    // feature 上多一个提交（否则 HEAD == source，裁决应为 UpToDate）
+    write(
+        dir.path(),
+        "feature.txt",
+        b"from feature
+",
+    );
+    commit_all(dir.path(), "feature commit", 2);
+    // 回到 main（合并目标），此时 HEAD..feature 可快进
+    git_ok(dir.path(), &["checkout", "main"]);
+
+    let report = cli.merge_preview(&repo, "feature").expect("预检失败");
+    assert_eq!(
+        report.verdict,
+        forgedesk_domain::git::FfVerdict::FastForward
+    );
+    assert!(report.preview.available);
+    assert!(report.preview.conflicted.is_empty());
 }
 
 #[test]

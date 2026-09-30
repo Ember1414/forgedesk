@@ -1016,6 +1016,99 @@ pub(super) fn branch_only_commits(
     Ok(out)
 }
 
+// ---------------------------------------------------------------- 合并预检（T3.4）
+
+/// 合并预检：快进裁决 + `merge-tree --write-tree` 的冲突清单（不碰工作区）。
+///
+/// - source 不存在 / 仓库无提交 → `VALIDATION`；
+/// - 无关历史（merge-base 失败）→ 真合并裁决，预检照常执行（git 会拒绝执行）；
+/// - `merge-tree` 失败（git < 2.38）→ `available=false`，界面退化为
+///   "执行后再报冲突"（任务书允许的权衡）。
+pub(super) fn merge_preview(
+    engine: &CliGitEngine,
+    repo: &RepoId,
+    source: &str,
+) -> AppResult<forgedesk_domain::git::MergePreviewReport> {
+    use forgedesk_domain::git::{MergePreview, MergePreviewReport};
+
+    let source_oid = rev_parse(engine, repo, source)?.ok_or_else(|| {
+        AppError::new(ErrorCode::Validation, "the merge source does not exist")
+            .with_hint(source.to_owned())
+    })?;
+    let head = head_oid(engine, repo)?
+        .ok_or_else(|| AppError::new(ErrorCode::Validation, "the repository has no commits"))?;
+
+    // merge-base 失败（无关历史）属于正常路径：裁决为真合并
+    let base_output = engine.run_at(
+        repo.root(),
+        GitInvocation::new(vec![
+            "merge-base".to_owned(),
+            "HEAD".to_owned(),
+            source.to_owned(),
+        ]),
+        super::RunKind::Read,
+    )?;
+    let base = if base_output.success() {
+        Some(base_output.stdout_lossy().trim().to_owned())
+    } else {
+        None
+    };
+    let verdict =
+        forgedesk_domain::git::ff_verdict(&head, base.as_deref().unwrap_or(""), &source_oid);
+
+    // 只有真合并才需要冲突预检（ff / up-to-date 天然无冲突）
+    let preview = if verdict != forgedesk_domain::git::FfVerdict::TrueMerge {
+        MergePreview {
+            available: true,
+            conflicted: Vec::new(),
+        }
+    } else {
+        let output = engine.run_at(
+            repo.root(),
+            GitInvocation::new(vec![
+                "merge-tree".to_owned(),
+                "--write-tree".to_owned(),
+                "--name-only".to_owned(),
+                "HEAD".to_owned(),
+                source.to_owned(),
+            ]),
+            super::RunKind::Read,
+        )?;
+        match output.exit_code {
+            // 干净：stdout 只有 tree oid
+            Some(0) => MergePreview {
+                available: true,
+                conflicted: Vec::new(),
+            },
+            // 冲突：stdout 首行是 tree oid，接着是冲突文件清单，
+            // **空行分界**之后是 Auto-merging / CONFLICT 信息行（不是文件名）
+            Some(1) => {
+                let stdout = output.stdout_lossy();
+                let mut lines = stdout.lines();
+                let _tree = lines.next();
+                let mut conflicted = Vec::new();
+                for line in lines {
+                    if line.trim().is_empty() {
+                        break;
+                    }
+                    conflicted.push(forgedesk_domain::git::RepoPath::from(line));
+                }
+                MergePreview {
+                    available: true,
+                    conflicted,
+                }
+            }
+            // git 太旧（不认识 --write-tree）或其它失败：预检不可用
+            _ => MergePreview {
+                available: false,
+                conflicted: Vec::new(),
+            },
+        }
+    };
+
+    Ok(MergePreviewReport { verdict, preview })
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {

@@ -17,10 +17,10 @@ use forgedesk_diagnostics::sanitize_log;
 use forgedesk_domain::git::{
     AmendMode, ApplyPatchSpec, BranchCreateSpec, BranchDeleteSpec, BranchRenameSpec,
     BranchSetUpstreamSpec, CheckoutSpec, CherryPickSpec, CloneSpec, CommitSpec, DiscardSpec,
-    FetchOutcome, FetchSpec, InitSpec, MergeKind, MergeOutcome, MergeSpec, PullOutcome, PullSpec,
-    PushOutcome, PushRejection, PushSpec, RefUpdate, RefUpdateKind, RepoId, RepositoryInfo,
-    ResetSpec, RevertSpec, StageSpec, StashOutcome, StashSpec, SwitchStrategy, TagCreateSpec,
-    TagDeleteSpec,
+    FetchOutcome, FetchSpec, InitSpec, MergeKind, MergeOutcome, MergeSpec, MergeStrategy,
+    PullOutcome, PullSpec, PushOutcome, PushRejection, PushSpec, RefUpdate, RefUpdateKind, RepoId,
+    RepositoryInfo, ResetSpec, RevertSpec, StageSpec, StashOutcome, StashSpec, SwitchStrategy,
+    TagCreateSpec, TagDeleteSpec,
 };
 use forgedesk_domain::{AppError, AppResult, ErrorCode};
 
@@ -363,7 +363,15 @@ pub(super) fn merge(
         GitInvocation::new(args::merge_args(spec)),
         RunKind::Write,
     )?;
-    outcome_from(engine, repo, &output, &spec.revision, MergeMessage::Merge)
+    let mut outcome = outcome_from(engine, repo, &output, &spec.revision, MergeMessage::Merge)?;
+    // squash 不更新 HEAD：outcome_from 的判定（HEAD == target → 快进，
+    // 否则合并提交）会把 squash 误判成 MergeCommit——按策略改回 Squash
+    //（HEAD 未动、没有新提交 oid）。AlreadyUpToDate 与 Conflicted 保持原判。
+    if spec.strategy == MergeStrategy::Squash && outcome.kind == MergeKind::MergeCommit {
+        outcome.kind = MergeKind::Squash;
+        outcome.oid = None;
+    }
+    Ok(outcome)
 }
 
 /// 拣选提交。

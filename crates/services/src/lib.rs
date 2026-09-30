@@ -31,6 +31,7 @@ pub mod engines;
 pub mod history;
 pub mod history_cache;
 pub mod history_ops;
+pub mod merge;
 pub mod repository;
 pub mod staging;
 pub mod stash;
@@ -62,6 +63,7 @@ pub use history::{
 };
 pub use history_cache::{LogPageCache, MAX_ENTRIES as MAX_LOG_CACHE_ENTRIES};
 pub use history_ops::{HistoryOpsService, ResetPlanRegistry};
+pub use merge::{MergePlanRegistry, MergeService};
 pub use repository::{
     InitExtras, LicenseSpec, MillisClock, OpenRepoRegistry, OpenedRepository, RecentRepository,
     RepositoryService,

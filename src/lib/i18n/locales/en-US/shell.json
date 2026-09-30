@@ -748,7 +748,33 @@
     "error": "Failed to load branches and tags",
     "switcherLabel": "Branch",
     "switcherNoMatch": "No matching branch",
-    "quickCreate": "Type a name; Enter creates and switches"
+    "quickCreate": "Type a name; Enter creates and switches",
+    "merge": {
+      "button": "Merge",
+      "title": "Merge branches",
+      "hint": "Preview what this merge will do before executing it. The preview never touches the worktree.",
+      "source": "Source branch (to merge in)",
+      "sourcePlaceholder": "Pick a branch…",
+      "strategyLabel": "Strategy",
+      "strategy": {
+        "merge": "Default",
+        "noFf": "Always a merge commit",
+        "squash": "Squash into one",
+        "fastForwardOnly": "Fast-forward only",
+        "ours": "Take ours",
+        "theirs": "Favor theirs"
+      },
+      "preview": "Preview",
+      "execute": "Execute merge",
+      "upToDate": "The current branch already contains every commit of that branch; nothing to do.",
+      "willFastForward": "Fast-forward: the current branch will advance to the {{count}} incoming commit(s).",
+      "willMergeCommit": "A merge commit will be created ({{count}} incoming commit(s) merged in).",
+      "conflictPreview": "The preview found conflicts; executing will stop at the conflict state:",
+      "previewUnavailable": "The local git is too old to preview conflicts; if any appear, the merge will stop at the conflict state.",
+      "messageLabel": "Merge message (used when a merge commit is created)",
+      "equivalent": "Equivalent command",
+      "done": "Merge completed"
+    }
   },
   "sync": {
     "ariaLabel": "Remote synchronisation",
@@ -1069,5 +1095,12 @@
       "heapUnavailable": "Heap n/a",
       "note": "Layout time is the front-end measured IPC round-trip, not the Rust full-layout cost."
     }
+  },
+  "mergeBanner": {
+    "conflicted": "Merge in progress: {{count}} file(s) to resolve",
+    "resolved": "Merge in progress: all conflicts resolved, ready to continue",
+    "continue": "Continue",
+    "abort": "Abort",
+    "skip": "Skip current commit"
   }
 }

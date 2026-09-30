@@ -26,10 +26,10 @@ use forgedesk_domain::git::{
     BranchSetUpstreamSpec, CheckoutSpec, CherryPickSpec, CloneSpec, Commit, CommitSpec,
     ConflictAbortOutcome, ConflictContinueOutcome, ConflictFileDetail, ConflictOpKind,
     ConflictState, DiffReport, DiffSpec, DiscardSpec, FetchOutcome, FetchSpec, InitSpec,
-    LineEnding, LogQuery, MergeOutcome, MergeSpec, Page, PullOutcome, PullSpec, PushOutcome,
-    PushSpec, ReflogEntry, Remote, ReorderSpec, RepoId, RepoPath, RepositoryInfo, ResetSpec,
-    RevertSpec, StageSpec, StashEntry, StashOutcome, StashSpec, StatusQuery, StatusReport,
-    SwitchStrategy, Tag, TagCreateSpec, TagDeleteSpec, TakeSide,
+    LineEnding, LogQuery, MergeOutcome, MergePreviewReport, MergeSpec, Page, PullOutcome, PullSpec,
+    PushOutcome, PushSpec, ReflogEntry, Remote, ReorderSpec, RepoId, RepoPath, RepositoryInfo,
+    ResetSpec, RevertSpec, StageSpec, StashEntry, StashOutcome, StashSpec, StatusQuery,
+    StatusReport, SwitchStrategy, Tag, TagCreateSpec, TagDeleteSpec, TakeSide,
 };
 use forgedesk_domain::{AppError, AppResult, ErrorCode};
 
@@ -698,6 +698,10 @@ impl GitEngine for CliGitEngine {
 
     fn conflict_remove_file(&self, repo: &RepoId, path: &RepoPath) -> AppResult<()> {
         conflict::remove_conflict_file(self, repo, path)
+    }
+
+    fn merge_preview(&self, repo: &RepoId, source: &str) -> AppResult<MergePreviewReport> {
+        read::merge_preview(self, repo, source)
     }
 
     fn fetch(

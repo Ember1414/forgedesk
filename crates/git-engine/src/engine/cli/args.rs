@@ -32,8 +32,9 @@ use std::path::PathBuf;
 
 use forgedesk_domain::git::{
     ApplyDirection, ApplyPatchSpec, ApplyTarget, CheckoutSpec, CherryPickSpec, CloneSpec,
-    CommitSpec, DiffSpec, DiffTarget, FetchSpec, InitSpec, LogQuery, MergeSpec, PullSpec, PushSpec,
-    ReorderSpec, RepoPath, ResetSpec, RevertSpec, StageSpec, StashAction, StashSpec,
+    CommitSpec, DiffSpec, DiffTarget, FetchSpec, InitSpec, LogQuery, MergeSpec, MergeStrategy,
+    PullSpec, PushSpec, ReorderSpec, RepoPath, ResetSpec, RevertSpec, StageSpec, StashAction,
+    StashSpec,
 };
 use forgedesk_domain::{AppError, AppResult, ErrorCode};
 
@@ -632,11 +633,21 @@ pub fn checkout_args(spec: &CheckoutSpec) -> AppResult<GitInvocation> {
 /// `git merge`。
 pub fn merge_args(spec: &MergeSpec) -> Vec<String> {
     let mut args = vec!["merge".to_owned(), "--no-edit".to_owned()];
-    if spec.ff_only {
-        args.push("--ff-only".to_owned());
-    }
-    if spec.no_ff {
-        args.push("--no-ff".to_owned());
+    match spec.strategy {
+        MergeStrategy::Merge => {}
+        MergeStrategy::NoFf => args.push("--no-ff".to_owned()),
+        MergeStrategy::Squash => args.push("--squash".to_owned()),
+        MergeStrategy::FastForwardOnly => args.push("--ff-only".to_owned()),
+        // `Ours` 是 `-s ours`（整树采用本方）；`Theirs` 用 `-X theirs`
+        // 表达"冲突偏向对方"（git 无原生 -s theirs），语义不同
+        MergeStrategy::Ours => {
+            args.push("-s".to_owned());
+            args.push("ours".to_owned());
+        }
+        MergeStrategy::Theirs => {
+            args.push("-X".to_owned());
+            args.push("theirs".to_owned());
+        }
     }
     if let Some(message) = &spec.message {
         args.push("-m".to_owned());

@@ -95,6 +95,8 @@ pub mod op_type {
     pub const STASH_BRANCH: &str = "stash_branch";
     /// 重置（soft / mixed / hard）。
     pub const RESET: &str = "reset";
+    /// 合并（execute；prepare 是只读预览不记审计）。
+    pub const MERGE: &str = "merge";
     /// 拣选提交。
     pub const CHERRY_PICK: &str = "cherry_pick";
     /// 反转提交。

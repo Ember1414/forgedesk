@@ -62,7 +62,7 @@ export interface FetchOutcome {
 export type PullStrategy = 'fastForwardOnly' | 'merge' | 'rebase';
 
 /** 合并 / 变基的结果类别。 */
-export type MergeKind = 'alreadyUpToDate' | 'fastForward' | 'mergeCommit' | 'conflicted';
+export type MergeKind = 'alreadyUpToDate' | 'fastForward' | 'mergeCommit' | 'squash' | 'conflicted';
 
 /** 合并 / 变基的结果。 */
 export interface MergeOutcome {

@@ -748,7 +748,33 @@
     "error": "读取分支与标签失败",
     "switcherLabel": "分支",
     "switcherNoMatch": "没有匹配的分支",
-    "quickCreate": "输入名字，回车创建并切换"
+    "quickCreate": "输入名字，回车创建并切换",
+    "merge": {
+      "button": "合并",
+      "title": "合并分支",
+      "hint": "先预览这次合并会产生什么，再决定执行。预检不会改动工作区。",
+      "source": "源分支（要合并进来的）",
+      "sourcePlaceholder": "选择分支…",
+      "strategyLabel": "合并策略",
+      "strategy": {
+        "merge": "默认",
+        "noFf": "总是合并提交",
+        "squash": "压缩为一次",
+        "fastForwardOnly": "仅快进",
+        "ours": "采用本方",
+        "theirs": "偏向对方"
+      },
+      "preview": "预览",
+      "execute": "执行合并",
+      "upToDate": "当前分支已包含该分支的全部提交，无事可做。",
+      "willFastForward": "可以快进：当前分支将直接前进到对方的 {{count}} 个提交。",
+      "willMergeCommit": "将产生合并提交（对方的 {{count}} 个提交并入当前分支）。",
+      "conflictPreview": "预检发现冲突，执行后将停在冲突状态：",
+      "previewUnavailable": "本机 git 版本过旧，无法预检冲突；执行时如遇冲突会直接停在冲突状态。",
+      "messageLabel": "合并信息（产生合并提交时使用）",
+      "equivalent": "等价命令",
+      "done": "合并完成"
+    }
   },
   "sync": {
     "ariaLabel": "远端同步",
@@ -1069,5 +1095,12 @@
       "heapUnavailable": "堆内存 n/a",
       "note": "布局耗时是前端实测的 IPC 往返时间，不是 Rust 全量布局耗时。"
     }
+  },
+  "mergeBanner": {
+    "conflicted": "正在合并：{{count}} 个文件待解决",
+    "resolved": "正在合并：全部冲突已解决，可以继续",
+    "continue": "继续",
+    "abort": "中止",
+    "skip": "跳过当前提交"
   }
 }

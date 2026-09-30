@@ -19,7 +19,13 @@
 import { useMemo, useState } from 'react';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { GitBranch as GitBranchIcon, GitBranchPlus, Tag as TagIcon, TagPlus } from 'lucide-react';
+import {
+  GitBranch as GitBranchIcon,
+  GitBranchPlus,
+  GitMerge,
+  Tag as TagIcon,
+  TagPlus,
+} from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useParams } from 'react-router-dom';
 
@@ -56,6 +62,7 @@ import { Input } from '@/ui/components/input';
 import { Skeleton } from '@/ui/components/skeleton';
 
 import { shortOid } from '@/features/history/commitMeta';
+import { MergeDialog } from '@/features/branches/MergeDialog';
 import { PlaceholderPage } from '@/ui/PlaceholderPage';
 
 /** 切换时对不干净工作区的三策略（后端 SwitchStrategy）。 */
@@ -71,6 +78,7 @@ export function RepoBranchesPageInner() {
 
   const [filter, setFilter] = useState('');
   const [createOpen, setCreateOpen] = useState(false);
+  const [mergeOpen, setMergeOpen] = useState(false);
   const [createName, setCreateName] = useState('');
   const [createCheckout, setCreateCheckout] = useState(true);
   const [tagOpen, setTagOpen] = useState(false);
@@ -252,6 +260,10 @@ export function RepoBranchesPageInner() {
           >
             <TagPlus aria-hidden="true" className="size-3.5" />
             {t('branches.createTag')}
+          </Button>
+          <Button size="sm" onClick={() => setMergeOpen(true)} data-testid="branches-merge">
+            <GitMerge aria-hidden="true" className="size-3.5" />
+            {t('branches.merge.button')}
           </Button>
           <Button size="sm" onClick={() => setCreateOpen(true)} data-testid="branches-create">
             <GitBranchPlus aria-hidden="true" className="size-3.5" />
@@ -567,6 +579,15 @@ export function RepoBranchesPageInner() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* 合并对话框（T3.4）：两段式预览 → 执行 */}
+      <MergeDialog
+        repoId={repoId}
+        currentBranch={current?.name ?? null}
+        locals={locals.map((branch) => branch.name)}
+        open={mergeOpen}
+        onOpenChange={setMergeOpen}
+      />
     </section>
   );
 }

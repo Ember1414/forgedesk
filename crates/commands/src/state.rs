@@ -26,8 +26,8 @@ use forgedesk_services::repository::OpenRepoRegistry;
 use forgedesk_services::{
     AuditLog, BranchService, CommitDetailService, CommitPlanRegistry, CommitService,
     ConflictService, CredentialGate, CredentialsService, GitEngines, HistoryOpsService,
-    HistoryService, LogPageCache, RepositoryService, ResetPlanRegistry, StagingService,
-    StashService, SyncService, WorkspaceService,
+    HistoryService, LogPageCache, MergePlanRegistry, MergeService, RepositoryService,
+    ResetPlanRegistry, StagingService, StashService, SyncService, WorkspaceService,
 };
 use forgedesk_snapshot::SnapshotManager;
 use forgedesk_storage::{Database, OperationStore, RepositoryStore};
@@ -78,6 +78,8 @@ pub struct AppState {
     /// 与 `commit_plans` 同理：`git_reset_prepare` 与 `git_reset_execute` 是两次
     /// 独立调用，各自 new 一个注册表会让执行永远找不到刚刚预览过的计划。
     pub reset_plans: Arc<ResetPlanRegistry>,
+    /// 待执行的合并计划（T3.4，进程内；与 reset_plans 同理）。
+    pub merge_plans: Arc<MergePlanRegistry>,
     /// 日志分页缓存（T2.9）：累积各查询形状的 walk 前缀，深分页与重复首页
     /// 不再从 tip 重扫。
     ///
@@ -202,6 +204,19 @@ impl AppState {
             RepositoryStore::new(&self.database),
             self.snapshots.as_ref(),
             &self.reset_plans,
+        )
+    }
+
+    /// 绑定当前状态构造合并服务（T3.4）。
+    ///
+    /// 快照管理器与 pull 路径共享同一实例：合并的 `PreSync` 快照
+    /// 落在同一份历史里。
+    pub fn merge_service(&self) -> MergeService<'_> {
+        MergeService::new(
+            &self.engines,
+            RepositoryStore::new(&self.database),
+            self.snapshots.as_ref(),
+            &self.merge_plans,
         )
     }
 

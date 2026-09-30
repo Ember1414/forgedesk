@@ -86,6 +86,15 @@ export {
   gitStashSave,
   gitStashShow,
 } from './historyOps';
+export { gitMergeContinue, gitMergeExecute, gitMergePrepare } from './merge';
+export type {
+  FfVerdict,
+  MergeExecuteRequest,
+  MergePlan,
+  MergePlanCommit,
+  MergeRequest,
+  MergeStrategy,
+} from './merge';
 export {
   gitConflictAbort,
   gitConflictApplyResolution,

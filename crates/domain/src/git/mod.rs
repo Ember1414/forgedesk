@@ -71,12 +71,14 @@ pub use refs::{Branch, RefUpdate, RefUpdateKind, Remote, RemoteKind, Tag};
 pub use repository::{BranchLabel, RepoId, RepositoryInfo, Worktree};
 pub use reset::{CommitSummary, ResetOutcome, ResetPlan, ResetRemoteImpact};
 pub use spec::{
-    validate_ref_name, AmendMode, ApplyDirection, ApplyPatchSpec, ApplyTarget, BranchCreateSpec,
-    BranchDeleteSpec, BranchRenameSpec, BranchSetUpstreamSpec, CheckoutSpec, CherryPickSpec,
-    CloneSpec, CommitSpec, DiscardSpec, FetchOutcome, FetchSpec, InitSpec, MergeKind, MergeOutcome,
-    MergeSpec, PullOutcome, PullSpec, PullStrategy, PushOutcome, PushRejection, PushSpec,
-    ReflogEntry, ReorderAction, ReorderSpec, ReorderStep, ResetMode, ResetSpec, RevertSpec,
-    StageSpec, StashAction, StashSpec, SwitchStrategy, TagCreateSpec, TagDeleteSpec,
+    default_merge_message, equivalent_merge_command, ff_verdict, validate_ref_name, AmendMode,
+    ApplyDirection, ApplyPatchSpec, ApplyTarget, BranchCreateSpec, BranchDeleteSpec,
+    BranchRenameSpec, BranchSetUpstreamSpec, CheckoutSpec, CherryPickSpec, CloneSpec, CommitSpec,
+    DiscardSpec, FetchOutcome, FetchSpec, FfVerdict, InitSpec, MergeKind, MergeOutcome, MergePlan,
+    MergePreview, MergePreviewReport, MergeSpec, MergeStrategy, PullOutcome, PullSpec,
+    PullStrategy, PushOutcome, PushRejection, PushSpec, ReflogEntry, ReorderAction, ReorderSpec,
+    ReorderStep, ResetMode, ResetSpec, RevertSpec, StageSpec, StashAction, StashSpec,
+    SwitchStrategy, TagCreateSpec, TagDeleteSpec,
 };
 pub use staging::{trim_patch, LineSelection, PatchDirection, StageGranularity, StageScope};
 pub use stash::{StashEntry, StashOutcome};

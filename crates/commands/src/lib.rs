@@ -39,6 +39,7 @@ pub mod history;
 pub mod history_ops;
 pub mod jobs;
 pub mod logs;
+pub mod merge;
 pub mod repository;
 pub mod settings;
 pub mod snapshots;
@@ -86,6 +87,10 @@ pub use history_ops::{
 };
 pub use jobs::{job_cancel, TauriJobReporter};
 pub use logs::{logs_open, logs_tail};
+pub use merge::{
+    git_merge_continue, git_merge_execute, git_merge_prepare, MergeExecuteRequest, MergePlanDto,
+    MergeRequest,
+};
 pub use repository::{
     repo_clone, repo_close, repo_discover, repo_forget, repo_init, repo_open, repo_recent_list,
     AuditFindingDto, BranchLabelDto, CloneRequest, InitRequest, JobIdDto, OpenedRepositoryDto,
