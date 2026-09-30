@@ -98,8 +98,16 @@ export function AccountLoginDialog({ open, onOpenChange }: AccountLoginDialogPro
     onOpenChange(false);
   };
 
-  // 只挂一次的 job 事件订阅：按 jobIdRef 过滤别人的任务
+  // job 事件订阅：只在**对话框打开时**建立，按 jobIdRef 过滤别人的任务。
+  //
+  // 为什么不能"渲染即订阅"：这个对话框被渲染出来（open=false）时也会挂载，
+  // 而没人打开的对话框不该占用宿主的事件通道——在宿主缺席的环境（单元测试、
+  // 浏览器预览）里 `listen` 会立刻以一个**未处理的 rejection** 结束，
+  // 它不会被任何 catch 接住，却能让整个测试运行以非零码退出。
   useEffect(() => {
+    if (!open) {
+      return;
+    }
     const donePromise = onJobDone((payload) => {
       if (jobIdRef.current === null || payload.jobId !== jobIdRef.current) {
         return;
@@ -125,8 +133,8 @@ export function AccountLoginDialog({ open, onOpenChange }: AccountLoginDialogPro
       void donePromise.then((unlisten) => unlisten());
       void failedPromise.then((unlisten) => unlisten());
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- 只在挂载时订阅一次；回调经 ref/state 读最新值
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 随 open 开关重订阅；回调经 ref/state 读最新值
+  }, [open]);
 
   const startDeviceFlow = useMutation({
     mutationFn: () => accountDeviceFlowStart(host.trim()),
