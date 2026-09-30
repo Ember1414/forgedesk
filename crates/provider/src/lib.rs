@@ -40,5 +40,18 @@ pub use traits::{
     AuthFlow, CiService, HostProvider, IssueService, PullService, ReleaseService, RepoService,
 };
 
+/// GitHub 的 HTTP 底座（UA / 超时 / 代理 / 重试 / 限流捕获）。
+pub mod client;
+/// `octocrab::Error` → `AppError` 的映射。
+pub mod error;
+/// 限流头的解析与快照。
+pub mod rate_limit;
+/// 令牌脱敏（红线 R8 的 provider 侧兜底）。
+pub mod redact;
+
+pub use client::{ApiRequest, GitHubHttp, HttpConfig};
+pub use error::map_octocrab_error;
+pub use rate_limit::{RateLimitState, RateLimitTracker};
+
 /// crate 名称，用于日志与诊断中标识来源。
 pub const CRATE_NAME: &str = env!("CARGO_PKG_NAME");

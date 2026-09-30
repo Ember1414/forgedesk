@@ -17,6 +17,15 @@ serde_json.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 tokio.workspace = true
+octocrab = { version = "0.54.2", features = ["reqwest"] }
+async-trait = "0.1.92"
+parking_lot.workspace = true
+secrecy.workspace = true
+reqwest = { version = "0.13.5", features = ["json"] }
+time.workspace = true
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+wiremock = "0.6.5"
