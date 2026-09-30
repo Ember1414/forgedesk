@@ -1260,5 +1260,37 @@
     "continue": "继续",
     "abort": "中止",
     "skip": "跳过当前提交"
+  },
+  "github": {
+    "repos": {
+      "tablistLabel": "仓库视角",
+      "tabOwned": "我的",
+      "tabAll": "全部协作",
+      "tabStarred": "星标",
+      "tabSearch": "搜索",
+      "searchPlaceholder": "搜索仓库，如 forgedesk language:rust",
+      "searchGo": "搜索",
+      "searchHint": "输入关键词开始搜索（匿名可用）。",
+      "empty": "这里还没有仓库。",
+      "loading": "正在加载…",
+      "listErrorHint": "请检查网络后重试。",
+      "retry": "重试",
+      "signInRequired": "还没有登录账号",
+      "signInHint": "浏览账号名下与星标的仓库需要先在设置里登录托管平台账号。",
+      "signInGo": "去登录",
+      "starToast": "已为 {{fullName}} 加星",
+      "unstarToast": "已取消 {{fullName}} 的星标",
+      "forkToast": "已发起 fork：{{fullName}}（副本创建中）",
+      "stars": "★ {{count}}",
+      "defaultBranch": "默认分支 {{branch}}",
+      "privateBadge": "私有",
+      "forkBadge": "fork",
+      "starAction": "加星",
+      "unstarAction": "取消星标",
+      "forkAction": "Fork",
+      "copyUrl": "复制地址",
+      "copied": "已复制",
+      "loadMore": "加载更多"
+    }
   }
 }

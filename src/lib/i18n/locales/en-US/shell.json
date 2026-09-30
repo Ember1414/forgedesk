@@ -1260,5 +1260,37 @@
     "continue": "Continue",
     "abort": "Abort",
     "skip": "Skip current commit"
+  },
+  "github": {
+    "repos": {
+      "tablistLabel": "Repository views",
+      "tabOwned": "Mine",
+      "tabAll": "All collaborations",
+      "tabStarred": "Starred",
+      "tabSearch": "Search",
+      "searchPlaceholder": "Search repositories, e.g. forgedesk language:rust",
+      "searchGo": "Search",
+      "searchHint": "Type a query to start searching (works anonymously).",
+      "empty": "No repositories here yet.",
+      "loading": "Loading…",
+      "listErrorHint": "Check the network and try again.",
+      "retry": "Retry",
+      "signInRequired": "No account signed in",
+      "signInHint": "Browsing your own and starred repositories requires signing in from the settings first.",
+      "signInGo": "Sign in",
+      "starToast": "Starred {{fullName}}",
+      "unstarToast": "Removed the star from {{fullName}}",
+      "forkToast": "Fork started: {{fullName}} (copy is being created)",
+      "stars": "★ {{count}}",
+      "defaultBranch": "default branch {{branch}}",
+      "privateBadge": "private",
+      "forkBadge": "fork",
+      "starAction": "Star",
+      "unstarAction": "Unstar",
+      "forkAction": "Fork",
+      "copyUrl": "Copy URL",
+      "copied": "Copied",
+      "loadMore": "Load more"
+    }
   }
 }

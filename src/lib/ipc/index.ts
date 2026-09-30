@@ -249,6 +249,17 @@ export type {
 } from './history';
 
 export {
+  repoAccountBindingGet,
+  repoAccountBindingSet,
+  repoRemoteFork,
+  repoRemoteList,
+  repoRemoteSearch,
+  repoRemoteStar,
+  repoRemoteStarred,
+} from './remoteRepos';
+export type { RemoteRepo, RemoteRepoPage, RemoteRepoScope } from './remoteRepos';
+
+export {
   cancelJob,
   JOB_DONE_EVENT,
   JOB_FAILED_EVENT,
