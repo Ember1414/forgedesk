@@ -22,6 +22,8 @@ export const BRANCHES_QUERY_KEY = 'branches';
 export const SNAPSHOTS_QUERY_KEY = 'snapshots';
 /** 快照的磁盘占用（T3.8：与列表分开——占用变化不一定要重拉列表）。 */
 export const SNAPSHOT_USAGE_QUERY_KEY = 'snapshotUsage';
+/** 未完成的回滚（T3.9 崩溃恢复：有值 = 上次回滚被强杀）。 */
+export const SNAPSHOT_RESTORE_PENDING_QUERY_KEY = 'snapshotRestorePending';
 /**
  * 最近打开的仓库（T1.3 的本地记录）。
  *

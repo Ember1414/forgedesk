@@ -26,12 +26,17 @@
 import { useState } from 'react';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Camera, Trash2 } from 'lucide-react';
+import { Camera, Check, Trash2, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useParams } from 'react-router-dom';
 
 import { normalizeError, useAppError } from '@/lib/errors';
-import { SNAPSHOT_USAGE_QUERY_KEY, SNAPSHOTS_QUERY_KEY, STATUS_QUERY_KEY } from '@/lib/queryKeys';
+import {
+  SNAPSHOT_RESTORE_PENDING_QUERY_KEY,
+  SNAPSHOT_USAGE_QUERY_KEY,
+  SNAPSHOTS_QUERY_KEY,
+  STATUS_QUERY_KEY,
+} from '@/lib/queryKeys';
 import { useRepoChangeInvalidation } from '@/lib/repoChanged';
 import {
   snapshotCleanup,
@@ -40,9 +45,12 @@ import {
   snapshotList,
   snapshotPrune,
   snapshotRestore,
+  snapshotRestoreAbandon,
+  snapshotRestorePending,
   snapshotUsage,
 } from '@/lib/ipc/snapshots';
 import type {
+  RestoreOutcomeKind,
   RestoreReport,
   SnapshotDiff,
   SnapshotMeta,
@@ -95,6 +103,18 @@ function formatBytes(bytes: number): string {
   return `${value.toFixed(1)} ${units[index] ?? 'B'}`;
 }
 
+/** 回滚结局对应的配色（文字 + 图标一起用，不靠颜色单独表意）。 */
+function outcomeClass(outcome: RestoreOutcomeKind): string {
+  switch (outcome) {
+    case 'completed':
+      return 'text-success';
+    case 'rolledBack':
+      return 'text-warning';
+    default:
+      return 'text-danger';
+  }
+}
+
 export function SnapshotsPage() {
   const { t } = useTranslation('shell');
   const params = useParams();
@@ -121,6 +141,14 @@ export function SnapshotsPage() {
     enabled: Number.isFinite(repoId),
   });
 
+  // 崩溃恢复（T3.9）：上次回滚没走完时会留下标记，界面必须第一眼就说出来——
+  // 用户此刻面对的是一个"半新半旧"的仓库，他需要知道这件事不是自己搞坏的
+  const pendingQuery = useQuery({
+    queryKey: [SNAPSHOT_RESTORE_PENDING_QUERY_KEY, repoId],
+    queryFn: () => snapshotRestorePending(repoId),
+    enabled: Number.isFinite(repoId),
+  });
+
   // 外部提交（终端里的 git commit）同样会产生"提交前"快照：列表必须跟着更新，
   // 否则用户会以为自己刚打的点丢了。`refs` 类别已经包含快照键，无需额外参数。
   useRepoChangeInvalidation(repoId);
@@ -128,8 +156,21 @@ export function SnapshotsPage() {
   const invalidate = () => {
     void queryClient.invalidateQueries({ queryKey: [SNAPSHOTS_QUERY_KEY, repoId] });
     void queryClient.invalidateQueries({ queryKey: [SNAPSHOT_USAGE_QUERY_KEY, repoId] });
+    void queryClient.invalidateQueries({ queryKey: [SNAPSHOT_RESTORE_PENDING_QUERY_KEY, repoId] });
     void queryClient.invalidateQueries({ queryKey: [STATUS_QUERY_KEY, repoId] });
   };
+
+  /** 放弃未完成的回滚标记（不回退任何东西——界面已经把事实摆给用户了）。 */
+  const abandonMutation = useMutation({
+    mutationFn: () => snapshotRestoreAbandon(repoId),
+    onSuccess: () => {
+      pushToast({ tone: 'info', title: t('snapshots.pending.abandoned') });
+      invalidate();
+    },
+    onError: (error) => {
+      show(normalizeError(error));
+    },
+  });
 
   const createMutation = useMutation({
     mutationFn: () => snapshotCreate(repoId),
@@ -171,8 +212,18 @@ export function SnapshotsPage() {
       setDiff(null);
       setReport(restored);
       pushToast({
-        tone: 'success',
-        title: t('snapshots.restored', { oid: restored.headOid.slice(0, 7) }),
+        // 回滚没成功时必须如实说：成功 = success，退回动手之前 = warning，
+        // 需要人工介入 = danger。语气统一成"成功"会让用户以为万事大吉
+        tone:
+          restored.outcome === 'completed'
+            ? 'success'
+            : restored.outcome === 'rolledBack'
+              ? 'warning'
+              : 'danger',
+        title:
+          restored.outcome === 'completed'
+            ? t('snapshots.restored', { oid: restored.headOid.slice(0, 7) })
+            : t(`snapshots.outcome.${restored.outcome}`),
       });
       invalidate();
     },
@@ -246,6 +297,7 @@ export function SnapshotsPage() {
   // 后端不该返回 `null`，但"缺数据"必须被防御：旧版本、mock 或异常路径都可能给 null，
   // 而 `null` 会让下面每一处 `usage.xxx` 直接把页面炸掉（T3.8 的 E2E 抓到过）
   const usage = usageQuery.data ?? null;
+  const pending = pendingQuery.data ?? null;
 
   return (
     <section className="flex h-full flex-col gap-4" data-testid="snapshots-page">
@@ -314,6 +366,49 @@ export function SnapshotsPage() {
         </div>
       )}
 
+      {/* 崩溃恢复：上次回滚没走完。先给出事实，再给两个明确的出口 */}
+      {pending === null ? null : (
+        <div
+          className="flex flex-col gap-2 rounded-md border border-warning bg-warning/10 p-3 text-12"
+          data-testid="restore-pending"
+        >
+          <p className="font-medium">{t('snapshots.pending.title')}</p>
+          <p className="text-fg-muted">
+            {t('snapshots.pending.detail', {
+              id: pending.snapshotId,
+              stage:
+                pending.stage === null
+                  ? t('snapshots.stage.unknown')
+                  : t(`snapshots.stage.${pending.stage}`),
+            })}
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {/* "继续" = 再回滚一次：回滚是幂等的，重复执行不会破坏任何东西 */}
+            <Button
+              size="sm"
+              loading={restoreMutation.isPending}
+              onClick={() => {
+                restoreMutation.mutate(pending.snapshotId);
+              }}
+              data-testid="restore-pending-continue"
+            >
+              {t('snapshots.pending.continue')}
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              loading={abandonMutation.isPending}
+              onClick={() => {
+                abandonMutation.mutate();
+              }}
+              data-testid="restore-pending-abandon"
+            >
+              {t('snapshots.pending.abandon')}
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/* 手动打点的告警：一眼能看出来"这次没备上什么" */}
       {created === null || created.warnings.length === 0 ? null : (
         <div
@@ -342,15 +437,56 @@ export function SnapshotsPage() {
 
       {/* 回滚报告：可折叠清单（用户能看到"哪一步成了、哪一步没成"） */}
       {report === null ? null : (
-        <details
-          className="rounded-md border border-line p-3 text-12"
+        <section
+          className="flex flex-col gap-2 rounded-md border border-line p-3 text-12"
           data-testid="snapshot-report"
-          open
         >
-          <summary className="cursor-pointer font-medium">{t('snapshots.report.title')}</summary>
-          <ul className="mt-2 flex flex-col gap-1 text-fg-muted">
+          <header className="flex items-center justify-between gap-2">
+            <h3 className="font-medium">{t('snapshots.report.title')}</h3>
+            <button
+              type="button"
+              className="fd-transition rounded-sm text-fg-subtle hover:text-fg"
+              onClick={() => {
+                setReport(null);
+              }}
+            >
+              {t('snapshots.dismiss')}
+            </button>
+          </header>
+
+          {/* 结局：一句话回答"我现在能不能安心"（图标 + 文字，不只靠颜色） */}
+          <p
+            className={`flex items-center gap-1.5 font-medium ${outcomeClass(report.outcome)}`}
+            data-testid="report-outcome"
+          >
+            {report.outcome === 'completed' ? (
+              <Check aria-hidden="true" className="size-3.5 shrink-0" />
+            ) : (
+              <X aria-hidden="true" className="size-3.5 shrink-0" />
+            )}
+            {t(`snapshots.outcome.${report.outcome}`)}
+          </p>
+
+          {/* 阶段清单（T3.9）：哪一步成了、哪一步没成、各花了多久 */}
+          <ol className="flex flex-col gap-1" data-testid="report-stages">
+            {report.stages.map((stage) => (
+              <li key={stage.stage} className="flex flex-wrap items-baseline gap-x-2">
+                {stage.ok ? (
+                  <Check aria-hidden="true" className="size-3 shrink-0 text-success" />
+                ) : (
+                  <X aria-hidden="true" className="size-3 shrink-0 text-danger" />
+                )}
+                <span className="text-fg">{t(`snapshots.stage.${stage.stage}`)}</span>
+                <span className="text-fg-subtle">
+                  {t('snapshots.report.duration', { ms: stage.durationMs })}
+                </span>
+                {stage.detail === null ? null : <span className="text-danger">{stage.detail}</span>}
+              </li>
+            ))}
+          </ol>
+
+          <ul className="flex flex-col gap-1 text-fg-muted">
             <li>{t('snapshots.report.head', { oid: report.headOid.slice(0, 7) })}</li>
-            <li>{t('snapshots.report.index')}</li>
             <li>{t('snapshots.report.untracked', { count: report.untrackedRestored })}</li>
             <li>
               {report.verified ? t('snapshots.report.verified') : t('snapshots.report.unverified')}
@@ -372,16 +508,46 @@ export function SnapshotsPage() {
               </li>
             )}
           </ul>
-          <button
-            type="button"
-            className="fd-transition mt-2 rounded-sm text-fg-subtle hover:text-fg"
-            onClick={() => {
-              setReport(null);
-            }}
-          >
-            {t('snapshots.dismiss')}
-          </button>
-        </details>
+
+          {/* 紧急模式：给用户一份能照着做的恢复指引（命令一条一条可复制） */}
+          {report.emergency === null ? null : (
+            <div
+              className="flex flex-col gap-2 rounded-md border border-danger bg-danger/10 p-2"
+              data-testid="report-emergency"
+            >
+              <p className="font-medium">{t('snapshots.emergency.title')}</p>
+              <ul className="flex list-disc flex-col gap-1 pl-4 text-fg-muted">
+                {report.emergency.notes.map((note) => (
+                  <li key={note}>{note}</li>
+                ))}
+              </ul>
+              <p className="font-medium">{t('snapshots.emergency.commands')}</p>
+              <ul className="flex flex-col gap-1">
+                {report.emergency.commands.map((command) => (
+                  <li key={command} className="flex items-center gap-2">
+                    <code className="min-w-0 flex-1 truncate rounded-sm bg-surface-sunken px-1 font-mono">
+                      {command}
+                    </code>
+                    <button
+                      type="button"
+                      className="fd-transition shrink-0 rounded-sm border border-line px-1.5 hover:bg-surface-sunken"
+                      onClick={() => {
+                        void navigator.clipboard.writeText(command).catch(() => undefined);
+                      }}
+                    >
+                      {t('snapshots.emergency.copy')}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+              {report.emergency.backupDir === null ? null : (
+                <p className="text-fg-muted">
+                  {t('snapshots.emergency.backupDir', { dir: report.emergency.backupDir })}
+                </p>
+              )}
+            </div>
+          )}
+        </section>
       )}
 
       {listQuery.isPending ? (

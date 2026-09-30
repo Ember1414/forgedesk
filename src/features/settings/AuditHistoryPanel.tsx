@@ -60,6 +60,7 @@ const OP_TYPES = [
   'snapshot_prune',
   'snapshot_create',
   'snapshot_cleanup',
+  'snapshot_restore_abandon',
   'audit_export',
   'audit_prune',
 ] as const;

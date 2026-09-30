@@ -507,6 +507,7 @@
         "snapshotPrune": "清理快照",
         "snapshotCreate": "手动创建快照",
         "snapshotCleanup": "清理快照缓存",
+        "snapshotRestoreAbandon": "清除未完成回滚提示",
         "auditExport": "导出操作历史",
         "auditPrune": "清理操作历史"
       },
@@ -640,7 +641,34 @@
       "unverified": "部分内容未能通过校验，见下面的条目",
       "failed": "{{count}} 个未跟踪文件未能恢复：{{paths}}",
       "extra": "当前多出的 {{count}} 个未跟踪文件未被删除：{{paths}}",
-      "more": " 等 {{count}} 项"
+      "more": " 等 {{count}} 项",
+      "duration": "{{ms}} ms"
+    },
+    "outcome": {
+      "completed": "回滚完成",
+      "rolledBack": "回滚失败，已退回动手之前",
+      "emergency": "回滚失败且无法自动退回：需要手动恢复"
+    },
+    "stage": {
+      "protection": "打回滚前保护点",
+      "head": "恢复 HEAD 与工作区",
+      "index": "恢复索引",
+      "untracked": "写回未跟踪文件",
+      "verify": "校验 git 事实",
+      "unknown": "未知阶段"
+    },
+    "pending": {
+      "title": "检测到上次回滚未完成",
+      "detail": "快照 #{{id}} 的回滚停在「{{stage}}」这一步（应用上次被中断）。可以继续这次回滚，也可以只清除这条提示。",
+      "continue": "继续回滚",
+      "abandon": "清除提示",
+      "abandoned": "已清除未完成回滚的提示"
+    },
+    "emergency": {
+      "title": "需要手动恢复",
+      "commands": "在仓库目录里逐条执行（可复制）：",
+      "copy": "复制",
+      "backupDir": "内容备份目录：{{dir}}"
     }
   },
   "commit": {

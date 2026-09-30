@@ -37,6 +37,54 @@ export interface RestoreReport {
   readonly untrackedExtra: readonly string[];
   /** 恢复后的完整校验是否通过（HEAD / 索引 / 备份内容逐字节）。 */
   readonly verified: boolean;
+  /** 本次回滚的结局（T3.9）。 */
+  readonly outcome: RestoreOutcomeKind;
+  /** 各阶段结果（按执行顺序）——界面据此展示"哪一步成了、哪一步没成"。 */
+  readonly stages: readonly RestoreStageResult[];
+  /** 人话报告行（与日志同源）。 */
+  readonly reportLines: readonly string[];
+  /** 紧急模式的恢复指引；仅 `emergency` 时非 null。 */
+  readonly emergency: EmergencyGuidance | null;
+}
+
+/** 回滚的结局：全成 / 已退回动手之前 / 需要人工介入。 */
+export type RestoreOutcomeKind = 'completed' | 'rolledBack' | 'emergency';
+
+/** 回滚阶段短名。 */
+export type RestoreStageKey = 'protection' | 'head' | 'index' | 'untracked' | 'verify';
+
+/** 一个回滚阶段的结果。 */
+export interface RestoreStageResult {
+  readonly stage: RestoreStageKey;
+  readonly ok: boolean;
+  /** 失败原因（人话）；成功为 null。 */
+  readonly detail: string | null;
+  readonly durationMs: number;
+}
+
+/**
+ * 紧急模式的恢复指引。
+ *
+ * `commands` 是**逐条可复制执行的 git 命令**（不含占位符与解释）；
+ * 说明在 `notes` 里。后端保证这一点，界面只需要如实展示与提供复制。
+ */
+export interface EmergencyGuidance {
+  /** 用户原本想回到的快照。 */
+  readonly snapshotId: number;
+  /** 指引命令的目标（通常是回滚前保护点）。 */
+  readonly targetSnapshotId: number;
+  /** 目标快照的内容备份目录（可能已被清理）。 */
+  readonly backupDir: string | null;
+  readonly commands: readonly string[];
+  readonly notes: readonly string[];
+}
+
+/** 一次未完成回滚的标记（崩溃恢复）。 */
+export interface PendingRestore {
+  readonly snapshotId: number;
+  /** 停在哪一个阶段（认不出时为 null）。 */
+  readonly stage: RestoreStageKey | null;
+  readonly startedAtMs: number | null;
 }
 
 /** 快照与当前状态的差异摘要。 */
@@ -137,6 +185,21 @@ export function snapshotDiff(repoId: number, snapshotId: number): Promise<Snapsh
 /** 回滚到快照（成功后发布 `repo:changed`）。 */
 export function snapshotRestore(repoId: number, snapshotId: number): Promise<RestoreReport> {
   return invokeCommand<RestoreReport>('snapshot_restore', { repoId, snapshotId });
+}
+
+/**
+ * 未完成的回滚（T3.9 崩溃恢复）：有值 = 上一次回滚被强杀，没走完。
+ *
+ * "继续"就是再调一次 `snapshotRestore`（回滚是幂等的）；
+ * "放弃"走 `snapshotRestoreAbandon`。
+ */
+export function snapshotRestorePending(repoId: number): Promise<PendingRestore | null> {
+  return invokeCommand<PendingRestore | null>('snapshot_restore_pending', { repoId });
+}
+
+/** 放弃未完成的回滚标记，返回清掉的条数（**不回退任何东西**）。 */
+export function snapshotRestoreAbandon(repoId: number): Promise<number> {
+  return invokeCommand<number>('snapshot_restore_abandon', { repoId });
 }
 
 /** 按保留策略清理旧快照，返回被清理的 id。 */

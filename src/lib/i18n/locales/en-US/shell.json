@@ -507,6 +507,7 @@
         "snapshotPrune": "Prune snapshots",
         "snapshotCreate": "Create snapshot manually",
         "snapshotCleanup": "Clean snapshot cache",
+        "snapshotRestoreAbandon": "Clear unfinished-restore notice",
         "auditExport": "Export history",
         "auditPrune": "Prune history"
       },
@@ -640,7 +641,34 @@
       "unverified": "Some content did not pass verification; see the entries below",
       "failed": "{{count}} untracked file(s) could not be restored: {{paths}}",
       "extra": "The {{count}} extra untracked file(s) present now were not deleted: {{paths}}",
-      "more": " and {{count}} more"
+      "more": " and {{count}} more",
+      "duration": "{{ms}} ms"
+    },
+    "outcome": {
+      "completed": "Restore completed",
+      "rolledBack": "Restore failed; rolled back to the pre-restore state",
+      "emergency": "Restore failed and could not roll back: manual recovery required"
+    },
+    "stage": {
+      "protection": "Take the pre-restore protection point",
+      "head": "Restore HEAD and the working tree",
+      "index": "Restore the index",
+      "untracked": "Write untracked content back",
+      "verify": "Verify git facts",
+      "unknown": "unknown stage"
+    },
+    "pending": {
+      "title": "An earlier restore did not finish",
+      "detail": "The restore of snapshot #{{id}} stopped at \"{{stage}}\" (the app was interrupted). You can continue that restore, or just clear this notice.",
+      "continue": "Continue the restore",
+      "abandon": "Clear the notice",
+      "abandoned": "Cleared the unfinished-restore notice"
+    },
+    "emergency": {
+      "title": "Manual recovery required",
+      "commands": "Run these in the repository directory (copyable):",
+      "copy": "Copy",
+      "backupDir": "Content backup directory: {{dir}}"
     }
   },
   "commit": {

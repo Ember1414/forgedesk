@@ -11,6 +11,8 @@ import {
   snapshotList,
   snapshotPrune,
   snapshotRestore,
+  snapshotRestoreAbandon,
+  snapshotRestorePending,
   snapshotUsage,
 } from '@/lib/ipc/snapshots';
 import type { SnapshotMeta } from '@/lib/ipc/snapshots';
@@ -34,6 +36,8 @@ vi.mock('@/lib/ipc/snapshots', () => ({
   snapshotUsage: vi.fn(),
   snapshotEstimate: vi.fn(),
   snapshotCleanup: vi.fn(),
+  snapshotRestorePending: vi.fn(),
+  snapshotRestoreAbandon: vi.fn(),
 }));
 
 // 页面订阅 repo:changed 做失效：E2E 的事件通道在单元测试里没有意义，直接短路
@@ -48,6 +52,8 @@ const pruneMock = vi.mocked(snapshotPrune);
 const createMock = vi.mocked(snapshotCreate);
 const usageMock = vi.mocked(snapshotUsage);
 const cleanupMock = vi.mocked(snapshotCleanup);
+const pendingMock = vi.mocked(snapshotRestorePending);
+const abandonMock = vi.mocked(snapshotRestoreAbandon);
 
 const HEAD = 'a'.repeat(40);
 
@@ -85,6 +91,7 @@ beforeEach(() => {
     maxRepoBytes: 2 * 1024 * 1024 * 1024,
     orphanDirs: [],
   });
+  pendingMock.mockResolvedValue(null);
 });
 
 describe('快照页', () => {
@@ -185,6 +192,16 @@ describe('快照页', () => {
       untrackedFailed: [],
       untrackedExtra: ['new.txt'],
       verified: true,
+      outcome: 'completed',
+      stages: [
+        { stage: 'protection', ok: true, detail: null, durationMs: 1 },
+        { stage: 'head', ok: true, detail: null, durationMs: 2 },
+        { stage: 'index', ok: true, detail: null, durationMs: 1 },
+        { stage: 'untracked', ok: true, detail: null, durationMs: 1 },
+        { stage: 'verify', ok: true, detail: null, durationMs: 1 },
+      ],
+      reportLines: ['head: ok (2 ms)'],
+      emergency: null,
     });
 
     renderPage();
@@ -217,5 +234,112 @@ describe('快照页', () => {
     await waitFor(() => {
       expect(pruneMock).toHaveBeenCalledWith(1);
     });
+  });
+
+  it('未完成的回滚会被点出来，"继续"就是再回滚一次（幂等）', async () => {
+    pendingMock.mockResolvedValue({ snapshotId: 7, stage: 'index', startedAtMs: 1_700 });
+    restoreMock.mockResolvedValue({
+      restoredSnapshotId: 7,
+      headOid: HEAD,
+      indexTreeOid: 'c'.repeat(40),
+      preRestoreSnapshotId: 8,
+      untrackedPaths: [],
+      untrackedRestored: 0,
+      untrackedFailed: [],
+      untrackedExtra: [],
+      verified: true,
+      outcome: 'completed',
+      stages: [{ stage: 'head', ok: true, detail: null, durationMs: 1 }],
+      reportLines: [],
+      emergency: null,
+    });
+
+    renderPage();
+
+    const banner = await screen.findByTestId('restore-pending');
+    expect(banner).toHaveTextContent('检测到上次回滚未完成');
+    expect(banner).toHaveTextContent('快照 #7');
+    // 说清停在哪一步：用户才知道"继续"会从哪儿接着做
+    expect(banner).toHaveTextContent('恢复索引');
+
+    fireEvent.click(screen.getByTestId('restore-pending-continue'));
+
+    await waitFor(() => {
+      expect(restoreMock).toHaveBeenCalledWith(1, 7);
+    });
+  });
+
+  it('"清除提示"走 snapshot_restore_abandon（不回退任何东西）', async () => {
+    pendingMock.mockResolvedValue({ snapshotId: 9, stage: null, startedAtMs: null });
+    abandonMock.mockResolvedValue(1);
+
+    renderPage();
+
+    const banner = await screen.findByTestId('restore-pending');
+    // 认不出阶段时不能装作知道，也不该因此不提示
+    expect(banner).toHaveTextContent('未知阶段');
+
+    fireEvent.click(screen.getByTestId('restore-pending-abandon'));
+
+    await waitFor(() => {
+      expect(abandonMock).toHaveBeenCalledWith(1);
+    });
+    expect(restoreMock).not.toHaveBeenCalled();
+  });
+
+  it('紧急模式：展示阶段清单与可复制的恢复指引', async () => {
+    diffMock.mockResolvedValue({
+      headChanged: true,
+      indexChanged: false,
+      currentHeadOid: 'b'.repeat(40),
+      currentIndexTreeOid: null,
+      refMissing: false,
+      untrackedRestorable: [],
+      untrackedMissing: [],
+      untrackedExtra: [],
+    });
+    restoreMock.mockResolvedValue({
+      restoredSnapshotId: 7,
+      headOid: 'a'.repeat(40),
+      indexTreeOid: 'c'.repeat(40),
+      preRestoreSnapshotId: 8,
+      untrackedPaths: [],
+      untrackedRestored: 0,
+      untrackedFailed: [],
+      untrackedExtra: [],
+      verified: false,
+      outcome: 'emergency',
+      stages: [
+        { stage: 'protection', ok: true, detail: null, durationMs: 1 },
+        { stage: 'head', ok: false, detail: 'git reset --hard failed: boom', durationMs: 3 },
+      ],
+      reportLines: ['head: failed - boom'],
+      emergency: {
+        snapshotId: 7,
+        targetSnapshotId: 8,
+        backupDir: '/cache/snapshots/1/8',
+        commands: ['git reset --hard abc', 'git read-tree def'],
+        notes: ['在仓库目录里执行：/tmp/repo'],
+      },
+    });
+
+    renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: '回滚到这里' }));
+    fireEvent.click(await screen.findByRole('button', { name: '回滚' }));
+
+    const report = await screen.findByTestId('snapshot-report');
+    expect(report).toHaveTextContent('需要手动恢复');
+
+    // 阶段清单：说清"哪一步成了、哪一步没成、为什么"
+    const stages = screen.getByTestId('report-stages');
+    expect(stages).toHaveTextContent('打回滚前保护点');
+    expect(stages).toHaveTextContent('恢复 HEAD 与工作区');
+    expect(stages).toHaveTextContent('git reset --hard failed: boom');
+
+    // 指引：命令逐条可复制，且带上下文（说明 + 备份目录）
+    const guidance = screen.getByTestId('report-emergency');
+    expect(guidance).toHaveTextContent('git reset --hard abc');
+    expect(guidance).toHaveTextContent('git read-tree def');
+    expect(guidance).toHaveTextContent('/cache/snapshots/1/8');
   });
 });
