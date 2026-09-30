@@ -174,6 +174,38 @@ pub struct BackupEntry {
     pub ignored: bool,
 }
 
+/// 快照时刻栈上的一条 stash（T3.11 第 7 条）。
+///
+/// 为什么需要它：`stash drop` / `stash clear` 只删掉**栈里的条目**（reflog），
+/// stash 提交本身仍在对象库里——但没有任何引用指向它，`git gc` 之后就会真的消失。
+/// 所以快照必须记下 oid 与原文，回滚时用 `git stash store` 重新登记。
+///
+/// 与 [`BackupEntry`] 的区别：那些是**内容备份**（字节复制到备份目录），
+/// 这些只是**引用**（对象库里的提交，不复制字节）。
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct StashedRef {
+    /// stash 提交的 oid。
+    pub oid: String,
+    /// 栈里显示的描述信息（`WIP on main: 1a2b3c4 subject` 之类）。
+    pub message: String,
+}
+
+/// 快照时刻的一个本地分支（T3.11 第 9 条）。
+///
+/// 为什么需要它：删掉一条未合并分支（`branch -D`）**不动 HEAD、也不动工作区**，
+/// 因此"reset --hard + read-tree"那套回滚对它什么都没做——快照看起来可回滚，
+/// 点下去分支却还在原地消失（比"没有回滚点"更糟：那是**假承诺**）。
+/// 记下分支引用，回滚时把**缺失的**分支重新创建出来。
+///
+/// 与 [`StashedRef`] 同一条纪律：只记引用，不复制字节（提交就在对象库里）。
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct BranchRef {
+    /// 分支短名（`main`、`feature/x`）。
+    pub name: String,
+    /// 分支指向的提交 oid。
+    pub oid: String,
+}
+
 /// 未跟踪内容备份的清单。
 ///
 /// 同时存在于两处：`snapshots.manifest_json`（查询用）与备份目录里的
@@ -184,23 +216,42 @@ pub struct BackupManifest {
     pub entries: Vec<BackupEntry>,
     /// 备份内容总字节数（等于 `entries` 的字节和）。
     pub bytes: u64,
+    /// 快照时刻栈上的 stash（从**新到旧**，与 `git stash list` 同一顺序）。
+    pub stash: Vec<StashedRef>,
+    /// 快照时刻的本地分支（按名字排序，便于比对）。
+    pub branches: Vec<BranchRef>,
 }
 
 impl BackupManifest {
-    /// 空清单（该快照没有内容备份）。
+    /// 空清单（该快照没有内容备份、也没有 stash / 分支引用）。
     pub const fn empty() -> Self {
         Self {
             entries: Vec::new(),
             bytes: 0,
+            stash: Vec::new(),
+            branches: Vec::new(),
         }
     }
 
-    /// 是否没有内容（v1 记录、没有未跟踪文件、或超限被整体跳过）。
+    /// 是否没有内容备份（v1 记录、没有未跟踪文件、或超限被整体跳过）。
+    ///
+    /// 只看 `entries`：stash 与分支不是"内容备份"，一份只带它们的清单
+    /// 在这里仍然是"没有内容可写回"（回滚时另有各自的恢复步骤）。
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }
 
-    /// 序列化为 JSON（`{"entries":[{path,bytes,ignored}],"bytes":N}`）。
+    /// 是否记着栈上的 stash。
+    pub fn has_stash(&self) -> bool {
+        !self.stash.is_empty()
+    }
+
+    /// 是否记着本地分支。
+    pub fn has_branches(&self) -> bool {
+        !self.branches.is_empty()
+    }
+
+    /// 序列化为 JSON（`{"entries":[…],"bytes":N,"stash":[…],"branches":[…]}`）。
     pub fn to_json(&self) -> String {
         let entries: Vec<serde_json::Value> = self
             .entries
@@ -213,7 +264,23 @@ impl BackupManifest {
                 })
             })
             .collect();
-        serde_json::json!({ "entries": entries, "bytes": self.bytes }).to_string()
+        let stash: Vec<serde_json::Value> = self
+            .stash
+            .iter()
+            .map(|entry| serde_json::json!({ "oid": entry.oid, "message": entry.message }))
+            .collect();
+        let branches: Vec<serde_json::Value> = self
+            .branches
+            .iter()
+            .map(|branch| serde_json::json!({ "name": branch.name, "oid": branch.oid }))
+            .collect();
+        serde_json::json!({
+            "entries": entries,
+            "bytes": self.bytes,
+            "stash": stash,
+            "branches": branches,
+        })
+        .to_string()
     }
 
     /// 从 JSON 解析；无法解析时返回空清单。
@@ -251,7 +318,47 @@ impl BackupManifest {
                     .collect::<Vec<_>>()
             })
             .unwrap_or_default();
-        Self { entries, bytes }
+        // `stash` / `branches` 缺失（T3.11 之前写的清单）时是空表，不是解析失败
+        let stash = value
+            .get("stash")
+            .and_then(serde_json::Value::as_array)
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(|item| {
+                        Some(StashedRef {
+                            oid: item.get("oid")?.as_str()?.to_owned(),
+                            message: item
+                                .get("message")
+                                .and_then(serde_json::Value::as_str)
+                                .unwrap_or_default()
+                                .to_owned(),
+                        })
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        let branches = value
+            .get("branches")
+            .and_then(serde_json::Value::as_array)
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(|item| {
+                        Some(BranchRef {
+                            name: item.get("name")?.as_str()?.to_owned(),
+                            oid: item.get("oid")?.as_str()?.to_owned(),
+                        })
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        Self {
+            entries,
+            bytes,
+            stash,
+            branches,
+        }
     }
 }
 
@@ -434,6 +541,21 @@ pub struct RestoreReport {
     pub untracked_failed: Vec<String>,
     /// 当前存在、快照里没有的未跟踪文件——**不会被删除**，列出来交给用户决定。
     pub untracked_extra: Vec<String>,
+    /// 重新登记回栈上的 stash 条数（T3.11 第 7 条）。
+    ///
+    /// "放回栈"= `git stash store`：它只登记引用，**不会**把内容解包到工作区，
+    /// 因此它与 [`Self::untracked_restored`] 是两个互不相干的事实。
+    pub stash_restored: usize,
+    /// 没能放回栈的 stash（对象已被 `gc` 回收、oid 认不出）。
+    ///
+    /// 与未跟踪文件一样**不触发**回退：HEAD 与索引才是回滚的主体。
+    pub stash_failed: Vec<String>,
+    /// 重新创建出来的本地分支数（T3.11 第 9 条）。
+    ///
+    /// 只算**当时不存在**的分支：已存在的分支一律不动（移动别人的分支比不恢复更危险）。
+    pub branches_restored: usize,
+    /// 没能重新创建的分支（`name: 失败原因`）。
+    pub branches_failed: Vec<String>,
     /// 恢复后的完整校验是否通过（HEAD / 索引 / 备份内容逐字节）。
     pub verified: bool,
     /// 本次回滚的结局（T3.9）。
@@ -805,8 +927,8 @@ pub const CRATE_NAME: &str = env!("CARGO_PKG_NAME");
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
     use super::{
-        BackupEntry, BackupManifest, NoopSnapshotManager, RetentionPolicy, SnapshotKind,
-        SnapshotLimits, SnapshotManager, SnapshotRequest, SnapshotWarning,
+        BackupEntry, BackupManifest, BranchRef, NoopSnapshotManager, RetentionPolicy, SnapshotKind,
+        SnapshotLimits, SnapshotManager, SnapshotRequest, SnapshotWarning, StashedRef,
     };
     use std::path::Path;
 
@@ -866,6 +988,14 @@ mod tests {
                 ignored: true,
             }],
             bytes: 12,
+            stash: vec![StashedRef {
+                oid: "a".repeat(40),
+                message: "WIP on main: 1a2b3c4 subject".to_owned(),
+            }],
+            branches: vec![BranchRef {
+                name: "gone".to_owned(),
+                oid: "b".repeat(40),
+            }],
         };
         assert_eq!(BackupManifest::from_json(&manifest.to_json()), manifest);
 

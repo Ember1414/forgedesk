@@ -25,7 +25,7 @@ use forgedesk_domain::{AppError, AppResult, ErrorCode};
 use forgedesk_platform::watcher::WatchKind;
 use forgedesk_services::audit::op_type;
 use forgedesk_services::{AuditArgs, AuditEntry, PatchView};
-use forgedesk_snapshot::{SnapshotKind, SnapshotRequest};
+use forgedesk_snapshot::SnapshotKind;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
 
@@ -562,22 +562,8 @@ pub fn workspace_discard(
     // 打不出快照不阻断操作：拒绝执行会让"用户明确要求丢弃"这件事无法完成，
     // 而确认对话框与审计已经构成前两道闸（红线 R7）。快照 id 写进审计记录，
     // 事后可以从操作历史回到当时的未跟踪内容。
-    let pre_snapshot = state
-        .workspace_service()
-        .resolve_workdir(repo_id)
-        .ok()
-        .and_then(|workdir| {
-            state
-                .snapshots
-                .create(&SnapshotRequest {
-                    repo_id,
-                    workdir: &workdir,
-                    label: SnapshotKind::PreWorktreeChange.key(),
-                    kind: SnapshotKind::PreWorktreeChange,
-                })
-                .ok()
-                .map(|outcome| outcome.id)
-        });
+    let pre_snapshot =
+        crate::snapshots::snapshot_before(&state, repo_id, SnapshotKind::PreWorktreeChange);
 
     // 放弃是**破坏性**操作：记录里必须留下"放弃了什么"，否则事后无法回答
     // "我那次到底丢了多少东西"（这也是前端必须弹确认框的原因，红线 R7）

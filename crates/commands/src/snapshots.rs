@@ -38,6 +38,32 @@ use forgedesk_platform::watcher::WatchKind;
 /// 列表数量的上限：一次 IPC 拉走整个历史没有意义，翻页（M2）够用。
 const MAX_LIST_LIMIT: i64 = 200;
 
+/// 写操作**动手之前**打一个快照，返回它的 id（供其它命令模块复用）。
+///
+/// 为什么要共用一份：这段"解析工作区 → 创建 → 取 id"每个危险写操作的调用点
+/// 自己抄一遍时，漏掉 `.ok()`、漏掉 workdir 解析都会表现为"界面上没有回滚点"，
+/// 而那种缺失只会在用户**真的要回滚**时才被发现。
+///
+/// 打不出来**不**阻断操作（红线 R7 的前两道闸是确认对话框与审计记录），
+/// 返回 `None` 会让审计记录如实标成"不可回滚"——那正是它该有的样子。
+pub(crate) fn snapshot_before(
+    state: &AppState,
+    repo_id: i64,
+    kind: SnapshotKind,
+) -> Option<SnapshotId> {
+    let workdir = state.workspace_service().resolve_workdir(repo_id).ok()?;
+    state
+        .snapshots
+        .create(&SnapshotRequest {
+            repo_id,
+            workdir: &workdir,
+            label: kind.key(),
+            kind,
+        })
+        .ok()
+        .map(|outcome| outcome.id)
+}
+
 /// 手动快照标签的最大字符数（展示字段：太长会把列表与审计记录撑爆）。
 const MAX_LABEL_CHARS: usize = 64;
 
@@ -81,6 +107,14 @@ pub struct RestoreReportDto {
     pub untracked_failed: Vec<String>,
     /// 当前存在、快照里没有的未跟踪文件——**不会被删除**。
     pub untracked_extra: Vec<String>,
+    /// 重新登记回 stash 栈的条数（T3.11 第 7 条）。
+    pub stash_restored: usize,
+    /// 没能放回栈的 stash oid（对象已被 `gc` 回收）。
+    pub stash_failed: Vec<String>,
+    /// 重新创建出来的本地分支数（T3.11 第 9 条）。
+    pub branches_restored: usize,
+    /// 没能重新创建的分支（`name: 原因`）。
+    pub branches_failed: Vec<String>,
     /// 恢复后的完整校验是否通过（HEAD / 索引 / 备份内容逐字节）。
     pub verified: bool,
     /// 本次回滚的结局（T3.9）：`completed` / `rolledBack` / `emergency`。
@@ -579,6 +613,10 @@ fn to_report_dto(report: &RestoreReport) -> RestoreReportDto {
         untracked_restored: report.untracked_restored,
         untracked_failed: report.untracked_failed.clone(),
         untracked_extra: report.untracked_extra.clone(),
+        stash_restored: report.stash_restored,
+        stash_failed: report.stash_failed.clone(),
+        branches_restored: report.branches_restored,
+        branches_failed: report.branches_failed.clone(),
         verified: report.verified,
         outcome: report.outcome.key().to_owned(),
         stages: report

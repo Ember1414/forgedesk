@@ -1186,6 +1186,21 @@ pub enum StashAction {
     },
     /// 删除**全部** stash（`git stash clear`）。**不可逆**（Dangerous）。
     Clear,
+    /// 把一条**已经存在**的 stash 提交重新登记到栈上（`git stash store`）。
+    ///
+    /// 这是回滚 `drop` / `clear` 的唯一正当手段：那两个动作只删掉**栈里的条目**，
+    /// stash 提交本身仍躺在对象库里，因此"把栈放回去"= 按 oid 重新登记一遍
+    /// （T3.11 第 7 条）。它**不解包**、不动工作区、不移动 HEAD——与
+    /// [`Self::Push`] 完全是两回事，别把两者混为一谈。
+    Store {
+        /// stash 提交的 oid。
+        ///
+        /// 刻意不用 `stash@{n}`：编号会被任何一次 stash 操作重排，
+        /// 只有 oid 是"这条 stash"的稳定身份。
+        oid: String,
+        /// 栈里显示的描述信息（照抄快照时刻看到的原文）。
+        message: String,
+    },
     /// 从某条 stash 创建分支并把它应用过去（`git stash branch <name> <stash>`）。
     ///
     /// 这是"pop 冲突之后的正规出路"：新分支从 stash 的 base 提交开始，
@@ -1289,6 +1304,21 @@ impl StashSpec {
     pub fn clear() -> Self {
         Self {
             action: StashAction::Clear,
+            message: None,
+            include_untracked: false,
+            keep_index: false,
+            paths: Vec::new(),
+            restore_index: false,
+        }
+    }
+
+    /// 把一条已存在的 stash 重新登记到栈上（回滚 `drop` / `clear` 用）。
+    pub fn store(oid: impl Into<String>, message: impl Into<String>) -> Self {
+        Self {
+            action: StashAction::Store {
+                oid: oid.into(),
+                message: message.into(),
+            },
             message: None,
             include_untracked: false,
             keep_index: false,

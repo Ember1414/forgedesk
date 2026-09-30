@@ -162,7 +162,18 @@ pub fn copy_into(staging: &Path, files: &[PlanFile]) -> (BackupManifest, Vec<Str
     }
 
     let bytes = entries.iter().map(|entry| entry.bytes).sum::<u64>();
-    (BackupManifest { entries, bytes }, failed)
+    (
+        BackupManifest {
+            entries,
+            bytes,
+            // stash / 分支不在备份目录里（它们只是对象库里的提交与引用，一个字节
+            // 都不复制），因此这份"目录自描述清单"没有它们——由 `create_locked`
+            // 合并进数据库那份清单（见 `StashedRef` 与 `BranchRef` 的文档）
+            stash: Vec::new(),
+            branches: Vec::new(),
+        },
+        failed,
+    )
 }
 
 /// 把清单写进备份目录（自描述副本）。

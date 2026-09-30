@@ -758,6 +758,19 @@ pub fn stash_args(spec: &StashSpec) -> AppResult<GitInvocation> {
             PathSpecArgs::None,
             false,
         ),
+        StashAction::Store { oid, message } => (
+            // `--message` 必须显式给：不带它时 git 会按 oid 现编一句
+            // ("On <branch>: <subject>")，回滚出来的栈就与快照时刻不一致了。
+            vec![
+                "stash".to_owned(),
+                "store".to_owned(),
+                "--message".to_owned(),
+                message.clone(),
+                oid.clone(),
+            ],
+            PathSpecArgs::None,
+            false,
+        ),
         StashAction::Branch { index, name } => (
             vec![
                 "stash".to_owned(),
@@ -1517,6 +1530,22 @@ mod tests {
         assert_eq!(
             joined(&stash_args(&StashSpec::clear()).unwrap().args),
             "stash clear"
+        );
+        // 回滚 drop/clear 用的那条：把已存在的 stash 按 oid 重新登记，
+        // 信息必须显式带上（否则 git 会现编一句，栈里的原文就变了）
+        assert_eq!(
+            joined(
+                &stash_args(&StashSpec::store(
+                    "a".repeat(40),
+                    "WIP on main: 1a2b3c4 subject"
+                ))
+                .unwrap()
+                .args
+            ),
+            format!(
+                "stash store --message WIP on main: 1a2b3c4 subject {}",
+                "a".repeat(40)
+            )
         );
         // `git stash branch <name> <stash>`：名字在前、stash 在后
         assert_eq!(

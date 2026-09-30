@@ -35,6 +35,14 @@ export interface RestoreReport {
   readonly untrackedFailed: readonly string[];
   /** 当前存在、快照里没有的未跟踪文件——**不会被删除**。 */
   readonly untrackedExtra: readonly string[];
+  /** 重新登记回 stash 栈的条数（T3.11；只登记引用，不解包到工作区）。 */
+  readonly stashRestored: number;
+  /** 没能放回栈的 stash oid（对象已被 `gc` 回收）。 */
+  readonly stashFailed: readonly string[];
+  /** 重新创建出来的本地分支数（T3.11；只补缺失的，不动已存在的）。 */
+  readonly branchesRestored: number;
+  /** 没能重新创建的分支（`name: 原因`）。 */
+  readonly branchesFailed: readonly string[];
   /** 恢复后的完整校验是否通过（HEAD / 索引 / 备份内容逐字节）。 */
   readonly verified: boolean;
   /** 本次回滚的结局（T3.9）。 */

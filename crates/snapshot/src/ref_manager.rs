@@ -36,7 +36,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use forgedesk_domain::git::{
-    hash_paths, EntryKind, RepoFingerprint, RepoId, ResetMode, ResetSpec, StatusQuery,
+    hash_paths, EntryKind, RepoFingerprint, RepoId, ResetMode, ResetSpec, StashSpec, StatusQuery,
     TRACKED_HASH_LIMIT,
 };
 use forgedesk_git_engine::engine::GitEngine;
@@ -45,10 +45,10 @@ use forgedesk_storage::{Database, NewSnapshot, RepositoryStore, SnapshotRecord, 
 
 use crate::backup::{self, BackupPlan};
 use crate::{
-    BackupManifest, CleanupOutcome, EmergencyGuidance, PendingRestore, RestoreOutcomeKind,
-    RestoreReport, RestoreStage, RetentionPolicy, SnapshotDiff, SnapshotError, SnapshotEstimate,
-    SnapshotId, SnapshotKind, SnapshotLimits, SnapshotManager, SnapshotMeta, SnapshotOutcome,
-    SnapshotRequest, SnapshotUsage, SnapshotWarning, StageResult,
+    BackupManifest, BranchRef, CleanupOutcome, EmergencyGuidance, PendingRestore,
+    RestoreOutcomeKind, RestoreReport, RestoreStage, RetentionPolicy, SnapshotDiff, SnapshotError,
+    SnapshotEstimate, SnapshotId, SnapshotKind, SnapshotLimits, SnapshotManager, SnapshotMeta,
+    SnapshotOutcome, SnapshotRequest, SnapshotUsage, SnapshotWarning, StageResult, StashedRef,
 };
 
 /// 快照锚点 ref 的前缀（完整形如 `refs/forgedesk/snapshots/<id>`）。
@@ -87,14 +87,38 @@ pub struct RefSnapshotManager {
     backup_root: Option<PathBuf>,
     /// 每个仓库一把锁：同一仓库的写路径串行化。
     locks: Mutex<HashMap<i64, Arc<Mutex<()>>>>,
-    /// 故障注入（**仅测试**）：`(阶段, 剩余次数)`。
+    /// 故障注入（**仅测试**）：见 [`InjectedFault`]。
     ///
     /// 为什么生产代码里留这个钩子：T3.9 的验收要求"回退也失败 → 紧急模式 →
-    /// 指引命令可执行"，而那条路径只有在**回退也失败**时才会走到——用真实数据
-    /// 造出这种局面几乎不可能（保护点是刚打出来的，记录与 oid 都一定合法；
-    /// 而"索引被占用"这类外部原因会让保护点本身也打不出来，于是根本走不到回退）。
-    /// 钩子是纯内存状态（默认 `None`，零行为影响）。
-    injected_failure: Mutex<Option<(RestoreStage, usize)>>,
+    /// 指引命令可执行"，T3.11 的第 12 条又要求"回滚中途崩溃 → 重启后仍可回滚"，
+    /// 而这两条路径用真实数据都造不出来（保护点是刚打出来的，记录与 oid 都一定
+    /// 合法；"索引被占用"这类外部原因会让保护点本身也打不出来，于是根本走不到回退，
+    /// 更不会恰好在第 2 个阶段被强杀）。钩子是纯内存状态（默认 `None`，零行为影响）。
+    injected_fault: Mutex<Option<InjectedFault>>,
+}
+
+/// 注入的回滚故障（**仅测试**）。
+///
+/// 两种故障对应两条不同的验收路径，因此用枚举而不是布尔：
+/// [`RestoreFault::Fail`] 是"这一步报错"（走 `失败 → 退回保护点`），
+/// [`RestoreFault::Crash`] 是"进程在这里没了"（进度标记留在库里，没有回退机会）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RestoreFault {
+    /// 该阶段以错误结束。
+    Fail,
+    /// 进入该阶段前直接强杀进程。
+    Crash,
+}
+
+/// 一条故障注入指令：命中 `stage` 时触发 `kind`，共 `times` 次。
+#[derive(Debug, Clone, Copy)]
+struct InjectedFault {
+    /// 命中的阶段。
+    stage: RestoreStage,
+    /// 故障类型。
+    kind: RestoreFault,
+    /// 剩余生效次数。
+    remaining: usize,
 }
 
 impl std::fmt::Debug for RefSnapshotManager {
@@ -119,7 +143,7 @@ impl RefSnapshotManager {
             limits: SnapshotLimits::default(),
             backup_root: None,
             locks: Mutex::new(HashMap::new()),
-            injected_failure: Mutex::new(None),
+            injected_fault: Mutex::new(None),
         }
     }
 
@@ -132,29 +156,78 @@ impl RefSnapshotManager {
     /// 传 `times = 0` 取消注入。次数用尽后自动失效，不会影响后续调用。
     #[doc(hidden)]
     pub fn inject_restore_failure(&self, stage: RestoreStage, times: usize) {
-        if let Ok(mut slot) = self.injected_failure.lock() {
+        self.inject(RestoreFault::Fail, stage, times);
+    }
+
+    /// 注入"回滚中途进程被强杀"（**仅测试**）：进入 `stage` 阶段前 `abort()`。
+    ///
+    /// T3.11 第 12 条要求"回滚过程中崩溃 → 重启后仍可回滚（幂等）"。真实崩溃
+    /// 无法用真实数据构造（回滚只有毫秒级，外部 `kill` 打不中确定的阶段），
+    /// 而"崩溃"与"失败"的区别恰恰全在**进度标记有没有留下**：失败会走回退路径
+    /// 并清掉标记，崩溃不会。所以这里在标记落库之后、阶段动手之前直接 `abort`——
+    /// 进程当即消失（不跑 `Drop`、不跑回退），与用户 `kill -9` 的效果一致。
+    ///
+    /// 它只能在**子进程**里用：本进程 `abort` 之后测试进程本身也没了。
+    /// 用法见 `crates/commands/tests/destructive_safety_matrix.rs` 第 12 条。
+    #[doc(hidden)]
+    pub fn inject_restore_crash(&self, stage: RestoreStage, times: usize) {
+        self.inject(RestoreFault::Crash, stage, times);
+    }
+
+    /// 写入一条故障注入指令（`times = 0` 表示清除）。
+    fn inject(&self, kind: RestoreFault, stage: RestoreStage, times: usize) {
+        if let Ok(mut slot) = self.injected_fault.lock() {
             *slot = if times == 0 {
                 None
             } else {
-                Some((stage, times))
+                Some(InjectedFault {
+                    stage,
+                    kind,
+                    remaining: times,
+                })
             };
         }
     }
 
-    /// 该阶段是否应该"失败"（注入命中则消耗一次）。
-    fn should_inject_failure(&self, stage: RestoreStage) -> bool {
-        let Ok(mut slot) = self.injected_failure.lock() else {
-            return false;
+    /// 消耗一次该阶段的注入机会；命中则返回故障类型。
+    fn take_fault(&self, stage: RestoreStage) -> Option<RestoreFault> {
+        let Ok(mut slot) = self.injected_fault.lock() else {
+            return None;
         };
         match slot.as_mut() {
-            Some((injected, remaining)) if *injected == stage && *remaining > 0 => {
-                *remaining -= 1;
-                if *remaining == 0 {
+            Some(fault) if fault.stage == stage && fault.remaining > 0 => {
+                let kind = fault.kind;
+                fault.remaining -= 1;
+                if fault.remaining == 0 {
                     *slot = None;
                 }
-                true
+                Some(kind)
             }
-            _ => false,
+            _ => None,
+        }
+    }
+
+    /// 进入某个回滚阶段时的故障注入。
+    ///
+    /// 调用点必须在**进度标记落库之后**：这样 `Crash` 才会留下"上次没走完"的
+    /// 线索——而那正是崩溃恢复要测的东西。
+    ///
+    /// 返回 `Some(_)` 表示该阶段只能以失败结束；`Crash` 命中时本函数**不返回**。
+    fn enter_stage(&self, stage: RestoreStage) -> Option<SnapshotError> {
+        match self.take_fault(stage) {
+            Some(RestoreFault::Crash) => {
+                tracing::error!(
+                    stage = stage.key(),
+                    "注入的崩溃：回滚在第 '{}' 阶段前强制终止进程（仅测试）",
+                    stage.key()
+                );
+                // 刻意用 `abort` 而不是 `panic!`：panic 会被测试进程的
+                // `catch_unwind` / 测试框架接住，"进程消失"就退化成了"这一步失败"，
+                // 第 12 条要验证的处境也就不复存在。
+                std::process::abort();
+            }
+            Some(RestoreFault::Fail) => Some(injected_failure(stage)),
+            None => None,
         }
     }
 
@@ -617,6 +690,10 @@ impl RefSnapshotManager {
             untracked_restored: applied.untracked_restored,
             untracked_failed: applied.untracked_failed.clone(),
             untracked_extra: applied.untracked_extra.clone(),
+            stash_restored: applied.stash_restored,
+            stash_failed: applied.stash_failed.clone(),
+            branches_restored: applied.branches_restored,
+            branches_failed: applied.branches_failed.clone(),
             verified: applied.content_verified && applied.failure.is_none(),
             outcome,
             stages,
@@ -661,9 +738,10 @@ impl RefSnapshotManager {
 
         // ---------------------------------------------------------- 阶段 1/4：HEAD
         progress(RestoreStage::Head);
+        let injected = self.enter_stage(RestoreStage::Head);
         let started = self.now();
-        let head = if self.should_inject_failure(RestoreStage::Head) {
-            Err(injected_failure(RestoreStage::Head))
+        let head = if let Some(error) = injected {
+            Err(error)
         } else {
             self.engines
                 .write()
@@ -688,9 +766,10 @@ impl RefSnapshotManager {
         // `reset --hard` 只能把索引带到 HEAD 的树；"已暂存未提交"的内容记录在
         // 快照自己的 `index_tree_oid` 里，必须单独恢复
         progress(RestoreStage::Index);
+        let injected = self.enter_stage(RestoreStage::Index);
         let started = self.now();
-        let index = if self.should_inject_failure(RestoreStage::Index) {
-            Err(injected_failure(RestoreStage::Index))
+        let index = if let Some(error) = injected {
+            Err(error)
         } else {
             self.engines
                 .write()
@@ -755,11 +834,24 @@ impl RefSnapshotManager {
             }
         };
 
+        // -------------------------------------------- 阶段 3b：stash 栈（T3.11）
+        // 与未跟踪内容同一取舍：失败只如实列出，不把整次回滚推倒重来。
+        let stash = self.restore_stash(repo, &manifest);
+        applied.stash_restored = stash.restored;
+        applied.stash_failed = stash.failed;
+
+        // --------------------------------------- 阶段 3c：分支引用（T3.11）
+        // 顺序在 HEAD/索引之后：先让仓库回到正确的内容，再把被删掉的分支放回来。
+        let branches = self.restore_branches(repo, &manifest);
+        applied.branches_restored = branches.restored;
+        applied.branches_failed = branches.failed;
+
         // --------------------------------------------------------- 阶段 4/4：校验
         progress(RestoreStage::Verify);
+        let injected = self.enter_stage(RestoreStage::Verify);
         let started = self.now();
-        let verified = if self.should_inject_failure(RestoreStage::Verify) {
-            Err(injected_failure(RestoreStage::Verify))
+        let verified = if let Some(error) = injected {
+            Err(error)
         } else {
             self.verify_facts(record, repo)
         };
@@ -776,6 +868,104 @@ impl RefSnapshotManager {
         applied.failure = verify_failure;
 
         applied
+    }
+
+    /// 把快照时刻的 stash 栈放回去（T3.11 第 7 条）。
+    ///
+    /// # 为什么是"重新登记"而不是"解包"
+    ///
+    /// `git stash drop` / `clear` 只删掉 reflog 里的条目，stash 提交本身仍在
+    /// 对象库里——因此恢复它就是按 oid 重新登记一遍（`git stash store`）。
+    /// 它**不会**把内容放回工作区（那要用户自己 `apply`），也不移动 HEAD。
+    ///
+    /// # 顺序、幂等与边界
+    ///
+    /// - **顺序**：`git stash list` 是"新的在前"，清单按同一顺序记；而 `store`
+    ///   把条目放到栈顶，所以必须**从最旧的开始**（`rev()`）才能还原出同样的栈；
+    /// - **幂等**：栈上已有的 oid 直接跳过——同一份快照连回滚两次，第二次不该
+    ///   让栈凭空翻倍；
+    /// - **不动多余的**：快照之后新存的 stash 留在栈上（它们不在快照里，
+    ///   删除它们才是真的丢数据）；
+    /// - **失败只如实列出**：对象被 `gc` 回收后 `store` 会报"认不出这个 oid"，
+    ///   这条路径不触发回退——HEAD 与索引才是回滚的主体。
+    fn restore_stash(&self, repo: &RepoId, manifest: &BackupManifest) -> StashRestore {
+        if !manifest.has_stash() {
+            return StashRestore::default();
+        }
+        let existing: HashSet<String> = self
+            .engines
+            .read()
+            .stash_list(repo)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|entry| entry.oid)
+            .collect();
+
+        let mut result = StashRestore::default();
+        for entry in manifest.stash.iter().rev() {
+            if existing.contains(&entry.oid) {
+                continue;
+            }
+            match self.engines.write().stash(
+                repo,
+                StashSpec::store(entry.oid.clone(), entry.message.clone()),
+            ) {
+                Ok(_) => result.restored += 1,
+                Err(error) => {
+                    tracing::warn!(
+                        oid = %entry.oid,
+                        error = %error.message,
+                        "把 stash 放回栈失败（对象可能已被 gc 回收）"
+                    );
+                    result.failed.push(entry.oid.clone());
+                }
+            }
+        }
+        result
+    }
+
+    /// 把快照时刻**存在、现在不见了**的本地分支重新创建出来（T3.11 第 9 条）。
+    ///
+    /// # 只补不动的三个理由
+    ///
+    /// 1. **已存在的分支一律不动**：`reset --hard` 已经把当前分支带到快照时刻的
+    ///    提交，剩下的分支若被"恢复"到旧位置，就是无声地改写用户后来做的工作。
+    ///    分支删除是我们要救的那件事，**分支前进不是**。
+    /// 2. **缺了就创建**：`branch -D` 之后引用没了，重新创建它需要的就是
+    ///    "名字 + oid"两条信息；oid 从快照清单里来。
+    /// 3. **失败如实列出**：分支的提交对象可能已经被 `gc` 回收（分支被删之后
+    ///    它就没有任何引用了），此时 `update-ref` 会报"认不出这个对象"——
+    ///    这条路径不触发回退，报告里逐条说明。
+    fn restore_branches(&self, repo: &RepoId, manifest: &BackupManifest) -> BranchRestore {
+        if !manifest.has_branches() {
+            return BranchRestore::default();
+        }
+        let mut result = BranchRestore::default();
+        for branch in &manifest.branches {
+            let name = format!("refs/heads/{}", branch.name);
+            match self.engines.write().ref_exists(repo, &name) {
+                // 已经存在（快照之后又被建回来、或它本来就在）：不碰
+                Ok(true) => continue,
+                // 查不出来也当作"存在"：宁可少恢复一条，也不要在不确定时写引用
+                Err(_) => continue,
+                Ok(false) => {}
+            }
+            match self.engines.write().update_ref(repo, &name, &branch.oid) {
+                Ok(()) => result.restored += 1,
+                Err(error) => {
+                    tracing::warn!(
+                        branch = %branch.name,
+                        oid = %branch.oid,
+                        error = %error.message,
+                        "重新创建分支失败（提交对象可能已被 gc 回收）"
+                    );
+                    result
+                        .failed
+                        .push(format!("{}: {}", branch.name, error.message));
+                }
+            }
+        }
+        result
     }
 
     /// 核对"恢复后的 HEAD 与索引是不是快照记录的那两个"。
@@ -947,6 +1137,33 @@ impl RefSnapshotManager {
                     "restored snapshot {} (HEAD {}, {} untracked file(s) written back)",
                     record.id, record.head_oid, applied.untracked_restored
                 ));
+                if applied.stash_restored > 0 {
+                    lines.push(format!(
+                        "{} stash(es) put back on the stack (run `git stash list` to see them; \
+                         nothing was applied to the working tree)",
+                        applied.stash_restored
+                    ));
+                }
+                if !applied.stash_failed.is_empty() {
+                    lines.push(format!(
+                        "{} stash(es) could not be put back (their objects are gone): {}",
+                        applied.stash_failed.len(),
+                        applied.stash_failed.join(", ")
+                    ));
+                }
+                if applied.branches_restored > 0 {
+                    lines.push(format!(
+                        "{} deleted branch(es) were re-created at their snapshot position",
+                        applied.branches_restored
+                    ));
+                }
+                if !applied.branches_failed.is_empty() {
+                    lines.push(format!(
+                        "{} branch(es) could not be re-created: {}",
+                        applied.branches_failed.len(),
+                        applied.branches_failed.join("; ")
+                    ));
+                }
             }
             RestoreOutcomeKind::RolledBack => {
                 lines.push(format!(
@@ -1029,14 +1246,74 @@ impl RefSnapshotManager {
             &mut warnings,
         );
 
+        // 栈上的 stash（T3.11 第 7 条）：只记 oid 与原文，**不复制字节**——
+        // stash 提交就在对象库里，`drop` / `clear` 之后缺的只是一个指向它的引用。
+        // 读失败（仓库异常、老 git）不阻断快照：如实退化成"这次没记 stash"，
+        // 回滚时那条 stash 就找不回来——比让整次快照失败要好。
+        let stash_refs: Vec<StashedRef> = self
+            .engines
+            .read()
+            .stash_list(&repo)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|entry| StashedRef {
+                oid: entry.oid,
+                message: entry.message,
+            })
+            .collect();
+
+        // 本地分支引用（T3.11 第 9 条）：删掉一条未合并分支**不动 HEAD、也不动
+        // 工作区**，因此"reset --hard + read-tree"那套回滚救不回它——不记下来
+        // 就等于给用户一个必然落空的回滚按钮。_sorted by name_ 让比对稳定。
+        let mut branch_refs: Vec<BranchRef> = self
+            .engines
+            .read()
+            .branch_list(&repo)
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|branch| !branch.is_remote)
+            .map(|branch| BranchRef {
+                name: branch.name,
+                oid: branch.target,
+            })
+            .collect();
+        branch_refs.sort_by(|left, right| left.name.cmp(&right.name));
+
         let (manifest_json, backup_bytes, backed_up) = match staging.as_ref() {
-            Some(staged) => (
-                staged.manifest.to_json(),
-                i64::try_from(staged.manifest.bytes).unwrap_or(i64::MAX),
-                staged.manifest.entries.len(),
+            Some(staged) => {
+                // 清单以备份目录里那份为底（entries/bytes 是它的），补上引用类记录。
+                // 备份目录里的 `manifest.json` 不写 stash / 分支：它描述的是
+                // "目录里有什么"，而它们一个字节都不在目录里（见 `StashedRef` 的文档）。
+                let manifest = BackupManifest {
+                    stash: stash_refs.clone(),
+                    branches: branch_refs.clone(),
+                    ..staged.manifest.clone()
+                };
+                (
+                    manifest.to_json(),
+                    i64::try_from(manifest.bytes).unwrap_or(i64::MAX),
+                    manifest.entries.len(),
+                )
+            }
+            None => (
+                BackupManifest {
+                    stash: stash_refs.clone(),
+                    branches: branch_refs.clone(),
+                    ..BackupManifest::empty()
+                }
+                .to_json(),
+                0,
+                0,
             ),
-            None => ("[]".to_owned(), 0, 0),
         };
+        // 备份目录改名失败时用的清单：内容备份作废，但 stash / 分支是独立的引用，
+        // 不能跟着一起丢
+        let stash_only_json = BackupManifest {
+            stash: stash_refs,
+            branches: branch_refs,
+            ..BackupManifest::empty()
+        }
+        .to_json();
 
         let store = SnapshotStore::new(&self.database);
         let id = store
@@ -1081,7 +1358,7 @@ impl RefSnapshotManager {
                     // 改不了名 = 备份内容不可达：把记录回退成"没有内容备份"。
                     // 磁盘与数据库必须一致，否则恢复会去读一个不存在的目录
                     let _ = backup::remove_dir(&staged.temporary);
-                    let _ = store.update_backup(id, "[]", 0);
+                    let _ = store.update_backup(id, &stash_only_json, 0);
                     warnings.push(SnapshotWarning::BackupDirUnavailable {
                         detail: format!("finalizing the backup directory failed: {error}"),
                     });
@@ -1424,6 +1701,24 @@ impl SnapshotManager for RefSnapshotManager {
 
 // ---------------------------------------------------------------- 回滚辅助（T3.9）
 
+/// 一次分支引用恢复的结果。
+#[derive(Debug, Default)]
+struct BranchRestore {
+    /// 重新创建出来的分支数。
+    restored: usize,
+    /// 没能恢复的分支（`name: 原因`）。
+    failed: Vec<String>,
+}
+
+/// 一次 stash 栈恢复的结果。
+#[derive(Debug, Default)]
+struct StashRestore {
+    /// 重新登记回栈的条数。
+    restored: usize,
+    /// 没能放回去的 stash oid。
+    failed: Vec<String>,
+}
+
 /// 一次分阶段应用的产物。
 #[derive(Debug)]
 struct AppliedStages {
@@ -1437,6 +1732,14 @@ struct AppliedStages {
     untracked_failed: Vec<String>,
     /// 当前存在、快照里没有的未跟踪文件。
     untracked_extra: Vec<String>,
+    /// 放回 stash 栈的条数（T3.11 第 7 条）。
+    stash_restored: usize,
+    /// 没能放回栈的 stash oid。
+    stash_failed: Vec<String>,
+    /// 重新创建出来的本地分支数（T3.11 第 9 条）。
+    branches_restored: usize,
+    /// 没能重新创建的分支。
+    branches_failed: Vec<String>,
     /// 内容与 git 事实的校验是否通过。
     content_verified: bool,
 }
@@ -1449,6 +1752,10 @@ impl Default for AppliedStages {
             untracked_restored: 0,
             untracked_failed: Vec::new(),
             untracked_extra: Vec::new(),
+            stash_restored: 0,
+            stash_failed: Vec::new(),
+            branches_restored: 0,
+            branches_failed: Vec::new(),
             // 在还没做任何校验之前按"通过"起步：任何一步失败都会把它改成 false，
             // 而"根本没有内容要校验"（v1 快照、空备份）本来就是通过
             content_verified: true,

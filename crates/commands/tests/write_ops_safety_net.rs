@@ -12,9 +12,12 @@
 //!    save / apply / pop），审计记录的 `snapshot_id` 指向 snapshots 表里
 //!    **真实存在**的一行，且 `reversible = true`——T2.10 修复前这一列恒为
 //!    NULL，`reversible` 恒为 false，"能不能回滚"在操作历史里全是谎言；
-//! 3. `stash_drop` / `stash_clear` **按设计不打快照**（工作区快照找不回
-//!    stash 内容），它们的审计记录 `snapshot_id` 为 `None` 且 `reversible`
-//!    为 `false`——但 args 里必须带被丢 oid（gc 前的自救线索）。
+//! 3. `stash_drop` / `stash_clear` **也打快照**（T3.11 起）：快照会记下栈上
+//!    每一条的 oid，回滚用 `git stash store` 把它们重新登记——因此这两条
+//!    记录的 `snapshot_id` 必须指向真实快照行且 `reversible = true`。
+//!    （T2.8 曾按"工作区快照找不回 stash 内容"选择不打点，那条理由在快照
+//!    开始记录引用类事实之后不再成立，一并由本文件钉住新的契约。）
+//!    无论打不打点，args 里都必须带被丢 oid（用户绕过界面直接 git 操作时的线索）。
 //!
 //! # 为什么在命令层测
 //!
@@ -233,6 +236,19 @@ impl Harness {
             .expect("列快照失败")
             .len()
     }
+
+    /// 动手之前打一个快照（与命令层的 `snapshot_before` 同一接线）。
+    fn snapshot_before(&self, kind: SnapshotKind) -> i64 {
+        self.snapshot_manager
+            .create(&SnapshotRequest {
+                repo_id: self.repo_id,
+                workdir: &self.dir,
+                label: kind.key(),
+                kind,
+            })
+            .expect("创建快照失败")
+            .id
+    }
 }
 
 // ---------------------------------------------------------------- 断言
@@ -396,7 +412,7 @@ fn every_snapshot_carrying_write_operation_links_to_a_real_snapshot_row() {
 }
 
 #[test]
-fn stash_drop_and_clear_have_audit_trail_but_deliberately_no_snapshot() {
+fn stash_drop_and_clear_leave_a_restorable_snapshot_behind() {
     let h = harness("safety-net-drop");
     let dir = &h.dir;
 
@@ -422,7 +438,8 @@ fn stash_drop_and_clear_have_audit_trail_but_deliberately_no_snapshot() {
     });
     let snapshots_before = h.snapshot_count();
 
-    // drop：不打快照（设计如此），但 args 里带被丢 oid
+    // drop：**动手之前**打快照（T3.11），args 里另外带上被丢 oid
+    let pre_snapshot = h.snapshot_before(SnapshotKind::PreWorktreeChange);
     let dropped = h.stash.drop_one(h.repo_id, 0).expect("drop 失败");
     assert_eq!(dropped.dropped.len(), 1);
     let dropped_oid = dropped.dropped[0].oid.clone();
@@ -433,23 +450,34 @@ fn stash_drop_and_clear_have_audit_trail_but_deliberately_no_snapshot() {
             args = args.text("oid", &dropped_oid);
             args
         },
-        || Ok(StashDiscardDto::from(dropped)),
+        || {
+            Ok(StashDiscardDto {
+                dropped: dropped.dropped,
+                snapshot_id: Some(pre_snapshot),
+            })
+        },
     );
     let record = h.latest_record(op_type::STASH_DROP);
     assert_eq!(
-        record.snapshot_id, None,
-        "drop 按设计不打快照：工作区快照找不回 stash 内容"
+        record.snapshot_id,
+        Some(pre_snapshot),
+        "drop 记录必须指向动手前的快照：stash 内容靠它放回栈"
     );
-    assert!(!record.reversible);
+    assert!(h.snapshot_exists(record.snapshot_id));
+    assert!(record.reversible, "有快照即可回滚");
     assert!(
         record
             .args_json
             .as_deref()
             .is_some_and(|args| args.contains(&dropped_oid)),
-        "drop 的审计 args 必须带被丢 oid（gc 前的自救线索），实际 {:?}",
+        "drop 的审计 args 仍要带被丢 oid（用户绕过界面直接 git 操作时的线索），实际 {:?}",
         record.args_json
     );
-    assert_eq!(h.snapshot_count(), snapshots_before, "drop 不应产生新快照");
+    assert_eq!(
+        h.snapshot_count(),
+        snapshots_before + 1,
+        "drop 必须留下一个新快照"
+    );
 
     // clear：同 drop，args 带被丢 oid 清单
     write(dir, "base.txt", b"three\n");
@@ -460,6 +488,7 @@ fn stash_drop_and_clear_have_audit_trail_but_deliberately_no_snapshot() {
     let _ = h.record(op_type::STASH_SAVE, AuditArgs::new(), || {
         Ok(StashSaveDto::from(third))
     });
+    let pre_snapshot = h.snapshot_before(SnapshotKind::PreWorktreeChange);
     let cleared = h.stash.clear(h.repo_id).expect("clear 失败");
     // 2 次 save − 1 次 drop + 1 次再 save = clear 时还剩 2 条
     assert_eq!(cleared.dropped.len(), 2);
@@ -471,10 +500,16 @@ fn stash_drop_and_clear_have_audit_trail_but_deliberately_no_snapshot() {
             args = args.text("oid", &cleared_oid);
             args
         },
-        || Ok(StashDiscardDto::from(cleared)),
+        || {
+            Ok(StashDiscardDto {
+                dropped: cleared.dropped,
+                snapshot_id: Some(pre_snapshot),
+            })
+        },
     );
     let record = h.latest_record(op_type::STASH_DROP);
-    assert_eq!(record.snapshot_id, None);
+    assert!(h.snapshot_exists(record.snapshot_id));
+    assert!(record.reversible);
     assert!(
         record
             .args_json

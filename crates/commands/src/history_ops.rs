@@ -25,6 +25,7 @@ use forgedesk_domain::{AppError, AppResult, ErrorCode};
 use forgedesk_platform::watcher::WatchKind;
 use forgedesk_services::audit::op_type;
 use forgedesk_services::{AuditArgs, AuditEntry, StashDiscardOutcome, StashSaveOutcome};
+use forgedesk_snapshot::SnapshotKind;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, State};
 
@@ -208,12 +209,19 @@ pub struct StashShowDto {
 pub struct StashDiscardDto {
     /// 被丢掉的条目（含 oid：`gc` 回收之前还能按它找回）。
     pub dropped: Vec<StashEntry>,
+    /// 丢弃之前打的快照（T3.11）；打不出来时为 `None`。
+    ///
+    /// 有它才谈得上"能不能回滚"：回滚靠快照里记下的 `refs/stash` oid 清单
+    /// 把条目重新登记回栈（`git stash store`）。
+    pub snapshot_id: Option<i64>,
 }
 
 impl From<StashDiscardOutcome> for StashDiscardDto {
+    /// 只有条目、没有快照 id 的形状（服务层自己不打包点）。
     fn from(outcome: StashDiscardOutcome) -> Self {
         Self {
             dropped: outcome.dropped,
+            snapshot_id: None,
         }
     }
 }
@@ -468,7 +476,7 @@ pub fn git_stash_pop(
     })
 }
 
-/// 丢弃某条 stash（不可逆）。写操作：审计。
+/// 丢弃某条 stash（不可逆）。写操作：快照 + 审计。
 #[tauri::command]
 pub fn git_stash_drop(
     state: State<'_, AppState>,
@@ -477,8 +485,7 @@ pub fn git_stash_drop(
     index: usize,
 ) -> AppResult<StashDiscardDto> {
     let repo_id = require_repo(repo_id)?;
-    // 被丢 oid 先记进 args：drop/clear 按设计**不打快照**（工作区快照找不回
-    // stash 内容），审计里的 oid 是 gc 之前唯一的自救线索（T2.8 的约定），
+    // 被丢 oid 先记进 args：它是"用户绕过界面自己 git 操作"时的自救线索，
     // 因此不能只有 index——那条记录在丢弃后就什么都不剩了
     let target_oid = state
         .stash_service()
@@ -497,14 +504,22 @@ pub fn git_stash_drop(
         &state,
         AuditEntry::new(repo_id, op_type::STASH_DROP).with_args(args),
         || {
+            // T3.11 起 drop 也打快照。T2.8 当初不打，理由是"工作区快照找不回
+            // stash 内容"；从快照会记下栈上每一条的 oid（引用类事实）之后，
+            // 回滚可以用 `git stash store` 把它们重新登记——那条理由不再成立，
+            // 而"丢掉的东西回不来"是用户最不能接受的一种不可逆。
+            let snapshot_id = stash_snapshot(&state, repo_id);
             let outcome = state.stash_service().drop_one(repo_id, index)?;
             emit_changed(&app, repo_id, WatchKind::Refs, Vec::new());
-            Ok(StashDiscardDto::from(outcome))
+            Ok(StashDiscardDto {
+                dropped: outcome.dropped,
+                snapshot_id,
+            })
         },
     )
 }
 
-/// 丢弃全部 stash（不可逆）。写操作：审计。
+/// 丢弃全部 stash（不可逆）。写操作：快照 + 审计。
 #[tauri::command]
 pub fn git_stash_clear(
     state: State<'_, AppState>,
@@ -512,7 +527,7 @@ pub fn git_stash_clear(
     repo_id: i64,
 ) -> AppResult<StashDiscardDto> {
     let repo_id = require_repo(repo_id)?;
-    // 同 drop：clear 之前把将丢的 oid 清单记进 args（上限内），gc 前可按 oid 自救
+    // 同 drop：clear 之前把将丢的 oid 清单记进 args（上限内）
     let entries = state.stash_service().list(repo_id)?;
     let mut args = AuditArgs::new()
         .text("scope", "all")
@@ -525,11 +540,24 @@ pub fn git_stash_clear(
         &state,
         AuditEntry::new(repo_id, op_type::STASH_DROP).with_args(args),
         || {
+            let snapshot_id = stash_snapshot(&state, repo_id);
             let outcome = state.stash_service().clear(repo_id)?;
             emit_changed(&app, repo_id, WatchKind::Refs, Vec::new());
-            Ok(StashDiscardDto::from(outcome))
+            Ok(StashDiscardDto {
+                dropped: outcome.dropped,
+                snapshot_id,
+            })
         },
     )
+}
+
+/// 丢弃 stash 之前的快照（T3.11）。
+///
+/// 归到 `PreWorktreeChange`：drop / clear **不动 HEAD、也不动工作区**，
+/// 变的只是"。git 里的 stash 栈"——回滚一份这样的快照不需要移动 HEAD，
+/// 界面上的说明也就该是"把储藏放回去"，而不是"回到某个提交"。
+fn stash_snapshot(state: &State<'_, AppState>, repo_id: i64) -> Option<i64> {
+    crate::snapshots::snapshot_before(state, repo_id, SnapshotKind::PreWorktreeChange)
 }
 
 /// 从某条 stash 创建分支并应用它（会切换分支）。写操作：快照 + 审计。
