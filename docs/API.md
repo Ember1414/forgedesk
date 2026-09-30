@@ -88,9 +88,13 @@ interface FixAction {
 | [`commit_amend_context`](#commit_amend_context) | ReadOnly | T1.8 | amend 语境：上一次提交信息 + 是否可能已推送 |
 | [`commit_hooks_list`](#commit_hooks_list) | ReadOnly | T1.8 | 仓库里的钩子清单（仅展示） |
 | [`snapshot_list`](#snapshot_list) | ReadOnly | T1.9 | 快照列表（新的在前） |
-| [`snapshot_diff`](#snapshot_diff) | ReadOnly | T1.9 | 快照与当前状态的差异摘要 |
+| [`snapshot_diff`](#snapshot_diff) | ReadOnly | T1.9 | 快照与当前状态的差异摘要（含未跟踪内容三分类） |
+| [`snapshot_usage`](#snapshot_usage) | ReadOnly | T3.8 | 磁盘占用、配额与孤儿目录 |
+| [`snapshot_estimate`](#snapshot_estimate) | ReadOnly | T3.8 | 下一次快照会备份多少未跟踪内容（危险操作对话框用） |
+| [`snapshot_create`](#snapshot_create) | Mutating | T3.8 | 手动打点；返回内容备份的实情（体积 / 跳过 / 告警） |
 | [`snapshot_restore`](#snapshot_restore) | Mutating | T1.9 | 回滚到快照（成功后发布 repo:changed） |
 | [`snapshot_prune`](#snapshot_prune) | Mutating | T1.9 | 按保留策略清理旧快照 |
+| [`snapshot_cleanup`](#snapshot_cleanup) | Mutating | T3.8 | 立即清理：孤儿目录 + 保留策略 + 总占用回收 |
 | [`audit_list`](#audit_list--audit_export--audit_prune) | ReadOnly | T1.11 | 分页查询操作历史（可按仓库 / 类型 / 时间筛选） |
 | [`audit_export`](#audit_list--audit_export--audit_prune) | ReadOnly | T1.11 | 导出操作历史到临时文件（CSV / JSON），返回路径 |
 | [`audit_prune`](#audit_list--audit_export--audit_prune) | Mutating | T1.11 | 按保留策略清理旧记录 |
@@ -812,11 +816,25 @@ interface AmendContext {
 - **错误**：`NOT_FOUND`、`STORAGE`。
 - **前端封装**：`commitHooksList(repoId)`；调用点：`src/features/commit/CommitPage.tsx`
 
-### snapshot_list / snapshot_diff / snapshot_restore / snapshot_prune
+### snapshot_list / snapshot_diff / snapshot_usage / snapshot_estimate / snapshot_create / snapshot_restore / snapshot_prune / snapshot_cleanup
 
-快照与回滚（M1 / T1.9）。这是红线 R7"计划预览 → 快照 → 执行 → 可回滚"的最后一环：
-每个快照是一组**可独立校验的 git 事实**（HEAD oid、索引树、自定义 ref 锚点），
-而不是一份需要解释的备份文件。
+快照与回滚（M1 / T1.9；T3.8 补未跟踪内容备份与磁盘控制）。这是红线 R7
+"计划预览 → 快照 → 执行 → 可回滚"的最后一环：每个快照是一组**可独立校验的
+git 事实**（HEAD oid、索引树、自定义 ref 锚点），T3.8 之后还多了一份
+**未跟踪内容的逐字节备份**——它落在应用缓存目录，不污染用户仓库。
+
+**备份的三条纪律**（T3.8）：
+
+1. 先复制到 `.tmp-*` 临时目录、入库后再改名成 `<backup_root>/<repo_id>/<snapshot_id>`，
+   于是正式目录"要么完整、要么不存在"（同文件系统内的 rename 是原子的）；
+2. 候选内容超过单份上限时**整体跳过并告警**（`untrackedBackupSkipped`），
+   绝不"备到上限为止"——半份备份比没有备份更危险，因为用户会以为它是全的；
+3. 单仓库总占用超过上限时按 LRU 回收，ref、数据库记录与备份目录**一起删**，
+   不留孤儿。备份被清掉后快照本身仍然可用（HEAD 与索引的恢复不依赖它），
+   只是未跟踪内容回不来——这一点由 `snapshot_usage` 与回滚报告如实说明。
+
+**默认磁盘策略（待人类确认）**：单份 200 MiB、单仓库 2 GiB；
+`0` 表示不限制。被 gitignore 覆盖的文件默认**不备份**（它们通常是构建产物）。
 
 **锚点为什么是自定义 ref**：HEAD 移走之后，没有任何引用指着的提交会被 `git gc`
 回收，回滚从此永远失败。`refs/forgedesk/snapshots/<id>` 指向快照时刻的 HEAD 提交，
@@ -844,6 +862,10 @@ interface SnapshotDiff {
   currentHeadOid: string | null;      // 空仓库为 null
   currentIndexTreeOid: string | null; // 索引有未合并条目时为 null（这本身就是"已变化"）
   refMissing: boolean;                // 锚点丢失 = 不可恢复
+  // T3.8：未跟踪内容的三分类（界面必须分开说，它们的后果完全不同）
+  untrackedRestorable: string[];      // 有备份且当前缺失/内容不同 → 回滚会写回
+  untrackedMissing: string[];         // 记录过但没有备份、当前也不存在 → 回滚找不回来
+  untrackedExtra: string[];           // 当前有、快照里没有 → 回滚不会删除
 }
 ```
 
@@ -862,25 +884,113 @@ interface SnapshotDiff {
   3. `git reset --hard <head_oid>`；
   4. `git read-tree <index_tree_oid>` 把索引恢复到快照的树
      （`reset --hard` 只能把索引带到 HEAD 的树，恢复不了"已暂存未提交"的内容）；
-  5. **用读引擎校验** HEAD 与索引树——读与写是两条独立实现（T1.2 差分测试保证一致），
+  5. **写回未跟踪内容**（T3.8）：按清单把备份目录里的文件复制回工作区，
+     已逐字节相同的文件跳过（重复回滚是安全的 no-op）；
+  6. **用读引擎校验** HEAD 与索引树——读与写是两条独立实现（T1.2 差分测试保证一致），
      让考生批自己的卷子是无效的；
-  6. 校验失败 → `RESTORE_VERIFY_FAILED`，并**自动恢复到回滚前快照**——
+  7. 校验失败 → `RESTORE_VERIFY_FAILED`，并**自动恢复到回滚前快照**——
      绝不停在中间态。
-- **返回**：`{ restoredSnapshotId, headOid, indexTreeOid, preRestoreSnapshotId, untrackedPaths }`
-- **v1 的边界（界面必须如实转述）**：未跟踪文件**只记录了路径**，不备份内容；
-  回滚不会删除或恢复它们。会删除未跟踪文件的操作属于 T3.8 快照 v2 的保护范围。
+- **返回**：
+  `{ restoredSnapshotId, headOid, indexTreeOid, preRestoreSnapshotId, untrackedPaths,
+     untrackedRestored, untrackedFailed, untrackedExtra, verified }`
+- **未跟踪内容的边界（界面必须如实转述）**：
+  - 快照时刻**被备份过**的文件会写回（内容逐字节一致）；没有备份的（v1 记录、
+    超限被跳过、备份目录被清掉）**找不回来**，逐条列在 `untrackedFailed` 里；
+  - 当前存在、快照里没有的未跟踪文件**不会被删除**，列在 `untrackedExtra` 里
+    交给用户决定；
+  - 内容恢复失败**不触发**回退：HEAD 与索引才是回滚的主体，个别文件被占用
+    不该把整次回滚推倒重来。`verified` 说的是"内容备份的校验结果"。
+- **错误**：`NOT_FOUND`（快照不存在 / 锚点丢失）、`RESTORE_VERIFY_FAILED`（已自动回退）、
+  `INTERNAL`
+- **前端封装**：`snapshotRestore(repoId, snapshotId)`；调用点：`src/features/snapshots/SnapshotsPage.tsx`
 - **错误**：`NOT_FOUND`（快照不存在 / 锚点丢失）、`RESTORE_VERIFY_FAILED`（已自动回退）、
   `INTERNAL`
 - **前端封装**：`snapshotRestore(repoId, snapshotId)`；调用点：`src/features/snapshots/SnapshotsPage.tsx`
 
+#### snapshot_create
+
+- **能力等级**：`Mutating`（**不改仓库**：它写数据库与备份目录；刻意**不**发布
+  `repo:changed`——发了会让历史页白刷一遍）
+- **参数**：`repoId`、`label?: string`（展示用：去控制字符、截到 64 字符，空则回落 `manual`）
+- **返回**：完整的结果，而不是一个 id——界面据此说明"这次打点包含什么、不包含什么"
+
+```ts
+interface SnapshotOutcome {
+  id: number;
+  backupBytes: number;      // 内容备份的字节总数
+  backedUp: number;         // 备份成功的文件数
+  untrackedTotal: number;   // 快照时刻的未跟踪文件总数（含未备份的）
+  skipped: string[];        // 没有进备份的未跟踪路径
+  warnings: SnapshotWarning[];
+  pruned: number[];         // 顺手清理掉的旧快照
+}
+
+interface SnapshotWarning {
+  // kind 是判别字段，其余字段按类型给（扁平结构：界面不必处理缺字段的分支）
+  kind: 'untrackedBackupSkipped'   // 超限整体跳过：count / bytes / limit
+      | 'untrackedBackupPartial'   // 个别文件复制失败：paths / detail
+      | 'backupDirUnavailable'     // 备份目录不可用：detail
+      | 'spaceReclaimed'           // 总占用超限的 LRU 回收：removed / freedBytes
+      | 'orphansRemoved';          // 清理了崩溃残留：count
+  count: number | null;
+  bytes: number | null;
+  limit: number | null;
+  paths: string[];
+  detail: string | null;
+  removed: number[];
+  freedBytes: number | null;
+}
+```
+
+- **审计**：`snapshot_create`，`args` 带 `label` 与 `kind`；记录关联这份新快照
+- **错误**：`NOT_FOUND`（仓库记录不存在）、`INTERNAL`（空仓库没有可锚定的提交、
+  写库或写备份目录失败）
+- **前端封装**：`snapshotCreate(repoId, label?)`；调用点：`src/features/snapshots/SnapshotsPage.tsx`
+
+#### snapshot_usage
+
+- **能力等级**：`ReadOnly`
+- **参数**：`repoId`
+- **返回**：
+  `{ repoId, snapshotCount, backupBytes, maxSnapshotBytes, maxRepoBytes, orphanDirs }`
+  （`orphanDirs` = 磁盘上有、数据库里没有对应记录的备份目录；上限 `0` = 不限制）
+- **错误**：`NOT_FOUND`、`INTERNAL`
+- **前端封装**：`snapshotUsage(repoId)`；调用点：`src/features/snapshots/SnapshotsPage.tsx`
+
+#### snapshot_estimate
+
+- **能力等级**：`ReadOnly`
+- **参数**：`repoId`
+- **返回**：
+  `{ untrackedCount, untrackedBytes, ignoredCount, ignoredBytes, includeIgnored,
+     limitBytes, withinLimit, wouldSkip }`
+- **用途**：危险操作对话框在**动手前**告诉用户"这次打点会跳过 N 个未跟踪文件
+  （X MB）"，而不是等操作执行完才发现快照里没有它们
+- **错误**：`NOT_FOUND`、`INTERNAL`
+- **前端封装**：`snapshotEstimate(repoId)`（尚未接线到各危险操作对话框：
+  T3.10 的操作历史与回滚入口会统一消费它）
+
 #### snapshot_prune
 
-- **能力等级**：`Mutating`（删除快照记录与其锚点 ref——只删一头都会留下假快照）
+- **能力等级**：`Mutating`（删除快照记录、锚点 ref 与备份目录——只删一头都会留下
+  假快照或永远不被 gc 的孤儿目录）
 - **参数**：`repoId`
-- **保留策略**：v1 使用内置默认（每仓库 50 条或 30 天，先到者生效）；把策略暴露成
-  设置项随 T3.8（连同磁盘占用阈值）一起做
+- **保留策略**：使用内置默认（每仓库 50 条或 30 天，先到者生效）；把策略暴露成
+  设置项属于设置页的工作（磁盘阈值已随 T3.8 落地为常量 +  `snapshot_usage` 可见）
 - **返回**：`number[]`（被清理的快照 id）
 - **错误**：`NOT_FOUND`、`INTERNAL`
+
+#### snapshot_cleanup
+
+- **能力等级**：`Mutating`
+- **参数**：`repoId`
+- **与 `snapshot_prune` 的分工**：prune 只按保留策略（条数 / 天数）走；cleanup 还会
+  ①清掉复制中途崩溃留下的孤儿目录（`.tmp-*` 与"记录已不存在"的目录），
+  ②按**总占用上限**做 LRU 回收
+- **返回**：`{ orphansRemoved, reclaimed, freedBytes, remainingBytes }`
+- **审计**：`snapshot_cleanup`（记录的是结果 DTO：回收清单与释放体积）
+- **错误**：`NOT_FOUND`、`INTERNAL`
+- **前端封装**：`snapshotCleanup(repoId)`；调用点：`src/features/snapshots/SnapshotsPage.tsx`
 
 ### audit_list / audit_export / audit_prune
 
@@ -904,7 +1014,8 @@ interface SnapshotDiff {
 | `result` | `ok` / `failed` / `running`。**`running` = 只有开始没有收尾**，即"应用崩在写操作中间"，界面必须能一眼看出 |
 
 - **操作类型**：`commit`、`stage`、`unstage`、`discard`、`clone`、`init`、`forget`、
-  `close`、`snapshot_restore`、`snapshot_prune`、`audit_export`、`audit_prune`。
+  `close`、`snapshot_restore`、`snapshot_prune`、`snapshot_create`、`snapshot_cleanup`、
+  `audit_export`、`audit_prune`。
 
 #### audit_list
 
