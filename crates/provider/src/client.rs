@@ -97,6 +97,9 @@ pub struct ApiRequest {
     pub bearer: Option<SecretString>,
     /// JSON 请求体。
     pub body: Option<serde_json::Value>,
+    /// form-urlencoded 请求体（OAuth 端点要求 form 而不是 JSON）。
+    /// 与 `body` 互斥：同时给出时以 `form` 为准。
+    pub form: Option<Vec<(String, String)>>,
     /// 额外请求头（已校验）。
     pub headers: Vec<(reqwest::header::HeaderName, reqwest::header::HeaderValue)>,
 }
@@ -119,6 +122,7 @@ impl ApiRequest {
             url: url.into(),
             bearer: None,
             body: None,
+            form: None,
             headers: Vec::new(),
         }
     }
@@ -135,6 +139,18 @@ impl ApiRequest {
     pub fn with_body(mut self, body: serde_json::Value) -> Self {
         self.body = Some(body);
         self
+    }
+
+    /// 设置 form-urlencoded 体（OAuth Device Flow 端点要求）。
+    #[must_use]
+    pub fn with_form(mut self, form: Vec<(String, String)>) -> Self {
+        self.form = Some(form);
+        self
+    }
+
+    /// 构造一个 POST 请求（form 体）。
+    pub fn post_form(url: impl Into<String>, form: Vec<(String, String)>) -> Self {
+        Self::new(reqwest::Method::POST, url).with_form(form)
     }
 
     /// 追加一个请求头（非法名称/值在这里就被拒绝，不等到发送时）。
@@ -253,6 +269,9 @@ impl GitHubHttp {
         }
         if let Some(body) = &request.body {
             builder = builder.json(body);
+        }
+        if let Some(form) = &request.form {
+            builder = builder.form(form);
         }
         for (name, value) in &request.headers {
             builder = builder.header(name, value);

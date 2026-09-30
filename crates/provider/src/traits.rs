@@ -22,8 +22,36 @@
 
 use crate::model::{ProviderCapabilities, ProviderId};
 
-/// 认证子服务：登录、令牌校验、Device Flow（T4.3/T4.4 落地方法）。
-pub trait AuthFlow: Send + Sync {}
+/// 认证子服务：登录、令牌校验、Device Flow（docs/PLAN.md M4.1/T4.3）。
+///
+/// # 轮询循环归调用方
+///
+/// [`AuthFlow::poll_device_flow`] 只做**一次**查询并报告状态；"按 interval
+/// 睡眠、收到 slow_down 后 +5s"的循环由 services 层驱动（T4.3 的登录向导）。
+/// 这样轮询节奏可被取消令牌打断，而 trait 实现保持无状态。
+#[async_trait::async_trait]
+pub trait AuthFlow: Send + Sync {
+    /// 发起 Device Flow：返回用户码与验证地址。
+    ///
+    /// UI 的三步引导（docs/PLAN.md M4 风险表）：复制 `user_code` →
+    /// 打开 `verification_uri` → 应用按 `interval_secs` 轮询。
+    async fn start_device_flow(
+        &self,
+        scopes: &[&str],
+    ) -> Result<crate::auth::DeviceFlowStart, forgedesk_domain::AppError>;
+
+    /// 轮询一次令牌换取结果。
+    async fn poll_device_flow(
+        &self,
+        flow: &crate::auth::DeviceFlowStart,
+    ) -> Result<crate::auth::DeviceFlowPoll, forgedesk_domain::AppError>;
+
+    /// 校验一个 PAT 并返回账号信息（GitHub 的 `/user`）。
+    async fn verify_pat(
+        &self,
+        token: secrecy::SecretString,
+    ) -> Result<crate::auth::VerifiedAccount, forgedesk_domain::AppError>;
+}
 
 /// 仓库子服务：列表/搜索/fork/star/clone 联动（T4.5 落地方法）。
 pub trait RepoService: Send + Sync {}
