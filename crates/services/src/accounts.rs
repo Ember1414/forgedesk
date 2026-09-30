@@ -43,9 +43,27 @@ use tokio_util::sync::CancellationToken;
 
 /// GitHub OAuth App 的 client_id 存放的全局设置键。
 ///
-/// 值是公开的（Device Flow 的 client_id 不是秘密），但注册 OAuth App
-/// 归应用维护者，所以经设置注入而不是硬编码。
+/// 值是公开的（Device Flow 的 client_id 不是秘密）。设置键用于**覆盖**
+/// 编译期默认（自建/测试场景），正常用户什么都不用填。
 pub const CLIENT_ID_SETTING_KEY: &str = "provider.github.clientId";
+
+/// 应用自带的 GitHub OAuth App client_id（公开值，维护者于 2026-10-01 注册）。
+///
+/// 为什么编译进来：GitHub 的 Device Flow 认"应用"不认"用户"——
+/// 发行版的每个用户都用这同一个 client_id 发起授权（真正的授权与
+/// 令牌仍是每个用户自己的）。设置键里填了别的值时以设置为准。
+pub const DEFAULT_GITHUB_CLIENT_ID: &str = "Ov23liHhKxaGHpgnJtQj";
+
+/// client_id 解析：设置值（非空）优先，否则用编译期默认。
+///
+/// 独立成纯函数是为了单测可枚举三种输入（覆盖/空/未设置），
+/// 而不必为它起一次真实网络。
+fn resolve_client_id(setting: Option<String>) -> String {
+    match setting {
+        Some(value) if !value.trim().is_empty() => value,
+        _ => DEFAULT_GITHUB_CLIENT_ID.to_owned(),
+    }
+}
 
 /// 登录成功的账号。
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
@@ -114,18 +132,9 @@ impl AccountService {
             database,
             credentials,
             Box::new(move |host: &str| -> AppResult<GitHubProvider> {
-                let client_id = SettingsRepository::new(factory_database.as_ref())
-                    .get(&Scope::Global, CLIENT_ID_SETTING_KEY)?
-                    .unwrap_or_default();
-                if client_id.trim().is_empty() {
-                    // hint 只放数据（设置键），建议性文案由前端按错误码补
-                    return Err(AppError::new(
-                        ErrorCode::Validation,
-                        "GitHub OAuth client id is not configured",
-                    )
-                    .with_hint(CLIENT_ID_SETTING_KEY));
-                }
-                GitHubProvider::new(host, client_id, http.clone())
+                let setting = SettingsRepository::new(factory_database.as_ref())
+                    .get(&Scope::Global, CLIENT_ID_SETTING_KEY)?;
+                GitHubProvider::new(host, resolve_client_id(setting), http.clone())
             }),
         )
     }
@@ -339,7 +348,7 @@ pub fn memory_credential_store() -> SharedStore {
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
-    use super::{memory_credential_store, AccountService, CLIENT_ID_SETTING_KEY};
+    use super::{memory_credential_store, AccountService};
     use crate::accounts::StartedDeviceFlow;
     use crate::credentials::SharedStore;
     use forgedesk_credentials::{CredentialKind, CredentialRef};
@@ -578,17 +587,21 @@ mod tests {
         assert_eq!(error.code, ErrorCode::NotFound);
     }
 
-    #[tokio::test]
-    async fn the_default_factory_fails_fast_without_a_configured_client_id() {
-        // 未配置 client_id：PAT 登录在构造 provider 那一步就失败，且不出网
-        let http = GitHubHttp::new(HttpConfig::default()).unwrap();
-        let service = AccountService::new(db(), memory_credential_store(), http);
-
-        let error = service
-            .login_with_pat("github.com", SecretString::from("ghp_x".to_owned()))
-            .await
-            .unwrap_err();
-        assert_eq!(error.code, ErrorCode::Validation);
-        assert_eq!(error.hint.as_deref(), Some(CLIENT_ID_SETTING_KEY));
+    /// client_id 解析的三个分支：设置覆盖 / 空值回退 / 未设置回退。
+    /// （编译期默认注入后，"未配置"不再成立——正常用户零配置即可登录。）
+    #[test]
+    fn client_id_resolution_prefers_settings_and_falls_back_to_the_builtin() {
+        assert_eq!(
+            super::resolve_client_id(Some("Iv1.custom".to_owned())),
+            "Iv1.custom"
+        );
+        assert_eq!(
+            super::resolve_client_id(Some("   ".to_owned())),
+            super::DEFAULT_GITHUB_CLIENT_ID
+        );
+        assert_eq!(
+            super::resolve_client_id(None),
+            super::DEFAULT_GITHUB_CLIENT_ID
+        );
     }
 }
