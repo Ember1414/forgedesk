@@ -171,6 +171,8 @@ function mockScript(hookRejects: boolean): string {
         repoId: 1, snapshotCount: restored ? 0 : 1, backupBytes: 0,
         maxSnapshotBytes: 209715200, maxRepoBytes: 2147483648, orphanDirs: []
       });
+      if (command === "snapshot_restore_pending") return Promise.resolve(null);
+      if (command === "snapshot_restore_abandon") return Promise.resolve(0);
       if (command === "snapshot_diff") {
         // 模拟"用户在终端里 reset --hard 过"：HEAD 与索引都变了
         return Promise.resolve({
@@ -197,7 +199,19 @@ function mockScript(hookRejects: boolean): string {
           untrackedRestored: 0,
           untrackedFailed: [],
           untrackedExtra: [],
-          verified: true
+          verified: true,
+          // T3.9：回滚报告多了结局与阶段清单；界面按 outcome 决定提示语气，
+          // 少了它就会去查一个不存在的 i18n key
+          outcome: "completed",
+          stages: [
+            { stage: "protection", ok: true, detail: null, durationMs: 1 },
+            { stage: "head", ok: true, detail: null, durationMs: 1 },
+            { stage: "index", ok: true, detail: null, durationMs: 1 },
+            { stage: "untracked", ok: true, detail: null, durationMs: 1 },
+            { stage: "verify", ok: true, detail: null, durationMs: 1 }
+          ],
+          reportLines: [],
+          emergency: null
         });
       }
       if (command === "plugin:event|unlisten") return Promise.resolve(null);
