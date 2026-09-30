@@ -103,11 +103,7 @@ export function repoRemoteFork(host: string, owner: string, repo: string): Promi
  * 都不越过 Rust 边界（清洗规则与 XSS 用例在 services::readme）。
  * 渲染仍需配合只读样式，禁止把这段 HTML 再喂给任何解析器。
  */
-export function repoRemoteReadme(
-  host: string,
-  owner: string,
-  repo: string,
-): Promise<string> {
+export function repoRemoteReadme(host: string, owner: string, repo: string): Promise<string> {
   return invokeCommand<string>('repo_remote_readme', { host, owner, repo });
 }
 

@@ -367,7 +367,10 @@ export function GitHubReposPage() {
         ))}
       </ul>
 
-      <ReadmeDialog repo={readmeRepo} onOpenChange={(open) => setReadmeRepo(open ? readmeRepo : null)} />
+      <ReadmeDialog
+        repo={readmeRepo}
+        onOpenChange={(open) => setReadmeRepo(open ? readmeRepo : null)}
+      />
 
       {nextPage !== null && phase === 'ready' ? (
         <Button

@@ -1341,6 +1341,47 @@
       "readmeDescription": "内容已安全渲染：脚本与事件属性已在渲染前移除。",
       "readmeMissing": "该仓库没有 README。",
       "linkCopiedToast": "链接已复制（应用内暂不直接打开外链）"
+    },
+    "prs": {
+      "repoPlaceholder": "仓库（owner/repo，如 octocat/Hello-World）",
+      "stateTabs": "PR 状态",
+      "stateTab": {
+        "open": "进行中",
+        "closed": "已关闭",
+        "all": "全部"
+      },
+      "draftBadge": "草稿",
+      "mergedBadge": "已合并",
+      "empty": "这个筛选条件下没有 PR。",
+      "author": "作者 {{author}}",
+      "changedFiles": "{{count}} 个文件",
+      "conditionsTitle": "合并条件",
+      "conditionClean": "可以合并：无冲突、检查通过。",
+      "conditionDirty": "有冲突：需要先在源分支解决。",
+      "conditionBlocked": "被分支保护阻止：缺少必需的审查或检查。",
+      "conditionUnstable": "检查未全部通过（不阻止合并，但请确认）。",
+      "conditionUnknown": "合并条件还在计算，稍后刷新查看。",
+      "alreadyMerged": "这个 PR 已经合并过了。",
+      "noReviews": "还没有 review。",
+      "reviewItem": "{{author}}：{{state}}",
+      "reviewState": {
+        "APPROVED": "已批准",
+        "CHANGES_REQUESTED": "请求修改",
+        "COMMENTED": "评论"
+      },
+      "strategyTitle": "合并方式",
+      "strategy": {
+        "merge": "合并提交",
+        "squash": "压扁为一个提交",
+        "rebase": "变基线性合入"
+      },
+      "deleteBranch": "合并后删除源分支（{{branch}}）",
+      "mergeOpen": "合并…",
+      "mergeConfirmTitle": "合并 PR #{{number}}？",
+      "mergeConfirm": "确认合并",
+      "mergeImpact": "合并会改动目标分支（远端），并以 head 预检保证期间没有新提交。",
+      "mergedToast": "PR #{{number}} 已合并",
+      "detailTitle": "#{{number}} {{title}}"
     }
   },
   "repo": {

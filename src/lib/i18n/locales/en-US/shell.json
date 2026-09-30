@@ -1341,6 +1341,47 @@
       "readmeDescription": "Rendered safely: scripts and event handlers were removed before display.",
       "readmeMissing": "This repository has no README.",
       "linkCopiedToast": "Link copied (external links are not opened in-app yet)"
+    },
+    "prs": {
+      "repoPlaceholder": "Repository (owner/repo, e.g. octocat/Hello-World)",
+      "stateTabs": "PR states",
+      "stateTab": {
+        "open": "Open",
+        "closed": "Closed",
+        "all": "All"
+      },
+      "draftBadge": "draft",
+      "mergedBadge": "merged",
+      "empty": "No pull requests for this filter.",
+      "author": "by {{author}}",
+      "changedFiles": "{{count}} files",
+      "conditionsTitle": "Merge conditions",
+      "conditionClean": "Mergeable: no conflicts, checks pass.",
+      "conditionDirty": "Conflicts: resolve them on the source branch first.",
+      "conditionBlocked": "Blocked by branch protection: required reviews or checks missing.",
+      "conditionUnstable": "Checks not all passing (non-blocking, please confirm).",
+      "conditionUnknown": "Mergeability is being computed; refresh shortly.",
+      "alreadyMerged": "This pull request has already been merged.",
+      "noReviews": "No reviews yet.",
+      "reviewItem": "{{author}}: {{state}}",
+      "reviewState": {
+        "APPROVED": "approved",
+        "CHANGES_REQUESTED": "changes requested",
+        "COMMENTED": "commented"
+      },
+      "strategyTitle": "Merge method",
+      "strategy": {
+        "merge": "Merge commit",
+        "squash": "Squash",
+        "rebase": "Rebase and merge"
+      },
+      "deleteBranch": "Delete the source branch ({{branch}}) after merging",
+      "mergeOpen": "Merge…",
+      "mergeConfirmTitle": "Merge PR #{{number}}?",
+      "mergeConfirm": "Confirm merge",
+      "mergeImpact": "Merging changes the target branch on the remote, with a head precheck so no new commits slip in.",
+      "mergedToast": "PR #{{number}} merged",
+      "detailTitle": "#{{number}} {{title}}"
     }
   },
   "repo": {

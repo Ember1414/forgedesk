@@ -112,7 +112,9 @@ export function ReadmeDialog({ repo, onOpenChange }: ReadmeDialogProps) {
     <Dialog open={repo !== null} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl" closeLabel={t('common:actions.close')}>
         <DialogHeader>
-          <DialogTitle>{t('github.repos.readmeTitle', { fullName: repo?.fullName ?? '' })}</DialogTitle>
+          <DialogTitle>
+            {t('github.repos.readmeTitle', { fullName: repo?.fullName ?? '' })}
+          </DialogTitle>
           <DialogDescription>{t('github.repos.readmeDescription')}</DialogDescription>
         </DialogHeader>
 
@@ -122,13 +124,9 @@ export function ReadmeDialog({ repo, onOpenChange }: ReadmeDialogProps) {
           </p>
         ) : null}
 
-        {notFound ? (
-          <ErrorState title={t('github.repos.readmeMissing')} />
-        ) : null}
+        {notFound ? <ErrorState title={t('github.repos.readmeMissing')} /> : null}
 
-        {error && !notFound ? (
-          <ErrorState title={t('github.repos.listErrorHint')} />
-        ) : null}
+        {error && !notFound ? <ErrorState title={t('github.repos.listErrorHint')} /> : null}
 
         {html !== null && !loading ? (
           <div
