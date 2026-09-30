@@ -96,6 +96,21 @@ export type {
   MergeStrategy,
 } from './merge';
 export {
+  gitRebaseContinueEdit,
+  gitRebaseExecute,
+  gitRebasePreviewOnly,
+  gitRebaseRange,
+} from './rebase';
+export type {
+  RebaseExecuteRequest,
+  RebaseOutcome,
+  RebasePreview,
+  RebaseRangeCommit,
+  RebaseStepRequest,
+  RebaseSurvivingCommit,
+  ReorderAction,
+} from './rebase';
+export {
   gitConflictAbort,
   gitConflictApplyResolution,
   gitConflictContinue,
