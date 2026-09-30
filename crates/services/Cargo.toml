@@ -29,9 +29,11 @@ tokio-util.workspace = true
 uuid.workspace = true
 parking_lot.workspace = true
 secrecy.workspace = true
-
-[lints]
-workspace = true
+pulldown-cmark = "0.13.4"
+ammonia = "4.2.0"
 
 [dev-dependencies]
 wiremock = "0.6.5"
+
+[lints]
+workspace = true

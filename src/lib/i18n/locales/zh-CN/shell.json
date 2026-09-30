@@ -1335,7 +1335,12 @@
       "forkAction": "Fork",
       "copyUrl": "复制地址",
       "copied": "已复制",
-      "loadMore": "加载更多"
+      "loadMore": "加载更多",
+      "readmeAction": "README",
+      "readmeTitle": "README — {{fullName}}",
+      "readmeDescription": "内容已安全渲染：脚本与事件属性已在渲染前移除。",
+      "readmeMissing": "该仓库没有 README。",
+      "linkCopiedToast": "链接已复制（应用内暂不直接打开外链）"
     }
   },
   "repo": {

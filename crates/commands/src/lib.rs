@@ -106,7 +106,8 @@ pub use rebase::{
 };
 pub use remote_repos::{
     repo_account_binding_get, repo_account_binding_set, repo_remote_fork, repo_remote_list,
-    repo_remote_search, repo_remote_star, repo_remote_starred, RemoteRepoDto, RepoPageDto,
+    repo_remote_readme, repo_remote_search, repo_remote_star, repo_remote_starred, RemoteRepoDto,
+    RepoPageDto,
 };
 pub use repository::{
     repo_clone, repo_close, repo_discover, repo_forget, repo_init, repo_open, repo_recent_list,

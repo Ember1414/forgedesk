@@ -253,6 +253,7 @@ export {
   repoAccountBindingSet,
   repoRemoteFork,
   repoRemoteList,
+  repoRemoteReadme,
   repoRemoteSearch,
   repoRemoteStar,
   repoRemoteStarred,

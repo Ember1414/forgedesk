@@ -352,6 +352,26 @@ impl RepoService for GitHubProvider {
             .map_err(map_transport_error)
             .map(Into::into)
     }
+
+    async fn readme(
+        &self,
+        owner: &str,
+        repo: &str,
+        token: Option<SecretString>,
+    ) -> Result<String, AppError> {
+        let url = format!("{}/readme", self.repo_path(owner, repo)?);
+        let mut request = ApiRequest::get(url)
+            // raw：直接拿 Markdown 原文，省一次 base64 解码与 JSON 包裹
+            .with_header("Accept", "application/vnd.github.raw")?;
+        if let Some(token) = token {
+            request = request.with_bearer(token);
+        }
+        let response = self.http().send(&request).await?;
+        // README 按字节原样回传：先取字节再转 UTF-8，避免 reqwest 按错误
+        // 的字符集猜测造成替换符
+        let bytes = response.bytes().await.map_err(map_transport_error)?;
+        Ok(String::from_utf8_lossy(&bytes).into_owned())
+    }
 }
 
 #[cfg(test)]
@@ -364,7 +384,7 @@ mod tests {
     use forgedesk_domain::ErrorCode;
     use secrecy::SecretString;
     use std::time::Duration;
-    use wiremock::matchers::{method, path, query_param};
+    use wiremock::matchers::{header, method, path, query_param};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     fn provider_at(server: &MockServer) -> GitHubProvider {
@@ -571,6 +591,41 @@ mod tests {
             None
         );
         assert_eq!(next_page_from_link_header(""), None);
+    }
+
+    #[tokio::test]
+    async fn readme_returns_the_raw_markdown_and_maps_404_to_not_found() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/repos/octocat/Hello-World/readme"))
+            .and(header("accept", "application/vnd.github.raw"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(
+                "# Hello
+
+正文 <script>alert(1)</script>",
+            ))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/repos/octocat/Empty/readme"))
+            .respond_with(ResponseTemplate::new(404).set_body_string(r#"{"message":"Not Found"}"#))
+            .mount(&server)
+            .await;
+
+        let provider = provider_at(&server);
+        let markdown = provider
+            .repos()
+            .readme("octocat", "Hello-World", None)
+            .await
+            .unwrap();
+        assert!(markdown.starts_with("# Hello"), "{markdown}");
+
+        let error = provider
+            .repos()
+            .readme("octocat", "Empty", None)
+            .await
+            .unwrap_err();
+        assert_eq!(error.code, ErrorCode::NotFound);
     }
 
     /// per_page 超过 GitHub 硬上限 100 时在本地拒绝（避免一次注定失败的请求）。

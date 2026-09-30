@@ -24,6 +24,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 
+import { ReadmeDialog } from '@/features/github/ReadmeDialog';
 import { useAppError, type NormalizedError } from '@/lib/errors';
 import {
   repoRemoteFork,
@@ -75,6 +76,7 @@ export function GitHubReposPage() {
   const [error, setError] = useState<NormalizedError | null>(null);
   const [busyRepo, setBusyRepo] = useState<string | null>(null);
   const [copiedRepo, setCopiedRepo] = useState<string | null>(null);
+  const [readmeRepo, setReadmeRepo] = useState<RemoteRepo | null>(null);
   // 只认最后一次请求的结果：切标签/连点加载更多时的过期响应直接丢弃
   const seqRef = useRef(0);
 
@@ -345,6 +347,14 @@ export function GitHubReposPage() {
               <Button
                 type="button"
                 variant="ghost"
+                onClick={() => setReadmeRepo(repo)}
+                data-testid={`repos-readme-${repo.name}`}
+              >
+                {t('github.repos.readmeAction')}
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
                 onClick={() => copyUrl(repo)}
                 data-testid={`repos-copy-${repo.name}`}
               >
@@ -356,6 +366,8 @@ export function GitHubReposPage() {
           </li>
         ))}
       </ul>
+
+      <ReadmeDialog repo={readmeRepo} onOpenChange={(open) => setReadmeRepo(open ? readmeRepo : null)} />
 
       {nextPage !== null && phase === 'ready' ? (
         <Button

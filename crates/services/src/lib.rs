@@ -34,6 +34,7 @@ pub mod history_cache;
 pub mod history_ops;
 pub mod host_repos;
 pub mod merge;
+pub mod readme;
 pub mod repository;
 pub mod staging;
 pub mod stash;

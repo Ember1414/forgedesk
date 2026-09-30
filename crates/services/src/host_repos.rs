@@ -241,6 +241,22 @@ impl HostRepoService {
         provider.repos().fork(token, owner, repo).await
     }
 
+    /// 拉取并**安全渲染**仓库 README（T4.6）：返回的是白名单化 HTML，
+    /// 前端不接触原始 Markdown（清洗规则见 [`crate::readme`]，XSS 用例在
+    /// 那里穷举）。匿名可用（公开仓库）。
+    pub async fn readme(
+        &self,
+        host: &str,
+        repo_id: Option<i64>,
+        owner: &str,
+        repo: &str,
+    ) -> AppResult<String> {
+        let provider = self.provider_for(host)?;
+        let token = self.token_for(host, repo_id)?;
+        let markdown = provider.repos().readme(owner, repo, token).await?;
+        Ok(crate::readme::render_readme(&markdown))
+    }
+
     /// 需要登录的操作共用的"没有账号"出口。
     async fn require_token(&self, host: &str, repo_id: Option<i64>) -> AppResult<SecretString> {
         self.token_for(host, repo_id)?.ok_or_else(|| {

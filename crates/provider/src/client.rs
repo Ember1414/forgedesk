@@ -284,10 +284,17 @@ impl GitHubHttp {
     }
 
     fn build(&self, request: &ApiRequest) -> reqwest::RequestBuilder {
-        let mut builder = self
-            .client
-            .request(request.method.clone(), &request.url)
-            .header(reqwest::header::ACCEPT, "application/vnd.github+json");
+        let mut builder = self.client.request(request.method.clone(), &request.url);
+        // 默认 Accept 是 JSON（REST API 的绝大多数形态）；请求描述里已显式
+        // 携带 accept 时以显式为准（README 的 raw 端点等），避免出现两个
+        // 互相矛盾的 Accept 头
+        if !request
+            .headers
+            .iter()
+            .any(|(name, _)| name == reqwest::header::ACCEPT)
+        {
+            builder = builder.header(reqwest::header::ACCEPT, "application/vnd.github+json");
+        }
         if let Some(token) = &request.bearer {
             builder = builder.bearer_auth(token.expose_secret());
         }

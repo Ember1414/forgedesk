@@ -1335,7 +1335,12 @@
       "forkAction": "Fork",
       "copyUrl": "Copy URL",
       "copied": "Copied",
-      "loadMore": "Load more"
+      "loadMore": "Load more",
+      "readmeAction": "README",
+      "readmeTitle": "README — {{fullName}}",
+      "readmeDescription": "Rendered safely: scripts and event handlers were removed before display.",
+      "readmeMissing": "This repository has no README.",
+      "linkCopiedToast": "Link copied (external links are not opened in-app yet)"
     }
   },
   "repo": {

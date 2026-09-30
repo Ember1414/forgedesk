@@ -111,6 +111,17 @@ pub trait RepoService: Send + Sync {
         owner: &str,
         repo: &str,
     ) -> Result<crate::repos::RemoteRepo, forgedesk_domain::AppError>;
+
+    /// 拉取仓库默认分支的 README **原文**（Markdown，未清洗）。
+    ///
+    /// 清洗发生在 services 层（[`crate::repos`] 只管取回原文）；
+    /// 仓库没有 README 时返回 `NOT_FOUND`（GitHub 的 404 原样映射）。
+    async fn readme(
+        &self,
+        owner: &str,
+        repo: &str,
+        token: Option<secrecy::SecretString>,
+    ) -> Result<String, forgedesk_domain::AppError>;
 }
 
 /// Pull Request 子服务：列表/详情/评论/review/合并（T4.7 落地方法）。

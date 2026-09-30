@@ -201,6 +201,23 @@ pub async fn repo_remote_fork(
     Ok(RemoteRepoDto::from(forked))
 }
 
+/// 拉取并安全渲染仓库 README（T4.6）。能力等级：`Network`。
+///
+/// 返回**已消毒**的 HTML 片段（清洗规则与 XSS 用例在
+/// `forgedesk_services::readme`）：前端直接渲染，不再接触原始 Markdown。
+/// 仓库没有 README 时返回 `NOT_FOUND`。
+#[tauri::command]
+pub async fn repo_remote_readme(
+    state: State<'_, AppState>,
+    host: String,
+    owner: String,
+    repo: String,
+    repo_id: Option<i64>,
+) -> AppResult<String> {
+    let host = validate_host(&host)?;
+    state.host_repos.readme(&host, repo_id, &owner, &repo).await
+}
+
 /// 读取仓库绑定的账号。能力等级：`ReadOnly`。
 #[tauri::command]
 pub fn repo_account_binding_get(

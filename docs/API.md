@@ -1534,6 +1534,7 @@ identity 文件）、`TLS_CERTIFICATE_REJECTED`（自签名或证书链不完整
 | `repo_remote_search` | Network | `host, query, repoId?, page?, perPage?` | `RepoPage`；匿名可用（有账号走高配额）；空 query → `VALIDATION` |
 | `repo_remote_star` | Network | `host, owner, repo, starred, repoId?` | `()`；加星/取消加星 |
 | `repo_remote_fork` | Network | `host, owner, repo, repoId?` | `RemoteRepo`（GitHub 返回 202，副本异步创建中） |
+| `repo_remote_readme` | Network | `host, owner, repo, repoId?` | `string`：**已消毒**的 HTML 片段（Markdown 在 Rust 侧白名单渲染，脚本/事件属性/`javascript:`·`data:` URL 一律清除，XSS 用例在 `services::readme`）；无 README → `NOT_FOUND` |
 | `repo_account_binding_get` | ReadOnly | `repoId` | `Account?`（未绑定为 `null`） |
 | `repo_account_binding_set` | Mutating | `repoId, accountId?` | `Account?`；`accountId` 为 `null` 解除绑定；账号不存在 → `NOT_FOUND` |
 

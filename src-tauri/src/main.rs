@@ -352,6 +352,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         forgedesk_commands::repo_remote_search,
         forgedesk_commands::repo_remote_star,
         forgedesk_commands::repo_remote_fork,
+        forgedesk_commands::repo_remote_readme,
         forgedesk_commands::repo_account_binding_get,
         forgedesk_commands::repo_account_binding_set,
         forgedesk_commands::debug_throw_error,
@@ -468,6 +469,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         forgedesk_commands::repo_remote_search,
         forgedesk_commands::repo_remote_star,
         forgedesk_commands::repo_remote_fork,
+        forgedesk_commands::repo_remote_readme,
         forgedesk_commands::repo_account_binding_get,
         forgedesk_commands::repo_account_binding_set,
     ]);

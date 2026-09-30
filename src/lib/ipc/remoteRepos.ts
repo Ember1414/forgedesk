@@ -96,6 +96,21 @@ export function repoRemoteFork(host: string, owner: string, repo: string): Promi
   return invokeCommand<RemoteRepo>('repo_remote_fork', { host, owner, repo });
 }
 
+/**
+ * 拉取仓库 README，返回**后端已消毒**的 HTML 片段（T4.6）。
+ *
+ * 前端拿到的是白名单化 HTML——原始 Markdown 与一切活动内容
+ * 都不越过 Rust 边界（清洗规则与 XSS 用例在 services::readme）。
+ * 渲染仍需配合只读样式，禁止把这段 HTML 再喂给任何解析器。
+ */
+export function repoRemoteReadme(
+  host: string,
+  owner: string,
+  repo: string,
+): Promise<string> {
+  return invokeCommand<string>('repo_remote_readme', { host, owner, repo });
+}
+
 /** 读取仓库绑定的账号；未绑定为 `null`。 */
 export function repoAccountBindingGet(repoId: number): Promise<Account | null> {
   return invokeCommand<Account | null>('repo_account_binding_get', { repoId });
