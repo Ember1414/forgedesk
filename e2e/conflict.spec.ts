@@ -57,6 +57,10 @@ const MOCK_SCRIPT = `
           worktreeExists: true, eol: "lf", bom: false, trailingNewline: true,
           blocks: [ { type: "conflict", base: ["base"], ours: ["ours"], theirs: ["theirs"] } ] });
       }
+      if (command === "git_conflict_apply_resolution") {
+        window.__conflictCalls.push({ command: command, args: args });
+        return Promise.resolve(null);
+      }
       if (command === "git_conflict_mark_resolved") {
         window.__conflictCalls.push({ command: command, args: args });
         resolved = true;
@@ -268,6 +272,58 @@ test.describe('冲突编辑器（T3.2）', () => {
     expect(content).not.toContain('<<<<<<<');
     expect(content).not.toContain('=======');
     expect(content).not.toContain('>>>>>>>');
+    await expectNoPageErrors(page);
+  });
+
+  test('纯键盘完成一次完整冲突解决（任务书 T3.3 验收）', async ({ page }) => {
+    await page.addInitScript(() => window.localStorage.setItem('forgedesk.language', 'zh-CN'));
+    await page.addInitScript(MOCK_SCRIPT);
+    await page.goto('/#/repo/1/conflict');
+    await expect(page.getByTestId('conflict-page')).toBeVisible();
+    // 准备步骤：打开编辑器（解决操作本身全程键盘）
+    await page.getByTestId('conflict-list-item-src/a.ts').click();
+    await expect(page.getByTestId('conflict-editor')).toBeVisible();
+
+    await page.keyboard.press('j'); // 选中第一处冲突
+    await expect(page.locator('article[data-conflict-card][data-selected="true"]')).toHaveCount(1);
+    await page.keyboard.press('o'); // 采用本方
+    await expect(page.locator('article[data-conflict-card][data-resolved="true"]')).toHaveCount(1);
+    await page.keyboard.press('Control+s'); // 保存并标记已解决
+
+    await expect
+      .poll(() => page.evaluate(() => window.__conflictCalls?.map((call) => call.command) ?? []))
+      .toContain('git_conflict_apply_resolution');
+    const content = await page.evaluate(() => {
+      const applied = (window.__conflictCalls ?? []).find(
+        (call) => call.command === 'git_conflict_apply_resolution',
+      );
+      const spec = (applied?.args as { spec?: { content?: string } } | undefined)?.spec;
+      return spec?.content ?? '';
+    });
+    expect(content).toContain('ours');
+    expect(content).not.toContain('<<<<<<<');
+    await expectNoPageErrors(page);
+  });
+
+  test('批量采用的确认框在取消时不产生任何修改（任务书 T3.3 验收）', async ({ page }) => {
+    await page.addInitScript(() => window.localStorage.setItem('forgedesk.language', 'zh-CN'));
+    await page.addInitScript(EDITOR_MOCK_SCRIPT);
+    await page.goto('/#/repo/1/conflict');
+    await page.getByTestId('conflict-list-item-a.txt').click();
+    await expect(page.getByTestId('conflict-editor')).toBeVisible();
+
+    await page.getByTestId('editor-batch-ours').click();
+    await expect(page.getByTestId('editor-batch-confirm')).toBeVisible();
+    // 取消：不产生任何修改（卡片全部保持未解决、没有任何命令发出）
+    await page.getByTestId('editor-batch-cancel').click();
+    await expect(page.locator('article[data-conflict-card][data-resolved="true"]')).toHaveCount(0);
+    expect(await page.evaluate(() => window.__conflictCalls ?? [])).toEqual([]);
+    await expectNoPageErrors(page);
+
+    // 确认路径：全部 8 块翻转为已解决
+    await page.getByTestId('editor-batch-ours').click();
+    await page.getByTestId('editor-batch-confirm').click();
+    await expect(page.locator('article[data-conflict-card][data-resolved="true"]')).toHaveCount(8);
     await expectNoPageErrors(page);
   });
 

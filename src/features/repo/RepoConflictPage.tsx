@@ -132,6 +132,14 @@ export function RepoConflictPage() {
                   {t('pages.repoConflict.headName', { name: state.headName })}
                 </span>
               )}
+              {/* 文件级解决进度（T3.3 任务书第 4 条）：已解决数来自本会话记录，
+                  总数 = 已解决 + 当前未解决（会话外解决的不计入，如实显示） */}
+              <span className="text-sm text-fg-muted" data-testid="conflict-file-progress">
+                {t('pages.repoConflict.fileProgress', {
+                  resolved: resolvedPaths.length,
+                  total: resolvedPaths.length + state.files.length,
+                })}
+              </span>
             </>
           ) : null}
           <IconButton

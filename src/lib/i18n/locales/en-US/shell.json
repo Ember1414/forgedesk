@@ -218,8 +218,24 @@
         "keepTheirs": "Keep their changes",
         "selectFile": "Pick a conflicted file on the left to start",
         "selectFileHint": "Each file opens its own editing view and disappears from the list once resolved.",
-        "loadFailed": "Failed to load the conflict detail: the file may already be resolved or its path changed."
-      }
+        "loadFailed": "Failed to load the conflict detail: the file may already be resolved or its path changed.",
+        "batchOurs": "Resolve all blocks with ours",
+        "batchTheirs": "Resolve all blocks with theirs",
+        "batchOursTitle": "Take ours for every conflict block?",
+        "batchTheirsTitle": "Take theirs for every conflict block?",
+        "batchBody": "All {{blocks}} conflict blocks in this file will be replaced with the {{side}} version; manual edits to these blocks are overwritten.",
+        "batchImpact": "Scope: {{blocks}} conflict blocks; each block becomes the chosen side's original text. Undo can still revert this.",
+        "batchConfirm": "Apply to all",
+        "fileOurs": "Whole file: ours",
+        "fileTheirs": "Whole file: theirs",
+        "fileOursTitle": "Take the whole file from ours?",
+        "fileTheirsTitle": "Take the whole file from theirs?",
+        "fileBody": "The worktree file will be overwritten with the chosen side's full version, current edits are lost, and the file is marked resolved.",
+        "fileImpact": "This overwrites the worktree file and runs git add; unsaved edits are discarded.",
+        "blockAria": "Conflict {{current}} of {{total}}, ours {{oursLines}} lines, theirs {{theirsLines}} lines",
+        "saveHint": "Save and mark resolved (Ctrl+S); press Ctrl+Enter to save and continue once every block is resolved"
+      },
+      "fileProgress": "{{resolved}} of {{total}} files resolved"
     },
     "repoTerminal": {
       "title": "Terminal",

@@ -9,6 +9,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ConflictEditor } from '@/features/conflict/ConflictEditor';
 import {
   gitConflictApplyResolution,
+  gitConflictContinue,
   gitConflictFileDetail,
   gitConflictMarkResolved,
   gitConflictRemoveFile,
@@ -23,6 +24,7 @@ vi.mock('@/lib/ipc', () => ({
   gitConflictMarkResolved: vi.fn(),
   gitConflictTakeSide: vi.fn(),
   gitConflictRemoveFile: vi.fn(),
+  gitConflictContinue: vi.fn(),
 }));
 
 const detailMock = vi.mocked(gitConflictFileDetail);
@@ -30,6 +32,7 @@ const applyMock = vi.mocked(gitConflictApplyResolution);
 const markOnlyMock = vi.mocked(gitConflictMarkResolved);
 const takeSideMock = vi.mocked(gitConflictTakeSide);
 const removeMock = vi.mocked(gitConflictRemoveFile);
+const continueMock = vi.mocked(gitConflictContinue);
 
 function blob(content: string): ConflictFileDetail['ours'] {
   return { size: content.length, isBinary: false, encodingHint: 'utf-8', content };
@@ -77,6 +80,7 @@ beforeEach(() => {
   markOnlyMock.mockResolvedValue(undefined);
   takeSideMock.mockResolvedValue(undefined);
   removeMock.mockResolvedValue(undefined);
+  continueMock.mockResolvedValue({ oid: 'abc', conflicts: [] });
 });
 
 describe('ConflictEditor', () => {
@@ -206,6 +210,124 @@ describe('ConflictEditor', () => {
     fireEvent.click(screen.getByTestId('conflict-delete-confirm'));
     await waitFor(() => {
       expect(removeMock).toHaveBeenCalledWith(1, 'a.txt');
+    });
+  });
+
+  // ---------------------------------------------------------------- 键盘流（T3.3）
+
+  it('键盘 j 选中第一处冲突，o 采用本方并自动前进', async () => {
+    renderEditor();
+
+    await screen.findByTestId('conflict-adopt-ours-0');
+    fireEvent.keyDown(window, { key: 'j' });
+    expect(screen.getByTestId('conflict-result-0').closest('article')).toHaveAttribute(
+      'data-selected',
+      'true',
+    );
+
+    fireEvent.keyDown(window, { key: 'o' });
+    // 单文件块全部解决：采用后选中点循环前进（只有一块则停在原处）
+    expect(screen.getByTestId('conflict-result-0').closest('article')).toHaveAttribute(
+      'data-resolved',
+      'true',
+    );
+    // 纯前端操作：不产生任何 IPC 调用
+    expect(applyMock).not.toHaveBeenCalled();
+  });
+
+  it('输入框聚焦时单键不触发块操作（不破坏正常输入）', async () => {
+    renderEditor();
+
+    await screen.findByTestId('conflict-adopt-ours-0');
+    fireEvent.keyDown(window, { key: 'j' });
+    const textarea = screen.getByTestId('conflict-result-0');
+    fireEvent.keyDown(textarea, { key: 'o' });
+
+    expect(textarea.closest('article')).toHaveAttribute('data-resolved', 'false');
+  });
+
+  it('Ctrl+S 保存，Ctrl+Enter 在全部解决后保存并继续', async () => {
+    renderEditor();
+
+    await screen.findByTestId('conflict-adopt-ours-0');
+    // j 选中第一处冲突，o 采用本方
+    fireEvent.keyDown(window, { key: 'j' });
+    fireEvent.keyDown(window, { key: 'o' });
+    // 等采用的重渲落地：连续真实按键之间必然隔着重渲，测试里显式等待
+    await waitFor(() => {
+      expect(screen.getByTestId('conflict-result-0').closest('article')).toHaveAttribute(
+        'data-resolved',
+        'true',
+      );
+    });
+
+    fireEvent.keyDown(window, { key: 's', ctrlKey: true });
+    await waitFor(() => {
+      expect(applyMock).toHaveBeenCalledWith(1, 'a.txt', {
+        content: 'head\nours',
+        eol: 'lf',
+        bom: false,
+        trailingNewline: true,
+      });
+    });
+
+    // Ctrl+Enter：文件已全部解决 → 保存后自动 continue
+    fireEvent.keyDown(window, { key: 'Enter', ctrlKey: true });
+    await waitFor(() => {
+      expect(continueMock).toHaveBeenCalledWith(1);
+    });
+  });
+
+  it('批量采用必须确认，取消时不产生任何修改', async () => {
+    const many = textDetail({
+      blocks: [
+        { type: 'context', lines: ['head'] },
+        { type: 'conflict', base: ['b1'], ours: ['o1'], theirs: ['t1', 't2'] },
+        { type: 'conflict', base: ['b2'], ours: ['o2', 'o3'], theirs: ['t3'] },
+      ],
+    });
+    detailMock.mockResolvedValue(many);
+    renderEditor();
+
+    await screen.findByTestId('conflict-adopt-ours-0');
+    fireEvent.click(screen.getByTestId('editor-batch-ours'));
+    // 确认框出现且尚未修改
+    expect(await screen.findByTestId('editor-batch-confirm')).toBeInTheDocument();
+    const cards = screen.getAllByTestId(/conflict-result-/);
+    expect(cards).toHaveLength(2);
+    expect(cards[0]?.closest('article')).toHaveAttribute('data-resolved', 'false');
+    expect(cards[1]?.closest('article')).toHaveAttribute('data-resolved', 'false');
+
+    fireEvent.click(screen.getByTestId('editor-batch-cancel'));
+    expect(screen.getByTestId('conflict-result-0').closest('article')).toHaveAttribute(
+      'data-resolved',
+      'false',
+    );
+    expect(applyMock).not.toHaveBeenCalled();
+
+    // 确认后全部采用
+    fireEvent.click(screen.getByTestId('editor-batch-ours'));
+    fireEvent.click(screen.getByTestId('editor-batch-confirm'));
+    expect(screen.getByTestId('conflict-result-0').closest('article')).toHaveAttribute(
+      'data-resolved',
+      'true',
+    );
+    expect(screen.getByTestId('conflict-result-1').closest('article')).toHaveAttribute(
+      'data-resolved',
+      'true',
+    );
+  });
+
+  it('整个文件采用一方必须确认，确认后调用 take_side', async () => {
+    renderEditor();
+
+    fireEvent.click(await screen.findByTestId('editor-file-ours'));
+    expect(await screen.findByTestId('editor-file-confirm')).toBeInTheDocument();
+    expect(takeSideMock).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByTestId('editor-file-confirm'));
+    await waitFor(() => {
+      expect(takeSideMock).toHaveBeenCalledWith(1, 'a.txt', 'ours');
     });
   });
 });

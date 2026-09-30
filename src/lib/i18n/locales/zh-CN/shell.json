@@ -218,8 +218,24 @@
         "keepTheirs": "保留对方的修改",
         "selectFile": "选择左侧的冲突文件开始解决",
         "selectFileHint": "每个文件会单独打开一个编辑视图，解决后从清单中消失。",
-        "loadFailed": "读取冲突详情失败：该文件可能已被解决或路径已变化。"
-      }
+        "loadFailed": "读取冲突详情失败：该文件可能已被解决或路径已变化。",
+        "batchOurs": "所有冲突块采用本方",
+        "batchTheirs": "所有冲突块采用对方",
+        "batchOursTitle": "把所有冲突块采用本方？",
+        "batchTheirsTitle": "把所有冲突块采用对方？",
+        "batchBody": "将把本文件全部 {{blocks}} 处冲突一次性采用{{side}}的版本，之前对这些块的手动编辑会被覆盖。",
+        "batchImpact": "影响范围：{{blocks}} 处冲突块；采用后每一块的内容都变成所选一方的原文，无法在编辑器里逐块恢复（可用撤销回退）。",
+        "batchConfirm": "全部采用",
+        "fileOurs": "整个文件采用本方",
+        "fileTheirs": "整个文件采用对方",
+        "fileOursTitle": "整个文件采用本方？",
+        "fileTheirsTitle": "整个文件采用对方？",
+        "fileBody": "工作区文件将被所选一方的完整版本覆盖，当前的编辑内容会丢失，文件随即标记为已解决。",
+        "fileImpact": "此操作直接覆盖工作区文件并执行 git add；编辑中的内容不会保存。",
+        "blockAria": "第 {{current}} 处冲突（共 {{total}} 处），本方 {{oursLines}} 行，对方 {{theirsLines}} 行",
+        "saveHint": "保存并标记已解决（Ctrl+S）；全部块解决后按 Ctrl+Enter 可保存并继续"
+      },
+      "fileProgress": "已解决 {{resolved}} / 共 {{total}} 个文件"
     },
     "repoTerminal": {
       "title": "终端",

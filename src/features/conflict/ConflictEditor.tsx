@@ -21,7 +21,7 @@
 //! `git_conflict_apply_resolution` 写回（EOL/BOM 由后端重建）。
 //! 二进制与删除类冲突走 `git_conflict_take_side` / `git_conflict_remove_file`。
 
-import { memo, useCallback, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -54,6 +54,7 @@ import { ToggleGroup } from '@/ui/components/toggle-group';
 import { useAppError } from '@/lib/errors';
 import {
   gitConflictApplyResolution,
+  gitConflictContinue,
   gitConflictFileDetail,
   gitConflictMarkResolved,
   gitConflictRemoveFile,
@@ -68,7 +69,7 @@ import {
   INITIAL_BLOCK_STATE,
   wordDiffLine,
 } from '@/features/conflict/mergeText';
-import type { BlockState } from '@/features/conflict/mergeText';
+import type { BlockResolution, BlockState } from '@/features/conflict/mergeText';
 
 /** 冲突块的行数上限：超过它关闭行内词级高亮（任务书第 4 条）。 */
 const WORD_DIFF_MAX_LINES = 500;
@@ -151,6 +152,7 @@ const ConflictCard = memo(function ConflictCard({
   setBlockState,
   showBase,
   fontPx,
+  selected,
 }: {
   readonly block: Extract<MergeBlock, { type: 'conflict' }>;
   /** 显示序号（第几处冲突，1 起）。 */
@@ -162,6 +164,8 @@ const ConflictCard = memo(function ConflictCard({
   readonly setBlockState: (index: number, state: BlockState) => void;
   readonly showBase: boolean;
   readonly fontPx: number;
+  /** 是否为键盘流的当前选中块（视觉高亮，j/k 移动）。 */
+  readonly selected: boolean;
 }) {
   const { t } = useTranslation('shell');
   const resolution = state?.resolution ?? 'unresolved';
@@ -175,8 +179,21 @@ const ConflictCard = memo(function ConflictCard({
 
   return (
     <article
-      className="flex flex-col gap-2 rounded-md border border-line p-3"
+      className={
+        selected
+          ? 'flex flex-col gap-2 rounded-md border border-brand p-3'
+          : 'flex flex-col gap-2 rounded-md border border-line p-3'
+      }
+      role="group"
+      // 读屏信息（T3.3 任务书第 5 条）："第 N 块冲突，本地 M 行，远端 K 行"
+      aria-label={t('pages.repoConflict.editor.blockAria', {
+        current: index + 1,
+        total,
+        oursLines: block.ours.length,
+        theirsLines: block.theirs.length,
+      })}
       data-conflict-card=""
+      data-selected={selected ? 'true' : undefined}
       data-resolved={resolved ? 'true' : 'false'}
     >
       <header className="flex flex-wrap items-center gap-2">
@@ -194,7 +211,8 @@ const ConflictCard = memo(function ConflictCard({
       <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
         <section
           aria-label={t('pages.repoConflict.editor.sideOurs')}
-          className="rounded border border-line bg-surface-raised"
+          tabIndex={0}
+          className="rounded border border-line bg-surface-raised focus:outline focus:outline-1 focus:outline-brand/40"
         >
           <header className="border-b border-line px-2 py-1 text-xs font-medium text-fg-muted">
             {t('pages.repoConflict.editor.sideOurs')}
@@ -209,7 +227,8 @@ const ConflictCard = memo(function ConflictCard({
         </section>
         <section
           aria-label={t('pages.repoConflict.editor.sideTheirs')}
-          className="rounded border border-line bg-surface-raised"
+          tabIndex={0}
+          className="rounded border border-line bg-surface-raised focus:outline focus:outline-1 focus:outline-brand/40"
         >
           <header className="border-b border-line px-2 py-1 text-xs font-medium text-fg-muted">
             {t('pages.repoConflict.editor.sideTheirs')}
@@ -337,6 +356,11 @@ function EditorBody({
   const [fontIndex, setFontIndex] = useState(1);
   const [markersOpen, setMarkersOpen] = useState(false);
   const [pendingContent, setPendingContent] = useState<string | null>(null);
+  const [pendingContinue, setPendingContinue] = useState(false);
+  // 键盘流：当前选中的冲突块（显示序号，0 起）；批量 / 文件级操作的确认框
+  const [selectedConflict, setSelectedConflict] = useState<number | null>(null);
+  const [batchOpen, setBatchOpen] = useState<'ours' | 'theirs' | null>(null);
+  const [fileSideOpen, setFileSideOpen] = useState<TakeSide | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
   // detail 变化时在**渲染期间**重置全部编辑状态（React 官方的
@@ -399,6 +423,21 @@ function EditorBody({
   const invalidate = () => {
     void queryClient.invalidateQueries({ queryKey: conflictKey(repoId) });
   };
+
+  const continueMutation = useMutation({
+    mutationFn: () => gitConflictContinue(repoId),
+    onSuccess: invalidate,
+    onError: appError.show,
+  });
+
+  const takeSideMutation = useMutation({
+    mutationFn: (side: TakeSide) => gitConflictTakeSide(repoId, detail.path, side),
+    onSuccess: () => {
+      invalidate();
+      onResolved();
+    },
+    onError: appError.show,
+  });
 
   const applyMutation = useMutation({
     mutationFn: (content: string) =>
@@ -471,15 +510,148 @@ function EditorBody({
 
   const unresolvedCount = unresolvedIndexes.length;
 
-  const requestSave = () => {
-    if (markers.length > 0) {
-      // 残留标记：警告但不阻断（任务书第 5 条）
-      setPendingContent(resultText);
-      setMarkersOpen(true);
+  /** 保存（T3.3：`thenContinue` 为真时保存成功后自动 continue——Ctrl+Enter 的
+   *  "标记并继续"；还有未解决块时只保存，continue 由服务层的前置校验兜底）。 */
+  const requestSave = useCallback(
+    (thenContinue: boolean) => {
+      if (markers.length > 0) {
+        setPendingContent(resultText);
+        setPendingContinue(thenContinue);
+        setMarkersOpen(true);
+        return;
+      }
+      applyMutation.mutate(resultText, {
+        onSuccess: () => {
+          if (thenContinue && unresolvedCount === 0) {
+            continueMutation.mutate();
+          }
+        },
+      });
+    },
+    [applyMutation, continueMutation, markers.length, resultText, unresolvedCount],
+  );
+
+  // ---------------------------------------------------------------- 键盘流（T3.3）
+
+  /** 移动选中块：在全部冲突块里循环（j/k 与 ↑/↓ 共用）。 */
+  const moveSelected = useCallback(
+    (offset: number) => {
+      if (conflicts.length === 0) {
+        return;
+      }
+      setSelectedConflict((current) => {
+        const base = current === null ? (offset > 0 ? -1 : 0) : current;
+        return (base + offset + conflicts.length) % conflicts.length;
+      });
+    },
+    [conflicts.length],
+  );
+
+  /** 键盘采用：对选中块应用解决方式，然后把选中点推进到下一个冲突块
+   *  （连续解决的节奏：o → 自动到下一块 → o……需要精挑时用 j/k 回退）。 */
+  const adoptSelected = useCallback(
+    (resolution: BlockResolution) => {
+      if (selectedConflict === null) {
+        return;
+      }
+      const blockIndex = conflictIndexes[selectedConflict];
+      if (blockIndex === undefined) {
+        return;
+      }
+      setBlockState(blockIndex, { resolution });
+      if (conflicts.length > 0) {
+        setSelectedConflict((current) =>
+          current === null ? null : (current + 1) % conflicts.length,
+        );
+      }
+    },
+    [conflictIndexes, conflicts.length, selectedConflict, setBlockState],
+  );
+
+  // 选中块滚动到可视区（键盘移动时跟随）
+  useEffect(() => {
+    if (selectedConflict === null) {
       return;
     }
-    applyMutation.mutate(resultText);
-  };
+    const cards = listRef.current?.querySelectorAll('[data-conflict-card]');
+    cards?.[selectedConflict]?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }, [selectedConflict]);
+
+  // 全局键盘监听（T3.3 任务书第 1 条）。挂 window 而不是容器：用户焦点可能在
+  // 侧栏或工具条上，快捷键仍应可用；输入框内的普通输入不受影响——单键动作
+  // （j/k/o/t/b/n/p）在 input/textarea 聚焦时被跳过，Ctrl+S / Ctrl+Enter
+  // 是组合键，任何位置都生效。
+  useEffect(() => {
+    const handler = (event: KeyboardEvent) => {
+      const target = event.target;
+      const inTextField =
+        target instanceof HTMLElement &&
+        (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);
+      if ((event.ctrlKey || event.metaKey) && (event.key === 's' || event.key === 'S')) {
+        event.preventDefault();
+        requestSave(false);
+        return;
+      }
+      if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
+        event.preventDefault();
+        requestSave(true);
+        return;
+      }
+      if (inTextField || event.ctrlKey || event.metaKey || event.altKey) {
+        return;
+      }
+      switch (event.key) {
+        case 'j':
+        case 'ArrowDown':
+          event.preventDefault();
+          moveSelected(1);
+          break;
+        case 'k':
+        case 'ArrowUp':
+          event.preventDefault();
+          moveSelected(-1);
+          break;
+        case 'o':
+          adoptSelected('ours');
+          break;
+        case 't':
+          adoptSelected('theirs');
+          break;
+        case 'b':
+          adoptSelected('bothOursFirst');
+          break;
+        case 'n':
+          event.preventDefault();
+          scrollToConflict(1);
+          break;
+        case 'p':
+          event.preventDefault();
+          scrollToConflict(-1);
+          break;
+        default:
+          break;
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [adoptSelected, moveSelected, requestSave, scrollToConflict]);
+
+  /** 批量采用（T3.3 任务书第 2 条）：确认框里给出块数与行数后才会执行。 */
+  const batchApply = useCallback(
+    (resolution: 'ours' | 'theirs') => {
+      updateStates((previous) => {
+        const copy = [...previous];
+        detail.blocks.forEach((block, index) => {
+          if (block.type === 'conflict') {
+            copy[index] = { resolution };
+          }
+        });
+        return copy;
+      });
+      setBatchOpen(null);
+    },
+    [detail.blocks, updateStates],
+  );
 
   const fontPx = FONT_SIZES[fontIndex] ?? FONT_SIZES[1];
   const diffFontPx = FONT_SIZES[fontIndex] ?? FONT_SIZES[1];
@@ -520,6 +692,25 @@ function EditorBody({
         >
           <ArrowDown aria-hidden className="size-4" />
           {t('pages.repoConflict.editor.nextConflict')}
+        </Button>
+        {/* 批量操作（T3.3 任务书第 2 条）：确认框给出影响量后才执行 */}
+        <Button
+          size="sm"
+          variant="ghost"
+          disabled={conflicts.length === 0}
+          onClick={() => setBatchOpen('ours')}
+          data-testid="editor-batch-ours"
+        >
+          {t('pages.repoConflict.editor.batchOurs')}
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          disabled={conflicts.length === 0}
+          onClick={() => setBatchOpen('theirs')}
+          data-testid="editor-batch-theirs"
+        >
+          {t('pages.repoConflict.editor.batchTheirs')}
         </Button>
         <span className="ml-auto flex items-center gap-1">
           <Button
@@ -575,6 +766,7 @@ function EditorBody({
                   setBlockState={setBlockState}
                   showBase={showBase}
                   fontPx={diffFontPx}
+                  selected={selectedConflict === conflictIndex}
                 />
               </div>
             );
@@ -616,6 +808,23 @@ function EditorBody({
               })}
         </span>
         <div className="ml-auto flex items-center gap-2">
+          {/* 文件级快捷操作（T3.3 任务书第 3 条）：覆盖工作区文件，必须确认 */}
+          <Button
+            variant="secondary"
+            disabled={takeSideMutation.isPending}
+            onClick={() => setFileSideOpen('ours')}
+            data-testid="editor-file-ours"
+          >
+            {t('pages.repoConflict.editor.fileOurs')}
+          </Button>
+          <Button
+            variant="secondary"
+            disabled={takeSideMutation.isPending}
+            onClick={() => setFileSideOpen('theirs')}
+            data-testid="editor-file-theirs"
+          >
+            {t('pages.repoConflict.editor.fileTheirs')}
+          </Button>
           <Button
             variant="secondary"
             onClick={() => markOnlyMutation.mutate()}
@@ -625,8 +834,9 @@ function EditorBody({
             {t('pages.repoConflict.editor.markOnly')}
           </Button>
           <Button
-            onClick={requestSave}
+            onClick={() => requestSave(false)}
             disabled={applyMutation.isPending}
+            title={t('pages.repoConflict.editor.saveHint')}
             data-testid="editor-save-resolve"
           >
             {t('pages.repoConflict.editor.saveAndResolve')}
@@ -649,12 +859,101 @@ function EditorBody({
               onClick={() => {
                 setMarkersOpen(false);
                 if (pendingContent !== null) {
-                  applyMutation.mutate(pendingContent);
+                  applyMutation.mutate(pendingContent, {
+                    onSuccess: () => {
+                      if (pendingContinue) {
+                        continueMutation.mutate();
+                      }
+                    },
+                  });
                 }
+                setPendingContinue(false);
               }}
               data-testid="editor-markers-keep"
             >
               {t('pages.repoConflict.editor.keepAnyway')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* 批量采用确认（T3.3 任务书第 2 条）：说明会覆盖的块数与行数；取消不产生任何修改 */}
+      <AlertDialog
+        open={batchOpen !== null}
+        onOpenChange={(open) => setBatchOpen(open ? batchOpen : null)}
+      >
+        <AlertDialogContent
+          impact={t('pages.repoConflict.editor.batchImpact', {
+            blocks: conflicts.length,
+            lines:
+              batchOpen === 'ours'
+                ? conflicts.reduce((sum, block) => sum + block.ours.length, 0)
+                : conflicts.reduce((sum, block) => sum + block.theirs.length, 0),
+          })}
+          tone="danger"
+        >
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {batchOpen === 'ours'
+                ? t('pages.repoConflict.editor.batchOursTitle')
+                : t('pages.repoConflict.editor.batchTheirsTitle')}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t('pages.repoConflict.editor.batchBody', {
+                blocks: conflicts.length,
+                side:
+                  batchOpen === 'ours'
+                    ? t('pages.repoConflict.editor.sideOurs')
+                    : t('pages.repoConflict.editor.sideTheirs'),
+              })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="editor-batch-cancel">
+              {t('pages.repoConflict.cancel')}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => batchApply(batchOpen ?? 'ours')}
+              data-testid="editor-batch-confirm"
+            >
+              {t('pages.repoConflict.editor.batchConfirm')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* 整个文件采用一方（T3.3 任务书第 3 条）：覆盖工作区文件与编辑状态 */}
+      <AlertDialog
+        open={fileSideOpen !== null}
+        onOpenChange={(open) => setFileSideOpen(open ? fileSideOpen : null)}
+      >
+        <AlertDialogContent impact={t('pages.repoConflict.editor.fileImpact')} tone="danger">
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {fileSideOpen === 'theirs'
+                ? t('pages.repoConflict.editor.fileTheirsTitle')
+                : t('pages.repoConflict.editor.fileOursTitle')}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t('pages.repoConflict.editor.fileBody')}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="editor-file-cancel">
+              {t('pages.repoConflict.cancel')}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                setFileSideOpen(null);
+                if (fileSideOpen !== null) {
+                  takeSideMutation.mutate(fileSideOpen);
+                }
+              }}
+              data-testid="editor-file-confirm"
+            >
+              {fileSideOpen === 'theirs'
+                ? t('pages.repoConflict.editor.fileTheirs')
+                : t('pages.repoConflict.editor.fileOurs')}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
