@@ -72,7 +72,7 @@ impl<'a> ConflictService<'a> {
             kind: SnapshotKind::PreHeadMove,
         };
         match self.snapshots.create(&request) {
-            Ok(id) => Some(id),
+            Ok(outcome) => Some(outcome.id),
             Err(error) => {
                 tracing::warn!(
                     error = %error.message(),

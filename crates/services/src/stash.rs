@@ -112,7 +112,7 @@ impl<'a> StashService<'a> {
             kind,
         };
         match self.snapshots.create(&request) {
-            Ok(id) => Some(id),
+            Ok(outcome) => Some(outcome.id),
             Err(error) => {
                 tracing::warn!(error = %error.message(), kind = kind.key(), "储藏操作前未能创建快照");
                 None

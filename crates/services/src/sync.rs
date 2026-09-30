@@ -315,7 +315,7 @@ impl<'a> SyncService<'a> {
             kind: SnapshotKind::PreSync,
         };
         match self.snapshots.create(&request) {
-            Ok(id) => Some(id),
+            Ok(outcome) => Some(outcome.id),
             Err(error) => {
                 tracing::warn!(error = %error.message(), label, "同步前未能创建快照");
                 None

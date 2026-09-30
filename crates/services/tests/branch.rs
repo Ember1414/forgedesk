@@ -37,12 +37,15 @@ impl std::fmt::Debug for RecordingSnapshots {
 }
 
 impl SnapshotManager for RecordingSnapshots {
-    fn create(&self, request: &SnapshotRequest<'_>) -> Result<SnapshotId, SnapshotError> {
+    fn create(
+        &self,
+        request: &SnapshotRequest<'_>,
+    ) -> Result<forgedesk_snapshot::SnapshotOutcome, SnapshotError> {
         self.calls.lock().unwrap().push(match request.kind {
             forgedesk_snapshot::SnapshotKind::PreHeadMove => "pre_head_move",
             _ => "other",
         });
-        Ok(77)
+        Ok(forgedesk_snapshot::SnapshotOutcome::bare(77))
     }
 
     fn list(
@@ -75,6 +78,21 @@ impl SnapshotManager for RecordingSnapshots {
         _policy: &forgedesk_snapshot::RetentionPolicy,
     ) -> Result<Vec<SnapshotId>, SnapshotError> {
         Ok(Vec::new())
+    }
+
+    fn estimate(
+        &self,
+        _repo_id: i64,
+    ) -> Result<forgedesk_snapshot::SnapshotEstimate, SnapshotError> {
+        Ok(forgedesk_snapshot::SnapshotEstimate::default())
+    }
+
+    fn usage(&self, _repo_id: i64) -> Result<forgedesk_snapshot::SnapshotUsage, SnapshotError> {
+        Ok(forgedesk_snapshot::SnapshotUsage::default())
+    }
+
+    fn cleanup(&self, _repo_id: i64) -> Result<forgedesk_snapshot::CleanupOutcome, SnapshotError> {
+        Ok(forgedesk_snapshot::CleanupOutcome::default())
     }
 }
 

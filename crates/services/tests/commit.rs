@@ -692,8 +692,29 @@ fn a_snapshot_manager_that_fails_does_not_block_the_commit() {
     struct FailingSnapshots;
 
     impl SnapshotManager for FailingSnapshots {
-        fn create(&self, _request: &SnapshotRequest<'_>) -> Result<i64, SnapshotError> {
+        fn create(
+            &self,
+            _request: &SnapshotRequest<'_>,
+        ) -> Result<forgedesk_snapshot::SnapshotOutcome, SnapshotError> {
             Err(SnapshotError::Failed("disk full".to_owned()))
+        }
+
+        fn estimate(
+            &self,
+            _repo_id: i64,
+        ) -> Result<forgedesk_snapshot::SnapshotEstimate, SnapshotError> {
+            Ok(forgedesk_snapshot::SnapshotEstimate::default())
+        }
+
+        fn usage(&self, _repo_id: i64) -> Result<forgedesk_snapshot::SnapshotUsage, SnapshotError> {
+            Ok(forgedesk_snapshot::SnapshotUsage::default())
+        }
+
+        fn cleanup(
+            &self,
+            _repo_id: i64,
+        ) -> Result<forgedesk_snapshot::CleanupOutcome, SnapshotError> {
+            Ok(forgedesk_snapshot::CleanupOutcome::default())
         }
 
         fn list(&self, _repo_id: i64, _limit: i64) -> Result<Vec<SnapshotMeta>, SnapshotError> {

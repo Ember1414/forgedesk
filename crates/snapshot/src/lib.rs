@@ -31,11 +31,22 @@ use forgedesk_domain::ErrorCode;
 /// 快照 id（`snapshots` 表主键）。
 pub type SnapshotId = i64;
 
+mod backup;
 mod ref_manager;
 
 pub use ref_manager::{
     RefSnapshotManager, DEFAULT_MAX_AGE_DAYS, DEFAULT_MAX_COUNT, SNAPSHOT_REF_PREFIX,
 };
+
+/// 单份快照的未跟踪内容备份上限（200 MiB；`0` = 不限制）。
+///
+/// 这个默认值是任务书给定、**待人类确认**的：未跟踪文件往往是构建产物、
+/// 依赖目录（`node_modules/` 动辄数百 MiB），按仓库全量备份会把磁盘吃光；
+/// 而超过上限时我们选择"整体不备份 + 明确告警"，而不是悄悄漏掉一部分。
+pub const DEFAULT_MAX_SNAPSHOT_BYTES: u64 = 200 * 1024 * 1024;
+
+/// 单个仓库的快照备份总占用上限（2 GiB；`0` = 不限制），超出时按 LRU 清理。
+pub const DEFAULT_MAX_REPO_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 
 /// 快照锚点 ref 的前缀（完整形如 `refs/forgedesk/snapshots/<id>`）。
 ///
@@ -123,6 +134,269 @@ pub struct SnapshotDiff {
     pub current_index_tree_oid: Option<String>,
     /// 锚点 ref 已丢失——这个快照**不可恢复**，只能作为历史记录查看。
     pub ref_missing: bool,
+    /// 回滚会写回的未跟踪文件（有内容备份，且当前缺失或内容不同）。
+    pub untracked_restorable: Vec<String>,
+    /// 快照里记录过、但没有内容备份的未跟踪文件——回滚**找不回来**。
+    pub untracked_missing: Vec<String>,
+    /// 当前存在、快照里没有的未跟踪文件——回滚**不会删除**它们。
+    pub untracked_extra: Vec<String>,
+}
+
+/// 快照的内容备份与磁盘策略（T3.8）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SnapshotLimits {
+    /// 单份快照的未跟踪内容上限（字节；`0` = 不限制）。
+    pub max_snapshot_bytes: u64,
+    /// 单个仓库的备份总占用上限（字节；`0` = 不限制）。
+    pub max_repo_bytes: u64,
+    /// 是否连 gitignore 覆盖的文件一起备份（默认否：它们通常体积大且可再生）。
+    pub include_ignored: bool,
+}
+
+impl Default for SnapshotLimits {
+    fn default() -> Self {
+        Self {
+            max_snapshot_bytes: DEFAULT_MAX_SNAPSHOT_BYTES,
+            max_repo_bytes: DEFAULT_MAX_REPO_BYTES,
+            include_ignored: false,
+        }
+    }
+}
+
+/// 备份清单里的一条未跟踪文件。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BackupEntry {
+    /// 相对仓库根的正斜杠路径（恢复时的落点）。
+    pub path: String,
+    /// 字节数（恢复前的快速比对；内容一致性另行逐字节校验）。
+    pub bytes: u64,
+    /// 是否来自 gitignore 覆盖范围（清单里的来源标记，便于用户理解）。
+    pub ignored: bool,
+}
+
+/// 未跟踪内容备份的清单。
+///
+/// 同时存在于两处：`snapshots.manifest_json`（查询用）与备份目录里的
+/// `manifest.json`（自描述——目录被单独拷走或数据库重建时仍能说清里面是什么）。
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct BackupManifest {
+    /// 备份的文件。
+    pub entries: Vec<BackupEntry>,
+    /// 备份内容总字节数（等于 `entries` 的字节和）。
+    pub bytes: u64,
+}
+
+impl BackupManifest {
+    /// 空清单（该快照没有内容备份）。
+    pub const fn empty() -> Self {
+        Self {
+            entries: Vec::new(),
+            bytes: 0,
+        }
+    }
+
+    /// 是否没有内容（v1 记录、没有未跟踪文件、或超限被整体跳过）。
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
+    /// 序列化为 JSON（`{"entries":[{path,bytes,ignored}],"bytes":N}`）。
+    pub fn to_json(&self) -> String {
+        let entries: Vec<serde_json::Value> = self
+            .entries
+            .iter()
+            .map(|entry| {
+                serde_json::json!({
+                    "path": entry.path,
+                    "bytes": entry.bytes,
+                    "ignored": entry.ignored,
+                })
+            })
+            .collect();
+        serde_json::json!({ "entries": entries, "bytes": self.bytes }).to_string()
+    }
+
+    /// 从 JSON 解析；无法解析时返回空清单。
+    ///
+    /// 宽容解析是有意的：清单损坏不应该让**回滚**失败（HEAD 与索引的恢复
+    /// 与它无关），代价只是未跟踪内容恢复不了——而那会在报告里如实体现。
+    pub fn from_json(text: &str) -> Self {
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(text) else {
+            return Self::empty();
+        };
+        let bytes = value
+            .get("bytes")
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(0);
+        let entries = value
+            .get("entries")
+            .and_then(serde_json::Value::as_array)
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(|item| {
+                        let path = item.get("path")?.as_str()?.to_owned();
+                        Some(BackupEntry {
+                            path,
+                            bytes: item
+                                .get("bytes")
+                                .and_then(serde_json::Value::as_u64)
+                                .unwrap_or(0),
+                            ignored: item
+                                .get("ignored")
+                                .and_then(serde_json::Value::as_bool)
+                                .unwrap_or(false),
+                        })
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        Self { entries, bytes }
+    }
+}
+
+/// 创建快照时的**如实告警**（都不是失败：快照本身已经创建成功）。
+///
+/// 分类型而不是一句话的原因：前端要按类型给出不同的界面（超限要让用户在
+/// 危险操作对话框里确认，空间回收是通知，孤儿清理是背景动作）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SnapshotWarning {
+    /// 未跟踪内容超过单份上限，**整体未备份**（count 个文件、bytes 字节）。
+    UntrackedBackupSkipped {
+        /// 被跳过的文件数。
+        count: usize,
+        /// 它们的总字节数。
+        bytes: u64,
+        /// 触发跳过的上限。
+        limit: u64,
+    },
+    /// 个别文件复制失败（权限、被占用等），其余仍然备份成功。
+    UntrackedBackupPartial {
+        /// 失败的相对路径。
+        paths: Vec<String>,
+        /// 第一个失败的描述（足够定位，不必把每个都写一遍）。
+        detail: String,
+    },
+    /// 备份目录不可用（未配置 / 不可写）：快照不含内容备份。
+    BackupDirUnavailable {
+        /// 具体原因。
+        detail: String,
+    },
+    /// 为满足仓库总占用上限，按 LRU 清理了旧快照。
+    SpaceReclaimed {
+        /// 被清理的快照。
+        removed: Vec<SnapshotId>,
+        /// 释放的字节数。
+        freed_bytes: u64,
+    },
+    /// 上次崩溃留下的孤儿备份目录已清理。
+    OrphansRemoved {
+        /// 清理的目录数。
+        count: usize,
+    },
+}
+
+impl SnapshotWarning {
+    /// 稳定的类型短名（命令层转 DTO；前端据此走 i18n）。
+    pub const fn kind(&self) -> &'static str {
+        match self {
+            Self::UntrackedBackupSkipped { .. } => "untrackedBackupSkipped",
+            Self::UntrackedBackupPartial { .. } => "untrackedBackupPartial",
+            Self::BackupDirUnavailable { .. } => "backupDirUnavailable",
+            Self::SpaceReclaimed { .. } => "spaceReclaimed",
+            Self::OrphansRemoved { .. } => "orphansRemoved",
+        }
+    }
+}
+
+/// 创建快照的结果（v2：内容备份体积、跳过清单与告警）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SnapshotOutcome {
+    /// 新快照的 id。
+    pub id: SnapshotId,
+    /// 备份内容的字节总数。
+    pub backup_bytes: u64,
+    /// 备份成功的文件数。
+    pub backed_up: usize,
+    /// 快照时刻的未跟踪文件总数（含未备份的）。
+    pub untracked_total: usize,
+    /// 因超限或复制失败而**没有**进备份的未跟踪路径。
+    pub skipped: Vec<String>,
+    /// 如实告警。
+    pub warnings: Vec<SnapshotWarning>,
+    /// 本次顺手清理掉的旧快照。
+    pub pruned: Vec<SnapshotId>,
+}
+
+impl SnapshotOutcome {
+    /// 只有 id 的最小结果（"没有内容备份"的实现与测试替身用）。
+    pub const fn bare(id: SnapshotId) -> Self {
+        Self {
+            id,
+            backup_bytes: 0,
+            backed_up: 0,
+            untracked_total: 0,
+            skipped: Vec::new(),
+            warnings: Vec::new(),
+            pruned: Vec::new(),
+        }
+    }
+
+    /// 是否有需要用户看见的告警。
+    pub fn has_warnings(&self) -> bool {
+        !self.warnings.is_empty()
+    }
+}
+
+/// 快照的磁盘占用（列表页 / 设置页显示）。
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct SnapshotUsage {
+    /// 仓库 id。
+    pub repo_id: i64,
+    /// 快照条数。
+    pub snapshot_count: i64,
+    /// 备份内容占用的字节数（来自记录，不扫盘）。
+    pub backup_bytes: u64,
+    /// 单份上限（`0` = 不限制）。
+    pub max_snapshot_bytes: u64,
+    /// 总占用上限（`0` = 不限制）。
+    pub max_repo_bytes: u64,
+    /// 磁盘上存在、但数据库里没有对应快照的备份目录（等待清理）。
+    pub orphan_dirs: Vec<String>,
+}
+
+/// 手动清理的结果。
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct CleanupOutcome {
+    /// 清理掉的孤儿目录数。
+    pub orphans_removed: usize,
+    /// 为满足上限而清理掉的快照（LRU）。
+    pub reclaimed: Vec<SnapshotId>,
+    /// 释放的字节数（孤儿 + 回收的快照）。
+    pub freed_bytes: u64,
+    /// 清理后该仓库的备份总占用。
+    pub remaining_bytes: u64,
+}
+
+/// 快照体积预估（危险操作对话框在动手前展示）。
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct SnapshotEstimate {
+    /// 将被备份的未跟踪文件数（超限时为 0）。
+    pub untracked_count: usize,
+    /// 它们的字节数。
+    pub untracked_bytes: u64,
+    /// 被忽略文件的数量（`include_ignored = false` 时不计入备份）。
+    pub ignored_count: usize,
+    /// 被忽略文件的字节数。
+    pub ignored_bytes: u64,
+    /// 当前策略是否包含被忽略文件。
+    pub include_ignored: bool,
+    /// 单份上限（`0` = 不限制）。
+    pub limit_bytes: u64,
+    /// 本次是否会完整备份未跟踪内容。
+    pub within_limit: bool,
+    /// 超限时会被跳过（不备份）的文件数。
+    pub would_skip: usize,
 }
 
 /// 一次回滚的结果。
@@ -139,6 +413,17 @@ pub struct RestoreReport {
     /// 快照时刻的未跟踪文件路径。v1 只记录不恢复（内容备份属 T3.8），
     /// 列在这里是让用户知道"当时有这些文件"。
     pub untracked_paths: Vec<String>,
+    /// 从内容备份写回工作区的未跟踪文件数（v1 快照或未备份时为 0）。
+    pub untracked_restored: usize,
+    /// 没能恢复的未跟踪文件（备份缺失、写不进去）。
+    ///
+    /// 这类失败**不触发**回退到回滚前快照：HEAD 与索引才是回滚的主体，
+    /// 个别文件被占用不该把整次回滚推倒重来——如实列出来即可。
+    pub untracked_failed: Vec<String>,
+    /// 当前存在、快照里没有的未跟踪文件——**不会被删除**，列出来交给用户决定。
+    pub untracked_extra: Vec<String>,
+    /// 恢复后的完整校验是否通过（HEAD / 索引 / 备份内容逐字节）。
+    pub verified: bool,
 }
 
 /// 快照的保留策略：**两个条件先到者生效**。
@@ -225,14 +510,27 @@ impl SnapshotError {
 /// （启动与排查时能一眼看清状态对象的组成）。实现者多写一个 `#[derive(Debug)]`
 /// 远比让状态结构丢掉可调试性划算。
 pub trait SnapshotManager: Send + Sync + std::fmt::Debug {
-    /// 创建一个快照，返回它的 id。
+    /// 创建一个快照，返回它的 id 与内容备份的实情。
     ///
     /// 空仓库（还没有 HEAD 提交）会失败：没有提交就没有可锚定的对象，
     /// 这种状态下"快照"是空洞的——调用方应当继续原操作并自行降级提示。
-    fn create(&self, request: &SnapshotRequest<'_>) -> Result<SnapshotId, SnapshotError>;
+    ///
+    /// 未跟踪内容备份**不是**失败点：目录不可写、体积超限、个别文件被占用
+    /// 都在 [`SnapshotOutcome::warnings`] 里如实报告，快照本身照常创建——
+    /// "没有把某个文件备上"远好于"因为某个文件而让这次危险操作裸奔"。
+    fn create(&self, request: &SnapshotRequest<'_>) -> Result<SnapshotOutcome, SnapshotError>;
 
     /// 某个仓库的快照列表（新的在前）。
     fn list(&self, repo_id: i64, limit: i64) -> Result<Vec<SnapshotMeta>, SnapshotError>;
+
+    /// 预估下一次快照会备份多少未跟踪内容（危险操作对话框在动手前展示）。
+    fn estimate(&self, repo_id: i64) -> Result<SnapshotEstimate, SnapshotError>;
+
+    /// 快照的磁盘占用（列表页 / 设置页显示）。
+    fn usage(&self, repo_id: i64) -> Result<SnapshotUsage, SnapshotError>;
+
+    /// 立即清理：孤儿目录 + 保留策略 + 总占用上限（设置页的"清理"按钮）。
+    fn cleanup(&self, repo_id: i64) -> Result<CleanupOutcome, SnapshotError>;
 
     /// 回滚到指定快照，返回恢复报告。
     ///
@@ -264,7 +562,7 @@ pub trait SnapshotManager: Send + Sync + std::fmt::Debug {
 pub struct NoopSnapshotManager;
 
 impl SnapshotManager for NoopSnapshotManager {
-    fn create(&self, _request: &SnapshotRequest<'_>) -> Result<SnapshotId, SnapshotError> {
+    fn create(&self, _request: &SnapshotRequest<'_>) -> Result<SnapshotOutcome, SnapshotError> {
         Err(SnapshotError::Failed(
             "snapshotting is disabled by configuration".to_owned(),
         ))
@@ -272,6 +570,40 @@ impl SnapshotManager for NoopSnapshotManager {
 
     fn list(&self, _repo_id: i64, _limit: i64) -> Result<Vec<SnapshotMeta>, SnapshotError> {
         Ok(Vec::new())
+    }
+
+    /// 只读探测不失败：没有快照 = 没有内容要备，界面照常显示"0 字节"。
+    fn estimate(&self, _repo_id: i64) -> Result<SnapshotEstimate, SnapshotError> {
+        Ok(SnapshotEstimate {
+            untracked_count: 0,
+            untracked_bytes: 0,
+            ignored_count: 0,
+            ignored_bytes: 0,
+            include_ignored: false,
+            limit_bytes: 0,
+            within_limit: true,
+            would_skip: 0,
+        })
+    }
+
+    fn usage(&self, repo_id: i64) -> Result<SnapshotUsage, SnapshotError> {
+        Ok(SnapshotUsage {
+            repo_id,
+            snapshot_count: 0,
+            backup_bytes: 0,
+            max_snapshot_bytes: 0,
+            max_repo_bytes: 0,
+            orphan_dirs: Vec::new(),
+        })
+    }
+
+    fn cleanup(&self, _repo_id: i64) -> Result<CleanupOutcome, SnapshotError> {
+        Ok(CleanupOutcome {
+            orphans_removed: 0,
+            reclaimed: Vec::new(),
+            freed_bytes: 0,
+            remaining_bytes: 0,
+        })
     }
 
     fn restore(
@@ -302,7 +634,8 @@ pub const CRATE_NAME: &str = env!("CARGO_PKG_NAME");
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
     use super::{
-        NoopSnapshotManager, RetentionPolicy, SnapshotKind, SnapshotManager, SnapshotRequest,
+        BackupEntry, BackupManifest, NoopSnapshotManager, RetentionPolicy, SnapshotKind,
+        SnapshotLimits, SnapshotManager, SnapshotRequest, SnapshotWarning,
     };
     use std::path::Path;
 
@@ -343,5 +676,72 @@ mod tests {
         // 截止时间的数学要经得起时区无关的检查：30 天前
         let cutoff = policy.cutoff_ms(1_700_000_000_000);
         assert_eq!(cutoff, 1_700_000_000_000 - 30 * 24 * 60 * 60 * 1000);
+    }
+
+    #[test]
+    fn the_default_limits_match_the_task_definition() {
+        let limits = SnapshotLimits::default();
+        assert_eq!(limits.max_snapshot_bytes, 200 * 1024 * 1024);
+        assert_eq!(limits.max_repo_bytes, 2 * 1024 * 1024 * 1024);
+        assert!(!limits.include_ignored, "被忽略文件默认不备份");
+    }
+
+    #[test]
+    fn a_backup_manifest_round_trips_and_survives_corruption() {
+        let manifest = BackupManifest {
+            entries: vec![BackupEntry {
+                path: "scratch/a.txt".to_owned(),
+                bytes: 12,
+                ignored: true,
+            }],
+            bytes: 12,
+        };
+        assert_eq!(BackupManifest::from_json(&manifest.to_json()), manifest);
+
+        // 清单损坏不能让回滚失败（HEAD 与索引的恢复与它无关）：
+        // 读成空清单，未跟踪内容恢复不了会在报告里如实体现
+        assert!(BackupManifest::from_json("not json").is_empty());
+        assert!(BackupManifest::from_json(r#"{"entries":[]}"#).is_empty());
+        assert!(BackupManifest::empty().is_empty());
+    }
+
+    #[test]
+    fn snapshot_warnings_have_stable_kinds() {
+        assert_eq!(
+            SnapshotWarning::UntrackedBackupSkipped {
+                count: 1,
+                bytes: 2,
+                limit: 3
+            }
+            .kind(),
+            "untrackedBackupSkipped"
+        );
+        assert_eq!(
+            SnapshotWarning::UntrackedBackupPartial {
+                paths: vec!["a".to_owned()],
+                detail: "busy".to_owned()
+            }
+            .kind(),
+            "untrackedBackupPartial"
+        );
+        assert_eq!(
+            SnapshotWarning::SpaceReclaimed {
+                removed: vec![1],
+                freed_bytes: 2
+            }
+            .kind(),
+            "spaceReclaimed"
+        );
+        assert_eq!(
+            SnapshotWarning::OrphansRemoved { count: 1 }.kind(),
+            "orphansRemoved"
+        );
+        assert_eq!(
+            SnapshotWarning::BackupDirUnavailable {
+                detail: "no root".to_owned()
+            }
+            .kind(),
+            "backupDirUnavailable"
+        );
     }
 }

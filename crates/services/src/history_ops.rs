@@ -147,7 +147,7 @@ impl<'a> HistoryOpsService<'a> {
             kind,
         };
         match self.snapshots.create(&request) {
-            Ok(id) => Some(id),
+            Ok(outcome) => Some(outcome.id),
             Err(error) => {
                 tracing::warn!(error = %error.message(), kind = kind.key(), "历史操作前未能创建快照");
                 None

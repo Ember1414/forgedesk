@@ -119,7 +119,7 @@ impl<'a> MergeService<'a> {
             kind: SnapshotKind::PreSync,
         };
         match self.snapshots.create(&request) {
-            Ok(id) => Some(id),
+            Ok(outcome) => Some(outcome.id),
             Err(error) => {
                 tracing::warn!(
                     error = %error.message(),
@@ -335,7 +335,7 @@ impl<'a> RebaseService<'a> {
             kind: SnapshotKind::PreHeadMove,
         };
         match self.snapshots.create(&request) {
-            Ok(id) => Some(id),
+            Ok(outcome) => Some(outcome.id),
             Err(error) => {
                 tracing::warn!(
                     error = %error.message(),

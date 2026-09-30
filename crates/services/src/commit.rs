@@ -514,7 +514,7 @@ impl<'a> CommitService<'a> {
             kind: SnapshotKind::PreCommit,
         };
         match self.snapshots.create(&request) {
-            Ok(id) => Some(id),
+            Ok(outcome) => Some(outcome.id),
             Err(error) => {
                 // M3 之前本来就没有快照；M3 之后这里会变成"用户可见的降级提示"。
                 // 现在至少保证：审计里的 reversible 会因此为 false，日志里能查到原因。

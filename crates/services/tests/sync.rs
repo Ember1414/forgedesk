@@ -72,9 +72,12 @@ impl RecordingSnapshots {
 }
 
 impl SnapshotManager for RecordingSnapshots {
-    fn create(&self, request: &SnapshotRequest<'_>) -> Result<SnapshotId, SnapshotError> {
+    fn create(
+        &self,
+        request: &SnapshotRequest<'_>,
+    ) -> Result<forgedesk_snapshot::SnapshotOutcome, SnapshotError> {
         self.kinds.lock().unwrap().push(request.kind);
-        Ok(1)
+        Ok(forgedesk_snapshot::SnapshotOutcome::bare(1))
     }
 
     fn list(&self, _repo_id: i64, _limit: i64) -> Result<Vec<SnapshotMeta>, SnapshotError> {
@@ -99,6 +102,21 @@ impl SnapshotManager for RecordingSnapshots {
         _policy: &RetentionPolicy,
     ) -> Result<Vec<SnapshotId>, SnapshotError> {
         Ok(Vec::new())
+    }
+
+    fn estimate(
+        &self,
+        _repo_id: i64,
+    ) -> Result<forgedesk_snapshot::SnapshotEstimate, SnapshotError> {
+        Ok(forgedesk_snapshot::SnapshotEstimate::default())
+    }
+
+    fn usage(&self, _repo_id: i64) -> Result<forgedesk_snapshot::SnapshotUsage, SnapshotError> {
+        Ok(forgedesk_snapshot::SnapshotUsage::default())
+    }
+
+    fn cleanup(&self, _repo_id: i64) -> Result<forgedesk_snapshot::CleanupOutcome, SnapshotError> {
+        Ok(forgedesk_snapshot::CleanupOutcome::default())
     }
 }
 

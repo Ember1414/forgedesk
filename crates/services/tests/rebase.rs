@@ -43,8 +43,9 @@ fn rebase_service(fixture: &Fixture) -> RebaseService<'_> {
         fn create(
             &self,
             _request: &forgedesk_snapshot::SnapshotRequest<'_>,
-        ) -> Result<forgedesk_snapshot::SnapshotId, forgedesk_snapshot::SnapshotError> {
-            Ok(1)
+        ) -> Result<forgedesk_snapshot::SnapshotOutcome, forgedesk_snapshot::SnapshotError>
+        {
+            Ok(forgedesk_snapshot::SnapshotOutcome::bare(1))
         }
         fn list(
             &self,
@@ -75,6 +76,28 @@ fn rebase_service(fixture: &Fixture) -> RebaseService<'_> {
         ) -> Result<Vec<forgedesk_snapshot::SnapshotId>, forgedesk_snapshot::SnapshotError>
         {
             Ok(Vec::new())
+        }
+
+        fn estimate(
+            &self,
+            _: i64,
+        ) -> Result<forgedesk_snapshot::SnapshotEstimate, forgedesk_snapshot::SnapshotError>
+        {
+            Ok(forgedesk_snapshot::SnapshotEstimate::default())
+        }
+
+        fn usage(
+            &self,
+            _: i64,
+        ) -> Result<forgedesk_snapshot::SnapshotUsage, forgedesk_snapshot::SnapshotError> {
+            Ok(forgedesk_snapshot::SnapshotUsage::default())
+        }
+
+        fn cleanup(
+            &self,
+            _: i64,
+        ) -> Result<forgedesk_snapshot::CleanupOutcome, forgedesk_snapshot::SnapshotError> {
+            Ok(forgedesk_snapshot::CleanupOutcome::default())
         }
     }
     static SNAPSHOTS: std::sync::OnceLock<NoopSnapshots> = std::sync::OnceLock::new();

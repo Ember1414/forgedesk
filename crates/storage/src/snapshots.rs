@@ -202,6 +202,23 @@ impl<'a> SnapshotStore<'a> {
         })
     }
 
+    /// 改写一条快照的内容备份清单与体积。
+    ///
+    /// 用途只有一个：备份目录改名失败时把记录**回退**成"没有内容备份"。
+    /// 磁盘与数据库必须一致——记录里写着有备份、目录却不存在，
+    /// 恢复时会在一个不存在的路径上白费一次尝试，然后告诉用户"部分失败"。
+    pub fn update_backup(&self, id: i64, manifest_json: &str, backup_bytes: i64) -> AppResult<()> {
+        self.database.with_write(|connection| {
+            connection
+                .execute(
+                    "UPDATE snapshots SET manifest_json = ?1, backup_bytes = ?2 WHERE id = ?3",
+                    params![manifest_json, backup_bytes, id],
+                )
+                .map_err(|error| storage_error("回填快照备份清单失败", &error))?;
+            Ok(())
+        })
+    }
+
     /// 保留策略的清理候选：按时间倒序跳过 `keep` 条之后剩下的记录。
     pub fn prune_candidates(
         &self,
