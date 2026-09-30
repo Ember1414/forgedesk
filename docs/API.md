@@ -1503,6 +1503,9 @@ editor 的第一个参数追加，cp 完成替换；`GIT_EDITOR=true` 让 reword
 
 事件：execute / continue 成功后发 `repo:changed`（`large` + `refs`——rebase 重写历史）。
 域模型见 `crates/domain/src/git/rebase.rs`（validate 六规则 + todo 生成 + preview 纯函数 + 区间清单类型）。
+前端封装：`src/lib/ipc/rebase.ts`（`gitRebasePreviewOnly` / `gitRebaseRange` / `gitRebaseExecute` /
+`gitRebaseContinueEdit`）；调用点：`src/features/rebase/*`（拖拽面板），入口经
+`graphSelectionStore.rebaseRequest` 由历史页右键菜单与提交详情面板发起。
 
 ---
 
