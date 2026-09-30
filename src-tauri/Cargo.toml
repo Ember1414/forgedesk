@@ -26,6 +26,7 @@ forgedesk-credentials.workspace = true
 forgedesk-commands.workspace = true
 forgedesk-jobs.workspace = true
 forgedesk-platform.workspace = true
+forgedesk-provider.workspace = true
 forgedesk-services.workspace = true
 # 宿主在这里选择注入哪个快照实现：M3/T1.9 之前是 `NoopSnapshotManager`
 # （如实回答"没有快照"），T1.9 换成真实实现时只改这一行。

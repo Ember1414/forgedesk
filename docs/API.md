@@ -1335,7 +1335,37 @@ identity 文件）、`TLS_CERTIFICATE_REJECTED`（自签名或证书链不完整
 `repo_clone` 也在同一通道上：克隆时还没有仓库，因此按 **spec 里的 URL** 解析凭据
 （这正是"第一次接触远端"的路径，私有仓库没有凭据必然失败）。
 
-> 尚未接线：`auth_login_device_*`（OAuth 设备码）与多账号模型属于 T4.4，会复用本节的存储层。
+> OAuth 设备码登录与多账号模型已在 T4.3/T4.4 接线，见下一节「托管平台账号」；
+> 令牌的密文存储复用本节的两套后端（系统 keyring / 加密保险库）。
+
+### 托管平台账号（T4.3/T4.4）
+
+多账号模型：`accounts` 表存元数据（`{ id, provider, host, login, avatarUrl, scopes, createdAt }`），
+**令牌密文永远在凭据库**（keyring account 为 `provider:host:login`，红线 R8）。
+同一 `provider+host+login` 重复登录沿用旧 id 与创建时间，并覆盖旧令牌。
+
+**Device Flow（T4.3）**：`account_device_flow_start` 返回三步引导数据（复制码 → 打开浏览器 →
+自动轮询）。`device_code` 是秘密，**只存在于后端会话表**，前端拿不到（类型上不可序列化）。
+`account_device_flow_wait` 是长任务（`JobRunner`）：轮询节奏（interval、`slow_down` +5s、
+过期判定）遵循 RFC 8628，结果经 `job:done` / `job:failed` 送达，取消走 `job_cancel`。
+
+**client_id**：Device Flow 需要 OAuth App 的 client_id（公开值），从全局设置键
+`provider.github.clientId` 读取；未配置时两个登录命令直接返回 `VALIDATION`
+（`hint` 是该设置键），不发起网络请求。
+
+**令牌失效（T4.5 起）**：用已保存令牌发起的 API 请求收到 401 时，错误码为
+`AUTH_EXPIRED`——界面对账号条目给出"重新登录"引导；401 不会无限重试（重试策略明确排除 4xx）。
+
+| 命令 | 能力 | 参数 | 返回 / 说明 |
+| --- | --- | --- | --- |
+| `account_login_with_pat` | Network | `host, token` | `Account`；令牌经 `/user` 校验后落 keyring（`kind=pat`）+ `accounts` 表；host 为空或 token 为空 → `VALIDATION`；令牌无效 → `AUTH_EXPIRED`，**两处落地均无残留** |
+| `account_device_flow_start` | Network | `host, scopes?` | `DeviceFlowSession`：`{ flowId, userCode, verificationUri, verificationUriComplete?, expiresInSecs, intervalSecs }`（**不含 device_code**）；client_id 未配置 → `VALIDATION` |
+| `account_device_flow_wait` | Network | `flowId` | `jobId`（长任务）；`job:done` 载荷 `{ account }`；令牌落 keyring（`kind=oauth`）+ 账号表；用户拒绝 → `AUTH_REQUIRED`；流程/设备码过期 → `AUTH_EXPIRED`；取消（`job_cancel`）→ `CANCELLED`；未知/已消费的 `flowId` → `NOT_FOUND` |
+| `account_list` | ReadOnly | — | `Account[]`（按创建时间排序） |
+| `account_remove` | Mutating | `accountId` | `()`；先删凭据库条目再删账号行；未知 id → `NOT_FOUND` |
+
+**多账号与仓库绑定**（T4.5 起接线）：克隆/push 所用账号按远端 host 匹配已保存账号；
+"每个仓库可绑定指定账号"的覆盖项挂在仓库级设置，M4 后续任务交付。
 
 ### 文件监听与设置键（T1.10）
 

@@ -30,6 +30,8 @@ tauri.workspace = true
 thiserror.workspace = true
 time.workspace = true
 tracing.workspace = true
+secrecy.workspace = true
+tokio.workspace = true
 
 [lints]
 workspace = true

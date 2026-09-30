@@ -16,10 +16,11 @@ use forgedesk_jobs::JobRunner;
 use forgedesk_platform::session::{detect_previous_session, start_session, SessionMarker};
 use forgedesk_platform::watcher::NotifyFileWatcher;
 use forgedesk_platform::{install_panic_hook, non_blocking_writer, LogFlushGuard, LogPolicy};
+use forgedesk_provider::{GitHubHttp, HttpConfig};
 use forgedesk_services::repository::OpenRepoRegistry;
 use forgedesk_services::{
-    CommitPlanRegistry, CredentialGate, CredentialsService, GitEngines, LogPageCache,
-    MergePlanRegistry, ResetPlanRegistry,
+    accounts::AccountService, CommitPlanRegistry, CredentialGate, CredentialsService, GitEngines,
+    LogPageCache, MergePlanRegistry, ResetPlanRegistry,
 };
 use forgedesk_snapshot::RefSnapshotManager;
 use forgedesk_storage::{migrate, Database};
@@ -180,6 +181,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let credential_gate =
                 CredentialGate::with_app_askpass(credentials.shared()).map(Arc::new);
 
+            // 账号服务（T4.3/T4.4）：令牌密文进凭据库（与上面共享同一存储实例），
+            // 账号元数据进 accounts 表。HTTP 底座目前跟随系统代理；
+            // M6 的代理设置落地后改为从设置读取。
+            let accounts = Arc::new(AccountService::new(
+                Arc::clone(&database),
+                credentials.shared(),
+                GitHubHttp::new(HttpConfig::default())?,
+            ));
+
             app.manage(AppState {
                 database: Arc::clone(&database),
                 log_dir,
@@ -198,6 +208,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 log_pages: Arc::new(LogPageCache::new()),
                 credentials,
                 credential_gate,
+                accounts,
                 watchers,
             });
 
@@ -310,6 +321,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         forgedesk_commands::credentials_ssh_inventory,
         forgedesk_commands::credentials_vault_create,
         forgedesk_commands::credentials_vault_unlock,
+        forgedesk_commands::account_login_with_pat,
+        forgedesk_commands::account_device_flow_start,
+        forgedesk_commands::account_device_flow_wait,
+        forgedesk_commands::account_list,
+        forgedesk_commands::account_remove,
         forgedesk_commands::debug_throw_error,
         forgedesk_commands::debug_panic,
     ]);
@@ -407,6 +423,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         forgedesk_commands::credentials_ssh_inventory,
         forgedesk_commands::credentials_vault_create,
         forgedesk_commands::credentials_vault_unlock,
+        forgedesk_commands::account_login_with_pat,
+        forgedesk_commands::account_device_flow_start,
+        forgedesk_commands::account_device_flow_wait,
+        forgedesk_commands::account_list,
+        forgedesk_commands::account_remove,
     ]);
 
     let app = builder.build(tauri::generate_context!())?;

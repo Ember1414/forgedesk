@@ -27,6 +27,11 @@ tracing.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true
 uuid.workspace = true
+parking_lot.workspace = true
+secrecy.workspace = true
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+wiremock = "0.6.5"

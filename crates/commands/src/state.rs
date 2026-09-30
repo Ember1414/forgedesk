@@ -24,10 +24,10 @@ use std::sync::Arc;
 use forgedesk_jobs::JobRunner;
 use forgedesk_services::repository::OpenRepoRegistry;
 use forgedesk_services::{
-    AuditLog, BranchService, CommitDetailService, CommitPlanRegistry, CommitService,
-    ConflictService, CredentialGate, CredentialsService, GitEngines, HistoryOpsService,
-    HistoryService, LogPageCache, MergePlanRegistry, MergeService, RebaseService,
-    RepositoryService, ResetPlanRegistry, StagingService, StashService, SyncService,
+    accounts::AccountService, AuditLog, BranchService, CommitDetailService, CommitPlanRegistry,
+    CommitService, ConflictService, CredentialGate, CredentialsService, GitEngines,
+    HistoryOpsService, HistoryService, LogPageCache, MergePlanRegistry, MergeService,
+    RebaseService, RepositoryService, ResetPlanRegistry, StagingService, StashService, SyncService,
     WorkspaceService,
 };
 use forgedesk_snapshot::SnapshotManager;
@@ -81,6 +81,11 @@ pub struct AppState {
     pub reset_plans: Arc<ResetPlanRegistry>,
     /// 待执行的合并计划（T3.4，进程内；与 reset_plans 同理）。
     pub merge_plans: Arc<MergePlanRegistry>,
+    /// 托管平台账号服务（T4.3/T4.4）：登录编排 + 凭据/账号两处落地。
+    ///
+    /// Arc 与 `jobs` 同一理由：`account_device_flow_wait` 的长任务闭包
+    /// 只拿得到 Arc 克隆。
+    pub accounts: Arc<AccountService>,
     /// 日志分页缓存（T2.9）：累积各查询形状的 walk 前缀，深分页与重复首页
     /// 不再从 tip 重扫。
     ///

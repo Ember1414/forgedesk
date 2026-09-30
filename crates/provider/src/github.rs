@@ -80,6 +80,27 @@ impl GitHubProvider {
         })
     }
 
+    /// 用显式端点构建（不按 host 规则推导）。
+    ///
+    /// 正常业务路径请用 [`Self::new`]。本构造器服务于两类场景：
+    /// 其他 crate 的**契约测试**（把端点指到 wiremock 这类本地假服务），
+    /// 以及将来"自定义 API 基址"的设置项（用户网络环境特殊时）。
+    pub fn with_endpoints(
+        host: &str,
+        client_id: impl Into<String>,
+        http: GitHubHttp,
+        api_base: impl Into<String>,
+        oauth_base: impl Into<String>,
+    ) -> Self {
+        Self {
+            http,
+            host: host.trim().trim_end_matches('/').to_ascii_lowercase(),
+            api_base: api_base.into(),
+            oauth_base: oauth_base.into(),
+            client_id: client_id.into(),
+        }
+    }
+
     /// REST API 基址（测试与诊断用）。
     #[must_use]
     pub fn api_base(&self) -> &str {

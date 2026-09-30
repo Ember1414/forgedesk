@@ -21,6 +21,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod accounts;
 pub mod audit;
 pub mod branch;
 pub mod commit;

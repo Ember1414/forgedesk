@@ -17,6 +17,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod accounts;
 pub mod database;
 pub mod migrations;
 pub mod operations;
@@ -24,6 +25,7 @@ pub mod repositories;
 pub mod settings;
 pub mod snapshots;
 
+pub use accounts::{AccountRecord, AccountStore};
 pub use database::{storage_error, Database};
 pub use migrations::{
     current_version, migrate, migrate_with, Migration, MigrationReport, MIGRATIONS,
