@@ -36,6 +36,10 @@ use std::path::{Path, PathBuf};
 use crate::{BackupEntry, BackupManifest, SnapshotLimits, SnapshotWarning};
 
 /// 备份目录里存放内容本体的子目录名。
+///
+/// 名字是 T3.8 定下的历史（当时只备份未跟踪文件）；从 T3.11 起它同时存放
+/// **工作区里与 HEAD 不同的已跟踪文件**（见 [`PlanFile::dirty`]）——
+/// 改目录名会让旧备份失效，所以名字不动，语义扩一圈。
 pub const UNTRACKED_SUBDIR: &str = "untracked";
 
 /// 备份目录里的自描述清单文件名。
@@ -58,6 +62,11 @@ pub struct PlanFile {
     pub bytes: u64,
     /// 是否来自 gitignore 覆盖范围。
     pub ignored: bool,
+    /// 是否为**已跟踪**文件的工作区内容（未暂存 / 已暂存的修改）。
+    ///
+    /// 这类文件不在"未跟踪"之列，但 `reset --hard` 同样会把它们冲回 HEAD 的
+    /// 内容——不备下当时的工作区字节，回滚就会悄悄丢掉用户未提交的工作。
+    pub dirty: bool,
 }
 
 /// 备份计划：要复制哪些、跳过哪些、为什么。
@@ -82,24 +91,31 @@ pub fn plan(
     workdir: &Path,
     untracked: &[String],
     ignored: &[String],
+    dirty: &[String],
     limits: &SnapshotLimits,
 ) -> BackupPlan {
-    let mut candidates: Vec<(String, bool)> = Vec::new();
+    // (相对路径, ignored, dirty)
+    let mut candidates: Vec<(String, bool, bool)> = Vec::new();
     for path in untracked {
-        candidates.push((normalize(path), false));
+        candidates.push((normalize(path), false, false));
+    }
+    for path in dirty {
+        // 已跟踪文件的工作区内容：与未跟踪内容同一配额、同一整体跳过策略——
+        // 它们都是"用户还没提交的工作"，丢哪一半都是丢
+        candidates.push((normalize(path), false, true));
     }
     if limits.include_ignored {
         for path in ignored {
-            candidates.push((normalize(path), true));
+            candidates.push((normalize(path), true, false));
         }
     }
 
     let mut files: Vec<PlanFile> = Vec::new();
     let mut failed: Vec<String> = Vec::new();
     let mut detail = String::new();
-    for (relative, ignored) in candidates {
+    for (relative, ignored, dirty) in candidates {
         let absolute = workdir.join(&relative);
-        if let Err(error) = collect(&absolute, &relative, ignored, &mut files) {
+        if let Err(error) = collect(&absolute, &relative, ignored, dirty, &mut files) {
             // 单个条目读不了（被占用、权限）不该让整份计划失败：
             // 记下来，其余照常备份，最后如实在告警里说明
             if detail.is_empty() {
@@ -156,6 +172,7 @@ pub fn copy_into(staging: &Path, files: &[PlanFile]) -> (BackupManifest, Vec<Str
                 path: file.relative.clone(),
                 bytes: file.bytes,
                 ignored: file.ignored,
+                dirty: file.dirty,
             }),
             Err(_) => failed.push(file.relative.clone()),
         }
@@ -335,6 +352,7 @@ fn collect(
     absolute: &Path,
     relative: &str,
     ignored: bool,
+    dirty: bool,
     out: &mut Vec<PlanFile>,
 ) -> io::Result<()> {
     let metadata = fs::symlink_metadata(absolute)?;
@@ -348,7 +366,7 @@ fn collect(
                 continue;
             }
             let child_relative = format!("{relative}/{name}");
-            collect(&entry.path(), &child_relative, ignored, out)?;
+            collect(&entry.path(), &child_relative, ignored, dirty, out)?;
         }
         return Ok(());
     }
@@ -363,6 +381,7 @@ fn collect(
         source: absolute.to_path_buf(),
         bytes: metadata.len(),
         ignored,
+        dirty,
     });
     Ok(())
 }
@@ -408,6 +427,7 @@ mod tests {
             &workdir,
             &["scratch/a.txt".to_owned(), "build/".to_owned()],
             &[],
+            &[],
             &SnapshotLimits::default(),
         );
 
@@ -435,6 +455,7 @@ mod tests {
             &workdir,
             &["big.bin".to_owned()],
             &[],
+            &[],
             &SnapshotLimits {
                 max_snapshot_bytes: 8,
                 ..SnapshotLimits::default()
@@ -459,6 +480,7 @@ mod tests {
             &workdir,
             &["kept.txt".to_owned()],
             &["node_modules/".to_owned()],
+            &[],
             &SnapshotLimits::default(),
         );
         assert_eq!(without.files.len(), 1);
@@ -467,6 +489,7 @@ mod tests {
             &workdir,
             &["kept.txt".to_owned()],
             &["node_modules/".to_owned()],
+            &[],
             &SnapshotLimits {
                 include_ignored: true,
                 ..SnapshotLimits::default()
@@ -488,6 +511,7 @@ mod tests {
         let plan = plan(
             &workdir,
             &["notes/".to_owned(), "b.bin".to_owned()],
+            &[],
             &[],
             &SnapshotLimits::default(),
         );
@@ -532,6 +556,7 @@ mod tests {
         let plan = plan(
             &workdir,
             &["a.txt".to_owned()],
+            &[],
             &[],
             &SnapshotLimits::default(),
         );

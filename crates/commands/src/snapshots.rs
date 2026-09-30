@@ -101,7 +101,7 @@ pub struct RestoreReportDto {
     pub pre_restore_snapshot_id: Option<SnapshotId>,
     /// 快照时刻的未跟踪文件路径（v1 只记录不恢复）。
     pub untracked_paths: Vec<String>,
-    /// 从内容备份写回工作区的未跟踪文件数（T3.8；v1 快照恒为 0）。
+    /// 从内容备份写回工作区的文件数（T3.8；含 T3.11 起的已跟踪脏文件；v1 快照恒为 0）。
     pub untracked_restored: usize,
     /// 没能恢复的未跟踪文件（备份缺失、写不进去）。
     pub untracked_failed: Vec<String>,

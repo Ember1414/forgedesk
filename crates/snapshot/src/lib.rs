@@ -163,7 +163,7 @@ impl Default for SnapshotLimits {
     }
 }
 
-/// 备份清单里的一条未跟踪文件。
+/// 备份清单里的一条内容备份。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BackupEntry {
     /// 相对仓库根的正斜杠路径（恢复时的落点）。
@@ -172,6 +172,12 @@ pub struct BackupEntry {
     pub bytes: u64,
     /// 是否来自 gitignore 覆盖范围（清单里的来源标记，便于用户理解）。
     pub ignored: bool,
+    /// 是否为**已跟踪**文件的工作区内容（T3.11）。
+    ///
+    /// `true` = 用户改了但还没提交的已跟踪文件：`reset --hard` 会把它冲回
+    /// HEAD 的内容，这份备份是恢复它的唯一来源。`false` = 未跟踪（或被忽略）
+    /// 文件——不备份它，回滚之后它就真的没了。
+    pub dirty: bool,
 }
 
 /// 快照时刻栈上的一条 stash（T3.11 第 7 条）。
@@ -261,6 +267,7 @@ impl BackupManifest {
                     "path": entry.path,
                     "bytes": entry.bytes,
                     "ignored": entry.ignored,
+                    "dirty": entry.dirty,
                 })
             })
             .collect();
@@ -311,6 +318,11 @@ impl BackupManifest {
                                 .unwrap_or(0),
                             ignored: item
                                 .get("ignored")
+                                .and_then(serde_json::Value::as_bool)
+                                .unwrap_or(false),
+                            // 旧清单（T3.11 之前）没有这个字段：它们只可能是未跟踪内容
+                            dirty: item
+                                .get("dirty")
                                 .and_then(serde_json::Value::as_bool)
                                 .unwrap_or(false),
                         })
@@ -532,7 +544,10 @@ pub struct RestoreReport {
     /// 快照时刻的未跟踪文件路径。v1 只记录不恢复（内容备份属 T3.8），
     /// 列在这里是让用户知道"当时有这些文件"。
     pub untracked_paths: Vec<String>,
-    /// 从内容备份写回工作区的未跟踪文件数（v1 快照或未备份时为 0）。
+    /// 从内容备份写回工作区的文件数（v1 快照或未备份时为 0）。
+    ///
+    /// T3.11 起内容备份同时包含未跟踪文件与"已跟踪但工作区有修改"的文件，
+    /// 这里数的是**全部**写回的文件——报告行里另有明细。
     pub untracked_restored: usize,
     /// 没能恢复的未跟踪文件（备份缺失、写不进去）。
     ///
@@ -986,6 +1001,7 @@ mod tests {
                 path: "scratch/a.txt".to_owned(),
                 bytes: 12,
                 ignored: true,
+                dirty: false,
             }],
             bytes: 12,
             stash: vec![StashedRef {

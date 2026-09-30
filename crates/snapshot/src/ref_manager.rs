@@ -339,6 +339,7 @@ impl RefSnapshotManager {
         workdir: &Path,
         untracked: &[String],
         ignored: &[String],
+        dirty: &[String],
         warnings: &mut Vec<SnapshotWarning>,
     ) -> (Option<StagingBackup>, Vec<String>) {
         let Some(root) = self.backup_root.as_ref() else {
@@ -348,7 +349,7 @@ impl RefSnapshotManager {
             return (None, untracked.to_vec());
         };
 
-        let plan: BackupPlan = backup::plan(workdir, untracked, ignored, &self.limits);
+        let plan: BackupPlan = backup::plan(workdir, untracked, ignored, dirty, &self.limits);
         warnings.extend(plan.warnings.iter().cloned());
         if plan.files.is_empty() {
             return (None, plan.skipped);
@@ -791,6 +792,9 @@ impl RefSnapshotManager {
         // 内容恢复失败**不**触发回退：HEAD 与索引才是回滚的主体，
         // 个别文件被占用不该把整次回滚推倒重来——如实报告即可。
         progress(RestoreStage::Untracked);
+        // 故障注入只认 Crash：这个阶段本来就没有"失败 → 回退"的语义，
+        // Fail 注入在这里没有可改变的行为（Crash 让第 12 条能停在内容写回之前）
+        let _ = self.enter_stage(RestoreStage::Untracked);
         let started = self.now();
         let manifest = BackupManifest::from_json(&record.manifest_json);
         if !manifest.is_empty() {
@@ -1224,6 +1228,17 @@ impl RefSnapshotManager {
             .filter(|entry| entry.kind == EntryKind::Ignored)
             .map(|entry| backup::normalize(&entry.path.to_string_lossy()))
             .collect();
+        // 工作区里与 HEAD 不同的**已跟踪**文件（T3.11）：`reset --hard` 会把它们
+        // 冲回 HEAD 的内容，而索引树只记得"已暂存"的那一半。不把当时的工作区
+        // 字节备下来，回滚就会悄悄丢掉用户未提交的修改——那正是安全网存在的意义。
+        let dirty_paths: Vec<String> = status
+            .entries
+            .iter()
+            // 未跟踪 / 被忽略的条目另有清单；这里只要"已跟踪且工作区 ≠ HEAD"的
+            .filter(|entry| entry.kind != EntryKind::Untracked && entry.kind != EntryKind::Ignored)
+            .filter(|entry| worktree_differs_from_head(entry))
+            .map(|entry| backup::normalize(&entry.path.to_string_lossy()))
+            .collect();
         let untracked_json = serde_json::to_string(&untracked_paths).map_err(|error| {
             SnapshotError::Failed(format!("serializing untracked paths failed: {error}"))
         })?;
@@ -1237,12 +1252,13 @@ impl RefSnapshotManager {
             warnings.push(SnapshotWarning::OrphansRemoved { count: orphans });
         }
 
-        // 未跟踪内容进备份目录（复制到临时目录，改名发生在入库之后）
+        // 未跟踪内容与工作区脏文件进备份目录（复制到临时目录，改名发生在入库之后）
         let (staging, skipped) = self.prepare_backup(
             request.repo_id,
             request.workdir,
             &untracked_paths,
             &ignored_paths,
+            &dirty_paths,
             &mut warnings,
         );
 
@@ -1437,22 +1453,29 @@ impl SnapshotManager for RefSnapshotManager {
 
         let mut untracked: Vec<String> = Vec::new();
         let mut ignored: Vec<String> = Vec::new();
+        let mut dirty: Vec<String> = Vec::new();
         for entry in &status.entries {
             let path = backup::normalize(&entry.path.to_string_lossy());
             match entry.kind {
                 EntryKind::Untracked => untracked.push(path),
                 EntryKind::Ignored => ignored.push(path),
-                _ => {}
+                _ => {
+                    // 已跟踪条目里挑"工作区 ≠ HEAD"的（未跟踪 / 被忽略另有清单）
+                    if worktree_differs_from_head(entry) {
+                        dirty.push(path);
+                    }
+                }
             }
         }
 
-        let plan = backup::plan(&workdir, &untracked, &ignored, &self.limits);
+        let plan = backup::plan(&workdir, &untracked, &ignored, &dirty, &self.limits);
         // 被忽略文件的体积单独算一次（要按"若开启"来估），
         // 否则用户看不到开启这个开关会付出多大代价
         let ignored_plan = backup::plan(
             &workdir,
             &[],
             &ignored,
+            &[],
             &SnapshotLimits {
                 include_ignored: true,
                 max_snapshot_bytes: 0,
@@ -1637,12 +1660,14 @@ impl SnapshotManager for RefSnapshotManager {
         // 记为已变化而不是把错误抛给用户
         let current_index_tree_oid = self.engines.write().index_tree(&repo).ok();
 
-        // 未跟踪内容的三分类（T3.8）：会恢复 / 找不回 / 不会被删
+        // 未跟踪内容的三分类（T3.8）：会恢复 / 找不回 / 不会被删。
+        // 已跟踪文件的工作区备份（T3.11 的 `dirty` 条目）不进这三个清单：
+        // 它们不是未跟踪文件，界面上混在一起会说谎。
         let manifest = BackupManifest::from_json(&record.manifest_json);
         let recorded = recorded_untracked(&record);
         let mut untracked_restorable = Vec::new();
         let backup_dir = self.backup_dir(repo_id, record.id);
-        for entry in &manifest.entries {
+        for entry in manifest.entries.iter().filter(|entry| !entry.dirty) {
             let target = workdir.join(&entry.path);
             let unchanged = backup_dir.as_ref().is_some_and(|directory| {
                 let source = directory.join(backup::UNTRACKED_SUBDIR).join(&entry.path);
@@ -1658,6 +1683,7 @@ impl SnapshotManager for RefSnapshotManager {
         let backed_paths: HashSet<&str> = manifest
             .entries
             .iter()
+            .filter(|entry| !entry.dirty)
             .map(|entry| entry.path.as_str())
             .collect();
         let untracked_missing = recorded
@@ -1804,6 +1830,25 @@ fn recorded_untracked(record: &SnapshotRecord) -> BTreeSet<String> {
         .into_iter()
         .map(|path| backup::normalize(&path))
         .collect()
+}
+
+/// 一条已跟踪状态条目的**工作区内容是否与 HEAD 不同**（T3.11 的备份判据）。
+///
+/// 精确含义：回滚的 `reset --hard` 会把工作区冲回 HEAD 的内容，所以凡是
+/// "工作区内容 ≠ HEAD 内容"的文件都必须备下当时的工作区字节。由状态字符推：
+///
+/// - `Y != .`（工作区相对索引有变化）→ 必然不同，要备份；
+/// - `X != . 且 X != D`（索引相对 HEAD 有变化且路径还在索引里）→ 工作区内容
+///   至少与索引一致，而索引 ≠ HEAD → 要备份（"已暂存未提交"的那一半也是工作）；
+/// - `X == D`（路径已从索引删除）→ 工作区要么同样删了（无可备份）、要么就是
+///   HEAD 的内容（reset --hard 之后原样回来）→ **不**备份。
+///   工作区里"删了一个已跟踪文件"这个状态本身恢复不了——如实写进文档的边界。
+fn worktree_differs_from_head(entry: &forgedesk_domain::git::FileChange) -> bool {
+    use forgedesk_domain::git::ChangeKind;
+    if entry.index_status == ChangeKind::Deleted {
+        return false;
+    }
+    entry.worktree_status != ChangeKind::Unmodified || entry.index_status != ChangeKind::Unmodified
 }
 
 /// 系统时间的 Unix 毫秒（测试之外的时间源）。
