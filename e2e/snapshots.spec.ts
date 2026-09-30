@@ -8,6 +8,12 @@
  * 回滚报告把"哪一步成了"列出来。
  */
 import { expect, test } from '@playwright/test';
+import { mkdirSync } from 'node:fs';
+import { join } from 'node:path';
+
+/** 审批用截图（磁盘阈值与告警 UI）；不进版本库。 */
+const VISUAL_DIR = join(process.cwd(), 'test-results', 'snapshot-visual');
+mkdirSync(VISUAL_DIR, { recursive: true });
 
 const MOCK_SCRIPT = `
   const snapshots = [
@@ -153,6 +159,7 @@ test('占用行显示配额与孤儿目录，清理缓存发出 snapshot_cleanup
   await expect(usage).toContainText('上限 2.0 GB');
   // 孤儿目录要在界面上点出来（否则用户不知道清理能清到什么）
   await expect(page.getByTestId('snapshot-orphans')).toContainText('1 个孤立目录');
+  await page.screenshot({ path: join(VISUAL_DIR, '01-usage.png') });
 
   await page.getByTestId('snapshot-cleanup').click();
   await expect
@@ -198,6 +205,7 @@ test('手动打点超限时把"未包含什么"挂在页面上', async ({ page }
   await expect(warning).toContainText('未包含 3 个未跟踪文件');
   await expect(warning).toContainText('300.0 MB');
   await expect(warning).toContainText('200.0 MB');
+  await page.screenshot({ path: join(VISUAL_DIR, '02-warning.png') });
 
   const errs = await page.evaluate(() => window.__errs ?? []);
   expect(errs, JSON.stringify(errs)).toEqual([]);
