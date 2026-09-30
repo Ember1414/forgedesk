@@ -151,9 +151,40 @@ jobs:
       - name: Rust tests
         run: cargo test --workspace
 
+  # ------------------------------------------------------------------
+  # T3.11 破坏性操作安全测试矩阵（docs/PLAN.md §10.6 的 15 个场景）：
+  # 独立 job、必过门禁——任何一条失败即阻断发布（AGENT-PROMPTS §4.4 T3.11）。
+  # 之所以单独成 job 而不是藏在 quality 的 cargo test 里：
+  # "安全网红了"必须一眼可见、必须能被单独重跑，它不能淹没在几千条测试里。
+  # ------------------------------------------------------------------
+  safety:
+    name: safety (destructive matrix)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: quality
+
+      # 用例自足（各自 init_repo 并配置身份）；这条全局身份是防御层，与 quality 同因
+      - name: Configure git identity for tests
+        run: |
+          git config --global user.name "ForgeDesk CI"
+          git config --global user.email "ci@forgedesk.invalid"
+
+      - name: Destructive operation safety matrix
+        run: cargo test -p forgedesk-services --test destructive_safety_matrix
+
   build:
     name: build (${{ matrix.platform }})
-    needs: quality
+    needs: [quality, safety]
     # 私有阶段的三平台矩阵只在这两种情况运行：
     #   1. 打 tag（发布需要三平台产物）
     #   2. 手动触发且显式勾选 run_build

@@ -2106,6 +2106,12 @@ inference and works fully offline for local Git operations.
 | 14 | 仓库只读（权限） | 只读目录 | 明确错误，不损坏 |
 | 15 | 外部进程并发写仓库 | 并发 | 指纹校验发现并提示刷新 |
 
+**自动化落地（T3.11）**：上表 15 条已全部实现为 Rust 集成测试
+`crates/services/tests/destructive_safety_matrix.rs`（断言工具统一为
+`assert_repo_equals`：仓库指纹 + 工作区逐字节 + 索引 stage 清单 + 分支引用 +
+stash 栈），并作为 CI 的独立必过 job（`.github/workflows/ci.yml` 的 `safety`）。
+第 12 条用子进程在恢复中途强杀进程；第 13 条用快照配额模拟"磁盘放不下"。
+
 ### 10.7 快照与回滚测试
 
 - 幂等性：同一快照连续回滚两次结果一致，第二次为 no-op。

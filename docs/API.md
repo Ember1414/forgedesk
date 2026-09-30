@@ -820,10 +820,12 @@ interface AmendContext {
 
 ### snapshot_list / snapshot_diff / snapshot_usage / snapshot_estimate / snapshot_create / snapshot_restore / snapshot_prune / snapshot_cleanup
 
-快照与回滚（M1 / T1.9；T3.8 补未跟踪内容备份与磁盘控制）。这是红线 R7
+快照与回滚（M1 / T1.9；T3.8 补未跟踪内容备份与磁盘控制；T3.11 把备份范围扩到
+"工作区里与 HEAD 不同的已跟踪文件"，并记下 stash 栈与本地分支引用）。这是红线 R7
 "计划预览 → 快照 → 执行 → 可回滚"的最后一环：每个快照是一组**可独立校验的
 git 事实**（HEAD oid、索引树、自定义 ref 锚点），T3.8 之后还多了一份
-**未跟踪内容的逐字节备份**——它落在应用缓存目录，不污染用户仓库。
+**内容逐字节备份**（未跟踪文件 + 未提交的工作区修改）——它落在应用缓存目录，
+不污染用户仓库。
 
 **备份的三条纪律**（T3.8）：
 
@@ -901,7 +903,8 @@ interface SnapshotDiff {
   因此崩溃恢复的"继续"直接复用本命令（见 `snapshot_restore_pending`）。
 - **返回**：
   `{ restoredSnapshotId, headOid, indexTreeOid, preRestoreSnapshotId, untrackedPaths,
-     untrackedRestored, untrackedFailed, untrackedExtra, verified,
+     untrackedRestored, untrackedFailed, untrackedExtra,
+     stashRestored, stashFailed, branchesRestored, branchesFailed, verified,
      outcome, stages, reportLines, emergency }`
   - `outcome`：`completed` / `rolledBack` / `emergency`；
   - `stages`：每阶段的结果（`stage` / `ok` / `detail` / `durationMs`）——
@@ -918,6 +921,11 @@ interface SnapshotDiff {
     交给用户决定；
   - 内容恢复失败**不触发**回退：HEAD 与索引才是回滚的主体，个别文件被占用
     不该把整次回滚推倒重来。`verified` 说的是"内容备份的校验结果"。
+- **stash 栈与分支引用（T3.11）**：快照记下栈上每条 stash 的 oid 与本地分支引用，
+  回滚把 `drop` / `clear` 丢掉的条目用 `git stash store` 重新登记、把被删的分支
+  重建出来——**只补缺失的，绝不动已存在的引用**。这两类只是引用（不复制字节）：
+  提交对象被 `gc` 回收之后放不回去，那时 `stashFailed` / `branchesFailed`
+  逐条如实列出，不会假装成功。
 - **错误**：`NOT_FOUND`（快照不存在 / 锚点丢失）、`INTERNAL`（保护点打不出来等）。
   校验失败不再走错误通道，而是体现在 `outcome` 与 `stages` 里。
 - **前端封装**：`snapshotRestore(repoId, snapshotId)`；调用点：`src/features/snapshots/SnapshotsPage.tsx`
@@ -1610,7 +1618,7 @@ fork, stars, pushedAt? }`。
 | `git_stash_list` | ReadOnly | `repoId` | `StashEntry[]`（`{ index, oid, baseOid, message, createdAt?, includesUntracked, untrackedOid? }`） |
 | `git_stash_show` | ReadOnly | `repoId, index` | `{ entry, diff, untracked? }`：`diff` 是**相对 base** 的变更；`-u` 创建的 stash 里未跟踪文件**不在** `diff` 里，单独放在 `untracked`（与空树比较，全是新增）。界面对 `-u` 的 stash 必须两份都展示，只展示 `diff` 会让人以为 stash 是完整的 |
 | `git_stash_apply` / `git_stash_pop` | Mutating | `{ index, restoreIndex? }`（`restoreIndex` = `--index`） | `StashOutcome { conflicts, snapshotId? }`。**冲突不是错误**：仓库已进入冲突状态，`conflicts` 列出冲突文件，`pop` 冲突时**不会**删除该条；操作前打 `pre-worktree-change` 快照（T2.10 起随结果返回） |
-| `git_stash_drop` / `git_stash_clear` | Dangerous | `repoId[, index]` | `{ dropped: StashEntry[] }`（含 oid）。**不打快照**（有意为之：快照记录的是 HEAD/索引/工作区，不含 stash 内容，打了只会制造假安心）；安全网是返回并审计被丢的 oid——审计的 `args` 里带被丢 oid（clear 取上限内的清单），`gc` 回收之前都能按 oid 找回 |
+| `git_stash_drop` / `git_stash_clear` | Dangerous | `repoId[, index]` | `{ dropped: StashEntry[], snapshotId? }`（含 oid）。T2.8 曾按"工作区快照找不回 stash"选择不打点；T3.11 起快照会记下栈上每条的 oid，回滚用 `git stash store` 重新登记，因此**动手前打 `pre-worktree-change` 快照**并把 id 随结果与审计一起返回。被丢 oid 仍进审计 `args`（用户绕过界面直接 git 操作时的自救线索） |
 | `git_stash_branch` | Mutating | `{ index, name }` | `{ branch }`；从 stash 的 base 建分支并应用（**会切换分支**，先打 `pre-head-move` 快照）。pop 冲突时的正规出路：新分支从 base 开始，一定干净 |
 | `git_cherry_pick` | Mutating | `{ revision, recordSource?, noCommit? }`（`revision` 可以是 `A..B` 区间） | `MergeOutcome { kind, oid?, conflicts[], snapshotId? }`（复用 pull 的冲突形状）。`recordSource` = `-x`（提交信息里附来源） |
 | `git_revert` | Mutating | `{ revision, mainline?, noCommit? }` | `MergeOutcome`。**反转合并提交必须给 `mainline`**（从 1 开始），猜错主父会反转出相反的结果，因此没有缺省值 |
