@@ -47,7 +47,8 @@
     "terminal": "Terminal",
     "github": "Code hosting",
     "plugins": "Plugins",
-    "settings": "Settings"
+    "settings": "Settings",
+    "repoSettings": "Repository settings"
   },
   "statusBar": {
     "ariaLabel": "Status bar",
@@ -1291,6 +1292,25 @@
       "copyUrl": "Copy URL",
       "copied": "Copied",
       "loadMore": "Load more"
+    }
+  },
+  "repo": {
+    "settings": {
+      "title": "Repository settings",
+      "description": "Per-repository behaviour inside the app.",
+      "invalidRepo": "The repository does not exist or the link is invalid."
+    },
+    "accountBinding": {
+      "title": "Bind a hosting platform account",
+      "description": "When several accounts share one host, pick which one this repository uses: sync (fetch/pull/push) and platform API calls all go through it. Unbound repositories fall back to the URL user or the earliest signed-in account.",
+      "none": "Not bound",
+      "option": "{{login}} ({{host}})",
+      "boundToast": "Bound {{login}} ({{host}}) to this repository",
+      "unboundToast": "Account binding removed for this repository",
+      "empty": "No hosting platform account has been signed in yet.",
+      "signInGo": "Sign in",
+      "loadErrorHint": "Loading the account list or binding failed; please retry.",
+      "retry": "Retry"
     }
   }
 }

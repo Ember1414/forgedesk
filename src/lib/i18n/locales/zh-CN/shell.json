@@ -47,7 +47,8 @@
     "terminal": "终端",
     "github": "代码托管",
     "plugins": "插件",
-    "settings": "设置"
+    "settings": "设置",
+    "repoSettings": "仓库设置"
   },
   "statusBar": {
     "ariaLabel": "状态栏",
@@ -1291,6 +1292,25 @@
       "copyUrl": "复制地址",
       "copied": "已复制",
       "loadMore": "加载更多"
+    }
+  },
+  "repo": {
+    "settings": {
+      "title": "仓库设置",
+      "description": "这个仓库在本应用内的行为偏好。",
+      "invalidRepo": "仓库不存在或链接无效。"
+    },
+    "accountBinding": {
+      "title": "绑定托管平台账号",
+      "description": "同站点登录了多个账号时，为这个仓库指定用哪一个：同步（fetch/pull/push）与平台 API 都会以它为准。未绑定时按 URL 用户名或最早的账号解析。",
+      "none": "不绑定",
+      "option": "{{login}}（{{host}}）",
+      "boundToast": "已为该仓库绑定 {{login}}（{{host}}）",
+      "unboundToast": "已解除该仓库的账号绑定",
+      "empty": "还没有登录过任何托管平台账号。",
+      "signInGo": "去登录账号",
+      "loadErrorHint": "账号列表与绑定状态加载失败，请重试。",
+      "retry": "重试"
     }
   }
 }

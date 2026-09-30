@@ -30,6 +30,7 @@ const REPO_TABS = [
   { segment: 'branches', labelKey: 'items.branches' },
   { segment: 'conflict', labelKey: 'items.conflict' },
   { segment: 'terminal', labelKey: 'items.terminal' },
+  { segment: 'settings', labelKey: 'items.repoSettings' },
 ] as const;
 
 export function RepoLayout() {

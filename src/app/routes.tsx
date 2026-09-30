@@ -21,6 +21,7 @@ import { NotFoundPage } from '@/app/shell/NotFoundPage';
 import { CommitPage } from '@/features/commit/CommitPage';
 import { DashboardPage } from '@/features/dashboard/DashboardPage';
 import { SnapshotsPage } from '@/features/snapshots/SnapshotsPage';
+import { RepoSettingsPage } from '@/features/repo/RepoSettingsPage';
 import { GitHubActionsPage } from '@/features/github/GitHubActionsPage';
 import { GitHubIssuesPage } from '@/features/github/GitHubIssuesPage';
 import { GitHubLayout } from '@/features/github/GitHubLayout';
@@ -71,6 +72,7 @@ export const appRoutes: RouteObject[] = [
           { path: 'branches', element: <RepoBranchesPage /> },
           { path: 'conflict', element: <RepoConflictPage /> },
           { path: 'terminal', element: <RepoTerminalPage /> },
+          { path: 'settings', element: <RepoSettingsPage /> },
         ],
       },
 
