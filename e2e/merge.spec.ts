@@ -88,7 +88,8 @@ test('合并对话框：预览展示预检冲突，执行发出带 planId 的命
     .poll(() => page.evaluate(() => window.__mergeCalls?.map((call) => call.command) ?? []))
     .toEqual(['git_merge_prepare', 'git_merge_execute']);
   const calls = await page.evaluate(() => window.__mergeCalls ?? []);
-  const executeCall = calls[1] as { command: string; args: { spec: { planId: string } } } | undefined;
+  const executeCall = calls[1] as
+    { command: string; args: { spec: { planId: string } } } | undefined;
   expect(executeCall?.args.spec.planId).toBe('plan-1');
   await expectNoPageErrors(page);
 });
