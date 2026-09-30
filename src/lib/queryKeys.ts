@@ -24,6 +24,8 @@ export const SNAPSHOTS_QUERY_KEY = 'snapshots';
 export const SNAPSHOT_USAGE_QUERY_KEY = 'snapshotUsage';
 /** 未完成的回滚（T3.9 崩溃恢复：有值 = 上次回滚被强杀）。 */
 export const SNAPSHOT_RESTORE_PENDING_QUERY_KEY = 'snapshotRestorePending';
+/** 操作历史（T3.10：记录 + 回滚点当前是否仍作数）。 */
+export const OPERATION_HISTORY_QUERY_KEY = 'operationHistory';
 /**
  * 最近打开的仓库（T1.3 的本地记录）。
  *

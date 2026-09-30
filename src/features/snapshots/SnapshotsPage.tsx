@@ -26,7 +26,7 @@
 import { useState } from 'react';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Camera, Check, Trash2, X } from 'lucide-react';
+import { Camera, Trash2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useParams } from 'react-router-dom';
 
@@ -50,7 +50,6 @@ import {
   snapshotUsage,
 } from '@/lib/ipc/snapshots';
 import type {
-  RestoreOutcomeKind,
   RestoreReport,
   SnapshotDiff,
   SnapshotMeta,
@@ -72,6 +71,8 @@ import { Button } from '@/ui/components/button';
 import { EmptyState } from '@/ui/components/empty-state';
 import { ErrorState } from '@/ui/components/error-state';
 import { Skeleton } from '@/ui/components/skeleton';
+
+import { RestoreReportPanel } from './RestoreReportPanel';
 
 /** kind 短名 → i18n key（只增不改的清单，见 SnapshotKind::key）。 */
 const KIND_LABEL_KEYS: Readonly<Record<string, string>> = {
@@ -101,18 +102,6 @@ function formatBytes(bytes: number): string {
     index += 1;
   }
   return `${value.toFixed(1)} ${units[index] ?? 'B'}`;
-}
-
-/** 回滚结局对应的配色（文字 + 图标一起用，不靠颜色单独表意）。 */
-function outcomeClass(outcome: RestoreOutcomeKind): string {
-  switch (outcome) {
-    case 'completed':
-      return 'text-success';
-    case 'rolledBack':
-      return 'text-warning';
-    default:
-      return 'text-danger';
-  }
 }
 
 export function SnapshotsPage() {
@@ -256,14 +245,6 @@ export function SnapshotsPage() {
     } catch (error) {
       show(normalizeError(error));
     }
-  };
-
-  /** 前几条路径 + "等 N 项"：报告里不该把上百个路径铺开，但也不能假装只有几条。 */
-  const summarizePaths = (paths: readonly string[], limit = 5): string => {
-    const head = paths.slice(0, limit).join(', ');
-    return paths.length > limit
-      ? head + t('snapshots.report.more', { count: paths.length - limit })
-      : head;
   };
 
   /** 一条告警的人话说明（类型由后端给，文案在这里）。 */
@@ -437,117 +418,12 @@ export function SnapshotsPage() {
 
       {/* 回滚报告：可折叠清单（用户能看到"哪一步成了、哪一步没成"） */}
       {report === null ? null : (
-        <section
-          className="flex flex-col gap-2 rounded-md border border-line p-3 text-12"
-          data-testid="snapshot-report"
-        >
-          <header className="flex items-center justify-between gap-2">
-            <h3 className="font-medium">{t('snapshots.report.title')}</h3>
-            <button
-              type="button"
-              className="fd-transition rounded-sm text-fg-subtle hover:text-fg"
-              onClick={() => {
-                setReport(null);
-              }}
-            >
-              {t('snapshots.dismiss')}
-            </button>
-          </header>
-
-          {/* 结局：一句话回答"我现在能不能安心"（图标 + 文字，不只靠颜色） */}
-          <p
-            className={`flex items-center gap-1.5 font-medium ${outcomeClass(report.outcome)}`}
-            data-testid="report-outcome"
-          >
-            {report.outcome === 'completed' ? (
-              <Check aria-hidden="true" className="size-3.5 shrink-0" />
-            ) : (
-              <X aria-hidden="true" className="size-3.5 shrink-0" />
-            )}
-            {t(`snapshots.outcome.${report.outcome}`)}
-          </p>
-
-          {/* 阶段清单（T3.9）：哪一步成了、哪一步没成、各花了多久 */}
-          <ol className="flex flex-col gap-1" data-testid="report-stages">
-            {report.stages.map((stage) => (
-              <li key={stage.stage} className="flex flex-wrap items-baseline gap-x-2">
-                {stage.ok ? (
-                  <Check aria-hidden="true" className="size-3 shrink-0 text-success" />
-                ) : (
-                  <X aria-hidden="true" className="size-3 shrink-0 text-danger" />
-                )}
-                <span className="text-fg">{t(`snapshots.stage.${stage.stage}`)}</span>
-                <span className="text-fg-subtle">
-                  {t('snapshots.report.duration', { ms: stage.durationMs })}
-                </span>
-                {stage.detail === null ? null : <span className="text-danger">{stage.detail}</span>}
-              </li>
-            ))}
-          </ol>
-
-          <ul className="flex flex-col gap-1 text-fg-muted">
-            <li>{t('snapshots.report.head', { oid: report.headOid.slice(0, 7) })}</li>
-            <li>{t('snapshots.report.untracked', { count: report.untrackedRestored })}</li>
-            <li>
-              {report.verified ? t('snapshots.report.verified') : t('snapshots.report.unverified')}
-            </li>
-            {report.untrackedFailed.length === 0 ? null : (
-              <li className="text-danger" data-testid="snapshot-report-failed">
-                {t('snapshots.report.failed', {
-                  count: report.untrackedFailed.length,
-                  paths: summarizePaths(report.untrackedFailed),
-                })}
-              </li>
-            )}
-            {report.untrackedExtra.length === 0 ? null : (
-              <li data-testid="snapshot-report-extra">
-                {t('snapshots.report.extra', {
-                  count: report.untrackedExtra.length,
-                  paths: summarizePaths(report.untrackedExtra),
-                })}
-              </li>
-            )}
-          </ul>
-
-          {/* 紧急模式：给用户一份能照着做的恢复指引（命令一条一条可复制） */}
-          {report.emergency === null ? null : (
-            <div
-              className="flex flex-col gap-2 rounded-md border border-danger bg-danger/10 p-2"
-              data-testid="report-emergency"
-            >
-              <p className="font-medium">{t('snapshots.emergency.title')}</p>
-              <ul className="flex list-disc flex-col gap-1 pl-4 text-fg-muted">
-                {report.emergency.notes.map((note) => (
-                  <li key={note}>{note}</li>
-                ))}
-              </ul>
-              <p className="font-medium">{t('snapshots.emergency.commands')}</p>
-              <ul className="flex flex-col gap-1">
-                {report.emergency.commands.map((command) => (
-                  <li key={command} className="flex items-center gap-2">
-                    <code className="min-w-0 flex-1 truncate rounded-sm bg-surface-sunken px-1 font-mono">
-                      {command}
-                    </code>
-                    <button
-                      type="button"
-                      className="fd-transition shrink-0 rounded-sm border border-line px-1.5 hover:bg-surface-sunken"
-                      onClick={() => {
-                        void navigator.clipboard.writeText(command).catch(() => undefined);
-                      }}
-                    >
-                      {t('snapshots.emergency.copy')}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-              {report.emergency.backupDir === null ? null : (
-                <p className="text-fg-muted">
-                  {t('snapshots.emergency.backupDir', { dir: report.emergency.backupDir })}
-                </p>
-              )}
-            </div>
-          )}
-        </section>
+        <RestoreReportPanel
+          report={report}
+          onDismiss={() => {
+            setReport(null);
+          }}
+        />
       )}
 
       {listQuery.isPending ? (

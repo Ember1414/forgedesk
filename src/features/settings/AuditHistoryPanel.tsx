@@ -35,7 +35,13 @@ import {
 const PAGE_SIZE = 50;
 
 /** 界面认识的操作类型（稳定短名，与后端 `services::audit::op_type` 一一对应）。 */
-const OP_TYPES = [
+/**
+ * 操作类型短名清单（T3.10 起导出给操作历史页共用）。
+ *
+ * 导出而不是各写一份：两个页面展示同一份数据，多一份清单就会在某次新增操作类型时
+ * 漏掉一处——而漏掉的那处会把英文短名直接显示给用户。
+ */
+export const OP_TYPES = [
   'commit',
   'stage',
   'unstage',

@@ -42,6 +42,7 @@
     "commit": "Commit",
     "snapshots": "Snapshots",
     "history": "History",
+    "operations": "Operation history",
     "branches": "Branches",
     "conflict": "Conflicts",
     "terminal": "Terminal",
@@ -57,7 +58,9 @@
     "noRepo": "No repository open",
     "branchUnknown": "—",
     "idle": "Idle",
-    "jobs": "Background jobs"
+    "jobs": "Background jobs",
+    "rollbackPoint": "Rollback available",
+    "rollbackPointHint": "The last destructive operation left a rollback point; open the history to restore it"
   },
   "panel": {
     "title": "Details",
@@ -670,6 +673,47 @@
       "commands": "Run these in the repository directory (copyable):",
       "copy": "Copy",
       "backupDir": "Content backup directory: {{dir}}"
+    }
+  },
+  "operations": {
+    "title": "Operation history",
+    "description": "Every destructive operation takes a snapshot first; this is where you see them and can go back.",
+    "loading": "Loading operation history…",
+    "error": "Failed to load the operation history",
+    "empty": "No operations recorded yet",
+    "emptyHint": "After your first commit or destructive operation, its record (and rollback point) appears here.",
+    "total": "{{count}} record(s)",
+    "prev": "Previous",
+    "next": "Next",
+    "filter": {
+      "keyword": "Search",
+      "keywordPlaceholder": "Search arguments or failure text",
+      "opType": "Type",
+      "allTypes": "All types",
+      "onlyDangerous": "Destructive only",
+      "onlyReversible": "Rollbackable only"
+    },
+    "snapshot": {
+      "none": "No snapshot",
+      "restorable": "Rollbackable",
+      "gone": "Rollback point expired"
+    },
+    "detail": {
+      "expand": "Details",
+      "collapse": "Collapse",
+      "args": "Arguments (redacted)",
+      "stderr": "Failure detail",
+      "timing": "Timing",
+      "duration": "{{ms}} ms",
+      "exitCode": "exit {{code}}"
+    },
+    "rollback": {
+      "action": "Roll back to here",
+      "title": "Go back to before this step?",
+      "description": "The snapshot taken by this operation restores the working tree, the index and HEAD.",
+      "impactHead": "HEAD will move from {{oid}} back to where snapshot #{{snapshot}} was taken.",
+      "confirmHint": "I understand: staged and uncommitted changes will be dropped (untracked files are never deleted).",
+      "confirm": "Roll back"
     }
   },
   "commit": {

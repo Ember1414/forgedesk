@@ -26,6 +26,7 @@ const REPO_TABS = [
   { segment: 'status', labelKey: 'items.status' },
   { segment: 'commit', labelKey: 'items.commit' },
   { segment: 'snapshots', labelKey: 'items.snapshots' },
+  { segment: 'operations', labelKey: 'items.operations' },
   { segment: 'history', labelKey: 'items.history' },
   { segment: 'branches', labelKey: 'items.branches' },
   { segment: 'conflict', labelKey: 'items.conflict' },

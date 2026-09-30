@@ -112,3 +112,61 @@ export function auditExport(
 export function auditPrune(): Promise<AuditPruneResult> {
   return invokeCommand<AuditPruneResult>('audit_prune', {});
 }
+
+// ---------------------------------------------------------------- T3.10 操作历史
+
+/** 操作历史的筛选条件。 */
+export interface OperationHistoryFilter {
+  /** 只查某一类操作（稳定短名）。 */
+  readonly opType?: string | null;
+  /** 只看"危险操作"（清单在后端 `services::audit`，前端不重复一份）。 */
+  readonly onlyDangerous?: boolean;
+  /** 只看当时留下了回滚点的记录。 */
+  readonly onlyReversible?: boolean;
+  /** 关键词（同时匹配参数摘要与失败摘要）。 */
+  readonly keyword?: string | null;
+}
+
+/**
+ * 一条操作记录 + 它**此刻**是否仍可回滚。
+ *
+ * `canRollback` 与记录自带的 `reversible` 是两件事：
+ * 后者是"当时确实留下了回滚点"的历史事实，前者还要加一句"那个锚点现在还活着"。
+ * 界面只按 `canRollback` 决定给不给按钮。
+ */
+export interface OperationHistoryEntry extends AuditEntry {
+  readonly canRollback: boolean;
+}
+
+/** 一页操作历史。 */
+export interface OperationHistoryPage {
+  readonly total: number;
+  readonly entries: readonly OperationHistoryEntry[];
+}
+
+/**
+ * 操作历史：比 [`auditList`] 多回答"那条记录的回滚点现在还作数吗"。
+ *
+ * 锚点可能已经消失（外部 clone、gc、手工删 ref），而记录还在；
+ * 不核对就给出一排"回滚"按钮，用户点下去只会收到一个到不了的目标。
+ */
+export function operationHistory(
+  repoId: number,
+  filter: OperationHistoryFilter,
+  limit: number,
+  offset: number,
+): Promise<OperationHistoryPage> {
+  const keyword = filter.keyword?.trim() ?? '';
+  return invokeCommand<OperationHistoryPage>('operation_history', {
+    repoId,
+    filters: {
+      ...(filter.opType == null || filter.opType === '' ? {} : { opType: filter.opType }),
+      onlyDangerous: filter.onlyDangerous === true,
+      onlyReversible: filter.onlyReversible === true,
+      // 空关键词不传：后端把空串当"不筛"，但少传一个字段少一次歧义
+      ...(keyword === '' ? {} : { keyword }),
+    },
+    limit,
+    offset,
+  });
+}

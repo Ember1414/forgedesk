@@ -42,6 +42,7 @@
     "commit": "提交",
     "snapshots": "快照",
     "history": "历史",
+    "operations": "操作历史",
     "branches": "分支",
     "conflict": "冲突",
     "terminal": "终端",
@@ -57,7 +58,9 @@
     "noRepo": "未打开仓库",
     "branchUnknown": "—",
     "idle": "空闲",
-    "jobs": "后台任务"
+    "jobs": "后台任务",
+    "rollbackPoint": "可回滚",
+    "rollbackPointHint": "最近一次破坏性操作留下了可回滚点，点击查看并回滚"
   },
   "panel": {
     "title": "详情",
@@ -670,6 +673,47 @@
       "commands": "在仓库目录里逐条执行（可复制）：",
       "copy": "复制",
       "backupDir": "内容备份目录：{{dir}}"
+    }
+  },
+  "operations": {
+    "title": "操作历史",
+    "description": "每一次危险操作都会先打一个快照；这里能看到它们，并回到操作之前。",
+    "loading": "正在读取操作历史…",
+    "error": "读取操作历史失败",
+    "empty": "还没有操作记录",
+    "emptyHint": "完成第一次提交或一次破坏性操作后，这里会出现记录（以及可回滚点）。",
+    "total": "共 {{count}} 条记录",
+    "prev": "上一页",
+    "next": "下一页",
+    "filter": {
+      "keyword": "搜索",
+      "keywordPlaceholder": "按参数或失败信息搜索",
+      "opType": "类型",
+      "allTypes": "全部类型",
+      "onlyDangerous": "只看危险操作",
+      "onlyReversible": "只看可回滚"
+    },
+    "snapshot": {
+      "none": "无快照",
+      "restorable": "可回滚",
+      "gone": "回滚点已失效"
+    },
+    "detail": {
+      "expand": "详情",
+      "collapse": "收起",
+      "args": "参数（已脱敏）",
+      "stderr": "失败信息",
+      "timing": "耗时",
+      "duration": "{{ms}} ms",
+      "exitCode": "退出码 {{code}}"
+    },
+    "rollback": {
+      "action": "回滚到此",
+      "title": "回到这一步之前？",
+      "description": "将用这次操作留下的快照回滚工作区、索引与 HEAD。",
+      "impactHead": "HEAD 将从 {{oid}} 回到快照 #{{snapshot}} 记录的位置。",
+      "confirmHint": "我了解：已暂存与未提交的改动会被放弃（未跟踪文件不会被删除）。",
+      "confirm": "回滚"
     }
   },
   "commit": {

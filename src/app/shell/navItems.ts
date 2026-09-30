@@ -17,6 +17,7 @@ import {
   PanelsTopLeft,
   Puzzle,
   Settings,
+  ScrollText,
   SquareTerminal,
   TriangleAlert,
   Waypoints,
@@ -76,6 +77,13 @@ export const NAV_SECTIONS: readonly NavSection[] = [
         labelKey: 'items.branches',
         icon: Waypoints,
         segment: 'branches',
+        repoScoped: true,
+      },
+      {
+        id: 'operations',
+        labelKey: 'items.operations',
+        icon: ScrollText,
+        segment: 'operations',
         repoScoped: true,
       },
       {

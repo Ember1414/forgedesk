@@ -1,7 +1,31 @@
+import { useQuery } from '@tanstack/react-query';
+import { RotateCcw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { Link } from 'react-router-dom';
 
 import { useCurrentRepo } from '@/features/repo/recentRepos';
+import { operationHistory } from '@/lib/ipc/audit';
+import { OPERATION_HISTORY_QUERY_KEY } from '@/lib/queryKeys';
 import { countActiveJobs, useJobStore } from '@/stores/jobStore';
+
+/**
+ * 最近一次**仍可回滚**的破坏性操作（T3.10 的状态栏指示器）。
+ *
+ * 只查一条：状态栏不是列表，它只回答"现在有没有一个能回去的点"。
+ * 查询条件用 `onlyReversible`（当时确实留了点的记录），再用 `canRollback`
+ * 过滤掉锚点已失效的那些——两者缺一不可：前者是历史，后者是现状。
+ */
+function useLatestRollbackPoint(repoId: number | null) {
+  const query = useQuery({
+    queryKey: [OPERATION_HISTORY_QUERY_KEY, 'latest', repoId ?? 0],
+    queryFn: () => operationHistory(repoId ?? 0, { onlyReversible: true }, 1, 0),
+    enabled: repoId !== null && Number.isFinite(repoId),
+    // 状态栏不追实时：10 秒内复用结果，避免每次路由切换都打一次 IPC
+    staleTime: 10_000,
+  });
+  const first = query.data?.entries[0];
+  return first !== undefined && first.canRollback ? first : null;
+}
 
 /**
  * 底部状态栏：当前仓库 / 分支 / 操作状态 / 后台任务。
@@ -24,6 +48,7 @@ export function StatusBar() {
 
   const repo = useCurrentRepo();
   const activeJobs = countActiveJobs(jobs);
+  const rollbackPoint = useLatestRollbackPoint(repo?.id ?? null);
 
   return (
     <footer
@@ -45,6 +70,23 @@ export function StatusBar() {
       </span>
 
       {/* 状态栏只到"哪个仓库"这一层：真正的分支与操作状态属于工作区页 */}
+
+      {/*
+        最近可回滚点（T3.10）：本产品最要紧的一句"我现在还回得去"。
+        没有可回滚点时它**完全不出现**——状态栏的显眼必须建立在"平时安静"之上，
+        否则它会变成一块常年亮着、但没人再看的警示牌。
+      */}
+      {rollbackPoint === null || rollbackPoint.snapshotId === null ? null : (
+        <Link
+          to={`/repo/${String(rollbackPoint.repoId)}/operations`}
+          className="flex items-center gap-1 rounded-sm border border-brand-subtle bg-brand-subtle px-1.5 text-brand"
+          title={t('statusBar.rollbackPointHint')}
+          data-testid="status-rollback-point"
+        >
+          <RotateCcw aria-hidden="true" className="size-3" />
+          {t('statusBar.rollbackPoint')}
+        </Link>
+      )}
 
       <span className="ml-auto flex items-center gap-1.5">
         <span aria-hidden="true" className="size-1.5 rounded-full bg-success" />
