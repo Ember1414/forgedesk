@@ -57,8 +57,9 @@ pub use account::{
     account_remove, AccountDto, DeviceFlowSessionDto,
 };
 pub use audit::{
-    audit_export, audit_list, audit_prune, record_with, AuditEntryDto, AuditExportDto,
-    AuditPageDto, AuditPruneDto,
+    audit_export, audit_list, audit_prune, collect_history, operation_history, record_with,
+    AuditEntryDto, AuditExportDto, AuditPageDto, AuditPruneDto, OperationFiltersDto,
+    OperationHistoryDto, OperationHistoryEntryDto,
 };
 pub use branch::{
     git_branch_compare, git_branch_create, git_branch_delete, git_branch_rename,

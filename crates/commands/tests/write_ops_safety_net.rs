@@ -25,7 +25,10 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use forgedesk_commands::{record_with, ResetOutcomeDto, StashDiscardDto, StashSaveDto};
+use forgedesk_commands::{
+    collect_history, record_with, OperationFiltersDto, ResetOutcomeDto, StashDiscardDto,
+    StashSaveDto,
+};
 use forgedesk_domain::git::{
     CherryPickSpec, ResetMode, ResetSpec, RevertSpec, StashAction, StashSpec,
 };
@@ -34,9 +37,10 @@ use forgedesk_services::{
     AuditArgs, AuditEntry, AuditLog, GitEngines, HistoryOpsService, RepositoryService,
     ResetPlanRegistry, StashService,
 };
-use forgedesk_snapshot::RefSnapshotManager;
+use forgedesk_snapshot::{RefSnapshotManager, SnapshotKind, SnapshotManager, SnapshotRequest};
 use forgedesk_storage::{
-    migrate, Database, OperationQuery, OperationStore, RepositoryStore, SnapshotStore,
+    migrate, Database, NewOperation, OperationOutcome, OperationQuery, OperationStore,
+    RepositoryStore, SnapshotStore,
 };
 
 // ---------------------------------------------------------------- 工具
@@ -124,6 +128,8 @@ struct Harness {
     history_ops: HistoryOpsService<'static>,
     stash: StashService<'static>,
     snapshots: &'static SnapshotStore<'static>,
+    /// 快照管理器本体（T3.10 的操作历史要问它"这个回滚点现在还算数吗"）。
+    snapshot_manager: &'static RefSnapshotManager,
     operations: &'static OperationStore<'static>,
     dir: std::path::PathBuf,
 }
@@ -179,6 +185,7 @@ fn harness(label: &str) -> Harness {
             history_ops,
             stash,
             snapshots: Box::leak(Box::new(SnapshotStore::new(database_static))),
+            snapshot_manager: snapshots_manager,
             operations: Box::leak(Box::new(OperationStore::new(database_static))),
             dir: dir_path,
         }
@@ -209,6 +216,7 @@ impl Harness {
                 to_ms: None,
                 limit: 50,
                 offset: 0,
+                ..OperationQuery::default()
             })
             .expect("读审计失败");
         assert!(!page.is_empty(), "op_type={op_type} 应至少有一条审计记录");
@@ -534,4 +542,168 @@ fn stash_pop_spec(index: usize) -> StashSpec {
         paths: Vec::new(),
         restore_index: false,
     }
+}
+
+// ---------------------------------------------------------------- T3.10 操作历史
+
+/// 操作历史（T3.10）：记录、关联快照、"现在还能不能回滚"，以及三种筛选。
+///
+/// 最要紧的一条断言是最后那段：**锚点被外部删掉之后，`can_rollback` 必须变成
+/// false，而记录里的 `reversible` 保持不变**。前者决定界面上有没有按钮，
+/// 后者是"当时确实打过点"的历史事实——把历史改写成"当时也没打过点"是另一种谎言。
+#[test]
+fn operation_history_pairs_records_with_their_still_restorable_snapshots() {
+    let harness = harness("operation-history");
+    commit_at(&harness.dir, "a.txt", "one\n", "初始提交", 1_700_000_000);
+
+    // 一份真实快照（任何会打点的写操作留下的就是这种）
+    let snapshot_id = harness
+        .snapshot_manager
+        .create(&SnapshotRequest {
+            repo_id: harness.repo_id,
+            workdir: &harness.dir,
+            label: "manual",
+            kind: SnapshotKind::Manual,
+        })
+        .expect("创建快照失败")
+        .id;
+
+    // 一条带快照的危险操作（reset --hard），一条不带快照的危险操作（stash drop）
+    let with_snapshot = harness
+        .operations
+        .begin(&NewOperation {
+            repo_id: harness.repo_id,
+            op_type: op_type::RESET,
+            args_json: Some("{\"mode\":\"hard\"}"),
+            started_at_ms: 1_700_000_100_000,
+        })
+        .expect("写记录失败");
+    harness
+        .operations
+        .finish(
+            with_snapshot,
+            &OperationOutcome {
+                ended_at_ms: 1_700_000_100_050,
+                exit_code: Some(0),
+                stderr_summary: None,
+                snapshot_id: Some(snapshot_id),
+                reversible: true,
+            },
+        )
+        .expect("收尾失败");
+
+    let without_snapshot = harness
+        .operations
+        .begin(&NewOperation {
+            repo_id: harness.repo_id,
+            op_type: op_type::STASH_DROP,
+            args_json: Some("{\"index\":0,\"oid\":\"deadbeef\"}"),
+            started_at_ms: 1_700_000_200_000,
+        })
+        .expect("写记录失败");
+    harness
+        .operations
+        .finish(
+            without_snapshot,
+            &OperationOutcome {
+                ended_at_ms: 1_700_000_200_010,
+                exit_code: Some(0),
+                stderr_summary: Some("dropped stash 0"),
+                snapshot_id: None,
+                reversible: false,
+            },
+        )
+        .expect("收尾失败");
+
+    let query = |filters: OperationFiltersDto| {
+        collect_history(
+            &harness.audit,
+            harness.snapshot_manager,
+            harness.repo_id,
+            filters,
+            None,
+            None,
+        )
+        .expect("查询操作历史失败")
+    };
+
+    // 全量：两条都在，各自按自己的事实标注
+    let all = query(OperationFiltersDto::default());
+    assert_eq!(all.total, 2);
+    let reset = all
+        .entries
+        .iter()
+        .find(|entry| entry.operation.op_type == op_type::RESET)
+        .expect("应有 reset 记录");
+    assert!(reset.can_rollback, "锚点还在 → 应标为可回滚");
+    let dropped = all
+        .entries
+        .iter()
+        .find(|entry| entry.operation.op_type == op_type::STASH_DROP)
+        .expect("应有 stash_drop 记录");
+    assert!(!dropped.can_rollback, "没有快照 → 不可回滚");
+
+    // 只看危险操作：两条都属于（清单在 services::audit）
+    assert_eq!(
+        query(OperationFiltersDto {
+            only_dangerous: true,
+            ..OperationFiltersDto::default()
+        })
+        .total,
+        2
+    );
+
+    // 只看可回滚：只有 reset 那条
+    let reversible = query(OperationFiltersDto {
+        only_reversible: true,
+        ..OperationFiltersDto::default()
+    });
+    assert_eq!(reversible.total, 1);
+    assert_eq!(reversible.entries[0].operation.op_type, op_type::RESET);
+
+    // 关键词：参数摘要与 stderr 摘要都能命中
+    let by_args = query(OperationFiltersDto {
+        keyword: Some("hard".to_owned()),
+        ..OperationFiltersDto::default()
+    });
+    assert_eq!(by_args.total, 1);
+    assert_eq!(by_args.entries[0].operation.op_type, op_type::RESET);
+
+    let by_stderr = query(OperationFiltersDto {
+        keyword: Some("dropped".to_owned()),
+        ..OperationFiltersDto::default()
+    });
+    assert_eq!(by_stderr.total, 1);
+    assert_eq!(by_stderr.entries[0].operation.op_type, op_type::STASH_DROP);
+
+    // 按类型筛
+    let by_type = query(OperationFiltersDto {
+        op_type: Some(op_type::STASH_DROP.to_owned()),
+        ..OperationFiltersDto::default()
+    });
+    assert_eq!(by_type.total, 1);
+
+    // 锚点被外部删掉（手工删 ref / 别的工具 gc）：记录还在，按钮该消失
+    git_ok(
+        &harness.dir,
+        &[
+            "update-ref",
+            "-d",
+            &format!("refs/forgedesk/snapshots/{snapshot_id}"),
+        ],
+    );
+    let after = query(OperationFiltersDto::default());
+    let reset_after = after
+        .entries
+        .iter()
+        .find(|entry| entry.operation.op_type == op_type::RESET)
+        .expect("记录本身不该消失");
+    assert!(
+        !reset_after.can_rollback,
+        "锚点没了 → 不能再给出一个点下去必然失败的回滚入口"
+    );
+    assert!(
+        reset_after.operation.reversible,
+        "但当时确实留下了回滚点，这是历史事实，不该被改写"
+    );
 }

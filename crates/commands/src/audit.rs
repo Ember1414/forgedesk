@@ -111,12 +111,156 @@ pub fn audit_list(
         to_ms,
         limit: limit.unwrap_or(OperationQuery::DEFAULT_LIMIT),
         offset: offset.unwrap_or(0),
+        // 原始审计查询不做"危险/可回滚/关键词"这三项收窄：那些是操作历史页的筛选
+        ..OperationQuery::default()
     };
 
     let page = state.audit_service().query(&query)?;
     Ok(AuditPageDto {
         total: page.total,
         entries: page.records.into_iter().map(to_dto).collect(),
+    })
+}
+
+/// 操作历史的筛选条件（T3.10）。
+///
+/// 每个字段都是"可选收窄"，与 `OperationQuery` 同一套语义。
+#[derive(Debug, Clone, Default, serde::Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct OperationFiltersDto {
+    /// 只查某一类操作（稳定短名）。
+    pub op_type: Option<String>,
+    /// 只看"危险操作"（清单在 `services::audit::DANGEROUS_OP_TYPES`）。
+    pub only_dangerous: bool,
+    /// 只看当时留下了回滚点的记录。
+    pub only_reversible: bool,
+    /// 关键词（匹配参数摘要与 stderr 摘要）。
+    pub keyword: Option<String>,
+}
+
+/// 一条操作记录 + 它**此刻**是否仍可回滚。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OperationHistoryEntryDto {
+    /// 记录本体（字段平铺：前端把一条记录当普通审计行用）。
+    #[serde(flatten)]
+    pub operation: AuditEntryDto,
+    /// 现在还能不能回滚：记录标记为可回滚 **且** 快照的锚点此刻仍在。
+    pub can_rollback: bool,
+}
+
+/// 一页操作历史。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OperationHistoryDto {
+    /// 满足条件的总数（不受分页影响）。
+    pub total: i64,
+    /// 当前页。
+    pub entries: Vec<OperationHistoryEntryDto>,
+}
+
+/// 操作历史（T3.10）。能力等级：`ReadOnly`。
+///
+/// 与 [`audit_list`] 的分工：那是**原始审计查询**（设置页的审计面板，面向排查），
+/// 本命令面向**操作历史页**——它多回答一个问题："那条记录的回滚点，现在还作数吗？"
+/// 锚点会消失（外部 clone、`git gc`、手工删 ref），而记录还在；不核对就给出一排
+/// "回滚"按钮，用户点下去只会收到一个到不了的目标。
+#[tauri::command]
+pub fn operation_history(
+    state: State<'_, AppState>,
+    repo_id: i64,
+    filters: Option<OperationFiltersDto>,
+    limit: Option<usize>,
+    offset: Option<usize>,
+) -> AppResult<OperationHistoryDto> {
+    if repo_id <= 0 {
+        return Err(forgedesk_domain::AppError::new(
+            forgedesk_domain::ErrorCode::Validation,
+            "repoId must be a positive record id",
+        ));
+    }
+    collect_history(
+        &state.audit_service(),
+        state.snapshots.as_ref(),
+        repo_id,
+        filters.unwrap_or_default(),
+        limit,
+        offset,
+    )
+}
+
+/// 操作历史的查询主逻辑（命令壳只负责参数校验）。
+///
+/// 为什么要抽出来：命令函数带 `State<'_, AppState>`，测试里构造它要把整个宿主
+/// 状态搬出来；而这段逻辑只依赖两个能力——审计查询与快照管理。抽出来之后，
+/// "记录 + 回滚点是否仍作数"的判据可以在真实仓库上直接测。
+pub fn collect_history(
+    audit: &forgedesk_services::AuditLog<'_>,
+    snapshots: &dyn forgedesk_snapshot::SnapshotManager,
+    repo_id: i64,
+    filters: OperationFiltersDto,
+    limit: Option<usize>,
+    offset: Option<usize>,
+) -> AppResult<OperationHistoryDto> {
+    let query = OperationQuery {
+        repo_id: Some(repo_id),
+        op_type: normalize_op_type(filters.op_type)?,
+        op_types: if filters.only_dangerous {
+            Some(
+                forgedesk_services::audit::DANGEROUS_OP_TYPES
+                    .iter()
+                    .map(|value| (*value).to_owned())
+                    .collect(),
+            )
+        } else {
+            None
+        },
+        keyword: filters.keyword.filter(|value| !value.trim().is_empty()),
+        from_ms: None,
+        to_ms: None,
+        reversible_only: filters.only_reversible,
+        limit: limit
+            .unwrap_or(OperationQuery::DEFAULT_LIMIT)
+            .clamp(1, OperationQuery::MAX_LIMIT),
+        offset: offset.unwrap_or(0),
+    };
+
+    let page = audit.query(&query)?;
+
+    // 一次问清这一页引用到的所有快照（去重）：逐条问会把 50 条记录变成 50 次 git 调用
+    let mut ids: Vec<forgedesk_snapshot::SnapshotId> = page
+        .records
+        .iter()
+        .filter_map(|record| record.snapshot_id)
+        .collect();
+    ids.sort_unstable();
+    ids.dedup();
+    let restorable: std::collections::HashSet<forgedesk_snapshot::SnapshotId> = if ids.is_empty() {
+        std::collections::HashSet::new()
+    } else {
+        snapshots
+            .restorable(repo_id, &ids)
+            .map_err(|error| forgedesk_domain::AppError::new(error.code(), error.message()))?
+            .into_iter()
+            .collect()
+    };
+
+    Ok(OperationHistoryDto {
+        total: page.total,
+        entries: page
+            .records
+            .into_iter()
+            .map(|record| {
+                let can_rollback = record.reversible
+                    && record
+                        .snapshot_id
+                        .is_some_and(|id| restorable.contains(&id));
+                OperationHistoryEntryDto {
+                    operation: to_dto(record),
+                    can_rollback,
+                }
+            })
+            .collect(),
     })
 }
 
@@ -141,6 +285,8 @@ pub fn audit_export(
         to_ms,
         offset: 0,
         limit: OperationQuery::MAX_LIMIT,
+        // 导出是"把所有匹配的记录倒出去"，不套用操作历史页的收窄项
+        ..OperationQuery::default()
     };
 
     let audit = state.audit_service();
