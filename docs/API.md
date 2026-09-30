@@ -1512,6 +1512,30 @@ identity 文件）、`TLS_CERTIFICATE_REJECTED`（自签名或证书链不完整
 | `account_list` | ReadOnly | — | `Account[]`（按创建时间排序） |
 | `account_remove` | Mutating | `accountId` | `()`；先删凭据库条目再删账号行；未知 id → `NOT_FOUND` |
 
+### Pull Request（T4.7 第一批：列表 / 详情 / review / 合并）
+
+PR 命令走与仓库命令同一套 HTTP 底座与账号解析（绑定账号 → host 默认账号）。
+合并的错误语义（docs/PLAN.md"失败返回可读原因"）：
+
+| 状态 | 语义 | 错误码 / hint |
+| --- | --- | --- |
+| 405 | 不可合并（冲突未解 / 分支保护 / 已合并） | `VALIDATION` + `not-mergeable` |
+| 409 | head 与服务器不一致 | `GIT_CONFLICT` + `conflict` |
+| 422 | `expectedHeadSha` 预检不匹配（远端版 PLAN_STALE） | `VALIDATION` + `head-changed` |
+
+GitHub 的可读 message 原样保留在 `message`/`detail`。删除源分支在合并**成功之后**
+单独执行，删除失败不影响合并结果（`branchDeleted` 如实上报）。
+
+| 命令 | 能力 | 参数 | 返回 / 说明 |
+| --- | --- | --- | --- |
+| `repo_pull_list` | Network | request：`{ host, owner, repo, repoId?, stateFilter?, page?, perPage? }` | `PullPage`：`{ items: PullSummary[], nextPage? }`；`stateFilter ∈ "open" / "closed" / "all"`（缺省 open） |
+| `repo_pull_get` | Network | `host, owner, repo, number, repoId?` | `PullDetail`：结构化字段 + `bodyHtml`（描述已消毒，原文不出后端）+ `mergeable`/`mergeableState`/`headSha`/变更统计 |
+| `repo_pull_reviews` | Network | `host, owner, repo, number, repoId?` | `PullReview[]`：`{ id, author, state, body?, submittedAt? }` |
+| `repo_pull_merge` | Network | request：`{ host, owner, repo, number, strategy, repoId?, commitTitle?, commitMessage?, expectedHeadSha?, deleteBranch?, headBranch? }` | `MergeOutcome`：`{ merged, sha?, message?, branchDeleted }`；`strategy ∈ "merge" / "squash" / "rebase"` |
+
+`PullSummary`：`{ number, title, state, draft, merged, author, headLabel, baseLabel, htmlUrl,
+createdAt?, updatedAt? }`。
+
 **多账号与仓库绑定（T4.5）**：克隆/push/fetch/pull 所用账号按远端 host 匹配已保存账号；
 同一 host 有多个账号时，按"仓库绑定的账号 → URL 里的用户名 → 最早登录的账号"挑人。
 绑定命令见下一节。

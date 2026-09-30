@@ -26,7 +26,8 @@ use crate::credentials::SharedStore;
 use forgedesk_credentials::CredentialRef;
 use forgedesk_domain::{AppError, AppResult, ErrorCode};
 use forgedesk_provider::{
-    GitHubHttp, GitHubProvider, HostProvider, RemoteRepo, RepoListScope, RepoPage,
+    GitHubHttp, GitHubProvider, HostProvider, MergeOutcome, MergePullRequest, PullPage,
+    PullRequestDetail, PullReview, PullState, RemoteRepo, RepoListScope, RepoPage,
 };
 use forgedesk_storage::{AccountStore, Database, Scope, SettingsRepository};
 use secrecy::SecretString;
@@ -241,6 +242,87 @@ impl HostRepoService {
         provider.repos().fork(token, owner, repo).await
     }
 
+    // ---- Pull Request（T4.7）----
+
+    /// 列出 PR（需要登录；token 解析与仓库列表同一套）。
+    pub async fn list_pulls(
+        &self,
+        target: &RemoteRepoRef,
+        query: PullListQuery,
+    ) -> AppResult<PullPage> {
+        let provider = self.provider_for(&target.host)?;
+        let token = self.require_token(&target.host, target.repo_id).await?;
+        provider
+            .pulls()
+            .list_pulls(
+                token,
+                &target.owner,
+                &target.repo,
+                query.state,
+                query.page,
+                query.per_page,
+            )
+            .await
+    }
+
+    /// PR 详情。描述 Markdown 在此消毒为 HTML（`bodyHtml`），
+    /// 原文不越过 IPC（provider 侧已 `skip_serializing`，这里是双保险）。
+    pub async fn get_pull(
+        &self,
+        host: &str,
+        repo_id: Option<i64>,
+        owner: &str,
+        repo: &str,
+        number: u64,
+    ) -> AppResult<PullDetailView> {
+        let provider = self.provider_for(host)?;
+        let token = self.require_token(host, repo_id).await?;
+        let mut detail = provider
+            .pulls()
+            .get_pull(token, owner, repo, number)
+            .await?;
+        let body_html = detail
+            .body_markdown
+            .take()
+            .map(|markdown| crate::readme::render_readme(&markdown));
+        Ok(PullDetailView { detail, body_html })
+    }
+
+    /// PR 的 review 列表。
+    pub async fn list_reviews(
+        &self,
+        host: &str,
+        repo_id: Option<i64>,
+        owner: &str,
+        repo: &str,
+        number: u64,
+    ) -> AppResult<Vec<PullReview>> {
+        let provider = self.provider_for(host)?;
+        let token = self.require_token(host, repo_id).await?;
+        provider
+            .pulls()
+            .list_reviews(token, owner, repo, number)
+            .await
+    }
+
+    /// 合并 PR（三策略 + 可选删源分支；错误语义见 provider::pulls 模块文档）。
+    pub async fn merge_pull(
+        &self,
+        host: &str,
+        repo_id: Option<i64>,
+        owner: &str,
+        repo: &str,
+        number: u64,
+        merge: MergePullRequest,
+    ) -> AppResult<MergeOutcome> {
+        let provider = self.provider_for(host)?;
+        let token = self.require_token(host, repo_id).await?;
+        provider
+            .pulls()
+            .merge_pull(token, owner, repo, number, merge)
+            .await
+    }
+
     /// 拉取并**安全渲染**仓库 README（T4.6）：返回的是白名单化 HTML，
     /// 前端不接触原始 Markdown（清洗规则见 [`crate::readme`]，XSS 用例在
     /// 那里穷举）。匿名可用（公开仓库）。
@@ -267,6 +349,40 @@ impl HostRepoService {
             .with_hint(host.to_owned())
         })
     }
+}
+
+/// 一个远端仓库的定位：站点 + 绑定来源 + owner/name。
+#[derive(Debug, Clone)]
+pub struct RemoteRepoRef {
+    /// 站点（`github.com`）。
+    pub host: String,
+    /// 本地仓库 id（绑定解析来源；远端浏览场景为 `None`）。
+    pub repo_id: Option<i64>,
+    /// 所有者。
+    pub owner: String,
+    /// 仓库名。
+    pub repo: String,
+}
+
+/// PR 列表的查询参数。
+#[derive(Debug, Clone, Copy)]
+pub struct PullListQuery {
+    /// 状态过滤。
+    pub state: PullState,
+    /// 页码。
+    pub page: Option<u32>,
+    /// 每页条数。
+    pub per_page: Option<u32>,
+}
+
+/// PR 详情的 IPC 视图：结构化字段 + 消毒后的描述 HTML。
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PullDetailView {
+    /// 详情字段（`body_markdown` 已被取走，序列化为 null/缺失）。
+    pub detail: PullRequestDetail,
+    /// 描述的消毒 HTML（无描述为 `None`）。
+    pub body_html: Option<String>,
 }
 
 /// 取账号记录里保存的 credential_ref 字符串。

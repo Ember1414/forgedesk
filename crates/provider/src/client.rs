@@ -165,6 +165,16 @@ impl ApiRequest {
         Self::new(reqwest::Method::POST, url).with_form(form)
     }
 
+    /// 构造一个 PUT 请求（JSON 体）。
+    pub fn put_json(url: impl Into<String>, body: serde_json::Value) -> Self {
+        Self::new(reqwest::Method::PUT, url).with_body(body)
+    }
+
+    /// 构造一个 DELETE 请求。
+    pub fn delete(url: impl Into<String>) -> Self {
+        Self::new(reqwest::Method::DELETE, url)
+    }
+
     /// 附加 URL 查询参数（值由 reqwest 编码）。
     #[must_use]
     pub fn with_query(mut self, query: Vec<(String, String)>) -> Self {
@@ -408,6 +418,13 @@ pub(crate) fn map_github_failure(
         reqwest::StatusCode::NOT_FOUND => AppError::new(
             NotFound,
             github_message(message.as_deref(), "resource not found"),
+        ),
+        reqwest::StatusCode::CONFLICT => AppError::new(
+            ErrorCode::GitConflict,
+            github_message(
+                message.as_deref(),
+                "the request conflicts with the current state",
+            ),
         ),
         reqwest::StatusCode::UNPROCESSABLE_ENTITY => AppError::new(
             Validation,

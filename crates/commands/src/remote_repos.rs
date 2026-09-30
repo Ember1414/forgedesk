@@ -20,14 +20,270 @@
 //! 一律校验非空并小写化；owner/repo 的合法性由 provider 层在拼 URL 前
 //! 二次校验（含 `/` 或空段直接 `VALIDATION`）。
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::State;
 
 use forgedesk_domain::{AppError, AppResult, ErrorCode};
-use forgedesk_provider::{RemoteRepo, RepoListScope, RepoPage};
+use forgedesk_provider::{
+    MergeOutcome, MergePullRequest, MergeStrategy, PullPage, PullReview, PullState, RemoteRepo,
+    RepoListScope, RepoPage,
+};
 
 use crate::account::AccountDto;
 use crate::state::AppState;
+use forgedesk_services::host_repos::PullDetailView;
+
+/// PR 详情 DTO：结构化字段 + 消毒后的描述 HTML（原文不出后端）。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PullDetailDto {
+    /// PR 编号。
+    pub number: u64,
+    /// 标题。
+    pub title: String,
+    /// `open` / `closed`。
+    pub state: String,
+    /// 是否草稿。
+    pub draft: bool,
+    /// 是否已合并。
+    pub merged: bool,
+    /// 发起人。
+    pub author: String,
+    /// 源分支标签。
+    pub head_label: String,
+    /// 目标分支标签。
+    pub base_label: String,
+    /// 当前 head sha（合并预检用）。
+    pub head_sha: String,
+    /// 网页地址。
+    pub html_url: String,
+    /// 描述的消毒 HTML。
+    pub body_html: Option<String>,
+    /// 变更文件数。
+    pub changed_files: u64,
+    /// 新增行数。
+    pub additions: u64,
+    /// 删除行数。
+    pub deletions: u64,
+    /// 是否可合并。
+    pub mergeable: Option<bool>,
+    /// 合并状态（`clean`/`dirty`/`blocked`…）。
+    pub mergeable_state: Option<String>,
+    /// 创建时间。
+    pub created_at: Option<String>,
+    /// 最近更新。
+    pub updated_at: Option<String>,
+}
+
+impl From<PullDetailView> for PullDetailDto {
+    fn from(view: PullDetailView) -> Self {
+        let detail = view.detail;
+        let summary = detail.summary;
+        Self {
+            number: summary.number,
+            title: summary.title,
+            state: summary.state,
+            draft: summary.draft,
+            merged: summary.merged,
+            author: summary.author,
+            head_label: summary.head_label,
+            base_label: summary.base_label,
+            head_sha: detail.head_sha,
+            html_url: summary.html_url,
+            body_html: view.body_html,
+            changed_files: detail.changed_files,
+            additions: detail.additions,
+            deletions: detail.deletions,
+            mergeable: detail.mergeable,
+            mergeable_state: detail.mergeable_state,
+            created_at: summary.created_at,
+            updated_at: summary.updated_at,
+        }
+    }
+}
+
+/// `repo_pull_list` 的请求体。
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PullListRequest {
+    /// 站点。
+    pub host: String,
+    /// 所有者。
+    pub owner: String,
+    /// 仓库名。
+    pub repo: String,
+    /// 本地仓库 id（绑定解析来源；远端浏览场景可省）。
+    #[serde(default)]
+    pub repo_id: Option<i64>,
+    /// 状态过滤（`open` / `closed` / `all`；缺省 open）。
+    #[serde(default)]
+    pub state_filter: Option<String>,
+    /// 页码。
+    #[serde(default)]
+    pub page: Option<u32>,
+    /// 每页条数。
+    #[serde(default)]
+    pub per_page: Option<u32>,
+}
+
+/// `repo_pull_merge` 的请求体。
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PullMergeRequest {
+    /// 站点。
+    pub host: String,
+    /// 所有者。
+    pub owner: String,
+    /// 仓库名。
+    pub repo: String,
+    /// PR 编号。
+    pub number: u64,
+    /// 合并策略（`merge` / `squash` / `rebase`）。
+    pub strategy: String,
+    /// 本地仓库 id（可省）。
+    #[serde(default)]
+    pub repo_id: Option<i64>,
+    /// 自定义提交标题。
+    #[serde(default)]
+    pub commit_title: Option<String>,
+    /// 自定义提交正文。
+    #[serde(default)]
+    pub commit_message: Option<String>,
+    /// 预检 head sha（远端版 PLAN_STALE 的判定输入）。
+    #[serde(default)]
+    pub expected_head_sha: Option<String>,
+    /// 合并后删除源分支（需要 `headBranch` 齐备）。
+    #[serde(default)]
+    pub delete_branch: Option<bool>,
+    /// 源分支名（refs API 认 branch 而非 `owner:branch`）。
+    #[serde(default)]
+    pub head_branch: Option<String>,
+}
+
+fn parse_pull_state(state: Option<String>) -> AppResult<PullState> {
+    match state.as_deref().map(str::trim) {
+        None | Some("") | Some("open") => Ok(PullState::Open),
+        Some("closed") => Ok(PullState::Closed),
+        Some("all") => Ok(PullState::All),
+        Some(other) => Err(AppError::new(
+            ErrorCode::Validation,
+            format!("unknown pull state: {other}"),
+        )),
+    }
+}
+
+fn parse_strategy(strategy: &str) -> AppResult<MergeStrategy> {
+    match strategy.trim() {
+        "merge" => Ok(MergeStrategy::Merge),
+        "squash" => Ok(MergeStrategy::Squash),
+        "rebase" => Ok(MergeStrategy::Rebase),
+        other => Err(AppError::new(
+            ErrorCode::Validation,
+            format!("unknown merge strategy: {other}"),
+        )),
+    }
+}
+
+fn parse_number(number: u64) -> AppResult<u64> {
+    if number == 0 {
+        return Err(AppError::new(
+            ErrorCode::Validation,
+            "pull request number must be positive",
+        ));
+    }
+    Ok(number)
+}
+
+/// 列出 PR。能力等级：`Network`。
+#[tauri::command]
+pub async fn repo_pull_list(
+    state: State<'_, AppState>,
+    request: PullListRequest,
+) -> AppResult<PullPage> {
+    let host = validate_host(&request.host)?;
+    let pull_state = parse_pull_state(request.state_filter)?;
+    let target = forgedesk_services::host_repos::RemoteRepoRef {
+        host,
+        repo_id: request.repo_id,
+        owner: request.owner,
+        repo: request.repo,
+    };
+    let query = forgedesk_services::host_repos::PullListQuery {
+        state: pull_state,
+        page: request.page,
+        per_page: request.per_page,
+    };
+    state.host_repos.list_pulls(&target, query).await
+}
+
+/// PR 详情（描述已消毒为 HTML）。能力等级：`Network`。
+#[tauri::command]
+pub async fn repo_pull_get(
+    state: State<'_, AppState>,
+    host: String,
+    owner: String,
+    repo: String,
+    number: u64,
+    repo_id: Option<i64>,
+) -> AppResult<PullDetailDto> {
+    let host = validate_host(&host)?;
+    let number = parse_number(number)?;
+    let view = state
+        .host_repos
+        .get_pull(&host, repo_id, &owner, &repo, number)
+        .await?;
+    Ok(PullDetailDto::from(view))
+}
+
+/// PR 的 review 列表。能力等级：`Network`。
+#[tauri::command]
+pub async fn repo_pull_reviews(
+    state: State<'_, AppState>,
+    host: String,
+    owner: String,
+    repo: String,
+    number: u64,
+    repo_id: Option<i64>,
+) -> AppResult<Vec<PullReview>> {
+    let host = validate_host(&host)?;
+    let number = parse_number(number)?;
+    state
+        .host_repos
+        .list_reviews(&host, repo_id, &owner, &repo, number)
+        .await
+}
+
+/// 合并 PR。能力等级：`Network`。
+///
+/// `expectedHeadSha` 是 UI 打开详情时抓下的 head：远端又有新提交时合并
+/// 会被 422 拒绝（`hint = "head-changed"`），这是远端版 PLAN_STALE。
+#[tauri::command]
+pub async fn repo_pull_merge(
+    state: State<'_, AppState>,
+    request: PullMergeRequest,
+) -> AppResult<MergeOutcome> {
+    let host = validate_host(&request.host)?;
+    let number = parse_number(request.number)?;
+    let merge = MergePullRequest {
+        strategy: parse_strategy(&request.strategy)?,
+        commit_title: request.commit_title,
+        commit_message: request.commit_message,
+        expected_head_sha: request.expected_head_sha,
+        delete_branch: request.delete_branch.unwrap_or(false),
+        head_branch: request.head_branch,
+    };
+    state
+        .host_repos
+        .merge_pull(
+            &host,
+            request.repo_id,
+            &request.owner,
+            &request.repo,
+            number,
+            merge,
+        )
+        .await
+}
 
 /// 远端仓库分页（provider 的 [`RepoPage`] 已是 camelCase，原样透出）。
 #[derive(Debug, Clone, Serialize)]

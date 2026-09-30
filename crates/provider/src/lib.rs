@@ -29,6 +29,7 @@
 
 /// Provider 的基础标识模型。
 pub mod model;
+pub mod pulls;
 /// host / 远端 URL → provider 的绑定表。
 pub mod registry;
 /// `HostProvider` trait 树（业务层唯一可见的抽象）。
@@ -61,6 +62,10 @@ pub use auth::{
 pub use client::{ApiRequest, GitHubHttp, HttpConfig};
 pub use error::map_octocrab_error;
 pub use github::GitHubProvider;
+pub use pulls::{
+    MergeOutcome, MergePullRequest, MergeStrategy, PullPage, PullRequestDetail, PullRequestSummary,
+    PullReview, PullState,
+};
 pub use rate_limit::{RateLimitState, RateLimitTracker};
 pub use repos::{RemoteRepo, RepoListScope, RepoPage};
 

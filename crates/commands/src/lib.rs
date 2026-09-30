@@ -109,6 +109,10 @@ pub use remote_repos::{
     repo_remote_readme, repo_remote_search, repo_remote_star, repo_remote_starred, RemoteRepoDto,
     RepoPageDto,
 };
+pub use remote_repos::{
+    repo_pull_get, repo_pull_list, repo_pull_merge, repo_pull_reviews, PullDetailDto,
+    PullListRequest, PullMergeRequest,
+};
 pub use repository::{
     repo_clone, repo_close, repo_discover, repo_forget, repo_init, repo_open, repo_recent_list,
     AuditFindingDto, BranchLabelDto, CloneRequest, InitRequest, JobIdDto, OpenedRepositoryDto,

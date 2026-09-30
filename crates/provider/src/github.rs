@@ -347,7 +347,7 @@ impl AuthFlow for GitHubProvider {
 // 各子服务的方法随各自任务落地（T4.7/T4.8/T4.9）；先接上标记 trait，
 // 让 `Box<dyn HostProvider>` 的形态从此固定。RepoService 的实现已随
 // T4.5 在 repos.rs 落地。
-impl PullService for GitHubProvider {}
+// PullService 的实现已随 T4.7 在 pulls.rs 落地。
 impl IssueService for GitHubProvider {}
 impl CiService for GitHubProvider {}
 impl ReleaseService for GitHubProvider {}

@@ -204,7 +204,7 @@ impl GitHubProvider {
     }
 
     /// `owner/repo` 的 API 路径前缀（含校验：两个段都不能为空或含 `/`）。
-    fn repo_path(&self, owner: &str, repo: &str) -> Result<String, AppError> {
+    pub(crate) fn repo_path(&self, owner: &str, repo: &str) -> Result<String, AppError> {
         for part in [owner, repo] {
             let part = part.trim();
             if part.is_empty() || part.contains('/') {

@@ -124,8 +124,53 @@ pub trait RepoService: Send + Sync {
     ) -> Result<String, forgedesk_domain::AppError>;
 }
 
-/// Pull Request 子服务：列表/详情/评论/review/合并（T4.7 落地方法）。
-pub trait PullService: Send + Sync {}
+/// Pull Request 子服务：列表/详情/review/合并（T4.7 起落地）。
+///
+/// 合并的**前置校验**（冲突、必需审查、必需检查）由 UI 依据
+/// [`crate::pulls::PullRequestDetail`] 的 `mergeable` / `mergeable_state`
+/// 在发起前展示；`merge_pull` 还支持 `expected_head_sha` 预检——
+/// head 已变时 GitHub 返回 422，映射为 `VALIDATION`（PLAN_M_STALE 语义的远端版）。
+#[async_trait::async_trait]
+pub trait PullService: Send + Sync {
+    /// 列出 PR（按状态过滤，Link 分页）。
+    async fn list_pulls(
+        &self,
+        token: secrecy::SecretString,
+        owner: &str,
+        repo: &str,
+        state: crate::pulls::PullState,
+        page: Option<u32>,
+        per_page: Option<u32>,
+    ) -> Result<crate::pulls::PullPage, forgedesk_domain::AppError>;
+
+    /// 单个 PR 详情（含 mergeable / mergeable_state / 变更统计）。
+    async fn get_pull(
+        &self,
+        token: secrecy::SecretString,
+        owner: &str,
+        repo: &str,
+        number: u64,
+    ) -> Result<crate::pulls::PullRequestDetail, forgedesk_domain::AppError>;
+
+    /// PR 的 review 列表（批准 / 请求修改 / 评论）。
+    async fn list_reviews(
+        &self,
+        token: secrecy::SecretString,
+        owner: &str,
+        repo: &str,
+        number: u64,
+    ) -> Result<Vec<crate::pulls::PullReview>, forgedesk_domain::AppError>;
+
+    /// 合并 PR（merge / squash / rebase 三策略；可选删除源分支）。
+    async fn merge_pull(
+        &self,
+        token: secrecy::SecretString,
+        owner: &str,
+        repo: &str,
+        number: u64,
+        merge: crate::pulls::MergePullRequest,
+    ) -> Result<crate::pulls::MergeOutcome, forgedesk_domain::AppError>;
+}
 
 /// Issue 子服务：列表/筛选/创建/评论/关闭（T4.8 落地方法）。
 pub trait IssueService: Send + Sync {}
