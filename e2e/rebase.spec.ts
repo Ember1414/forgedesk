@@ -1,4 +1,10 @@
 import { expect, test, type Page } from '@playwright/test';
+import { mkdirSync } from 'node:fs';
+import { join } from 'node:path';
+
+/** 交互方案的截图目录（供人工审批与回归对照；不进版本库）。 */
+const VISUAL_DIR = join(process.cwd(), 'test-results', 'rebase-visual');
+mkdirSync(VISUAL_DIR, { recursive: true });
 
 /**
  * T3.6 交互级验收：拖拽式 Rebase 面板。
@@ -260,6 +266,8 @@ test('框选区间 → 右键整理 → 面板列出区间提交并给出预览'
   await expect(rows.nth(0)).toContainText('Ada');
 
   await expect(page.getByTestId('rebase-preview')).toContainText('将重写 3 个提交');
+  // 审批用截图：拖拽清单 + 实时预览 + 底部 todo/执行（T3.6 交互方案）
+  await page.screenshot({ path: join(VISUAL_DIR, '01-panel.png') });
   await expectNoPageErrors(page);
 });
 
@@ -273,6 +281,8 @@ test('Alt+↓ 重排后执行：发给后端的 steps 与最后一次预览逐�
 
   await page.getByTestId('rebase-execute').click();
   await expect(page.getByTestId('rebase-confirm-execute')).toBeVisible();
+  // 审批用截图：确认对话框（重写数量 + force-with-lease + 快照承诺）
+  await page.screenshot({ path: join(VISUAL_DIR, '02-confirm.png') });
   await page.getByTestId('rebase-confirm-execute').click();
 
   await expect(page.getByTestId('rebase-outcome')).toContainText('重写完成');
@@ -379,6 +389,8 @@ test('冲突暂停 → 中止并还原走 conflict_abort', async ({ page }) => {
   await expect(outcome).toContainText('已暂停：需要解决冲突');
   await expect(outcome).toContainText('src/a.ts');
   await expect(page.getByTestId('rebase-goto-conflict')).toBeVisible();
+  // 审批用截图：冲突暂停的出口（去冲突页 / 中止并还原 + 快照提示）
+  await page.screenshot({ path: join(VISUAL_DIR, '03-paused-conflict.png') });
 
   await page.getByTestId('rebase-abort').click();
   await expect
