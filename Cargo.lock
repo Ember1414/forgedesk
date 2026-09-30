@@ -1096,6 +1096,7 @@ version = "0.0.1"
 dependencies = [
  "forgedesk-domain",
  "serde",
+ "serde_json",
  "thiserror 2.0.20",
  "tokio",
  "tracing",

@@ -1,9 +1,44 @@
-//! 托管平台适配层：HostProvider trait 与 GitHub / GitLab / Gitea 实现。
+//! 托管平台适配层：`HostProvider` trait 与 GitHub / GitLab / Gitea 实现。
 //!
-//! 归属里程碑：见 docs/PLAN.md 的模块划分（§5.2）与对应任务。
-//! 本 crate 尚未实现具体逻辑，仅在 M0/T0.2 阶段建立分层骨架。
+//! 归属里程碑：M4（docs/PLAN.md），trait 骨架与注册表自 T4.1 起落地。
+//!
+//! # 模块结构
+//!
+//! ```text
+//! model.rs     ProviderId 与 ProviderCapabilities（能力声明）
+//! registry.rs  host / 远端 URL → provider 的绑定表
+//! traits.rs    HostProvider 聚合 trait 与六个子 trait
+//! github/      GitHubProvider（T4.1b 起：HTTP、错误映射、Device Flow）
+//! ```
+//!
+//! # 分层位置
+//!
+//! 本 crate 是 infra 层：可依赖 domain 与真实网络栈（reqwest/octocrab），
+//! 但**不**依赖 commands / services（依赖只能由外向内）。
+//! 凭据的存取不直接碰 keyring——一律经 `forgedesk-credentials` 的
+//! `CredentialStore`，本 crate 只持有 `CredentialRef`（红线 R8：令牌不过界）。
+//!
+//! # 与 UI 的契约
+//!
+//! UI 依据 [`ProviderCapabilities`] 决定显示哪些功能面板；
+//! 依据 [`ProviderRegistry`] 判断一个远端归属哪个平台。
+//! 禁止在任何业务代码里写 `if provider.id() == ProviderId::GitHub` 这类判断
+//! （docs/ARCHITECTURE.md §5 的扩展点规则）。
 
 #![forbid(unsafe_code)]
+
+/// Provider 的基础标识模型。
+pub mod model;
+/// host / 远端 URL → provider 的绑定表。
+pub mod registry;
+/// `HostProvider` trait 树（业务层唯一可见的抽象）。
+pub mod traits;
+
+pub use model::{ProviderCapabilities, ProviderId};
+pub use registry::{ProviderRegistry, ResolvedRemote};
+pub use traits::{
+    AuthFlow, CiService, HostProvider, IssueService, PullService, ReleaseService, RepoService,
+};
 
 /// crate 名称，用于日志与诊断中标识来源。
 pub const CRATE_NAME: &str = env!("CARGO_PKG_NAME");

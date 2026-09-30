@@ -1,4 +1,11 @@
-//! 远端 URL 的解析：从 URL 里取出"要拿哪个账号去登录"。
+//! 远端 URL 的解析：从 URL 里取出 host、协议与 provider 归属。
+//!
+//! # 为什么放在 domain
+//!
+//! 纯字符串逻辑、无 IO——正是领域层该承载的东西（与 [`crate::error::ErrorCode::classify`]
+//! 同理）。此前它住在 `credentials`，M4/T4.1 引入 `provider::ProviderRegistry` 后
+//! provider 也要按 host 判定归属；若各自留一份解析，迟早漂移出"两个模块认得
+//! 不同的 URL 集合"。因此上移到 domain，`credentials` 保留重导出（旧路径不断）。
 //!
 //! # 为什么必须自己解析
 //!
@@ -19,8 +26,9 @@
 //! # 与"凭据引用"的关系
 //!
 //! [`RemoteEndpoint::credential_host`] 给出该用它去查凭据的 host 字符串；
-//! [`provider_for_host`] 推断 provider。两者合起来就是 [`crate::CredentialRef`] 的
-//! provider + host 两段，login 由账号模型或用户输入补上。
+//! [`provider_for_host`] 推断 provider。两者合起来就是凭据的 provider + host 两段，
+//! login 由账号模型或用户输入补上。`provider::ProviderRegistry` 在此之上
+//! 做"host → 具体实现"的绑定（含用户配置的企业主机）。
 
 use serde::{Deserialize, Serialize};
 
@@ -214,13 +222,20 @@ fn trim_slashes(raw: &str) -> String {
 /// 从 host 推断 provider 标识。
 ///
 /// 用途：凭据的 provider 段（`github:github.com:octocat`）要与托管平台对上，
-/// 便于设置页分组与将来的账号模型（T4.4）。认不出的一律 `generic`——
+/// 便于设置页分组与账号模型（T4.4）。认不出的一律 `generic`——
 /// 猜一个错的 provider 会让用户在设置页里找不到自己刚保存的凭据。
+///
+/// `.ghe.com` 是 GitHub Enterprise Cloud 的数据驻留域名（T4.1）：
+/// 它上面的是标准 GitHub 账号，凭据理应归入 `github` 组。
 pub fn provider_for_host(host: &str) -> &'static str {
     let host = host.to_ascii_lowercase();
     // 去掉端口再比对（`github.com:8443` 也应按 github 处理）
     let bare = host.split(':').next().unwrap_or(&host);
-    if bare == "github.com" || bare.ends_with(".github.com") || bare == "github.com.cnpmjs.org" {
+    if bare == "github.com"
+        || bare.ends_with(".github.com")
+        || bare.ends_with(".ghe.com")
+        || bare == "github.com.cnpmjs.org"
+    {
         "github"
     } else if bare == "gitlab.com" || bare.ends_with(".gitlab.com") {
         "gitlab"
@@ -371,5 +386,15 @@ mod tests {
         assert_eq!(provider_for_host("codeberg.org"), "codeberg");
         // 认不出就通用：猜错 provider 会让用户找不到刚保存的凭据
         assert_eq!(provider_for_host("git.internal"), "generic");
+    }
+
+    #[test]
+    fn github_enterprise_cloud_data_residency_hosts_count_as_github() {
+        // *.ghe.com 是 GitHub Enterprise Cloud 的数据驻留形态：
+        // 凭据按 github 分组，ProviderRegistry 按 GitHub 绑定。
+        assert_eq!(provider_for_host("acme.ghe.com"), "github");
+        assert_eq!(provider_for_host("ACME.GHE.COM"), "github");
+        // 反例：ghe.com 本身不是租户主机，不能凭空给它 github
+        assert_eq!(provider_for_host("ghe.com"), "generic");
     }
 }

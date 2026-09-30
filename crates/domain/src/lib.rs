@@ -21,5 +21,7 @@
 pub mod error;
 pub mod git;
 pub mod history;
+/// 远端 URL 解析（纯字符串逻辑；自 `credentials` 上移，见模块说明）。
+pub mod url;
 
 pub use error::{AppError, AppResult, ErrorCode, FixAction};

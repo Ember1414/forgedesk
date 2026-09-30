@@ -47,8 +47,6 @@ pub mod secret;
 pub mod ssh;
 /// 用例层的凭据存储接口与"后端 + 索引"组合实现。
 pub mod store;
-/// 远端 URL 解析（取 host 与 provider）。
-pub mod url;
 /// 加密文件回退（Argon2id + AES-256-GCM）。
 pub mod vault;
 
@@ -68,7 +66,11 @@ pub use ssh::{
     SshInventory, SshKey,
 };
 pub use store::{system_clock, Clock, CredentialStore, IndexedCredentialStore};
-pub use url::{parse_remote_url, provider_for_host, RemoteEndpoint, RemoteScheme};
+// URL 解析的实现已上移到 domain（provider 也要用同一套解析，避免两份漂移）；
+// 这里保留旧路径的重导出，存量调用方不受影响。
+pub use forgedesk_domain::url::{
+    parse_remote_url, provider_for_host, RemoteEndpoint, RemoteScheme,
+};
 pub use vault::{Vault, VaultBackend, VaultParams};
 
 /// "系统 keyring + 文件索引"的默认组合。
