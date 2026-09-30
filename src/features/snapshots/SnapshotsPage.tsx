@@ -243,7 +243,9 @@ export function SnapshotsPage() {
     }
   };
 
-  const usage = usageQuery.data;
+  // 后端不该返回 `null`，但"缺数据"必须被防御：旧版本、mock 或异常路径都可能给 null，
+  // 而 `null` 会让下面每一处 `usage.xxx` 直接把页面炸掉（T3.8 的 E2E 抓到过）
+  const usage = usageQuery.data ?? null;
 
   return (
     <section className="flex h-full flex-col gap-4" data-testid="snapshots-page">
@@ -292,7 +294,7 @@ export function SnapshotsPage() {
       </header>
 
       {/* 占用与配额：内容备份用掉多少、上限多少、有没有孤儿目录 */}
-      {usage === undefined ? null : (
+      {usage === null ? null : (
         <div
           className="flex flex-wrap items-center gap-x-3 gap-y-1 text-12 text-fg-muted"
           data-testid="snapshot-usage"

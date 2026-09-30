@@ -167,13 +167,19 @@ function mockScript(hookRejects: boolean): string {
         return Promise.resolve({ oid: "new-oid-0001", subject: window.__loop.prepared, snapshotId: 7, paths: paths });
       }
       if (command === "snapshot_list") return Promise.resolve(restored ? [] : snapshots);
+      if (command === "snapshot_usage") return Promise.resolve({
+        repoId: 1, snapshotCount: restored ? 0 : 1, backupBytes: 0,
+        maxSnapshotBytes: 209715200, maxRepoBytes: 2147483648, orphanDirs: []
+      });
       if (command === "snapshot_diff") {
         // 模拟"用户在终端里 reset --hard 过"：HEAD 与索引都变了
         return Promise.resolve({
           headChanged: true, indexChanged: true,
           currentHeadOid: "9999999999999999999999999999999999999999",
           currentIndexTreeOid: "8888888888888888888888888888888888888888",
-          refMissing: false
+          refMissing: false,
+          // T3.8：未跟踪内容的三分类（这条闭环里没有未跟踪文件）
+          untrackedRestorable: [], untrackedMissing: [], untrackedExtra: []
         });
       }
       if (command === "snapshot_restore") {
@@ -187,7 +193,11 @@ function mockScript(hookRejects: boolean): string {
           headOid: "2222222222222222222222222222222222222222",
           indexTreeOid: "7777777777777777777777777777777777777777",
           preRestoreSnapshotId: 3,
-          untrackedPaths: []
+          untrackedPaths: [],
+          untrackedRestored: 0,
+          untrackedFailed: [],
+          untrackedExtra: [],
+          verified: true
         });
       }
       if (command === "plugin:event|unlisten") return Promise.resolve(null);
