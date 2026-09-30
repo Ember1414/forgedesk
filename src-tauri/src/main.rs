@@ -190,6 +190,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 GitHubHttp::new(HttpConfig::default())?,
             ));
 
+            // T3.8：快照的未跟踪内容备份落在**应用缓存目录**（PLAN §5.10 的分层：
+            // 大文件备份放缓存，不污染用户仓库）。缓存被清掉时快照本身仍然可用
+            // （HEAD 与索引的恢复不依赖它），只有未跟踪内容回不来——
+            // 这一点由 `snapshot_usage` 与回滚报告如实说明，不会静默。
+            let snapshot_backup_root = app.path().app_cache_dir()?.join("snapshots");
+
             app.manage(AppState {
                 database: Arc::clone(&database),
                 log_dir,
@@ -198,10 +204,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 open_repos: Arc::new(OpenRepoRegistry::new()),
                 // T1.9：真实的 ref 锚点快照。提交链路"执行前打点"的位置在 T1.7
                 // 就已接好，这里只是把"如实回答没有快照"的占位换成实现。
-                snapshots: Arc::new(RefSnapshotManager::new(
-                    Arc::clone(&engines),
-                    Arc::clone(&database),
-                )),
+                snapshots: Arc::new(
+                    RefSnapshotManager::new(Arc::clone(&engines), Arc::clone(&database))
+                        .with_backup_root(snapshot_backup_root),
+                ),
                 commit_plans: Arc::new(CommitPlanRegistry::new()),
                 reset_plans: Arc::new(ResetPlanRegistry::new()),
                 merge_plans: Arc::new(MergePlanRegistry::new()),
