@@ -58,6 +58,8 @@ const OP_TYPES = [
   'conflict_skip',
   'snapshot_restore',
   'snapshot_prune',
+  'snapshot_create',
+  'snapshot_cleanup',
   'audit_export',
   'audit_prune',
 ] as const;

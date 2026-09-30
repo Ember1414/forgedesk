@@ -20,6 +20,8 @@ export const LOG_QUERY_KEY = 'log';
 export const BRANCHES_QUERY_KEY = 'branches';
 /** 快照列表（T1.9）。 */
 export const SNAPSHOTS_QUERY_KEY = 'snapshots';
+/** 快照的磁盘占用（T3.8：与列表分开——占用变化不一定要重拉列表）。 */
+export const SNAPSHOT_USAGE_QUERY_KEY = 'snapshotUsage';
 /**
  * 最近打开的仓库（T1.3 的本地记录）。
  *

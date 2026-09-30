@@ -505,6 +505,8 @@
         "conflictSkip": "跳过冲突提交",
         "snapshotRestore": "回滚快照",
         "snapshotPrune": "清理快照",
+        "snapshotCreate": "手动创建快照",
+        "snapshotCleanup": "清理快照缓存",
         "auditExport": "导出操作历史",
         "auditPrune": "清理操作历史"
       },
@@ -600,12 +602,46 @@
     "impactUnchanged": "工作区、索引与 HEAD 都已与快照一致，无需回滚。",
     "impactHead": "HEAD 将从 {{current}} 回到 {{oid}}。",
     "impactIndex": "索引内容也会恢复到快照时的状态，已暂存但未提交的内容会被放弃。",
-    "impactUntracked": "未跟踪文件不会被删除或恢复（快照只记录了它们的路径）。",
+    "impactUntracked": "未跟踪文件：快照里备份过的会被写回，其余保持现状。",
+    "impactRestorable": "会写回 {{count}} 个未跟踪文件（当前缺失或内容已被改动）。",
+    "impactMissing": "有 {{count}} 个未跟踪文件当时没有进备份，回滚找不回来。",
+    "impactExtra": "当前多出的 {{count}} 个未跟踪文件不会被删除。",
     "restoreConfirm": "回滚",
     "cancel": "取消",
     "restored": "已回滚到 {{oid}}",
+    "create": "立即打快照",
+    "created": "已创建快照",
+    "createdWithWarning": "快照已创建，但未包含全部未跟踪内容：",
+    "dismiss": "知道了",
+    "cleanup": "清理缓存",
+    "cleaned": "已清理 {{count}} 项，释放 {{size}}",
     "prune": "清理旧快照",
-    "pruned": "已清理 {{count}} 个旧快照"
+    "pruned": "已清理 {{count}} 个旧快照",
+    "usage": {
+      "snapshots": "{{count}} 个快照",
+      "bytes": "内容备份 {{size}}",
+      "limit": "上限 {{size}}",
+      "unlimited": "未设上限",
+      "orphans": "有 {{count}} 个孤立目录待清理"
+    },
+    "warning": {
+      "untrackedBackupSkipped": "本次快照未包含 {{count}} 个未跟踪文件（共 {{size}}，超过上限 {{limit}}）；回滚时这些文件不会被恢复。",
+      "untrackedBackupPartial": "有 {{count}} 个未跟踪文件未能备份（{{detail}}）；回滚时这些文件不会被恢复。",
+      "backupDirUnavailable": "快照备份目录不可用（{{detail}}），本次快照不含未跟踪内容。",
+      "spaceReclaimed": "为腾出空间，已清理 {{count}} 个旧快照（释放 {{size}}）。",
+      "orphansRemoved": "已清理 {{count}} 个上次遗留的备份目录。"
+    },
+    "report": {
+      "title": "回滚报告",
+      "head": "HEAD 已恢复（{{oid}}）",
+      "index": "索引已恢复",
+      "untracked": "未跟踪文件已恢复 {{count}} 个",
+      "verified": "校验通过（HEAD / 索引 / 备份内容逐字节一致）",
+      "unverified": "部分内容未能通过校验，见下面的条目",
+      "failed": "{{count}} 个未跟踪文件未能恢复：{{paths}}",
+      "extra": "当前多出的 {{count}} 个未跟踪文件未被删除：{{paths}}",
+      "more": " 等 {{count}} 项"
+    }
   },
   "commit": {
     "title": "提交",

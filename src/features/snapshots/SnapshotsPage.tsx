@@ -1,4 +1,4 @@
-//! 快照与回滚页面（M1 / T1.9）。
+//! 快照与回滚页面（M1 / T1.9；T3.8 补内容备份的可见性）。
 //!
 //! # 交互纪律（红线 R7 在 UI 层的最后一环）
 //!
@@ -7,24 +7,48 @@
 //! 执行 → 展示结果与保护点**。跳过差异摘要直接弹确认框，
 //! 等于让用户对一个他看不懂的东西说"是"。
 //!
+//! # T3.8 之后这个页面多了三件事
+//!
+//! 1. **占用与配额**：快照的内容备份落在应用缓存目录，用户必须能看到"用了多少、
+//!    上限多少、有没有孤儿目录"，否则磁盘被吃满时无从判断是谁干的；
+//! 2. **手动打点**：`snapshot_create` 返回的是完整结果（体积、跳过的文件、告警），
+//!    所以"立即打快照"之后要把"这次打点包含什么、不包含什么"说清楚——
+//!    超限被整体跳过时**绝不静默**；
+//! 3. **回滚报告**：报告里现在有"未跟踪文件恢复了几个、有没有多余的没删、
+//!    校验过没过"，用可折叠清单展示，而不是一句"回滚成功"。
+//!
 //! # 列表里要不要显示 label
 //!
-//! 不显示：v1 里 label 恒等于 kind 的短名（两列一样的内容），显示 kind 的
-//! i18n 文案就够了。等出现"同场景多次打点需要区分"的需求（T2.8 的 stash 等）
-//! 再把 label 变成自由文本。
+//! 不显示：自动快照的 label 恒等于 kind 的短名（两列一样的内容），显示 kind 的
+//! i18n 文案就够了。手动快照的 label 也固定是 `manual`——它现在的价值是审计与
+//! 排查时的场景标记，不是用户自定义的备注。
 
 import { useState } from 'react';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Trash2 } from 'lucide-react';
+import { Camera, Trash2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useParams } from 'react-router-dom';
 
 import { normalizeError, useAppError } from '@/lib/errors';
-import { SNAPSHOTS_QUERY_KEY, STATUS_QUERY_KEY } from '@/lib/queryKeys';
+import { SNAPSHOT_USAGE_QUERY_KEY, SNAPSHOTS_QUERY_KEY, STATUS_QUERY_KEY } from '@/lib/queryKeys';
 import { useRepoChangeInvalidation } from '@/lib/repoChanged';
-import { snapshotDiff, snapshotList, snapshotPrune, snapshotRestore } from '@/lib/ipc/snapshots';
-import type { SnapshotDiff, SnapshotMeta } from '@/lib/ipc/snapshots';
+import {
+  snapshotCleanup,
+  snapshotCreate,
+  snapshotDiff,
+  snapshotList,
+  snapshotPrune,
+  snapshotRestore,
+  snapshotUsage,
+} from '@/lib/ipc/snapshots';
+import type {
+  RestoreReport,
+  SnapshotDiff,
+  SnapshotMeta,
+  SnapshotOutcome,
+  SnapshotWarning,
+} from '@/lib/ipc/snapshots';
 import { pushToast } from '@/stores/toastStore';
 import {
   AlertDialog,
@@ -48,11 +72,27 @@ const KIND_LABEL_KEYS: Readonly<Record<string, string>> = {
   'pre-restore': 'snapshots.kind.preRestore',
   'pre-sync': 'snapshots.kind.preSync',
   'pre-head-move': 'snapshots.kind.preHeadMove',
+  'pre-worktree-change': 'snapshots.kind.preWorktreeChange',
 };
 
 /** 时间列的显示格式（本地时区；表格里不需要秒以下的精度）。 */
 function formatTime(ms: number): string {
   return new Date(ms).toLocaleString();
+}
+
+/** 字节数的可读格式（配额与体积用；一位小数足够看出量级）。 */
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) {
+    return `${String(bytes)} B`;
+  }
+  const units = ['KB', 'MB', 'GB', 'TB'] as const;
+  let value = bytes / 1024;
+  let index = 0;
+  while (value >= 1024 && index < units.length - 1) {
+    value /= 1024;
+    index += 1;
+  }
+  return `${value.toFixed(1)} ${units[index] ?? 'B'}`;
 }
 
 export function SnapshotsPage() {
@@ -64,10 +104,20 @@ export function SnapshotsPage() {
 
   const [target, setTarget] = useState<SnapshotMeta | null>(null);
   const [diff, setDiff] = useState<SnapshotDiff | null>(null);
+  /** 最近一次手动打点的结果（有告警时要在页面上说清楚，不能只弹一个 toast）。 */
+  const [created, setCreated] = useState<SnapshotOutcome | null>(null);
+  /** 最近一次回滚的报告（折叠展示）。 */
+  const [report, setReport] = useState<RestoreReport | null>(null);
 
   const listQuery = useQuery({
     queryKey: [SNAPSHOTS_QUERY_KEY, repoId],
     queryFn: () => snapshotList(repoId, 50),
+    enabled: Number.isFinite(repoId),
+  });
+
+  const usageQuery = useQuery({
+    queryKey: [SNAPSHOT_USAGE_QUERY_KEY, repoId],
+    queryFn: () => snapshotUsage(repoId),
     enabled: Number.isFinite(repoId),
   });
 
@@ -77,17 +127,52 @@ export function SnapshotsPage() {
 
   const invalidate = () => {
     void queryClient.invalidateQueries({ queryKey: [SNAPSHOTS_QUERY_KEY, repoId] });
+    void queryClient.invalidateQueries({ queryKey: [SNAPSHOT_USAGE_QUERY_KEY, repoId] });
     void queryClient.invalidateQueries({ queryKey: [STATUS_QUERY_KEY, repoId] });
   };
 
+  const createMutation = useMutation({
+    mutationFn: () => snapshotCreate(repoId),
+    onSuccess: (outcome) => {
+      setCreated(outcome);
+      pushToast({
+        // 有告警时用 warning：toast 只是通知，"不包含什么"在页面上的那条里
+        tone: outcome.warnings.length > 0 ? 'warning' : 'success',
+        title: t('snapshots.created'),
+      });
+      invalidate();
+    },
+    onError: (error) => {
+      show(normalizeError(error));
+    },
+  });
+
+  const cleanupMutation = useMutation({
+    mutationFn: () => snapshotCleanup(repoId),
+    onSuccess: (outcome) => {
+      pushToast({
+        tone: 'info',
+        title: t('snapshots.cleaned', {
+          count: outcome.reclaimed.length + outcome.orphansRemoved,
+          size: formatBytes(outcome.freedBytes),
+        }),
+      });
+      invalidate();
+    },
+    onError: (error) => {
+      show(normalizeError(error));
+    },
+  });
+
   const restoreMutation = useMutation({
     mutationFn: (snapshotId: number) => snapshotRestore(repoId, snapshotId),
-    onSuccess: (report) => {
+    onSuccess: (restored) => {
       setTarget(null);
       setDiff(null);
+      setReport(restored);
       pushToast({
         tone: 'success',
-        title: t('snapshots.restored', { oid: report.headOid.slice(0, 7) }),
+        title: t('snapshots.restored', { oid: restored.headOid.slice(0, 7) }),
       });
       invalidate();
     },
@@ -122,6 +207,44 @@ export function SnapshotsPage() {
     }
   };
 
+  /** 前几条路径 + "等 N 项"：报告里不该把上百个路径铺开，但也不能假装只有几条。 */
+  const summarizePaths = (paths: readonly string[], limit = 5): string => {
+    const head = paths.slice(0, limit).join(', ');
+    return paths.length > limit
+      ? head + t('snapshots.report.more', { count: paths.length - limit })
+      : head;
+  };
+
+  /** 一条告警的人话说明（类型由后端给，文案在这里）。 */
+  const warningText = (warning: SnapshotWarning): string => {
+    switch (warning.kind) {
+      case 'untrackedBackupSkipped':
+        return t('snapshots.warning.untrackedBackupSkipped', {
+          count: warning.count ?? 0,
+          size: formatBytes(warning.bytes ?? 0),
+          limit: formatBytes(warning.limit ?? 0),
+        });
+      case 'untrackedBackupPartial':
+        return t('snapshots.warning.untrackedBackupPartial', {
+          count: warning.paths.length,
+          detail: warning.detail ?? '',
+        });
+      case 'backupDirUnavailable':
+        return t('snapshots.warning.backupDirUnavailable', { detail: warning.detail ?? '' });
+      case 'spaceReclaimed':
+        return t('snapshots.warning.spaceReclaimed', {
+          count: warning.removed.length,
+          size: formatBytes(warning.freedBytes ?? 0),
+        });
+      case 'orphansRemoved':
+        return t('snapshots.warning.orphansRemoved', { count: warning.count ?? 0 });
+      default:
+        return warning.kind;
+    }
+  };
+
+  const usage = usageQuery.data;
+
   return (
     <section className="flex h-full flex-col gap-4" data-testid="snapshots-page">
       <header className="flex flex-wrap items-end justify-between gap-3">
@@ -129,18 +252,135 @@ export function SnapshotsPage() {
           <h2 className="text-16 font-semibold tracking-tight">{t('snapshots.title')}</h2>
           <p className="text-12 text-fg-subtle">{t('snapshots.description')}</p>
         </div>
-        <Button
-          variant="secondary"
-          size="sm"
-          loading={pruneMutation.isPending}
-          onClick={() => {
-            pruneMutation.mutate();
-          }}
-        >
-          <Trash2 aria-hidden="true" className="size-3.5" />
-          {t('snapshots.prune')}
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          {/* 手动打点：用户主动说"就现在这样，记住它" */}
+          <Button
+            variant="primary"
+            size="sm"
+            loading={createMutation.isPending}
+            onClick={() => {
+              createMutation.mutate();
+            }}
+            data-testid="snapshot-create"
+          >
+            <Camera aria-hidden="true" className="size-3.5" />
+            {t('snapshots.create')}
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
+            loading={cleanupMutation.isPending}
+            onClick={() => {
+              cleanupMutation.mutate();
+            }}
+            data-testid="snapshot-cleanup"
+          >
+            <Trash2 aria-hidden="true" className="size-3.5" />
+            {t('snapshots.cleanup')}
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            loading={pruneMutation.isPending}
+            onClick={() => {
+              pruneMutation.mutate();
+            }}
+          >
+            {t('snapshots.prune')}
+          </Button>
+        </div>
       </header>
+
+      {/* 占用与配额：内容备份用掉多少、上限多少、有没有孤儿目录 */}
+      {usage === undefined ? null : (
+        <div
+          className="flex flex-wrap items-center gap-x-3 gap-y-1 text-12 text-fg-muted"
+          data-testid="snapshot-usage"
+        >
+          <span>{t('snapshots.usage.snapshots', { count: usage.snapshotCount })}</span>
+          <span>{t('snapshots.usage.bytes', { size: formatBytes(usage.backupBytes) })}</span>
+          <span>
+            {usage.maxRepoBytes === 0
+              ? t('snapshots.usage.unlimited')
+              : t('snapshots.usage.limit', { size: formatBytes(usage.maxRepoBytes) })}
+          </span>
+          {usage.orphanDirs.length > 0 ? (
+            <span className="text-warning" data-testid="snapshot-orphans">
+              {t('snapshots.usage.orphans', { count: usage.orphanDirs.length })}
+            </span>
+          ) : null}
+        </div>
+      )}
+
+      {/* 手动打点的告警：一眼能看出来"这次没备上什么" */}
+      {created === null || created.warnings.length === 0 ? null : (
+        <div
+          className="flex flex-col gap-1 rounded-md border border-warning bg-warning/10 p-3 text-12"
+          data-testid="snapshot-warning"
+        >
+          <div className="flex items-center justify-between gap-2 font-medium">
+            <span>{t('snapshots.createdWithWarning')}</span>
+            <button
+              type="button"
+              className="fd-transition rounded-sm px-1 text-fg-subtle hover:text-fg"
+              onClick={() => {
+                setCreated(null);
+              }}
+            >
+              {t('snapshots.dismiss')}
+            </button>
+          </div>
+          <ul className="flex list-disc flex-col gap-1 pl-4 text-fg-muted">
+            {created.warnings.map((warning, index) => (
+              <li key={`${warning.kind}-${String(index)}`}>{warningText(warning)}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* 回滚报告：可折叠清单（用户能看到"哪一步成了、哪一步没成"） */}
+      {report === null ? null : (
+        <details
+          className="rounded-md border border-line p-3 text-12"
+          data-testid="snapshot-report"
+          open
+        >
+          <summary className="cursor-pointer font-medium">{t('snapshots.report.title')}</summary>
+          <ul className="mt-2 flex flex-col gap-1 text-fg-muted">
+            <li>{t('snapshots.report.head', { oid: report.headOid.slice(0, 7) })}</li>
+            <li>{t('snapshots.report.index')}</li>
+            <li>{t('snapshots.report.untracked', { count: report.untrackedRestored })}</li>
+            <li>
+              {report.verified ? t('snapshots.report.verified') : t('snapshots.report.unverified')}
+            </li>
+            {report.untrackedFailed.length === 0 ? null : (
+              <li className="text-danger" data-testid="snapshot-report-failed">
+                {t('snapshots.report.failed', {
+                  count: report.untrackedFailed.length,
+                  paths: summarizePaths(report.untrackedFailed),
+                })}
+              </li>
+            )}
+            {report.untrackedExtra.length === 0 ? null : (
+              <li data-testid="snapshot-report-extra">
+                {t('snapshots.report.extra', {
+                  count: report.untrackedExtra.length,
+                  paths: summarizePaths(report.untrackedExtra),
+                })}
+              </li>
+            )}
+          </ul>
+          <button
+            type="button"
+            className="fd-transition mt-2 rounded-sm text-fg-subtle hover:text-fg"
+            onClick={() => {
+              setReport(null);
+            }}
+          >
+            {t('snapshots.dismiss')}
+          </button>
+        </details>
+      )}
 
       {listQuery.isPending ? (
         <div className="flex flex-col gap-2" role="status">
@@ -229,6 +469,27 @@ export function SnapshotsPage() {
                 {diff.indexChanged ? <> {t('snapshots.impactIndex')}</> : null}
                 <br />
                 {t('snapshots.impactUntracked')}
+                {/* 未跟踪内容的三分类（T3.8）：会恢复什么、找不回什么、不会删什么 */}
+                {diff.untrackedRestorable.length === 0 ? null : (
+                  <>
+                    <br />
+                    {t('snapshots.impactRestorable', { count: diff.untrackedRestorable.length })}
+                  </>
+                )}
+                {diff.untrackedMissing.length === 0 ? null : (
+                  <>
+                    <br />
+                    <span className="text-warning">
+                      {t('snapshots.impactMissing', { count: diff.untrackedMissing.length })}
+                    </span>
+                  </>
+                )}
+                {diff.untrackedExtra.length === 0 ? null : (
+                  <>
+                    <br />
+                    {t('snapshots.impactExtra', { count: diff.untrackedExtra.length })}
+                  </>
+                )}
               </>
             )
           }

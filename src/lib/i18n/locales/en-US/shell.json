@@ -505,6 +505,8 @@
         "conflictSkip": "Skip conflicted commit",
         "snapshotRestore": "Restore snapshot",
         "snapshotPrune": "Prune snapshots",
+        "snapshotCreate": "Create snapshot manually",
+        "snapshotCleanup": "Clean snapshot cache",
         "auditExport": "Export history",
         "auditPrune": "Prune history"
       },
@@ -600,12 +602,46 @@
     "impactUnchanged": "The working tree, index and HEAD already match the snapshot; nothing to restore.",
     "impactHead": "HEAD will move from {{current}} back to {{oid}}.",
     "impactIndex": "The index will also be restored to the snapshot's tree; staged but uncommitted content will be dropped.",
-    "impactUntracked": "Untracked files are neither deleted nor restored (only their paths were recorded).",
+    "impactUntracked": "Untracked files: the ones with a content backup are written back, the rest stay as they are.",
+    "impactRestorable": "{{count}} untracked file(s) will be written back (missing now, or their content changed).",
+    "impactMissing": "{{count}} untracked file(s) were never backed up; a restore cannot bring them back.",
+    "impactExtra": "The {{count}} extra untracked file(s) present now will not be deleted.",
     "restoreConfirm": "Restore",
     "cancel": "Cancel",
     "restored": "Restored to {{oid}}",
+    "create": "Snapshot now",
+    "created": "Snapshot created",
+    "createdWithWarning": "The snapshot was created, but it does not contain all untracked content:",
+    "dismiss": "Got it",
+    "cleanup": "Clean cache",
+    "cleaned": "Cleaned {{count}} item(s), freed {{size}}",
     "prune": "Prune old snapshots",
-    "pruned": "Pruned {{count}} old snapshot(s)"
+    "pruned": "Pruned {{count}} old snapshot(s)",
+    "usage": {
+      "snapshots": "{{count}} snapshot(s)",
+      "bytes": "Content backups {{size}}",
+      "limit": "limit {{size}}",
+      "unlimited": "no limit set",
+      "orphans": "{{count}} orphan directory(ies) pending cleanup"
+    },
+    "warning": {
+      "untrackedBackupSkipped": "This snapshot excludes {{count}} untracked file(s) ({{size}} total, over the {{limit}} limit); a restore will not bring them back.",
+      "untrackedBackupPartial": "{{count}} untracked file(s) could not be backed up ({{detail}}); a restore will not bring them back.",
+      "backupDirUnavailable": "The snapshot backup directory is unavailable ({{detail}}); this snapshot has no untracked content.",
+      "spaceReclaimed": "To free space, {{count}} old snapshot(s) were removed ({{size}} freed).",
+      "orphansRemoved": "Removed {{count}} leftover backup directory(ies) from an earlier run."
+    },
+    "report": {
+      "title": "Restore report",
+      "head": "HEAD restored ({{oid}})",
+      "index": "Index restored",
+      "untracked": "{{count}} untracked file(s) restored",
+      "verified": "Verified (HEAD / index / backup content match byte for byte)",
+      "unverified": "Some content did not pass verification; see the entries below",
+      "failed": "{{count}} untracked file(s) could not be restored: {{paths}}",
+      "extra": "The {{count}} extra untracked file(s) present now were not deleted: {{paths}}",
+      "more": " and {{count}} more"
+    }
   },
   "commit": {
     "title": "Commit",
