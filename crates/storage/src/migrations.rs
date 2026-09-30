@@ -72,6 +72,11 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "0003_snapshots_v2",
         sql: include_str!("../migrations/0003_snapshots_v2.sql"),
     },
+    Migration {
+        version: 4,
+        name: "0004_restore_progress",
+        sql: include_str!("../migrations/0004_restore_progress.sql"),
+    },
 ];
 
 /// 迁移执行结果。

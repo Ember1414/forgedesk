@@ -58,6 +58,21 @@ pub struct NewSnapshot {
     pub created_at_ms: i64,
 }
 
+/// 一条"未完成的回滚"标记（T3.9 崩溃恢复）。
+///
+/// 存储层不认识 `RestoreStage`：它只存短名，解释交给上层（`snapshot` crate）。
+/// 这样做的代价是上层要做一次 `from_key` 转换，收益是存储层不必跟着
+/// 领域枚举一起改（枚举增删阶段时迁移与查询都不用动）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PendingRestoreRecord {
+    /// 当时正在回滚的快照。
+    pub snapshot_id: i64,
+    /// 阶段短名（`protection` / `head` / `index` / `untracked` / `verify`）。
+    pub stage: Option<String>,
+    /// 开始时间（Unix 毫秒）。
+    pub started_at: Option<i64>,
+}
+
 /// 一条快照记录（读出来的形态）。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SnapshotRecord {
@@ -278,6 +293,82 @@ impl<'a> SnapshotStore<'a> {
                     |row| row.get::<_, i64>(0),
                 )
                 .map_err(|error| storage_error("统计快照备份体积失败", &error))
+        })
+    }
+
+    /// 标记"正在回滚"以及进行到哪一步（T3.9 崩溃恢复）。
+    ///
+    /// `in_progress = false` 时同时清掉阶段与时间：留着它们会让下一次
+    /// "未完成回滚"的判断读到陈旧数据。
+    pub fn set_restore_progress(
+        &self,
+        id: i64,
+        in_progress: bool,
+        stage: Option<&str>,
+        started_at: Option<i64>,
+    ) -> AppResult<()> {
+        self.database.with_write(|connection| {
+            connection
+                .execute(
+                    "UPDATE snapshots
+                        SET restore_in_progress = ?1, restore_stage = ?2, restore_started_at = ?3
+                      WHERE id = ?4",
+                    params![i64::from(in_progress), stage, started_at, id],
+                )
+                .map_err(|error| storage_error("写入回滚进度失败", &error))?;
+            Ok(())
+        })
+    }
+
+    /// 某仓库未完成的回滚（`None` = 干净）。
+    ///
+    /// 取最新的一条：同一仓库理论上只有一条（互斥锁），但万一留下多条
+    /// （早期版本、手工改库），用户最该知道的是**最后**那一条。
+    pub fn restore_pending(&self, repo_id: i64) -> AppResult<Option<PendingRestoreRecord>> {
+        self.database.with_read(|connection| {
+            let mut statement = connection
+                .prepare(
+                    "SELECT id, restore_stage, restore_started_at
+                       FROM snapshots
+                      WHERE repo_id = ?1 AND restore_in_progress = 1
+                      ORDER BY id DESC
+                      LIMIT 1",
+                )
+                .map_err(|error| storage_error("准备未完成回滚查询失败", &error))?;
+            let mut rows = statement
+                .query([repo_id])
+                .map_err(|error| storage_error("查询未完成回滚失败", &error))?;
+            match rows
+                .next()
+                .map_err(|error| storage_error("读取未完成回滚失败", &error))?
+            {
+                Some(row) => Ok(Some(PendingRestoreRecord {
+                    snapshot_id: row
+                        .get(0)
+                        .map_err(|error| storage_error("读取快照 id 失败", &error))?,
+                    stage: row
+                        .get(1)
+                        .map_err(|error| storage_error("读取回滚阶段失败", &error))?,
+                    started_at: row
+                        .get(2)
+                        .map_err(|error| storage_error("读取回滚开始时间失败", &error))?,
+                })),
+                None => Ok(None),
+            }
+        })
+    }
+
+    /// 清掉某仓库的全部"正在回滚"标记，返回清掉的条数（用户选择"放弃"）。
+    pub fn clear_restore_progress(&self, repo_id: i64) -> AppResult<usize> {
+        self.database.with_write(|connection| {
+            connection
+                .execute(
+                    "UPDATE snapshots
+                        SET restore_in_progress = 0, restore_stage = NULL, restore_started_at = NULL
+                      WHERE repo_id = ?1 AND restore_in_progress = 1",
+                    [repo_id],
+                )
+                .map_err(|error| storage_error("清除回滚标记失败", &error))
         })
     }
 

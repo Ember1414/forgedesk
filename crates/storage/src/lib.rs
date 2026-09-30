@@ -36,7 +36,7 @@ pub use operations::{
 };
 pub use repositories::{RepositoryRecord, RepositoryStore, RepositoryUpsert};
 pub use settings::{Scope, SettingsRepository};
-pub use snapshots::{NewSnapshot, SnapshotRecord, SnapshotStore};
+pub use snapshots::{NewSnapshot, PendingRestoreRecord, SnapshotRecord, SnapshotStore};
 
 /// crate 名称，用于日志与诊断中标识来源。
 pub const CRATE_NAME: &str = env!("CARGO_PKG_NAME");

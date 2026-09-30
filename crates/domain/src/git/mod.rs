@@ -32,6 +32,7 @@ pub mod commit;
 pub mod commit_plan;
 pub mod conflict;
 pub mod diff;
+pub mod fingerprint;
 pub mod index;
 pub mod merge_blocks;
 pub mod path;
@@ -63,6 +64,10 @@ pub use conflict::{
 pub use diff::{
     DiffChangeKind, DiffHunk, DiffLine, DiffLineKind, DiffReport, DiffSpec, DiffTarget, FileDiff,
     FileStat, DEFAULT_CONTEXT_LINES, MAX_DIFF_BYTES_PER_FILE, MAX_DIFF_LINES_PER_FILE,
+};
+pub use fingerprint::{
+    compare as compare_fingerprints, fold_content_hashes, hash_bytes, hash_paths, FingerprintDiff,
+    RepoFingerprint, TRACKED_HASH_LIMIT,
 };
 pub use index::{StageEntry, UnmergedEntry, UnmergedStage};
 pub use merge_blocks::{compute_merge_blocks, ChangeSource, MergeBlock, MergeBlockReport};
