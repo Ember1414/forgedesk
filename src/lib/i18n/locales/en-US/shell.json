@@ -988,6 +988,61 @@
       "months": "{{count}} months ago",
       "years": "{{count}} years ago"
     },
+    "rebase": {
+      "title": "Organize commit history",
+      "description": "Reorder the commits in {{base}}…{{head}}: drag to reorder, or change a single commit's action.",
+      "loadFailed": "Failed to load the range commits (the repository may have changed).",
+      "stepListHint": "Drag to reorder; or focus a row and press Alt+↑/↓ to move it",
+      "mergeBadge": "merge",
+      "actionLabel": "Action",
+      "action": {
+        "pick": "Keep",
+        "reword": "Edit message",
+        "edit": "Edit content",
+        "squash": "Squash into previous",
+        "fixup": "Fixup into previous",
+        "drop": "Drop"
+      },
+      "reason": {
+        "squashAsFirst": "There is no earlier commit to merge into",
+        "squashOnMerge": "A merge commit cannot be squashed (the merge structure would be lost)",
+        "allDropped": "Keep at least one commit, or use reset instead",
+        "duplicateOid": "The same commit appears twice",
+        "oidOutsideRange": "This commit is outside the reorganization range"
+      },
+      "newMessage": "New commit message (leave empty to keep the original)",
+      "preview": {
+        "affected": "{{count}} commits will be rewritten",
+        "pushed": "The range contains pushed commits; pushing afterwards needs force-with-lease.",
+        "merged": "+{{count}} merged",
+        "reworded": "message edited",
+        "dropped": "dropped",
+        "pending": "Generating preview…",
+        "blocked": "The plan has invalid actions; fix them to see the preview."
+      },
+      "todoToggle": "Equivalent todo",
+      "execute": "Rewrite history",
+      "running": "Running… (step {{current}} / {{total}})",
+      "runningIndeterminate": "Running…",
+      "completed": "Rewrite completed",
+      "pausedConflict": "Paused: conflicts need to be resolved",
+      "gotoConflict": "Resolve conflicts",
+      "pausedEdit": "Paused: edit the content, then continue",
+      "continueEdit": "Continue after editing",
+      "abort": "Abort and restore",
+      "abortDone": "Aborted and restored",
+      "snapshotHint": "A snapshot #{{id}} was created before the rewrite; you can roll back from the snapshots page.",
+      "noSnapshot": "No snapshot could be created — check the snapshots page for an available rollback point before relying on it.",
+      "confirm": {
+        "title": "Confirm history rewrite",
+        "description": "Rewriting produces new commit hashes; pushed history will need force-with-lease.",
+        "impact": "Impact",
+        "rewrite": "{{count}} commits will be rewritten.",
+        "pushed": "Pushed commits are included: pushing afterwards needs force-with-lease.",
+        "snapshot": "A snapshot is created automatically before the rewrite; you can roll back at any time.",
+        "action": "Rewrite history"
+      }
+    },
     "menu": {
       "selectedCount": "{{count}} commits selected",
       "copyOid": "Copy commit hash",

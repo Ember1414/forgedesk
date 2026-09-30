@@ -15,13 +15,21 @@ import {
 } from '@/features/rebase/planState';
 
 const RANGE: readonly RebaseRangeCommit[] = [
-  { oid: 'c1', subject: 'one', parents: ['base'] },
-  { oid: 'c2', subject: 'two', parents: ['c1'] },
-  { oid: 'c3', subject: 'three', parents: ['c2'] },
+  { oid: 'c1', subject: 'one', parents: ['base'], author: 'Fixture Author', authorTime: 1 },
+  { oid: 'c2', subject: 'two', parents: ['c1'], author: 'Fixture Author', authorTime: 2 },
+  { oid: 'c3', subject: 'three', parents: ['c2'], author: 'Fixture Author', authorTime: 3 },
 ];
 
 function entry(oid: string, action: ReorderAction, extra: Partial<PlanEntry> = {}): PlanEntry {
-  return { oid, subject: `subject-${oid}`, parents: ['p'], action, ...extra };
+  return {
+    oid,
+    subject: `subject-${oid}`,
+    parents: ['p'],
+    author: 'Fixture Author',
+    authorTime: 1,
+    action,
+    ...extra,
+  };
 }
 
 function previewOf(overrides: Partial<RebasePreview> = {}): RebasePreview {
@@ -72,6 +80,8 @@ describe('setAction', () => {
       oid: 'c2',
       subject: 'two',
       parents: ['c1'],
+      author: 'Fixture Author',
+      authorTime: 2,
       action: 'reword',
       newMessage: 'new two',
     });

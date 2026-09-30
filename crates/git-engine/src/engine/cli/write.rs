@@ -969,6 +969,9 @@ pub(super) fn rebase_graph(
 /// `--reverse --topo-order`：从旧到新，且保证父提交排在子提交之前。
 /// 面板按这个顺序生成初始 todo——todo 的顺序就是执行顺序，乱序会让重放
 /// 基线错位（父还没重放就重放子）。
+///
+/// 字段用 NUL 全分隔（而不是 `%H %P` 那种空格分隔）：作者名可以含空格，
+/// 空格分隔的 header 会在 `张 三 <a@b>` 这类历史上解析错位。
 pub(super) fn rebase_range(
     engine: &CliGitEngine,
     repo: &RepoId,
@@ -979,7 +982,7 @@ pub(super) fn rebase_range(
         repo,
         GitInvocation::new(vec![
             "log".to_owned(),
-            "--format=%H %P%x00%s%x00".to_owned(),
+            "--format=%H%x00%P%x00%an%x00%at%x00%s%x00".to_owned(),
             "--reverse".to_owned(),
             "--topo-order".to_owned(),
             format!("{base}..{head}"),
@@ -988,17 +991,25 @@ pub(super) fn rebase_range(
     let stdout = output.stdout_lossy();
     let mut commits = Vec::new();
     let mut chunks = stdout.split('\u{0}');
-    while let (Some(header), Some(subject)) = (chunks.next(), chunks.next()) {
-        let header = header.trim_start_matches('\n');
-        if header.is_empty() {
-            continue;
+    // 五段一条：oid / parents / author / author-time / subject。
+    // 记录之间 git 会补一个换行（落在下一段的开头），逐段剥掉。
+    while let (Some(oid), Some(parents), Some(author), Some(at), Some(subject)) = (
+        chunks.next(),
+        chunks.next(),
+        chunks.next(),
+        chunks.next(),
+        chunks.next(),
+    ) {
+        let oid = oid.trim_start_matches('\n').trim();
+        if oid.is_empty() {
+            break;
         }
-        let mut ids = header.split_whitespace();
-        let Some(oid) = ids.next() else { continue };
         commits.push(RangeCommit {
             oid: oid.to_owned(),
-            parents: ids.map(str::to_owned).collect(),
-            subject: subject.trim_start_matches('\n').to_owned(),
+            parents: parents.split_whitespace().map(str::to_owned).collect(),
+            subject: subject.trim_start_matches('\n').trim_end().to_owned(),
+            author: author.trim_start_matches('\n').trim_end().to_owned(),
+            author_time: at.trim().parse().unwrap_or(0),
         });
     }
     Ok(commits)

@@ -62,6 +62,10 @@ export interface RebaseRangeCommit {
   readonly oid: string;
   readonly parents: readonly string[];
   readonly subject: string;
+  /** 作者名（面板每项展示）。 */
+  readonly author: string;
+  /** 作者时间（Unix 秒；用 `absoluteTime` 之类按本地时区格式化）。 */
+  readonly authorTime: number;
 }
 
 /** rebase 结局：三种都是正常返回值（暂停不是错误）。 */

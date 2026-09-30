@@ -156,6 +156,10 @@ pub struct RebaseRangeEntryDto {
     pub parents: Vec<String>,
     /// 提交信息首行。
     pub subject: String,
+    /// 作者名（面板每项展示）。
+    pub author: String,
+    /// 作者时间（Unix 秒；前端按本地时区格式化）。
+    pub author_time: i64,
 }
 
 fn validate_plan(request: &RebaseExecuteRequest) -> AppResult<RebasePlan> {
@@ -283,6 +287,8 @@ pub fn git_rebase_range(
             oid: commit.oid,
             parents: commit.parents,
             subject: commit.subject,
+            author: commit.author,
+            author_time: commit.author_time,
         })
         .collect())
 }

@@ -483,6 +483,12 @@ fn rebase_range_lists_the_whole_range_oldest_first_with_parents() {
         vec![commits[1].oid.clone()],
         "父链信息必须随清单返回（面板据此识别 merge 与拓扑）"
     );
+    assert!(
+        commits
+            .iter()
+            .all(|commit| !commit.author.is_empty() && commit.author_time > 0),
+        "作者与作者时间必须随清单返回（面板每项展示）：{commits:?}"
+    );
 }
 
 #[test]

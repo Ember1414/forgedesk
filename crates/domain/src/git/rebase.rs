@@ -300,6 +300,10 @@ pub struct RangeCommit {
     pub parents: Vec<String>,
     /// 提交信息首行。
     pub subject: String,
+    /// 作者名（展示用；lossy 与 [`super::commit::Commit`] 同一约定）。
+    pub author: String,
+    /// 作者时间（Unix 秒；界面按本地时区格式化）。
+    pub author_time: i64,
 }
 
 /// 预览中的一条存活提交（oid 是**重写前**的 oid——真实新 oid 只有执行后才知道，

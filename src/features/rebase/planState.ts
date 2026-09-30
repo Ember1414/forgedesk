@@ -21,6 +21,10 @@ export interface PlanEntry {
   readonly subject: string;
   /** 父提交 oid（识别 merge 提交用）。 */
   readonly parents: readonly string[];
+  /** 作者名（每项展示）。 */
+  readonly author: string;
+  /** 作者时间（Unix 秒；每项展示）。 */
+  readonly authorTime: number;
   readonly action: ReorderAction;
   /** reword / squash 的新信息草案（在面板里编辑）。 */
   readonly newMessage?: string;
@@ -50,6 +54,8 @@ export function initialEntries(range: readonly RebaseRangeCommit[]): PlanEntry[]
     oid: commit.oid,
     subject: commit.subject,
     parents: [...commit.parents],
+    author: commit.author,
+    authorTime: commit.authorTime,
     action: 'pick' as const,
   }));
 }
@@ -95,8 +101,20 @@ export function setAction(
     if (action === 'reword' || action === 'squash') {
       return { ...entry, action, ...(newMessage === undefined ? {} : { newMessage }) };
     }
-    return { oid: entry.oid, subject: entry.subject, parents: entry.parents, action };
+    return withoutMessage(entry, action);
   });
+}
+
+/** 保留提交信息、只换动作（显式重建，避免把旧的信息草案带过去）。 */
+function withoutMessage(entry: PlanEntry, action: ReorderAction): PlanEntry {
+  return {
+    oid: entry.oid,
+    subject: entry.subject,
+    parents: entry.parents,
+    author: entry.author,
+    authorTime: entry.authorTime,
+    action,
+  };
 }
 
 /**

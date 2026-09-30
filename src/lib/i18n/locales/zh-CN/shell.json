@@ -988,6 +988,61 @@
       "months": "{{count}} 个月前",
       "years": "{{count}} 年前"
     },
+    "rebase": {
+      "title": "整理提交历史",
+      "description": "重排 {{base}}…{{head}} 区间的提交：拖拽调整顺序，或给单条换动作。",
+      "loadFailed": "读取区间提交失败（仓库可能已变化）。",
+      "stepListHint": "拖拽调整顺序；或聚焦某行后按 Alt+↑/↓ 移动",
+      "mergeBadge": "合并",
+      "actionLabel": "动作",
+      "action": {
+        "pick": "保留",
+        "reword": "改信息",
+        "edit": "编辑内容",
+        "squash": "压缩并入",
+        "fixup": "并入（弃信息）",
+        "drop": "丢弃"
+      },
+      "reason": {
+        "squashAsFirst": "它前面没有可并入的提交",
+        "squashOnMerge": "合并提交不能压缩（会丢失合并结构）",
+        "allDropped": "至少保留一个提交，或改用重置",
+        "duplicateOid": "同一个提交出现了两次",
+        "oidOutsideRange": "该提交不在整理区间内"
+      },
+      "newMessage": "新的提交信息（留空则沿用原信息）",
+      "preview": {
+        "affected": "将重写 {{count}} 个提交",
+        "pushed": "区间内有已推送的提交；推送时需要使用 force-with-lease。",
+        "merged": "并入 {{count}} 个",
+        "reworded": "信息已改",
+        "dropped": "已丢弃",
+        "pending": "正在生成预览…",
+        "blocked": "计划存在非法操作，修正后显示预览。"
+      },
+      "todoToggle": "等价 todo",
+      "execute": "执行重写",
+      "running": "正在执行…（第 {{current}} / {{total}} 步）",
+      "runningIndeterminate": "正在执行…",
+      "completed": "重写完成",
+      "pausedConflict": "已暂停：需要解决冲突",
+      "gotoConflict": "去解决冲突",
+      "pausedEdit": "已暂停：请修改内容后点击继续",
+      "continueEdit": "修改完成，继续",
+      "abort": "中止并还原",
+      "abortDone": "已中止并还原",
+      "snapshotHint": "执行前已创建快照 #{{id}}，随时可在快照页回滚。",
+      "noSnapshot": "本次未能创建快照——如需回滚请先到快照页确认可用回滚点。",
+      "confirm": {
+        "title": "确认重写历史",
+        "description": "重写会生成新的提交哈希；已推送的历史被改写后需要 force-with-lease。",
+        "impact": "影响",
+        "rewrite": "将重写 {{count}} 个提交。",
+        "pushed": "包含已推送到远端的提交：推送时需要使用 force-with-lease。",
+        "snapshot": "执行前会自动创建快照，可随时回滚。",
+        "action": "执行重写"
+      }
+    },
     "menu": {
       "selectedCount": "已选中 {{count}} 个提交",
       "copyOid": "复制提交哈希",
