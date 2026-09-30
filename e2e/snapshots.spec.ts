@@ -65,6 +65,7 @@ const MOCK_SCRIPT = `
         for (const listener of listeners) {
           listener({ event: "repo:changed", id: 0, payload: { repoId: 1, kind: "refs", paths: [] } });
         }
+        if (window.__restoreOutcome) return Promise.resolve(window.__restoreOutcome);
         return Promise.resolve({
           restoredSnapshotId: args.snapshotId,
           headOid: "2222222222222222222222222222222222222222",
@@ -74,8 +75,27 @@ const MOCK_SCRIPT = `
           untrackedRestored: 1,
           untrackedFailed: [],
           untrackedExtra: ["notes/new.txt"],
-          verified: true
+          verified: true,
+          outcome: "completed",
+          stages: [
+            { stage: "protection", ok: true, detail: null, durationMs: 1 },
+            { stage: "head", ok: true, detail: null, durationMs: 2 },
+            { stage: "index", ok: true, detail: null, durationMs: 1 },
+            { stage: "untracked", ok: true, detail: null, durationMs: 1 },
+            { stage: "verify", ok: true, detail: null, durationMs: 1 }
+          ],
+          reportLines: ["head: ok (2 ms)"],
+          emergency: null
         });
+      }
+      if (command === "snapshot_restore_pending") {
+        // T3.9 崩溃恢复：默认干净；用例可以注入一个"上次回滚没走完"的标记
+        return Promise.resolve(window.__pendingRestore || null);
+      }
+      if (command === "snapshot_restore_abandon") {
+        window.__snapshotCalls.push({ command: command, args: args });
+        window.__pendingRestore = null;
+        return Promise.resolve(1);
       }
       if (command === "repo_recent_list") return Promise.resolve([{ record: { id: 1, path: "/tmp/repo", name: "repo" }, isOpen: true }]);
       if (command === "app_version") return Promise.resolve({ version: "0.0.1", gitDescribe: null });
@@ -206,6 +226,120 @@ test('手动打点超限时把"未包含什么"挂在页面上', async ({ page }
   await expect(warning).toContainText('300.0 MB');
   await expect(warning).toContainText('200.0 MB');
   await page.screenshot({ path: join(VISUAL_DIR, '02-warning.png') });
+
+  const errs = await page.evaluate(() => window.__errs ?? []);
+  expect(errs, JSON.stringify(errs)).toEqual([]);
+});
+
+test('检测到上次回滚未完成时给出"继续 / 清除"两个出口（T3.9）', async ({ page }) => {
+  await page.addInitScript(() => {
+    window.__pendingRestore = {
+      snapshotId: 2,
+      stage: 'index',
+      startedAtMs: 1_700_000_000_000,
+    };
+  });
+  await page.goto('/#/repo/1/snapshots');
+
+  const banner = page.getByTestId('restore-pending');
+  await expect(banner).toBeVisible();
+  // 说清"哪一份快照、停在哪一步"：笼统一句"可能有问题"等于没说
+  await expect(banner).toContainText('快照 #2');
+  await expect(banner).toContainText('恢复索引');
+  await page.screenshot({ path: join(VISUAL_DIR, '03-pending.png') });
+
+  // "继续" = 再回滚一次（幂等），参数必须是那份快照
+  await page.getByTestId('restore-pending-continue').click();
+  await expect
+    .poll(async () =>
+      (await page.evaluate(() => window.__snapshotCalls ?? [])).filter(
+        (call) => call.command === 'snapshot_restore',
+      ),
+    )
+    .toHaveLength(1);
+  const calls = await page.evaluate(() => window.__snapshotCalls ?? []);
+  expect(calls.at(-1)).toMatchObject({ command: 'snapshot_restore', args: { snapshotId: 2 } });
+
+  const errs = await page.evaluate(() => window.__errs ?? []);
+  expect(errs, JSON.stringify(errs)).toEqual([]);
+});
+
+test('"清除提示"走 snapshot_restore_abandon，不发回滚（T3.9）', async ({ page }) => {
+  await page.addInitScript(() => {
+    window.__pendingRestore = { snapshotId: 9, stage: null, startedAtMs: null };
+  });
+  await page.goto('/#/repo/1/snapshots');
+
+  await expect(page.getByTestId('restore-pending')).toContainText('未知阶段');
+  await page.getByTestId('restore-pending-abandon').click();
+
+  await expect
+    .poll(async () =>
+      (await page.evaluate(() => window.__snapshotCalls ?? [])).map((call) => call.command),
+    )
+    .toContain('snapshot_restore_abandon');
+  const calls = await page.evaluate(() => window.__snapshotCalls ?? []);
+  expect(
+    calls.some((call) => call.command === 'snapshot_restore'),
+    '清除提示不该顺带回滚',
+  ).toBe(false);
+  // 标记清掉之后提示条消失
+  await expect(page.getByTestId('restore-pending')).toHaveCount(0);
+
+  const errs = await page.evaluate(() => window.__errs ?? []);
+  expect(errs, JSON.stringify(errs)).toEqual([]);
+});
+
+test('紧急模式：报告列出阶段并给出可复制的恢复指引（T3.9）', async ({ page }) => {
+  await page.addInitScript(() => {
+    window.__restoreOutcome = {
+      restoredSnapshotId: 2,
+      headOid: '2222222222222222222222222222222222222222',
+      indexTreeOid: '7777777777777777777777777777777777777777',
+      preRestoreSnapshotId: 3,
+      untrackedPaths: [],
+      untrackedRestored: 0,
+      untrackedFailed: [],
+      untrackedExtra: [],
+      verified: false,
+      outcome: 'emergency',
+      stages: [
+        { stage: 'protection', ok: true, detail: null, durationMs: 2 },
+        { stage: 'head', ok: false, detail: 'git reset --hard failed: boom', durationMs: 5 },
+      ],
+      reportLines: ['head: failed - boom'],
+      emergency: {
+        snapshotId: 2,
+        targetSnapshotId: 3,
+        backupDir: '/cache/snapshots/1/3',
+        commands: [
+          'git reset --hard 3333333333333333333333333333333333333333',
+          'git read-tree 4444444444444444444444444444444444444444',
+        ],
+        notes: ['在仓库目录里执行：/tmp/repo'],
+      },
+    };
+  });
+  await page.goto('/#/repo/1/snapshots');
+
+  await page.getByRole('button', { name: '回滚到这里' }).first().click();
+  await page.getByRole('alertdialog').getByRole('button', { name: '回滚', exact: true }).click();
+
+  // 结局必须一眼可辨（不能只说"完成"）
+  await expect(page.getByTestId('report-outcome')).toContainText('需要手动恢复');
+
+  // 阶段清单：哪一步成了、哪一步没成、为什么
+  const stages = page.getByTestId('report-stages');
+  await expect(stages).toContainText('打回滚前保护点');
+  await expect(stages).toContainText('恢复 HEAD 与工作区');
+  await expect(stages).toContainText('git reset --hard failed: boom');
+
+  // 指引：命令逐条列出 + 备份目录
+  const guidance = page.getByTestId('report-emergency');
+  await expect(guidance).toContainText('git reset --hard 3333333');
+  await expect(guidance).toContainText('git read-tree 4444444');
+  await expect(guidance).toContainText('/cache/snapshots/1/3');
+  await page.screenshot({ path: join(VISUAL_DIR, '04-emergency.png') });
 
   const errs = await page.evaluate(() => window.__errs ?? []);
   expect(errs, JSON.stringify(errs)).toEqual([]);

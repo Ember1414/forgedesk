@@ -170,6 +170,10 @@ declare global {
     __resetExecuted?: number;
     /** 快照页 e2e：自定义手动打点的结果（T3.8 的超限告警场景）。 */
     __createOutcome?: unknown;
+    /** 快照页 e2e：自定义回滚报告（T3.9 的紧急模式场景）。 */
+    __restoreOutcome?: unknown;
+    /** 快照页 e2e：注入一个"上次回滚没走完"的标记（T3.9 崩溃恢复）。 */
+    __pendingRestore?: unknown;
     /**
      * rebase 面板 e2e 的 mock 调用记录（T3.6）。
      *
