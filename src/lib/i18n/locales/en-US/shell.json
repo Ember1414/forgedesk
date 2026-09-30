@@ -370,7 +370,6 @@
       "deleteTitle": "Delete this credential?",
       "deleteImpactLabel": "What happens",
       "deleteImpact": "The ciphertext is removed from the system credential store, so later network operations will ask for it again. The remote repository and anything already pushed are unaffected.",
-      "todoT44": "Still to come (T4.4): signing in with GitHub (OAuth device flow), switching between accounts and syncing your profile. This version expects a pasted access token.",
       "countUnknown": "—",
       "vault": {
         "switchButton": "Use an encrypted file instead",
@@ -531,6 +530,40 @@
         "rows": "Keep rows",
         "hint": "Records beyond either limit are pruned automatically at startup; pruning is itself recorded."
       }
+    },
+    "accounts": {
+      "title": "Hosting platform accounts",
+      "description": "Which hosting platform identity you are signed in with. Tokens live in the system credential store and are never shown here.",
+      "addAccount": "Add account",
+      "empty": "No account has been signed in yet.",
+      "listError": "Failed to load the account list.",
+      "scopes": "Scopes: {{scopes}}",
+      "noScopes": "This token declares no scopes.",
+      "remove": "Remove",
+      "removeTitle": "Remove account {{login}}?",
+      "removeDescription": "The matching token for {{host}} will be deleted from the credential store and the account record removed from this machine. This cannot be undone.",
+      "removeConfirm": "Remove",
+      "removedToast": "Account {{login}} removed",
+      "loginTitle": "Sign in to a hosting platform",
+      "loginDescription": "Device code sign-in is recommended; you can also paste a personal access token (PAT).",
+      "modeLabel": "Sign-in method",
+      "modeDeviceFlow": "Device code",
+      "modePat": "Paste token",
+      "hostLabel": "Site",
+      "tokenLabel": "Access token",
+      "deviceIntro": "The next step shows a device code: enter it on the GitHub authorization page in your browser, and the app will wait for you automatically.",
+      "patSubmit": "Sign in",
+      "deviceStart": "Get device code",
+      "stepCopyCode": "Step 1: copy the device code",
+      "stepOpenLink": "Step 2: open the authorization page in your browser and enter the code",
+      "copyCode": "Copy code",
+      "copyLink": "Copy link",
+      "copied": "Copied",
+      "waitingHint": "Step 3: waiting for authorization (checked about every {{interval}} seconds; restart if it expires).",
+      "waitingFailed": "Authorization did not complete. You can request a new device code and try again.",
+      "cancel": "Cancel waiting",
+      "loginSuccess": "Signed in as {{login}}",
+      "removeImpact": "After removal, the token for this account on {{host}} is deleted from this machine's credential store, and the app will no longer access it as {{login}}."
     }
   },
   "snapshots": {

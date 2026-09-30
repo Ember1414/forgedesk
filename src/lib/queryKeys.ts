@@ -124,6 +124,14 @@ export const CREDENTIALS_QUERY_KEY = 'credentials';
 /** 凭据状态（后端种类、数量、系统凭据库可用性；T2.7，全局）。 */
 export const CREDENTIALS_STATUS_QUERY_KEY = 'credentialsStatus';
 
+/**
+ * 已登录的托管平台账号（T4.4，全局）。
+ *
+ * 与仓库无关（账号按 host 存），键里没有 `repoId`，也不进 `repoChanged.ts`
+ * 的失效映射——仓库事件不会改变"登录过哪些账号"。
+ */
+export const ACCOUNTS_QUERY_KEY = 'accounts';
+
 /** 凭据状态的查询键。 */
 export function credentialsStatusKey(): readonly [string] {
   return [CREDENTIALS_STATUS_QUERY_KEY];

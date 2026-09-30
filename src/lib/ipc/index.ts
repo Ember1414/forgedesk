@@ -96,6 +96,14 @@ export type {
   MergeStrategy,
 } from './merge';
 export {
+  accountDeviceFlowStart,
+  accountDeviceFlowWait,
+  accountList,
+  accountLoginWithPat,
+  accountRemove,
+} from './accounts';
+export type { Account, DeviceFlowSession } from './accounts';
+export {
   gitRebaseContinueEdit,
   gitRebaseExecute,
   gitRebasePreviewOnly,

@@ -370,7 +370,6 @@
       "deleteTitle": "删除这条凭据？",
       "deleteImpactLabel": "会发生什么",
       "deleteImpact": "系统凭据库里的密文会被删除，之后的网络操作需要重新输入。远端仓库与已经推送的内容不受影响。",
-      "todoT44": "还没做的部分（T4.4）：用 GitHub 登录（OAuth 设备码）、多账号切换与身份同步。当前版本需要手动粘贴访问令牌。",
       "countUnknown": "—",
       "vault": {
         "switchButton": "改用加密文件存储",
@@ -531,6 +530,40 @@
         "rows": "保留条数",
         "hint": "超过任一上限的记录会在应用启动时自动清理；清理本身也会被记录。"
       }
+    },
+    "accounts": {
+      "title": "托管平台账号",
+      "description": "以谁的托管平台身份登录。令牌保存在系统凭据库，本页不显示令牌内容。",
+      "addAccount": "添加账号",
+      "empty": "还没有登录过账号。",
+      "listError": "账号列表加载失败。",
+      "scopes": "作用域：{{scopes}}",
+      "noScopes": "该令牌未声明作用域。",
+      "remove": "移除",
+      "removeTitle": "移除账号 {{login}}？",
+      "removeDescription": "将从 {{host}} 的凭据库中删除对应令牌，并移除本机的账号记录。此操作不可撤销。",
+      "removeConfirm": "移除",
+      "removedToast": "已移除账号 {{login}}",
+      "loginTitle": "登录托管平台",
+      "loginDescription": "推荐使用设备码登录；也可以粘贴个人访问令牌（PAT）。",
+      "modeLabel": "登录方式",
+      "modeDeviceFlow": "设备码登录",
+      "modePat": "粘贴令牌",
+      "hostLabel": "站点",
+      "tokenLabel": "访问令牌",
+      "deviceIntro": "下一步会给你一个设备码：把它输入到浏览器里的 GitHub 授权页，应用会自动等待授权完成。",
+      "patSubmit": "登录",
+      "deviceStart": "获取设备码",
+      "stepCopyCode": "第 1 步：复制设备码",
+      "stepOpenLink": "第 2 步：在浏览器打开授权页并输入设备码",
+      "copyCode": "复制设备码",
+      "copyLink": "复制链接",
+      "copied": "已复制",
+      "waitingHint": "第 3 步：等待授权中（约每 {{interval}} 秒查询一次；过期后需重新开始）。",
+      "waitingFailed": "授权未完成。可以重新获取设备码再试一次。",
+      "cancel": "取消等待",
+      "loginSuccess": "已登录：{{login}}",
+      "removeImpact": "移除后，该账号在 {{host}} 的令牌将从本机凭据库删除，应用将不再以 {{login}} 的身份访问它。"
     }
   },
   "snapshots": {

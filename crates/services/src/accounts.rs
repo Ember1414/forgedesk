@@ -150,13 +150,7 @@ impl AccountService {
         let provider = (self.factory)(host)?;
         let verified = provider.auth().verify_pat(token.clone()).await?;
         let host = provider.host().to_owned();
-        self.persist(
-            provider.id(),
-            &host,
-            verified,
-            CredentialKind::Pat,
-            token,
-        )
+        self.persist(provider.id(), &host, verified, CredentialKind::Pat, token)
     }
 
     /// 启动 Device Flow：返回 UI 三步引导需要的非秘密数据，
@@ -394,10 +388,7 @@ mod tests {
                 ))
             }),
         );
-        Fixture {
-            service,
-            keyring,
-        }
+        Fixture { service, keyring }
     }
 
     fn user_mock() -> Mock {
