@@ -168,6 +168,8 @@ declare global {
     __mergeCalls?: readonly { readonly command: string; readonly args?: unknown }[];
     /** reset e2e 的执行计数（T2.10：断言取消后 execute 从未被调用）。 */
     __resetExecuted?: number;
+    /** 快照页 e2e：自定义手动打点的结果（T3.8 的超限告警场景）。 */
+    __createOutcome?: unknown;
     /**
      * rebase 面板 e2e 的 mock 调用记录（T3.6）。
      *
