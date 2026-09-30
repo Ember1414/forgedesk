@@ -6,7 +6,16 @@
 //! 重试 ≤ 3 次、限流头解析进 `RateLimitState`）必须对**所有**请求生效，
 //! 包括 Device Flow 这类不走 octocrab REST API 的端点。这一层同时服务于
 //! 自建请求与 octocrab（后者通过 [`GitHubHttp::raw_client`] 复用同一个
-//! 连接池与 UA；octocrab 侧的重试策略在接入具体子服务时保持一致）。
+//! 连接池与 UA）。
+//!
+//! # octocrab 路径的限流可见性（T4.2 的取舍）
+//!
+//! octocrab 0.54 的默认 service 栈不开放插层，复刻整套栈会随升级漂移。
+//! 因此 octocrab 发出的请求**不**逐响应喂 [`RateLimitTracker`]；取而代之，
+//! [`crate::github::GitHubProvider::refresh_rate_limit`] 用 `GET /rate_limit`
+//! （不耗配额、值权威）主动刷新，T4.5 起的服务在 403/429 与页面加载前调用。
+//! 自管路径（认证、自建端点）仍然逐响应头捕获。octocrab 自身的重试
+//! （`Simple(3)`，立即重试 5xx/429，有界）保持默认，不额外配置。
 //!
 //! # 重试语义（docs/PLAN.md M4.1）
 //!
@@ -215,6 +224,11 @@ impl GitHubHttp {
     #[must_use]
     pub fn rate_limit(&self) -> Option<RateLimitState> {
         self.rate_limit.snapshot()
+    }
+
+    /// 直接写入快照（`GET /rate_limit` 刷新路径用）。
+    pub fn set_rate_limit(&self, state: RateLimitState) {
+        self.rate_limit.set(state);
     }
 
     /// 底层 client（octocrab 复用同一连接池时使用）。

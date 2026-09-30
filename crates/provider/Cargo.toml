@@ -23,6 +23,7 @@ parking_lot.workspace = true
 secrecy.workspace = true
 reqwest = { version = "0.13.5", features = ["json", "form"] }
 time.workspace = true
+tokio-util.workspace = true
 
 [lints]
 workspace = true

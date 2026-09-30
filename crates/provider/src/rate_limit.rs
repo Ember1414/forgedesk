@@ -84,6 +84,12 @@ impl RateLimitTracker {
         self.state.read().clone()
     }
 
+    /// 直接写入快照（`GET /rate_limit` 刷新路径用：请求体给出的
+    /// 权威值比响应头更细）。
+    pub fn set(&self, state: RateLimitState) {
+        *self.state.write() = Some(state);
+    }
+
     /// 是否处于"主配额耗尽"状态。
     ///
     /// 判定条件是 remaining == 0：这比"上次请求是不是 403"更可靠——

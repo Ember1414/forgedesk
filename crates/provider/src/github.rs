@@ -31,6 +31,7 @@ use forgedesk_domain::{AppError, ErrorCode};
 use crate::auth::{DeviceFlowPoll, DeviceFlowStart, VerifiedAccount};
 use crate::client::{map_transport_error, ApiRequest, GitHubHttp};
 use crate::model::{ProviderCapabilities, ProviderId};
+use crate::rate_limit::RateLimitState;
 use crate::traits::{
     AuthFlow, CiService, HostProvider, IssueService, PullService, ReleaseService, RepoService,
 };
@@ -144,6 +145,73 @@ impl GitHubProvider {
         let response = self.http.send(&request).await?;
         response.json::<T>().await.map_err(map_transport_error)
     }
+
+    /// 主动刷新限流状态（`GET /rate_limit`，该端点**不消耗** REST 配额）。
+    ///
+    /// # 为什么 octocrab 路径用"主动刷新"而不是逐响应捕获
+    ///
+    /// octocrab 0.54 的默认 service 栈不向外部开放插层（`with_layer` 仅在
+    /// `with_service` 全自定义栈下可用），复刻整套默认栈会随 octocrab 升级
+    /// 漂移。而 `/rate_limit` 返回的是**权威值**（含同一令牌在别处的消耗），
+    /// 响应自带 `x-ratelimit-*` 头、会照常进入 [`RateLimitTracker`]，
+    /// 请求体还给出各资源桶（core/graphql/search）的细分。策略：
+    /// - GitHubHttp 自管路径（认证、自建端点调用）：逐响应头捕获（已有）；
+    /// - octocrab 路径：T4.5 起的服务在出错（403/429）与页面加载前调用本方法，
+    ///   T4.10 的降级 UI 提供"手动刷新"。
+    pub async fn refresh_rate_limit(
+        &self,
+        token: Option<SecretString>,
+    ) -> Result<RateLimitState, AppError> {
+        let url = format!("{}/rate_limit", self.api_base);
+        let mut request = ApiRequest::get(url);
+        if let Some(token) = token {
+            request = request.with_bearer(token);
+        }
+        let response = self.http.send(&request).await?;
+        let body: RateLimitResponse = response.json().await.map_err(map_transport_error)?;
+        // core 桶是 REST 一切的配额来源；缺失时退回响应头捕获的快照
+        let core = body.resources.and_then(|r| r.core).or(body.rate);
+        let Some(core) = core else {
+            return self.http.rate_limit().ok_or_else(|| {
+                AppError::new(
+                    ErrorCode::Internal,
+                    "rate limit response had no core or rate bucket",
+                )
+            });
+        };
+        let state = RateLimitState {
+            resource: Some("core".to_owned()),
+            limit: core.limit,
+            remaining: core.remaining,
+            used: core.used,
+            reset_unix_secs: core.reset,
+        };
+        self.http.set_rate_limit(state.clone());
+        Ok(state)
+    }
+}
+
+/// `/rate_limit` 的响应体（只取需要的桶，未知字段忽略）。
+#[derive(Debug, Deserialize)]
+struct RateLimitResponse {
+    #[serde(default)]
+    resources: Option<RateLimitBuckets>,
+    #[serde(default)]
+    rate: Option<RateLimitBucket>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RateLimitBuckets {
+    #[serde(default)]
+    core: Option<RateLimitBucket>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RateLimitBucket {
+    limit: u32,
+    used: u32,
+    remaining: u32,
+    reset: u64,
 }
 
 #[async_trait::async_trait]
@@ -571,6 +639,67 @@ mod tests {
             .unwrap_err();
 
         assert_eq!(error.code, ErrorCode::AuthExpired);
+    }
+
+    #[tokio::test]
+    async fn rate_limit_refresh_takes_the_authoritative_core_bucket_and_feeds_the_tracker() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/rate_limit"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .insert_header("x-ratelimit-limit", "60")
+                    .insert_header("x-ratelimit-remaining", "59")
+                    .insert_header("x-ratelimit-reset", "1790000000")
+                    .set_body_json(serde_json::json!({
+                        "resources": {
+                            "core": {
+                                "limit": 5000, "used": 37, "remaining": 4963, "reset": 1790000100
+                            },
+                            "graphql": {
+                                "limit": 5000, "used": 0, "remaining": 5000, "reset": 1790000100
+                            }
+                        },
+                        "rate": { "limit": 5000, "used": 37, "remaining": 4963, "reset": 1790000100 }
+                    })),
+            )
+            .mount(&server)
+            .await;
+
+        let provider = provider_at(&server);
+        let state = provider
+            .refresh_rate_limit(Some(secrecy::SecretString::from("ghp_ok")))
+            .await
+            .unwrap();
+
+        // 请求体是权威值：core 桶 4963，而不是响应头里的匿名 59
+        assert_eq!(state.remaining, 4963);
+        assert_eq!(state.limit, 5000);
+        assert_eq!(state.reset_unix_secs, 1_790_000_100);
+        assert_eq!(state.resource.as_deref(), Some("core"));
+        // 快照同步进 tracker：后续的降级 UI / is_exhausted 判定看得到
+        assert_eq!(provider.http.rate_limit().unwrap().remaining, 4963);
+    }
+
+    #[tokio::test]
+    async fn a_rate_limit_refresh_without_buckets_falls_back_to_header_capture() {
+        let server = MockServer::start().await;
+        // 某些网关会剥掉 body 里的桶或改写结构：头捕获仍然是兜底
+        Mock::given(method("GET"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .insert_header("x-ratelimit-limit", "5000")
+                    .insert_header("x-ratelimit-remaining", "42")
+                    .insert_header("x-ratelimit-reset", "1790000000")
+                    .set_body_json(serde_json::json!({})),
+            )
+            .mount(&server)
+            .await;
+
+        let provider = provider_at(&server);
+        let state = provider.refresh_rate_limit(None).await.unwrap();
+
+        assert_eq!(state.remaining, 42);
     }
 
     /// 容错策略（docs/PLAN.md M4 风险表"未知字段忽略"）：GitHub 给

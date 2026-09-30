@@ -53,7 +53,10 @@ pub mod rate_limit;
 /// 令牌脱敏（红线 R8 的 provider 侧兜底）。
 pub mod redact;
 
-pub use auth::{DeviceFlowPoll, DeviceFlowStart, VerifiedAccount, DEFAULT_SCOPES};
+pub use auth::{
+    poll_until_authorized, AuthorizedLogin, DeviceFlowPoll, DeviceFlowStart, PollOptions,
+    VerifiedAccount, DEFAULT_SCOPES,
+};
 pub use client::{ApiRequest, GitHubHttp, HttpConfig};
 pub use error::map_octocrab_error;
 pub use github::GitHubProvider;

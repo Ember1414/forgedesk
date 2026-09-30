@@ -19,6 +19,12 @@
 
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
+use std::time::Duration;
+use tokio_util::sync::CancellationToken;
+
+use forgedesk_domain::{AppError, ErrorCode};
+
+use crate::traits::AuthFlow;
 
 /// Device Flow 的启动结果。
 ///
@@ -85,11 +91,108 @@ pub struct VerifiedAccount {
 /// 账号 UI 据此提示"权限不足"而不是默默失败。
 pub const DEFAULT_SCOPES: &str = "repo read:org workflow";
 
+/// 授权成功后的产物：令牌只在内存里流转，落地存储是 services 层的事。
+#[derive(Debug)]
+pub struct AuthorizedLogin {
+    /// 访问令牌（秘密；下一步由 services 写入凭据库，T4.4）。
+    pub token: SecretString,
+    /// 实际授予的作用域（空格分隔）。
+    pub scope: Option<String>,
+}
+
+/// 轮询循环的可调参数（真实用户走 [`Self::DEFAULT`]）。
+#[derive(Debug, Clone, Copy)]
+pub struct PollOptions {
+    /// 收到 `slow_down` 后追加到间隔的时长（RFC 8628 §3.5 规定 5s）。
+    pub slow_down_penalty: Duration,
+}
+
+impl PollOptions {
+    /// RFC 8628 推荐值。
+    pub const DEFAULT: Self = Self {
+        slow_down_penalty: Duration::from_secs(5),
+    };
+}
+
+impl Default for PollOptions {
+    fn default() -> Self {
+        Self::DEFAULT
+    }
+}
+
+/// 驱动 Device Flow 的轮询循环直到授权完成或流程终止。
+///
+/// # 为什么循环在这里而不在 services
+///
+/// 轮询节奏（interval、slow_down +5s、过期判定）是 **RFC 8628 的协议语义**，
+/// 不是业务编排；放 provider 里让所有 `AuthFlow` 实现共享同一套节奏，
+/// services（T4.3 登录向导）只管启动/取消与结果落地。取消令牌与
+/// `jobs` crate 的同源（tokio-util），登录向导把 jobId 的令牌直接传进来。
+///
+/// 错误码约定：用户取消 → `CANCELLED`；流程/设备码过期 → `AUTH_EXPIRED`
+/// （前端把它导向"重新登录"，正是正确出路）；用户拒绝 → `AUTH_REQUIRED`
+/// （同样导向重新发起，但 hint 会说明是拒绝而非失败）。
+pub async fn poll_until_authorized(
+    auth: &dyn AuthFlow,
+    flow: &DeviceFlowStart,
+    cancel: &CancellationToken,
+    options: PollOptions,
+) -> Result<AuthorizedLogin, AppError> {
+    let deadline = std::time::Instant::now() + Duration::from_secs(flow.expires_in_secs);
+    let mut interval = Duration::from_secs(flow.interval_secs);
+
+    loop {
+        tokio::select! {
+            () = cancel.cancelled() => {
+                return Err(AppError::new(ErrorCode::Cancelled, "device flow polling was cancelled"));
+            }
+            () = tokio::time::sleep(interval) => {}
+        }
+
+        if std::time::Instant::now() >= deadline {
+            return Err(AppError::new(
+                ErrorCode::AuthExpired,
+                "the device flow expired; start the sign-in again",
+            ));
+        }
+
+        match auth.poll_device_flow(flow).await? {
+            DeviceFlowPoll::Authorized { token, scope } => {
+                return Ok(AuthorizedLogin { token, scope });
+            }
+            DeviceFlowPoll::Pending => {}
+            DeviceFlowPoll::SlowDown => {
+                interval += options.slow_down_penalty;
+            }
+            DeviceFlowPoll::Expired => {
+                return Err(AppError::new(
+                    ErrorCode::AuthExpired,
+                    "the device code expired; start the sign-in again",
+                ));
+            }
+            DeviceFlowPoll::Denied => {
+                return Err(AppError::new(
+                    ErrorCode::AuthRequired,
+                    "the authorization request was denied by the user",
+                ));
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
-    use super::{DeviceFlowPoll, DeviceFlowStart};
-    use secrecy::ExposeSecret;
+    use super::{
+        poll_until_authorized, AuthorizedLogin, DeviceFlowPoll, DeviceFlowStart, PollOptions,
+    };
+    use crate::traits::AuthFlow;
+    use forgedesk_domain::{AppError, ErrorCode};
+    use secrecy::{ExposeSecret, SecretString};
+    use std::collections::VecDeque;
+    use std::sync::Mutex;
+    use std::time::Duration;
+    use tokio_util::sync::CancellationToken;
 
     /// 红线 R8：device_code 与换取到的令牌不得出现在 Debug 输出里。
     #[test]
@@ -124,5 +227,173 @@ mod tests {
             interval_secs: 1,
         };
         assert_eq!(start.device_code.expose_secret(), "abc");
+    }
+
+    /// 轮询循环逻辑测试不需要 HTTP：一个按脚本应答的 MockAuth 就够了。
+    /// （poll_device_flow 本身的 HTTP 行为在 github.rs 里用 wiremock 覆盖。）
+    struct MockAuth {
+        responses: Mutex<VecDeque<Result<DeviceFlowPoll, AppError>>>,
+        polls: Mutex<usize>,
+    }
+
+    impl MockAuth {
+        fn new(responses: Vec<Result<DeviceFlowPoll, AppError>>) -> Self {
+            Self {
+                responses: Mutex::new(responses.into()),
+                polls: Mutex::new(0),
+            }
+        }
+
+        fn poll_count(&self) -> usize {
+            *self.polls.lock().unwrap()
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl AuthFlow for MockAuth {
+        async fn start_device_flow(&self, _scopes: &[&str]) -> Result<DeviceFlowStart, AppError> {
+            Err(AppError::new(ErrorCode::Internal, "not used in this test"))
+        }
+
+        async fn poll_device_flow(
+            &self,
+            _flow: &DeviceFlowStart,
+        ) -> Result<DeviceFlowPoll, AppError> {
+            *self.polls.lock().unwrap() += 1;
+            self.responses
+                .lock()
+                .unwrap()
+                .pop_front()
+                .expect("test script ran dry")
+        }
+
+        async fn verify_pat(
+            &self,
+            _token: SecretString,
+        ) -> Result<super::VerifiedAccount, AppError> {
+            Err(AppError::new(ErrorCode::Internal, "not used in this test"))
+        }
+    }
+
+    fn flow(expires_in_secs: u64, interval_secs: u64) -> DeviceFlowStart {
+        DeviceFlowStart {
+            device_code: SecretString::from("dc"),
+            user_code: "U".to_owned(),
+            verification_uri: "u".to_owned(),
+            verification_uri_complete: None,
+            expires_in_secs,
+            interval_secs,
+        }
+    }
+
+    fn authorized(token: &str) -> Result<DeviceFlowPoll, AppError> {
+        Ok(DeviceFlowPoll::Authorized {
+            token: SecretString::from(token.to_owned()),
+            scope: Some("repo".to_owned()),
+        })
+    }
+
+    #[tokio::test]
+    async fn polling_keeps_going_through_pending_and_returns_the_token() {
+        let auth = MockAuth::new(vec![
+            Ok(DeviceFlowPoll::Pending),
+            Ok(DeviceFlowPoll::Pending),
+            authorized("gho_done"),
+        ]);
+        let cancel = CancellationToken::new();
+
+        let login = poll_until_authorized(&auth, &flow(900, 0), &cancel, PollOptions::default())
+            .await
+            .unwrap();
+
+        let AuthorizedLogin { token, scope } = login;
+        assert_eq!(token.expose_secret(), "gho_done");
+        assert_eq!(scope.as_deref(), Some("repo"));
+        assert_eq!(auth.poll_count(), 3);
+    }
+
+    #[tokio::test]
+    async fn slow_down_extends_the_interval_before_the_next_poll() {
+        let auth = MockAuth::new(vec![Ok(DeviceFlowPoll::SlowDown), authorized("gho_done")]);
+
+        let started = std::time::Instant::now();
+        let login = poll_until_authorized(
+            &auth,
+            &flow(900, 0),
+            &CancellationToken::new(),
+            PollOptions {
+                slow_down_penalty: Duration::from_millis(80),
+            },
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(login.token.expose_secret(), "gho_done");
+        // sleep 只保证"至少"：50~80ms 的下限断言是确定性的
+        assert!(started.elapsed() >= Duration::from_millis(79));
+    }
+
+    #[tokio::test]
+    async fn a_user_denial_maps_to_auth_required_and_stops_polling() {
+        let auth = MockAuth::new(vec![Ok(DeviceFlowPoll::Denied), authorized("never")]);
+
+        let error = poll_until_authorized(
+            &auth,
+            &flow(900, 0),
+            &CancellationToken::new(),
+            PollOptions::default(),
+        )
+        .await
+        .unwrap_err();
+
+        assert_eq!(error.code, ErrorCode::AuthRequired);
+        assert_eq!(auth.poll_count(), 1, "拒绝后不得继续轮询");
+    }
+
+    #[tokio::test]
+    async fn an_expired_device_code_maps_to_auth_expired() {
+        let auth = MockAuth::new(vec![Ok(DeviceFlowPoll::Expired)]);
+
+        let error = poll_until_authorized(
+            &auth,
+            &flow(900, 0),
+            &CancellationToken::new(),
+            PollOptions::default(),
+        )
+        .await
+        .unwrap_err();
+
+        assert_eq!(error.code, ErrorCode::AuthExpired);
+    }
+
+    #[tokio::test]
+    async fn an_already_cancelled_token_ends_the_flow_immediately() {
+        let auth = MockAuth::new(vec![authorized("never")]);
+        let cancel = CancellationToken::new();
+        cancel.cancel();
+
+        let error = poll_until_authorized(&auth, &flow(900, 5), &cancel, PollOptions::default())
+            .await
+            .unwrap_err();
+
+        assert_eq!(error.code, ErrorCode::Cancelled);
+        assert_eq!(auth.poll_count(), 0, "取消优先于任何一次轮询");
+    }
+
+    #[tokio::test]
+    async fn the_flow_deadline_stops_polling_even_when_the_server_keeps_saying_pending() {
+        let auth = MockAuth::new(vec![Ok(DeviceFlowPoll::Pending); 1000]);
+
+        let error = poll_until_authorized(
+            &auth,
+            &flow(0, 0),
+            &CancellationToken::new(),
+            PollOptions::default(),
+        )
+        .await
+        .unwrap_err();
+
+        assert_eq!(error.code, ErrorCode::AuthExpired);
+        assert!(auth.poll_count() < 1000, "超时必须终止循环");
     }
 }
