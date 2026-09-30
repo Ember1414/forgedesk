@@ -417,11 +417,14 @@ mod tests {
 
         super::prune_backups(&path).expect("清理备份失败");
 
+        // 只统计**本 db**的备份：并行测试共享 temp 目录，别的测试留下的
+        // 真实时间戳备份混进来会把计数撑爆（CI 上真实发生过的 flaky）
+        let db_prefix = path.file_name().unwrap().to_string_lossy().into_owned();
         let remaining: Vec<_> = std::fs::read_dir(path.parent().unwrap())
             .unwrap()
             .filter_map(Result::ok)
             .map(|entry| entry.file_name().to_string_lossy().into_owned())
-            .filter(|name| name.contains(BACKUP_MARKER))
+            .filter(|name| name.starts_with(&db_prefix) && name.contains(BACKUP_MARKER))
             .collect();
         assert_eq!(
             remaining.len(),
