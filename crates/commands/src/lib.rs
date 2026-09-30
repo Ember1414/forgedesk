@@ -93,8 +93,9 @@ pub use merge::{
     MergeRequest,
 };
 pub use rebase::{
-    git_rebase_continue_edit, git_rebase_execute, git_rebase_preview_only, RebaseExecuteRequest,
-    RebaseOutcomeDto, RebasePreviewDto, RebaseStepRequest,
+    git_rebase_continue_edit, git_rebase_execute, git_rebase_preview_only, git_rebase_range,
+    RebaseExecuteRequest, RebaseOutcomeDto, RebasePreviewDto, RebaseRangeEntryDto,
+    RebaseStepRequest,
 };
 pub use repository::{
     repo_clone, repo_close, repo_discover, repo_forget, repo_init, repo_open, repo_recent_list,

@@ -69,7 +69,8 @@ pub use merge_blocks::{compute_merge_blocks, ChangeSource, MergeBlock, MergeBloc
 pub use path::RepoPath;
 pub use query::{summarize_authors, AuthorSummary, LogQuery, Page};
 pub use rebase::{
-    GraphCommit, GraphView, PlanError, PreviewCommit, RebaseOutcome, RebasePlan, RebasePreview,
+    GraphCommit, GraphView, PlanError, PreviewCommit, RangeCommit, RebaseOutcome, RebasePlan,
+    RebasePreview,
 };
 pub use refs::{Branch, RefUpdate, RefUpdateKind, Remote, RemoteKind, Tag};
 pub use repository::{BranchLabel, RepoId, RepositoryInfo, Worktree};

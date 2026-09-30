@@ -1226,6 +1226,15 @@ impl GitEngine for Libgit2Engine {
         Err(unsupported(EngineId::Libgit2, "rebase_preview"))
     }
 
+    fn rebase_range(
+        &self,
+        _repo: &RepoId,
+        _base: &str,
+        _head: &str,
+    ) -> AppResult<Vec<forgedesk_domain::git::RangeCommit>> {
+        Err(unsupported(EngineId::Libgit2, "rebase_range"))
+    }
+
     // 冲突状态机（T3.1）整体走 CLI：stage 三方内容 + 2 MiB 阈值 + 二进制判定
     // 的语义以 git CLI 为准，双实现只会在编码提示与内容阈值上产生分歧
     // （见 docs/GIT-ENGINE-DIFF.md §4）。读路径同样不支持——由差分测试钉住。

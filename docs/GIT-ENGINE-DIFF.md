@@ -97,6 +97,7 @@
 | `remote_refs_containing`（T1.8） | 已实现（`for-each-ref --contains HEAD refs/remotes`） | 返回 `UNSUPPORTED_BY_ENGINE` | 与 `commit` 同族：它服务的是"这次改写会不会影响远端"这个**写路径**判断，而 libgit2 侧要自己遍历 refs 做可达性计算（还要单独处理"相等"这一 libgit2 API 不覆盖的边界），收益不抵两套实现之间产生分歧的风险 |
 | `LogQuery.follow_renames`（T2.1，`--follow`） | 支持（`paths` 恰好一条时传 `--follow`） | 返回 `UNSUPPORTED_BY_ENGINE` | libgit2 没有 `--follow` 等价物；装作支持等于悄悄给出**错误结果**（漏掉重命名前的历史），宁可明确拒绝。由 `log_follow_renames_is_unsupported_by_libgit2` 钉住 |
 | 冲突状态机（T3.1：`conflict_state` / `conflict_mark_resolved` / `conflict_continue` / `conflict_abort` / `conflict_skip`；T3.2 追加 `conflict_file_detail` / `conflict_take_side` / `conflict_apply_resolution` / `conflict_remove_file`） | 已实现 | 返回 `UNSUPPORTED_BY_ENGINE` | 任务书指名数据源是 git 的 index stage（`git ls-files -u` + 按 oid `git cat-file`）；stage 三方内容、2 MiB 内容阈值与二进制判定这组语义以 CLI 为准，双实现只会在编码提示与阈值行为上产生分歧，宁可明确拒绝。冲突查询是低频的用户发起操作，"一次进程的代价"不构成问题。由 `libgit2_engine_reports_unsupported_for_the_whole_conflict_state_machine` 钉住 |
+| rebase 家族（T3.5/T3.6/T3.7：`rebase` / `rebase_preview` / `rebase_range`） | 已实现 | 返回 `UNSUPPORTED_BY_ENGINE` | todo 注入依赖 `GIT_SEQUENCE_EDITOR` 的非交互 sequencer（T3.7 spike 结论），libgit2 没有等价机制；区间清单、校验与预览共用同一套 CLI 装配（含 `--not --remotes` 的已推送判定）。预览与区间清单本身是只读能力，但把它们做成"读走 libgit2、执行走 CLI"的双实现，会让 preview 的预测与 execute 的实际行为来自两套代码——宁可整族走 CLI。由 `libgit2_engine_reports_unsupported_for_rebase` 钉住 |
 
 **给 `services` 层的约束**：需要上述字段的功能，必须走 CLI 引擎，
 或者由 CLI 引擎补一次查询；不得假设"换个引擎也有这些值"。

@@ -27,10 +27,10 @@ use forgedesk_domain::git::{
     ConflictAbortOutcome, ConflictContinueOutcome, ConflictFileDetail, ConflictOpKind,
     ConflictState, DiffReport, DiffSpec, DiscardSpec, FetchOutcome, FetchSpec, InitSpec,
     LineEnding, LogQuery, MergeOutcome, MergePreviewReport, MergeSpec, Page, PullOutcome, PullSpec,
-    PushOutcome, PushSpec, RebaseOutcome, RebasePlan, RebasePreview, ReflogEntry, Remote, RepoId,
-    RepoPath, RepositoryInfo, ResetSpec, RevertSpec, StageSpec, StashEntry, StashOutcome,
-    StashSpec, StatusQuery, StatusReport, SwitchStrategy, Tag, TagCreateSpec, TagDeleteSpec,
-    TakeSide,
+    PushOutcome, PushSpec, RangeCommit, RebaseOutcome, RebasePlan, RebasePreview, ReflogEntry,
+    Remote, RepoId, RepoPath, RepositoryInfo, ResetSpec, RevertSpec, StageSpec, StashEntry,
+    StashOutcome, StashSpec, StatusQuery, StatusReport, SwitchStrategy, Tag, TagCreateSpec,
+    TagDeleteSpec, TakeSide,
 };
 use forgedesk_domain::{AppError, AppResult, ErrorCode};
 
@@ -782,6 +782,10 @@ impl GitEngine for CliGitEngine {
             )
         })?;
         Ok(plan.preview(&graph))
+    }
+
+    fn rebase_range(&self, repo: &RepoId, base: &str, head: &str) -> AppResult<Vec<RangeCommit>> {
+        write::rebase_range(self, repo, base, head)
     }
 }
 

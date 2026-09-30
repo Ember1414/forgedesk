@@ -48,9 +48,9 @@ use forgedesk_domain::git::{
     ConflictAbortOutcome, ConflictContinueOutcome, ConflictFileDetail, ConflictOpKind,
     ConflictState, DiffReport, DiffSpec, DiscardSpec, FetchOutcome, FetchSpec, InitSpec,
     LineEnding, LogQuery, MergeOutcome, MergePreviewReport, MergeSpec, Page, PullOutcome, PullSpec,
-    PushOutcome, PushSpec, RebaseOutcome, RebasePlan, RebasePreview, ReflogEntry, Remote, RepoId,
-    RepoPath, RepositoryInfo, ResetSpec, RevertSpec, StageSpec, StashEntry, StashOutcome,
-    StashSpec, StatusQuery, StatusReport, Tag, TakeSide,
+    PushOutcome, PushSpec, RangeCommit, RebaseOutcome, RebasePlan, RebasePreview, ReflogEntry,
+    Remote, RepoId, RepoPath, RepositoryInfo, ResetSpec, RevertSpec, StageSpec, StashEntry,
+    StashOutcome, StashSpec, StatusQuery, StatusReport, Tag, TakeSide,
 };
 use forgedesk_domain::{AppError, AppResult, ErrorCode};
 
@@ -535,4 +535,11 @@ pub trait GitEngine: Send + Sync {
     /// 预演 rebase 计划（只读）：装区间图 → 校验 → 预览。给 T3.6 面板的
     /// "执行前校验"；不碰工作区与索引。
     fn rebase_preview(&self, repo: &RepoId, plan: &RebasePlan) -> AppResult<RebasePreview>;
+
+    /// 列出 rebase 区间的全部提交（T3.6 面板打开时的初始清单）。
+    ///
+    /// 返回**从旧到新**的拓扑序；区间口径与 [`RebasePlan::validate`] 一致
+    /// （`head` 沿全部父链到 `base`，不含 base）——面板据此保证"区间内每个
+    /// 提交都出现在 todo 里"，缺一个就会被 git rebase 当作 drop 丢掉。
+    fn rebase_range(&self, repo: &RepoId, base: &str, head: &str) -> AppResult<Vec<RangeCommit>>;
 }

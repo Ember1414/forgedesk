@@ -202,10 +202,15 @@ fn a_simple_reorder_completes_and_moves_the_head() {
     let head_before = fixture.head();
     let plan = fixture.plan();
 
-    let outcome = rebase_service(&fixture)
+    let (outcome, snapshot_id) = rebase_service(&fixture)
         .execute(fixture.repo_id, &plan)
         .expect("执行失败");
     assert!(matches!(outcome, RebaseOutcome::Completed { .. }));
+    assert_eq!(
+        snapshot_id,
+        Some(1),
+        "执行前必须打 pre-head-move 快照并把 id 回传给界面（回滚入口依赖它）"
+    );
     assert_ne!(fixture.head(), head_before, "重写后 HEAD 必须移动");
     // 重排真的发生：todo 里 two 先于 one（重放后 log 新→旧 = three,one,two）
     let subjects = git(
@@ -292,7 +297,7 @@ two
         autosquash: false,
     };
 
-    let outcome = rebase_service(&fixture)
+    let (outcome, _snapshot) = rebase_service(&fixture)
         .execute(fixture.repo_id, &plan)
         .expect("执行失败");
     match &outcome {
@@ -395,7 +400,7 @@ fn an_edit_step_pauses_and_continue_after_edit_amends_and_finishes() {
     };
 
     let service = rebase_service(&fixture);
-    let outcome = service.execute(fixture.repo_id, &plan).expect("执行失败");
+    let (outcome, _snapshot) = service.execute(fixture.repo_id, &plan).expect("执行失败");
     let edit_oid = match &outcome {
         RebaseOutcome::PausedEdit { oid } => oid.clone(),
         other => panic!("期望 edit 暂停，得到 {other:?}"),
@@ -454,5 +459,91 @@ fn an_edit_step_pauses_and_continue_after_edit_amends_and_finishes() {
         error.code,
         forgedesk_domain::ErrorCode::Validation,
         "{error:?}"
+    );
+}
+
+// ---------------------------------------------------------------- T3.6 面板地基
+
+#[test]
+fn rebase_range_lists_the_whole_range_oldest_first_with_parents() {
+    let mut fixture = Fixture::new("rebase-range");
+    fixture.linear();
+    let base = fixture.base();
+    let head = fixture.head();
+
+    let commits = rebase_service(&fixture)
+        .range(fixture.repo_id, &base, &head)
+        .expect("range 查询失败");
+
+    let subjects: Vec<&str> = commits.iter().map(|c| c.subject.as_str()).collect();
+    assert_eq!(subjects, vec!["one", "two", "three"], "从旧到新");
+    assert!(!commits.iter().any(|c| c.oid == base), "区间不含 base 本身");
+    assert_eq!(
+        commits[2].parents,
+        vec![commits[1].oid.clone()],
+        "父链信息必须随清单返回（面板据此识别 merge 与拓扑）"
+    );
+}
+
+#[test]
+fn preview_warns_only_for_commits_reachable_from_a_remote_tracking_ref() {
+    let mut fixture = Fixture::new("rebase-pushed");
+    fixture.linear();
+    let base = fixture.base();
+    let head = fixture.head();
+    let oid_at = |rev: &str| {
+        git(fixture.path(), &["rev-parse", rev])
+            .stdout_lossy()
+            .trim()
+            .to_owned()
+    };
+    let one = oid_at("HEAD~2");
+    let two = oid_at("HEAD~1");
+    let three = oid_at("HEAD");
+    // 模拟一次 fetch：远端跟踪 ref 指向区间内的第一个提交（只有它被推送过）
+    git_ok(
+        fixture.path(),
+        &["update-ref", "refs/remotes/origin/main", &one],
+    );
+
+    let plan_with = |reworded: &str| RebasePlan {
+        base: base.clone(),
+        head: head.clone(),
+        steps: vec![one.clone(), two.clone(), three.clone()]
+            .into_iter()
+            .map(|oid| ReorderStep {
+                action: if oid == reworded {
+                    ReorderAction::Reword
+                } else {
+                    ReorderAction::Pick
+                },
+                new_message: (oid == reworded).then(|| "rewritten".to_owned()),
+                oid,
+            })
+            .collect(),
+        allow_flatten_merges: false,
+        autosquash: false,
+    };
+
+    let service = rebase_service(&fixture);
+    let preview = service
+        .preview_only(fixture.repo_id, &plan_with(&one))
+        .expect("预览失败");
+    assert!(
+        preview.touches_pushed,
+        "重写已推送提交必须触发 force-with-lease 警告"
+    );
+    assert!(
+        preview.todo_text.contains("reword") && preview.todo_text.contains("pick"),
+        "preview 必须携带等价 todo：{}",
+        preview.todo_text
+    );
+
+    let preview = service
+        .preview_only(fixture.repo_id, &plan_with(&three))
+        .expect("预览失败");
+    assert!(
+        !preview.touches_pushed,
+        "重写未推送的提交不应触发警告（判定必须逐个提交，而不是有远端就整体警告）"
     );
 }

@@ -852,13 +852,32 @@ fn libgit2_engine_reports_unsupported_for_rebase() {
     };
 
     let from_libgit2 = libgit2
-        .rebase(&repo, plan)
+        .rebase(&repo, plan.clone())
         .expect_err("libgit2 不支持 rebase");
-
     assert_eq!(
         from_libgit2.code,
         forgedesk_domain::ErrorCode::UnsupportedByEngine
     );
+
+    // rebase 家族整体走 CLI（T3.5/T3.6/T3.7）：todo 注入依赖
+    // GIT_SEQUENCE_EDITOR，libgit2 没有等价的非交互 sequencer，
+    // 预览与区间清单共用同一套装配。三个入口都必须明确拒绝。
+    let mut errors = vec![
+        libgit2
+            .rebase_preview(&repo, &plan)
+            .expect_err("libgit2 不支持 rebase_preview"),
+        libgit2
+            .rebase_range(&repo, "HEAD~1", "HEAD")
+            .expect_err("libgit2 不支持 rebase_range"),
+    ];
+    errors.push(from_libgit2);
+    for error in errors {
+        assert_eq!(
+            error.code,
+            forgedesk_domain::ErrorCode::UnsupportedByEngine,
+            "必须报 UNSUPPORTED_BY_ENGINE：{error:?}"
+        );
+    }
 }
 
 #[test]

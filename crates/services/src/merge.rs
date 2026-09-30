@@ -24,7 +24,7 @@ use std::sync::MutexGuard;
 
 use forgedesk_domain::git::{
     default_merge_message, equivalent_merge_command, CommitSummary, ConflictState, LogQuery,
-    MergeOutcome, MergePlan, MergePreviewReport, MergeSpec, RebaseOutcome, RebasePlan,
+    MergeOutcome, MergePlan, MergePreviewReport, MergeSpec, RangeCommit, RebaseOutcome, RebasePlan,
     RebasePreview, RepoId,
 };
 use forgedesk_domain::{AppError, AppResult, ErrorCode};
@@ -354,12 +354,34 @@ impl<'a> RebaseService<'a> {
         self.engines.write().rebase_preview(&repo, plan)
     }
 
+    /// 区间的全部提交（T3.6 面板打开时的初始清单；从旧到新）。
+    ///
+    /// 面板必须列出区间内**每一个**提交：todo 里缺一个，git rebase 就把它
+    /// 当 drop 丢掉——这是数据丢失级别的边界，所以清单由引擎直接从仓库
+    /// 装着（不依赖前端已加载的分页数据）。
+    pub fn range(&self, repo_id: i64, base: &str, head: &str) -> AppResult<Vec<RangeCommit>> {
+        let repo = RepoId::new(self.resolve_workdir(repo_id)?);
+        self.engines.write().rebase_range(&repo, base, head)
+    }
+
     /// 执行 rebase 计划：快照 → 引擎执行 → 结局（完成 / 冲突 / edit 暂停）。
-    pub fn execute(&self, repo_id: i64, plan: &RebasePlan) -> AppResult<RebaseOutcome> {
+    ///
+    /// 快照 id 随结果回传：T3.6 面板要拿它做"中止并还原"的兜底入口，
+    /// T3.10 的"最近可回滚点"也要能指认它。快照创建失败时为 `None`
+    ///（安全网降级不阻断执行，但界面必须如实显示"本次没有回滚点"）。
+    /// 注意：引擎以**错误**结束（非暂停）时 `?` 提前返回，快照 id 不随
+    /// 错误回传——错误路径下仓库未被改写（todo 被拒等场景），界面引导
+    /// 用户去快照列表即可。
+    pub fn execute(
+        &self,
+        repo_id: i64,
+        plan: &RebasePlan,
+    ) -> AppResult<(RebaseOutcome, Option<SnapshotId>)> {
         let workdir = self.resolve_workdir(repo_id)?;
         let repo = RepoId::new(workdir.clone());
-        self.snapshot(repo_id, &workdir);
-        self.engines.write().rebase(&repo, plan.clone())
+        let snapshot_id = self.snapshot(repo_id, &workdir);
+        let outcome = self.engines.write().rebase(&repo, plan.clone())?;
+        Ok((outcome, snapshot_id))
     }
 
     /// edit 暂停的恢复：用户改完工作区内容后调用——

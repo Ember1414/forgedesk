@@ -1466,12 +1466,13 @@ editor 的第一个参数追加，cp 完成替换；`GIT_EDITOR=true` 让 reword
 
 | 命令 | 能力 | 参数 | 返回/说明 |
 | --- | --- | --- | --- |
-| `git_rebase_preview_only` | ReadOnly（`async`） | `{ repoId, spec: { base, head, steps[], allowFlattenMerges?, autosquash? } }` | `RebasePreview { surviving, dropped, reworded, squashed, affectedCount, touchesPushed }`。`touchesPushed` 为真时界面必须提示 force-with-lease。计划非法返回 `VALIDATION`（detail 列规则短名） |
-| `git_rebase_execute` | Dangerous（`async`） | 同上 | `RebaseOutcome`：`{ kind: "completed", oid }` / `{ kind: "pausedConflict", conflicts }` / `{ kind: "pausedEdit", oid }`。执行前打 `pre-head-move` 快照。写审计（`rebase`） |
-| `git_rebase_continue_edit` | Dangerous（`async`） | `{ repoId }` | `RebaseOutcome`。edit 暂停的恢复；不在 edit 停点返回 `VALIDATION`。写审计（`rebase`） |
+| `git_rebase_preview_only` | ReadOnly（`async`） | `{ repoId, spec: { base, head, steps[], allowFlattenMerges?, autosquash? } }` | `RebasePreview { surviving, dropped, reworded, squashed, affectedCount, touchesPushed, todoText }`。`touchesPushed` 为真时界面必须提示 force-with-lease；`todoText` 是等价 `git rebase -i` todo 内容（T3.6 面板底部展示）。计划非法返回 `VALIDATION`（detail 列规则短名） |
+| `git_rebase_range` | ReadOnly（`async`） | `{ repoId, base, head }` | `[{ oid, parents, subject }]`，**从旧到新**、拓扑序；区间口径与 validate 一致（head 沿全部父链到 base，不含 base）。T3.6 面板打开时的初始清单——必须来自此命令而不是界面已加载的重叠分页数据（todo 漏列的区间提交会被 git 静默丢弃）。空区间返回 `VALIDATION` |
+| `git_rebase_execute` | Dangerous（`async`） | 同上 | `RebaseOutcome`：`{ kind: "completed", oid, snapshotId }` / `{ kind: "pausedConflict", conflicts, snapshotId }` / `{ kind: "pausedEdit", oid, snapshotId }`。执行前打 `pre-head-move` 快照，`snapshotId` 随结果回传（`null` = 快照创建失败，界面须如实提示"本次没有回滚点"）。写审计（`rebase`） |
+| `git_rebase_continue_edit` | Dangerous（`async`） | `{ repoId }` | `RebaseOutcome`（`snapshotId` 恒为 `null`：continue 时仓库处于 rebase 中间态，对半成品打快照会给出危险的回滚引导；回滚点是执行前那一次）。edit 暂停的恢复；不在 edit 停点返回 `VALIDATION`。写审计（`rebase`） |
 
 事件：execute / continue 成功后发 `repo:changed`（`large` + `refs`——rebase 重写历史）。
-域模型见 `crates/domain/src/git/rebase.rs`（validate 六规则 + todo 生成 + preview 纯函数）。
+域模型见 `crates/domain/src/git/rebase.rs`（validate 六规则 + todo 生成 + preview 纯函数 + 区间清单类型）。
 
 ---
 

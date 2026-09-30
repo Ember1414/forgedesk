@@ -280,8 +280,26 @@ impl RebasePlan {
             squashed,
             affected_count: self.steps.len(),
             touches_pushed,
+            todo_text: self.to_todo_file(graph),
         }
     }
+}
+
+/// rebase 区间内的一条提交（T3.6 面板的初始清单）。
+///
+/// 与 [`GraphView`] 的区别：这里保留 oid 与**从旧到新**的顺序，专供
+/// "打开面板时列出区间内全部提交"使用；GraphView 是校验与预览的内部形状
+///（HashMap，无序）。缺了这份清单，前端只能从已加载的历史页数据推断区间，
+/// 分页边界上会漏提交——而 todo 未列出的区间提交会被 git rebase 直接丢弃，
+/// 那是数据丢失级别的错误，不能靠"通常够用"的实现。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RangeCommit {
+    /// 提交 oid。
+    pub oid: String,
+    /// 父提交 oid（界面据此识别 merge 提交与初始拓扑）。
+    pub parents: Vec<String>,
+    /// 提交信息首行。
+    pub subject: String,
 }
 
 /// 预览中的一条存活提交（oid 是**重写前**的 oid——真实新 oid 只有执行后才知道，
@@ -309,6 +327,8 @@ pub struct RebasePreview {
     pub affected_count: usize,
     /// 区间内有已推送的提交将被重写——需要 force-with-lease（红线 R7 允许的唯一强推形态）。
     pub touches_pushed: bool,
+    /// 等价 todo 内容（T3.6 面板底部展示，让用户学习 `git rebase -i`）。
+    pub todo_text: String,
 }
 
 /// 从 `start` 沿**全部**父链收集祖先，遇到 `stop`（不含）即停。
@@ -581,6 +601,11 @@ mod tests {
         assert_eq!(preview.reworded, vec!["c1".to_owned()]);
         assert_eq!(preview.affected_count, 3);
         assert!(!preview.touches_pushed);
+        assert!(
+            preview.todo_text.contains("reword c1") && preview.todo_text.contains("pick c3"),
+            "preview 必须携带等价 todo 内容：{}",
+            preview.todo_text
+        );
     }
 
     #[test]

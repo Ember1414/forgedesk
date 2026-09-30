@@ -20,9 +20,9 @@ use forgedesk_domain::git::{
     AmendMode, ApplyPatchSpec, BranchCreateSpec, BranchDeleteSpec, BranchRenameSpec,
     BranchSetUpstreamSpec, CheckoutSpec, CherryPickSpec, CloneSpec, CommitSpec, DiscardSpec,
     FetchOutcome, FetchSpec, GraphCommit, GraphView, InitSpec, MergeKind, MergeOutcome, MergeSpec,
-    MergeStrategy, PullOutcome, PullSpec, PushOutcome, PushRejection, PushSpec, RebaseOutcome,
-    RebasePlan, RefUpdate, RefUpdateKind, RepoId, RepositoryInfo, ResetSpec, RevertSpec, StageSpec,
-    StashOutcome, StashSpec, SwitchStrategy, TagCreateSpec, TagDeleteSpec,
+    MergeStrategy, PullOutcome, PullSpec, PushOutcome, PushRejection, PushSpec, RangeCommit,
+    RebaseOutcome, RebasePlan, RefUpdate, RefUpdateKind, RepoId, RepositoryInfo, ResetSpec,
+    RevertSpec, StageSpec, StashOutcome, StashSpec, SwitchStrategy, TagCreateSpec, TagDeleteSpec,
 };
 use forgedesk_domain::{AppError, AppResult, ErrorCode};
 
@@ -923,10 +923,85 @@ pub(super) fn rebase_graph(
             },
         );
     }
+    // 已推送判定：`rev-list base..head --not --remotes` 列出的是"不被任何
+    // remote-tracking ref 可达"的提交，即未推送集合；区间提交减去它就是
+    // 已推送。判定失败时保守地把区间内全部提交视为已推送——`touches_pushed`
+    // 的**漏报**会让用户在没有 force-with-lease 警告的情况下重写远端历史
+    // （红线 R7），比多报一次警告危险得多（多报只是本地 rebase 的提示噪音）。
+    let unpushed: HashSet<String> = match engine.run_read(
+        repo,
+        GitInvocation::new(vec![
+            "rev-list".to_owned(),
+            format!("{base}..{head}"),
+            "--not".to_owned(),
+            "--remotes".to_owned(),
+        ]),
+    ) {
+        Ok(output) => output
+            .stdout_lossy()
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty())
+            .map(str::to_owned)
+            .collect(),
+        Err(error) => {
+            tracing::warn!(
+                error = %error,
+                "failed to detect unpushed commits in the rebase range; treating all as pushed"
+            );
+            HashSet::new()
+        }
+    };
+    let pushed_oids = commits
+        .keys()
+        .filter(|oid| !unpushed.contains(oid.as_str()))
+        .cloned()
+        .collect();
+
     Ok(GraphView {
         commits,
-        pushed_oids: HashSet::new(),
+        pushed_oids,
     })
+}
+
+/// 列出 rebase 区间的全部提交（T3.6 面板的初始清单）。
+///
+/// `--reverse --topo-order`：从旧到新，且保证父提交排在子提交之前。
+/// 面板按这个顺序生成初始 todo——todo 的顺序就是执行顺序，乱序会让重放
+/// 基线错位（父还没重放就重放子）。
+pub(super) fn rebase_range(
+    engine: &CliGitEngine,
+    repo: &RepoId,
+    base: &str,
+    head: &str,
+) -> AppResult<Vec<RangeCommit>> {
+    let output = engine.run_read(
+        repo,
+        GitInvocation::new(vec![
+            "log".to_owned(),
+            "--format=%H %P%x00%s%x00".to_owned(),
+            "--reverse".to_owned(),
+            "--topo-order".to_owned(),
+            format!("{base}..{head}"),
+        ]),
+    )?;
+    let stdout = output.stdout_lossy();
+    let mut commits = Vec::new();
+    let mut chunks = stdout.split('\u{0}');
+    while let (Some(header), Some(subject)) = (chunks.next(), chunks.next()) {
+        let header = header.trim_start_matches('\n');
+        if header.is_empty() {
+            continue;
+        }
+        let mut ids = header.split_whitespace();
+        let Some(oid) = ids.next() else { continue };
+        commits.push(RangeCommit {
+            oid: oid.to_owned(),
+            parents: ids.map(str::to_owned).collect(),
+            subject: subject.trim_start_matches('\n').to_owned(),
+        });
+    }
+    Ok(commits)
 }
 
 /// 执行 rebase 计划（T3.7）。

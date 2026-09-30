@@ -34,6 +34,8 @@ pub struct RebasePreviewDto {
     pub affected_count: usize,
     /// 区间内有已推送提交将被重写（需要 force-with-lease 提示）。
     pub touches_pushed: bool,
+    /// 等价 todo 内容（T3.6 面板底部展示，让用户学习 `git rebase -i`）。
+    pub todo_text: String,
 }
 
 /// 预演里一条存活提交。
@@ -63,6 +65,7 @@ impl RebasePreviewDto {
             squashed: preview.squashed,
             affected_count: preview.affected_count,
             touches_pushed: preview.touches_pushed,
+            todo_text: preview.todo_text,
         }
     }
 }
@@ -107,32 +110,52 @@ pub enum RebaseOutcomeDto {
     Completed {
         /// 完成后的 HEAD oid。
         oid: String,
+        /// 执行前的 `pre-head-move` 快照 id（None = 快照创建失败，界面须
+        /// 如实提示"本次没有回滚点"）。
+        snapshot_id: Option<i64>,
     },
     /// 停在冲突上：走冲突页（T3.1 状态机）。
     PausedConflict {
         /// 冲突文件清单。
         conflicts: Vec<String>,
+        /// 执行前的 `pre-head-move` 快照 id（同 Completed 的语义）。
+        snapshot_id: Option<i64>,
     },
     /// 停在 edit 步骤：`git_rebase_continue_edit` 恢复。
     PausedEdit {
         /// 被编辑的提交 oid。
         oid: String,
+        /// 执行前的 `pre-head-move` 快照 id（同 Completed 的语义）。
+        snapshot_id: Option<i64>,
     },
 }
 
 impl RebaseOutcomeDto {
-    fn from_outcome(outcome: RebaseOutcome) -> Self {
+    fn from_outcome(outcome: RebaseOutcome, snapshot_id: Option<i64>) -> Self {
         match outcome {
-            RebaseOutcome::Completed { oid } => Self::Completed { oid },
+            RebaseOutcome::Completed { oid } => Self::Completed { oid, snapshot_id },
             RebaseOutcome::PausedConflict { conflicts } => Self::PausedConflict {
                 conflicts: conflicts
                     .iter()
                     .map(|path| path.to_string_lossy().into_owned())
                     .collect(),
+                snapshot_id,
             },
-            RebaseOutcome::PausedEdit { oid } => Self::PausedEdit { oid },
+            RebaseOutcome::PausedEdit { oid } => Self::PausedEdit { oid, snapshot_id },
         }
     }
+}
+
+/// 区间内一条提交的 DTO（`git_rebase_range`）。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RebaseRangeEntryDto {
+    /// 提交 oid。
+    pub oid: String,
+    /// 父提交 oid（面板据此识别 merge 提交）。
+    pub parents: Vec<String>,
+    /// 提交信息首行。
+    pub subject: String,
 }
 
 fn validate_plan(request: &RebaseExecuteRequest) -> AppResult<RebasePlan> {
@@ -196,11 +219,11 @@ pub fn git_rebase_execute(
         &state,
         AuditEntry::new(repo_id, op_type::REBASE).with_args(args),
         || {
-            let outcome = state.rebase_service().execute(repo_id, &plan)?;
+            let (outcome, snapshot_id) = state.rebase_service().execute(repo_id, &plan)?;
             // rebase 动了历史（重写）与工作区
             emit_changed(&app, repo_id, WatchKind::Large, Vec::new());
             emit_changed(&app, repo_id, WatchKind::Refs, Vec::new());
-            Ok(RebaseOutcomeDto::from_outcome(outcome))
+            Ok(RebaseOutcomeDto::from_outcome(outcome, snapshot_id))
         },
     )
 }
@@ -217,6 +240,49 @@ pub fn git_rebase_continue_edit(
         let outcome = state.rebase_service().continue_after_edit(repo_id)?;
         emit_changed(&app, repo_id, WatchKind::Large, Vec::new());
         emit_changed(&app, repo_id, WatchKind::Refs, Vec::new());
-        Ok(RebaseOutcomeDto::from_outcome(outcome))
+        // continue 不打快照：此刻仓库处于 rebase 中间态，对半成品打点反而
+        // 会给出一个"回滚到中间态"的危险引导；执行前的那次 pre-head-move
+        // 快照才是正确的回滚点（所以这里恒为 None）。
+        Ok(RebaseOutcomeDto::from_outcome(outcome, None))
     })
+}
+
+/// 列出 rebase 区间的全部提交（只读；T3.6 面板打开时的初始清单）。
+///
+/// 与 `git_rebase_preview_only` 的分工：preview 需要完整的 steps 才能校验；
+/// 面板在用户还没做任何操作时先要一份"区间里有哪些提交"的事实清单——
+/// 这份清单必须来自仓库而不是界面已加载的分页数据，否则分页边界上的
+/// 提交会漏进 todo 之外的区域（git rebase 静默丢掉 → 数据丢失）。
+#[tauri::command(async)]
+pub fn git_rebase_range(
+    state: State<'_, AppState>,
+    repo_id: i64,
+    base: String,
+    head: String,
+) -> AppResult<Vec<RebaseRangeEntryDto>> {
+    let repo_id = crate::history_ops::require_repo(repo_id)?;
+    if base.trim().is_empty() || head.trim().is_empty() {
+        return Err(AppError::new(
+            ErrorCode::Validation,
+            "the rebase base and head must not be empty",
+        ));
+    }
+    let commits = state
+        .rebase_service()
+        .range(repo_id, base.trim(), head.trim())?;
+    if commits.is_empty() {
+        return Err(AppError::new(
+            ErrorCode::Validation,
+            "the rebase range contains no commits",
+        )
+        .with_detail(format!("{base}..{head}")));
+    }
+    Ok(commits
+        .into_iter()
+        .map(|commit| RebaseRangeEntryDto {
+            oid: commit.oid,
+            parents: commit.parents,
+            subject: commit.subject,
+        })
+        .collect())
 }
