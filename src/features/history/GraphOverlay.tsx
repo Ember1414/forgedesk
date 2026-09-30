@@ -39,10 +39,23 @@
 import { useCallback, useMemo, useState } from 'react';
 import type { MouseEvent as ReactMouseEvent } from 'react';
 
-import { Copy, GitBranch, GitCompare, GitMerge, MessageSquare, RotateCcw, Tag } from 'lucide-react';
+import {
+  Copy,
+  GitBranch,
+  GitCompare,
+  GitMerge,
+  History,
+  MessageSquare,
+  Pencil,
+  PenLine,
+  RotateCcw,
+  Tag,
+  Trash2,
+} from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import { useAppError } from '@/lib/errors';
+import type { ReorderAction } from '@/lib/ipc';
 import { cn } from '@/lib/utils';
 
 import {
@@ -147,7 +160,9 @@ export function GraphOverlay({
   const selectMany = useGraphSelectionStore((state) => state.selectMany);
   const setCompareBase = useGraphSelectionStore((state) => state.setCompareBase);
   const compareBaseOid = useGraphSelectionStore((state) => state.compareBaseOid);
-  const selectedCount = useGraphSelectionStore((state) => state.selectedOids.length);
+  const selectedOids = useGraphSelectionStore((state) => state.selectedOids);
+  const selectedCount = selectedOids.length;
+  const requestRebase = useGraphSelectionStore((state) => state.requestRebase);
 
   const [hoverTarget, setHoverTarget] = useState<HoverTarget | null>(null);
 
@@ -222,6 +237,34 @@ export function GraphOverlay({
     // 留着旧的会让 T2.4 的差异视图悄悄比错对象。
     setCompareBase(compareBaseOid === menuOid ? null : menuOid);
   }, [compareBaseOid, menuOid, setCompareBase]);
+
+  /**
+   * 本次"整理提交"的操作对象：右键的那条在选中集里 → 用全部选中（框选一批
+   * 再右键是主路径）；不在 → 只针对它自己（用户在未选中的行上右键）。
+   */
+  const menuSelection = useMemo<readonly string[]>(() => {
+    if (menuOid === null) {
+      return [];
+    }
+    return selectedOids.includes(menuOid) ? selectedOids : [menuOid];
+  }, [menuOid, selectedOids]);
+
+  const handleOrganize = useCallback(() => {
+    if (menuSelection.length === 0) {
+      return;
+    }
+    requestRebase({ oids: menuSelection });
+  }, [menuSelection, requestRebase]);
+
+  const handleRebaseAction = useCallback(
+    (action: ReorderAction) => {
+      if (menuOid === null) {
+        return;
+      }
+      requestRebase({ oids: [menuOid], preset: { oid: menuOid, action } });
+    },
+    [menuOid, requestRebase],
+  );
 
   // ---------------------------------------------------------------- 渲染
 
@@ -329,6 +372,54 @@ export function GraphOverlay({
             ? t('history.menu.compareBaseClear')
             : t('history.menu.compareBaseSet')}
         </ContextMenuItem>
+
+        <ContextMenuSeparator />
+
+        {/**
+         * 整理提交（T3.6）：框选一组 → 打开拖拽面板；单个提交 → 三个直达动作。
+         * 单提交动作直接以 preset 打开面板（用户仍能看到预览与确认），不在
+         * 菜单里就地执行——破坏性操作必须经过"预览 → 快照 → 执行"（R7）。
+         */}
+        <ContextMenuItem
+          data-testid="graph-menu-organize"
+          disabled={menuSelection.length === 0}
+          onSelect={handleOrganize}
+        >
+          <History aria-hidden="true" className={MENU_ICON_CLASS} />
+          {t('history.menu.organizeCommits')}
+        </ContextMenuItem>
+        {menuSelection.length === 1 ? (
+          <>
+            <ContextMenuItem
+              data-testid="graph-menu-reword-commit"
+              onSelect={() => {
+                handleRebaseAction('reword');
+              }}
+            >
+              <PenLine aria-hidden="true" className={MENU_ICON_CLASS} />
+              {t('history.menu.rewordCommit')}
+            </ContextMenuItem>
+            <ContextMenuItem
+              data-testid="graph-menu-edit-commit"
+              onSelect={() => {
+                handleRebaseAction('edit');
+              }}
+            >
+              <Pencil aria-hidden="true" className={MENU_ICON_CLASS} />
+              {t('history.menu.editCommit')}
+            </ContextMenuItem>
+            <ContextMenuItem
+              destructive
+              data-testid="graph-menu-drop-commit"
+              onSelect={() => {
+                handleRebaseAction('drop');
+              }}
+            >
+              <Trash2 aria-hidden="true" className={MENU_ICON_CLASS} />
+              {t('history.menu.dropCommit')}
+            </ContextMenuItem>
+          </>
+        ) : null}
 
         <ContextMenuSeparator />
 

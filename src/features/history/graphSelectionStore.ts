@@ -29,6 +29,8 @@ import { useMemo } from 'react';
 
 import { create } from 'zustand';
 
+import type { ReorderAction } from '@/lib/ipc';
+
 import { clampScale } from '@/features/history/graphGeometry';
 
 /** 视图模式：图（Canvas）或列表（可访问的网格）。 */
@@ -50,6 +52,20 @@ export const ZOOM_STEP = 1.2;
 
 /** 迷你地图默认关闭：它在小屏上占地方，而多数浏览场景用不到。 */
 const DEFAULT_MINIMAP_OPEN = false;
+
+/**
+ * "整理提交"请求（T3.6 面板的入口）。
+ *
+ * 由右键菜单与提交详情面板发起、`HistoryPage` 消费：入口组件拿得到
+ * "用户选了哪些提交 / 想对哪一条做什么动作"，但拿不到区间计算所需的
+ * 完整图与仓库上下文；让历史页统一消费，入口就不必各自拼装面板。
+ */
+export interface RebaseRequest {
+  /** 参与整理的提交 oid（按行序，新→旧）。 */
+  readonly oids: readonly string[];
+  /** 单提交快捷入口的预设动作（右键的 reword / edit / drop）。 */
+  readonly preset?: { readonly oid: string; readonly action: ReorderAction } | null;
+}
 
 export interface GraphSelectionState {
   /** 选中的提交 oid，按行序排列（可能为空）。 */
@@ -73,6 +89,8 @@ export interface GraphSelectionState {
   readonly viewMode: GraphViewMode;
   readonly scale: number;
   readonly minimapOpen: boolean;
+  /** 待处理的"整理提交"请求（null = 无；历史页消费后打开面板）。 */
+  readonly rebaseRequest: RebaseRequest | null;
 
   /**
    * 选中一个提交。
@@ -97,6 +115,10 @@ export interface GraphSelectionState {
   toggleMinimap(): void;
   /** 复位视图（缩放回 1、列表回到图模式、迷你地图关掉；不动选中集）。 */
   resetView(): void;
+  /** 发起"整理提交"（右键菜单 / 提交详情面板）。 */
+  requestRebase(request: RebaseRequest): void;
+  /** 消费或放弃"整理提交"请求（历史页在面板关闭时调用）。 */
+  clearRebaseRequest(): void;
 }
 
 /** 初始状态（导出供测试复位；store 是模块级单例）。 */
@@ -110,6 +132,7 @@ export const initialGraphSelectionState = {
   viewMode: 'graph' as GraphViewMode,
   scale: 1,
   minimapOpen: DEFAULT_MINIMAP_OPEN,
+  rebaseRequest: null,
 };
 
 /**
@@ -233,6 +256,14 @@ export const useGraphSelectionStore = create<GraphSelectionState>()((set, get) =
 
   resetView: () => {
     set({ scale: 1, viewMode: 'graph', minimapOpen: DEFAULT_MINIMAP_OPEN });
+  },
+
+  requestRebase: (request) => {
+    set({ rebaseRequest: request });
+  },
+
+  clearRebaseRequest: () => {
+    set({ rebaseRequest: null });
   },
 }));
 

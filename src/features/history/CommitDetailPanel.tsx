@@ -142,6 +142,7 @@ export function CommitDetailPanel({ repoId, fallback, className }: CommitDetailP
   const select = useGraphSelectionStore((state) => state.select);
   const compareBaseOid = useGraphSelectionStore((state) => state.compareBaseOid);
   const setCompareBase = useGraphSelectionStore((state) => state.setCompareBase);
+  const requestRebase = useGraphSelectionStore((state) => state.requestRebase);
 
   // 双父视图选择：切换提交时自动回到第一父——用"记住上次属于哪个 oid"派生，
   // 而不是 effect 里 setState（react-hooks/set-state-in-effect）。
@@ -586,6 +587,17 @@ export function CommitDetailPanel({ repoId, fallback, className }: CommitDetailP
           className="fd-transition rounded-md border border-line px-2 py-1 text-11 hover:bg-surface-sunken"
         >
           {copiedKey === 'patch' ? t('history.detail.copied') : t('history.detail.copyPatch')}
+        </button>
+        {/* 整理历史（T3.6）：以当前提交为区间右端打开拖拽面板（R7：写操作经预览与快照） */}
+        <button
+          type="button"
+          onClick={() => {
+            requestRebase({ oids: [meta.oid] });
+          }}
+          className="fd-transition rounded-md border border-line px-2 py-1 text-11 hover:bg-surface-sunken"
+          data-testid="detail-organize-history"
+        >
+          {t('history.detail.organizeHistory')}
         </button>
         {T28_ACTIONS.map((action) => (
           <button

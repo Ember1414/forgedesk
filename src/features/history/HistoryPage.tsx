@@ -73,6 +73,9 @@ import {
   ZOOM_STEP,
 } from '@/features/history/graphSelectionStore';
 import { useGraphQuery } from '@/features/history/useGraphQuery';
+import { RebasePanel } from '@/features/rebase/RebasePanel';
+import { rangeFromSelection } from '@/features/rebase/planState';
+import { pushToast } from '@/stores/toastStore';
 
 /**
  * 模块加载时的时间基准（秒）。
@@ -226,6 +229,36 @@ export function HistoryPage() {
   const minimapOpen = useGraphSelectionStore((state) => state.minimapOpen);
   const toggleMinimap = useGraphSelectionStore((state) => state.toggleMinimap);
   const setDetailOid = useGraphSelectionStore((state) => state.setDetailOid);
+  const rebaseRequest = useGraphSelectionStore((state) => state.rebaseRequest);
+  const clearRebaseRequest = useGraphSelectionStore((state) => state.clearRebaseRequest);
+
+  /**
+   * "整理提交"请求 → 区间（T3.6）。
+   *
+   * base = **最旧**选中提交的第一个父；head = 最新选中提交。区间内的提交清单
+   * 由后端 `git_rebase_range` 给出（这里只用图做区间端点定位，不负责列清单）。
+   */
+  const rebaseRange = useMemo(() => {
+    if (rebaseRequest === null) {
+      return null;
+    }
+    const rowsNewestFirst = [...graph.model.rows]
+      .sort((left, right) => left.row - right.row)
+      .map((row) => ({
+        oid: row.oid,
+        parents: graph.model.commitByOid.get(row.oid)?.parents ?? [],
+      }));
+    return rangeFromSelection(rowsNewestFirst, rebaseRequest.oids);
+  }, [rebaseRequest, graph.model]);
+
+  // 无法定位区间（例如选中的是最旧的根提交、没有可用的基点）：如实提示并放弃，
+  // 而不是打开一个空面板让用户困惑
+  useEffect(() => {
+    if (rebaseRequest !== null && rebaseRange === null) {
+      pushToast({ tone: 'warning', title: t('history.rebase.cannotOrganize') });
+      clearRebaseRequest();
+    }
+  }, [rebaseRequest, rebaseRange, clearRebaseRequest, t]);
 
   const perfEnabled = useGraphPerfStore((state) => state.enabled);
   const togglePerf = useGraphPerfStore((state) => state.toggleEnabled);
@@ -541,6 +574,22 @@ export function HistoryPage() {
       <HistoryOpsPanel />
 
       {body}
+
+      {/* 整理提交面板（T3.6）：由右键菜单 / 详情面板的请求驱动 */}
+      {rebaseRequest !== null && rebaseRange !== null ? (
+        <RebasePanel
+          repoId={repoId}
+          base={rebaseRange.base}
+          head={rebaseRange.head}
+          preset={rebaseRequest.preset ?? null}
+          open
+          onOpenChange={(next) => {
+            if (!next) {
+              clearRebaseRequest();
+            }
+          }}
+        />
+      ) : null}
 
       {import.meta.env.DEV && perfEnabled ? (
         <GraphPerfPanel
