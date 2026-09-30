@@ -233,6 +233,9 @@ impl SnapshotManager for RefSnapshotManager {
                 detached: status.branch.detached,
                 operation_state: None,
                 untracked_paths: untracked_json,
+                // 内容备份由 T3.8 接上：这里先如实写"没有备份"
+                manifest_json: "[]".to_owned(),
+                backup_bytes: 0,
                 created_at_ms: self.now(),
             })
             .map_err(|error| SnapshotError::Storage(error.message.clone()))?;

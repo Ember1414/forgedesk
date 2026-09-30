@@ -67,6 +67,11 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "0002_snapshots_v1",
         sql: include_str!("../migrations/0002_snapshots_v1.sql"),
     },
+    Migration {
+        version: 3,
+        name: "0003_snapshots_v2",
+        sql: include_str!("../migrations/0003_snapshots_v2.sql"),
+    },
 ];
 
 /// 迁移执行结果。

@@ -50,6 +50,10 @@ pub struct NewSnapshot {
     pub operation_state: Option<String>,
     /// 未跟踪文件的路径清单（JSON 数组文本）。
     pub untracked_paths: String,
+    /// 未跟踪内容备份的清单（JSON 数组文本；空备份为 `[]`）。
+    pub manifest_json: String,
+    /// 备份内容的字节总数（无备份为 0）。
+    pub backup_bytes: i64,
     /// 创建时间（Unix 毫秒）。
     pub created_at_ms: i64,
 }
@@ -79,6 +83,10 @@ pub struct SnapshotRecord {
     pub operation_state: Option<String>,
     /// 未跟踪文件路径清单（JSON 数组文本）。
     pub untracked_paths: String,
+    /// 未跟踪内容备份的清单（JSON 数组文本）。
+    pub manifest_json: String,
+    /// 备份内容的字节总数。
+    pub backup_bytes: i64,
     /// 创建时间（Unix 毫秒）。
     pub created_at: i64,
 }
@@ -102,8 +110,9 @@ impl<'a> SnapshotStore<'a> {
                 .execute(
                     "INSERT INTO snapshots (
                              repo_id, label, kind, head_oid, index_tree_oid, reflog_ref,
-                             branch, detached, operation_state, untracked_paths, created_at
-                         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                             branch, detached, operation_state, untracked_paths,
+                             manifest_json, backup_bytes, created_at
+                         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
                     params![
                         snapshot.repo_id,
                         snapshot.label,
@@ -115,6 +124,8 @@ impl<'a> SnapshotStore<'a> {
                         i64::from(snapshot.detached),
                         snapshot.operation_state,
                         snapshot.untracked_paths,
+                        snapshot.manifest_json,
+                        snapshot.backup_bytes,
                         snapshot.created_at_ms,
                     ],
                 )
@@ -129,7 +140,8 @@ impl<'a> SnapshotStore<'a> {
             connection
                 .query_row(
                     "SELECT id, repo_id, label, kind, head_oid, index_tree_oid, reflog_ref,
-                            branch, detached, operation_state, untracked_paths, created_at
+                            branch, detached, operation_state, untracked_paths,
+                            manifest_json, backup_bytes, created_at
                      FROM snapshots WHERE id = ?1",
                     [id],
                     row_to_record,
@@ -148,7 +160,8 @@ impl<'a> SnapshotStore<'a> {
             let mut statement = connection
                 .prepare(
                     "SELECT id, repo_id, label, kind, head_oid, index_tree_oid, reflog_ref,
-                            branch, detached, operation_state, untracked_paths, created_at
+                            branch, detached, operation_state, untracked_paths,
+                            manifest_json, backup_bytes, created_at
                      FROM snapshots WHERE repo_id = ?1
                      ORDER BY created_at DESC, id DESC LIMIT ?2",
                 )
@@ -200,7 +213,8 @@ impl<'a> SnapshotStore<'a> {
             let mut statement = connection
                 .prepare(
                     "SELECT id, repo_id, label, kind, head_oid, index_tree_oid, reflog_ref,
-                            branch, detached, operation_state, untracked_paths, created_at
+                            branch, detached, operation_state, untracked_paths,
+                            manifest_json, backup_bytes, created_at
                      FROM snapshots
                      WHERE repo_id = ?1
                        AND (id NOT IN (
@@ -232,6 +246,47 @@ impl<'a> SnapshotStore<'a> {
                 .map_err(|error| storage_error("统计快照数量失败", &error))
         })
     }
+
+    /// 某仓库备份内容的字节总数（磁盘配额与设置页占用显示都读它）。
+    ///
+    /// 用 SQL 求和而不是把记录读回来累加：配额检查发生在**每次创建快照**时，
+    /// 一个仓库上百条快照、每条带一份 JSON 清单，为了一个整数把它们全读回来
+    /// 是白费 IO。
+    pub fn total_backup_bytes(&self, repo_id: i64) -> AppResult<i64> {
+        self.database.with_read(|connection| {
+            connection
+                .query_row(
+                    "SELECT COALESCE(SUM(backup_bytes), 0) FROM snapshots WHERE repo_id = ?1",
+                    [repo_id],
+                    |row| row.get::<_, i64>(0),
+                )
+                .map_err(|error| storage_error("统计快照备份体积失败", &error))
+        })
+    }
+
+    /// 某仓库的全部快照，**最旧的在前**（磁盘配额按 LRU 清理时从它开始删）。
+    ///
+    /// 与 [`Self::list`] 相反的顺序是有意的：列表页要"新的在前"，
+    /// 而配额清理要"先删最旧的"。让 SQL 决定顺序，调用方不必再排一次。
+    pub fn list_oldest_first(&self, repo_id: i64) -> AppResult<Vec<SnapshotRecord>> {
+        self.database.with_read(|connection| {
+            let mut statement = connection
+                .prepare(
+                    "SELECT id, repo_id, label, kind, head_oid, index_tree_oid, reflog_ref,
+                            branch, detached, operation_state, untracked_paths,
+                            manifest_json, backup_bytes, created_at
+                     FROM snapshots WHERE repo_id = ?1
+                     ORDER BY created_at ASC, id ASC",
+                )
+                .map_err(|error| storage_error("准备快照查询失败", &error))?;
+            let records = statement
+                .query_map([repo_id], row_to_record)
+                .map_err(|error| storage_error("读取快照列表失败", &error))?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|error| storage_error("读取快照列表失败", &error))?;
+            Ok(records)
+        })
+    }
 }
 
 /// 快照 id 必须是正数（外部输入的二次校验共用这个文案）。
@@ -259,7 +314,13 @@ fn row_to_record(row: &rusqlite::Row<'_>) -> rusqlite::Result<SnapshotRecord> {
         detached: row.get::<_, i64>(8)? != 0,
         operation_state: row.get(9)?,
         untracked_paths: row.get(10)?,
-        created_at: row.get(11)?,
+        // 0003 前写入的历史记录这两列是 NULL：读成空清单 / 0 字节，
+        // 与"这份快照没有内容备份"是同一件事
+        manifest_json: row
+            .get::<_, Option<String>>(11)?
+            .unwrap_or_else(|| "[]".to_owned()),
+        backup_bytes: row.get(12)?,
+        created_at: row.get(13)?,
     })
 }
 
@@ -288,7 +349,18 @@ mod tests {
             detached: false,
             operation_state: None,
             untracked_paths: r#"["scratch.txt"]"#.to_owned(),
+            manifest_json: "[]".to_owned(),
+            backup_bytes: 0,
             created_at_ms: created_at,
+        }
+    }
+
+    /// 带内容备份的样本（T3.8 的两列）。
+    fn sample_with_backup(repo_id: i64, created_at: i64, bytes: i64) -> NewSnapshot {
+        NewSnapshot {
+            manifest_json: format!(r#"[{{"path":"scratch.txt","bytes":{bytes},"ignored":false}}]"#),
+            backup_bytes: bytes,
+            ..sample(repo_id, created_at)
         }
     }
 
@@ -353,5 +425,41 @@ mod tests {
 
         assert_eq!(store.list(1, 10).unwrap().len(), 1);
         assert_eq!(store.count(1).unwrap(), 1);
+    }
+
+    #[test]
+    fn backup_columns_round_trip_and_the_total_is_per_repository() {
+        let database = memory_database();
+        let store = SnapshotStore::new(&database);
+        let first = store.insert(&sample_with_backup(1, 1_000, 100)).unwrap();
+        store.insert(&sample_with_backup(1, 2_000, 250)).unwrap();
+        store.insert(&sample_with_backup(2, 3_000, 999)).unwrap();
+
+        let found = store.find(first).unwrap().expect("应能读回刚插入的快照");
+        assert_eq!(found.backup_bytes, 100);
+        assert!(found.manifest_json.contains("scratch.txt"));
+
+        // 配额按仓库算：别的仓库的体积不能算进来
+        assert_eq!(store.total_backup_bytes(1).unwrap(), 350);
+        assert_eq!(store.total_backup_bytes(2).unwrap(), 999);
+    }
+
+    #[test]
+    fn oldest_first_listing_is_the_reverse_of_the_ui_listing() {
+        let database = memory_database();
+        let store = SnapshotStore::new(&database);
+        for created_at in [1_000, 2_000, 3_000] {
+            store.insert(&sample(1, created_at)).unwrap();
+        }
+
+        let oldest = store.list_oldest_first(1).unwrap();
+        assert_eq!(oldest[0].created_at, 1_000, "配额清理从最旧的开始");
+        assert_eq!(oldest[1].created_at, 2_000);
+        assert_eq!(oldest[2].created_at, 3_000);
+        assert_eq!(
+            store.list(1, 10).unwrap()[0].created_at,
+            3_000,
+            "列表页仍新的在前"
+        );
     }
 }
