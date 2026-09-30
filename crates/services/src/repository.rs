@@ -189,6 +189,8 @@ pub struct RepositoryService<'a> {
     open: &'a OpenRepoRegistry,
     /// 凭据门（T2.7）：克隆也要用保存过的凭据，否则私有仓库克隆必然失败。
     credentials: Option<&'a CredentialGate>,
+    /// 克隆对话框里挑定的账号登录名（T4.5）；同 host 多账号时凭据门按它挑人。
+    login_hint: Option<String>,
     clock: MillisClock,
 }
 
@@ -204,8 +206,16 @@ impl<'a> RepositoryService<'a> {
             store,
             open,
             credentials: None,
+            login_hint: None,
             clock: Arc::new(system_clock),
         }
+    }
+
+    /// 接上"克隆对话框挑定的账号"（T4.5）：同 host 多账号时凭据门按它挑人。
+    #[must_use]
+    pub fn with_login_hint(mut self, login_hint: Option<String>) -> Self {
+        self.login_hint = login_hint;
+        self
     }
 
     /// 接上凭据门（T2.7）：克隆私有仓库时按 URL 解析并注入凭据。
@@ -266,7 +276,8 @@ impl<'a> RepositoryService<'a> {
     /// 而这正是"第一次接触远端"的路径——私有仓库没有凭据就必然失败。
     pub fn clone(&self, spec: &CloneSpec, progress: &ProgressSink) -> AppResult<OpenedRepository> {
         precheck_clone_target(&spec.into)?;
-        let context = CredentialContext::resolve(self.credentials, &spec.url, None)?;
+        let context =
+            CredentialContext::resolve(self.credentials, &spec.url, self.login_hint.as_deref())?;
         let info = match self
             .engines
             .write()

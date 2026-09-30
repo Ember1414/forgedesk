@@ -1475,8 +1475,36 @@ identity 文件）、`TLS_CERTIFICATE_REJECTED`（自签名或证书链不完整
 | `account_list` | ReadOnly | — | `Account[]`（按创建时间排序） |
 | `account_remove` | Mutating | `accountId` | `()`；先删凭据库条目再删账号行；未知 id → `NOT_FOUND` |
 
-**多账号与仓库绑定**（T4.5 起接线）：克隆/push 所用账号按远端 host 匹配已保存账号；
-"每个仓库可绑定指定账号"的覆盖项挂在仓库级设置，M4 后续任务交付。
+**多账号与仓库绑定（T4.5）**：克隆/push/fetch/pull 所用账号按远端 host 匹配已保存账号；
+同一 host 有多个账号时，按"仓库绑定的账号 → URL 里的用户名 → 最早登录的账号"挑人。
+绑定命令见下一节。
+
+### 远端仓库与账号绑定（T4.5）
+
+远端仓库走平台 REST（列表/搜索/星标/fork），分页用页码游标：`nextPage` 为 `null`
+表示没有更多，无限滚动每次带 `page` 追加一页。需要登录的端点在"该 host 无已登录
+账号"时直接返回 `AUTH_REQUIRED`（`hint` 是 host），不发注定失败的匿名请求；
+`per_page` 上限 100（超限 `VALIDATION`）。
+
+`repo_account_binding_*` 读写**仓库级设置** `accounts.preferredAccount`
+（值为 `accounts` 表的账号 id）：绑定的账号对该仓库的 git 同步与平台 API 同时生效；
+账号被删除时绑定随之失效（解析时按 id 找不到即视为未绑定）。
+
+| 命令 | 能力 | 参数 | 返回 / 说明 |
+| --- | --- | --- | --- |
+| `repo_remote_list` | Network | `host, repoId?, scope?, page?, perPage?` | `RepoPage`：`{ items: RemoteRepo[], nextPage? }`；`scope ∈ "owned" \| "all"`（缺省 `owned`）；需要登录 |
+| `repo_remote_starred` | Network | `host, repoId?, page?, perPage?` | `RepoPage`；星标列表；需要登录 |
+| `repo_remote_search` | Network | `host, query, repoId?, page?, perPage?` | `RepoPage`；匿名可用（有账号走高配额）；空 query → `VALIDATION` |
+| `repo_remote_star` | Network | `host, owner, repo, starred, repoId?` | `()`；加星/取消加星 |
+| `repo_remote_fork` | Network | `host, owner, repo, repoId?` | `RemoteRepo`（GitHub 返回 202，副本异步创建中） |
+| `repo_account_binding_get` | ReadOnly | `repoId` | `Account?`（未绑定为 `null`） |
+| `repo_account_binding_set` | Mutating | `repoId, accountId?` | `Account?`；`accountId` 为 `null` 解除绑定；账号不存在 → `NOT_FOUND` |
+
+`RemoteRepo`：`{ id, owner, name, fullName, description?, htmlUrl, defaultBranch?, private,
+fork, stars, pushedAt? }`。
+
+> 克隆时选择账号：`repo_clone` 的请求体带 `loginHint`（登录名，可省），
+> 与"每仓库绑定"独立——克隆时还没有仓库，绑定在克隆完成后的仓库设置里配置。
 
 ### 文件监听与设置键（T1.10）
 

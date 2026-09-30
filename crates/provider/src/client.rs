@@ -109,6 +109,8 @@ pub struct ApiRequest {
     /// form-urlencoded 请求体（OAuth 端点要求 form 而不是 JSON）。
     /// 与 `body` 互斥：同时给出时以 `form` 为准。
     pub form: Option<Vec<(String, String)>>,
+    /// URL 查询参数（reqwest 负责百分号编码；列表分页与搜索用）。
+    pub query: Option<Vec<(String, String)>>,
     /// 额外请求头（已校验）。
     pub headers: Vec<(reqwest::header::HeaderName, reqwest::header::HeaderValue)>,
 }
@@ -132,6 +134,7 @@ impl ApiRequest {
             bearer: None,
             body: None,
             form: None,
+            query: None,
             headers: Vec::new(),
         }
     }
@@ -160,6 +163,13 @@ impl ApiRequest {
     /// 构造一个 POST 请求（form 体）。
     pub fn post_form(url: impl Into<String>, form: Vec<(String, String)>) -> Self {
         Self::new(reqwest::Method::POST, url).with_form(form)
+    }
+
+    /// 附加 URL 查询参数（值由 reqwest 编码）。
+    #[must_use]
+    pub fn with_query(mut self, query: Vec<(String, String)>) -> Self {
+        self.query = Some(query);
+        self
     }
 
     /// 追加一个请求头（非法名称/值在这里就被拒绝，不等到发送时）。
@@ -286,6 +296,9 @@ impl GitHubHttp {
         }
         if let Some(form) = &request.form {
             builder = builder.form(form);
+        }
+        if let Some(query) = &request.query {
+            builder = builder.query(query);
         }
         for (name, value) in &request.headers {
             builder = builder.header(name, value);

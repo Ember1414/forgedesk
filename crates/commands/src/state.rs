@@ -24,11 +24,11 @@ use std::sync::Arc;
 use forgedesk_jobs::JobRunner;
 use forgedesk_services::repository::OpenRepoRegistry;
 use forgedesk_services::{
-    accounts::AccountService, AuditLog, BranchService, CommitDetailService, CommitPlanRegistry,
-    CommitService, ConflictService, CredentialGate, CredentialsService, GitEngines,
-    HistoryOpsService, HistoryService, LogPageCache, MergePlanRegistry, MergeService,
-    RebaseService, RepositoryService, ResetPlanRegistry, StagingService, StashService, SyncService,
-    WorkspaceService,
+    accounts::AccountService, host_repos::HostRepoService, AuditLog, BranchService,
+    CommitDetailService, CommitPlanRegistry, CommitService, ConflictService, CredentialGate,
+    CredentialsService, GitEngines, HistoryOpsService, HistoryService, LogPageCache,
+    MergePlanRegistry, MergeService, RebaseService, RepositoryService, ResetPlanRegistry,
+    StagingService, StashService, SyncService, WorkspaceService,
 };
 use forgedesk_snapshot::SnapshotManager;
 use forgedesk_storage::{Database, OperationStore, RepositoryStore};
@@ -86,6 +86,8 @@ pub struct AppState {
     /// Arc 与 `jobs` 同一理由：`account_device_flow_wait` 的长任务闭包
     /// 只拿得到 Arc 克隆。
     pub accounts: Arc<AccountService>,
+    /// 远端仓库服务（T4.5）：平台 API 的账号解析 + 每仓库绑定。
+    pub host_repos: Arc<HostRepoService>,
     /// 日志分页缓存（T2.9）：累积各查询形状的 walk 前缀，深分页与重复首页
     /// 不再从 tip 重扫。
     ///

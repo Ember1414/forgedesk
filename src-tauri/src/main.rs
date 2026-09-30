@@ -19,8 +19,8 @@ use forgedesk_platform::{install_panic_hook, non_blocking_writer, LogFlushGuard,
 use forgedesk_provider::{GitHubHttp, HttpConfig};
 use forgedesk_services::repository::OpenRepoRegistry;
 use forgedesk_services::{
-    accounts::AccountService, CommitPlanRegistry, CredentialGate, CredentialsService, GitEngines,
-    LogPageCache, MergePlanRegistry, ResetPlanRegistry,
+    accounts::AccountService, host_repos::HostRepoService, CommitPlanRegistry, CredentialGate,
+    CredentialsService, GitEngines, LogPageCache, MergePlanRegistry, ResetPlanRegistry,
 };
 use forgedesk_snapshot::RefSnapshotManager;
 use forgedesk_storage::{migrate, Database};
@@ -181,13 +181,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let credential_gate =
                 CredentialGate::with_app_askpass(credentials.shared()).map(Arc::new);
 
-            // 账号服务（T4.3/T4.4）：令牌密文进凭据库（与上面共享同一存储实例），
-            // 账号元数据进 accounts 表。HTTP 底座目前跟随系统代理；
-            // M6 的代理设置落地后改为从设置读取。
+            // 账号服务（T4.3/T4.4）与远端仓库服务（T4.5）：令牌密文进凭据库
+            // （与上面共享同一存储实例），账号元数据进 accounts 表。
+            // 两者共享同一个 HTTP 底座（同一条限流快照与连接池）；
+            // HTTP 底座目前跟随系统代理，M6 的代理设置落地后改为从设置读取。
+            let provider_http = GitHubHttp::new(HttpConfig::default())?;
             let accounts = Arc::new(AccountService::new(
                 Arc::clone(&database),
                 credentials.shared(),
-                GitHubHttp::new(HttpConfig::default())?,
+                provider_http.clone(),
+            ));
+            let host_repos = Arc::new(HostRepoService::new(
+                Arc::clone(&database),
+                credentials.shared(),
+                provider_http,
             ));
 
             // T3.8：快照的未跟踪内容备份落在**应用缓存目录**（PLAN §5.10 的分层：
@@ -215,6 +222,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 credentials,
                 credential_gate,
                 accounts,
+                host_repos,
                 watchers,
             });
 
@@ -336,6 +344,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         forgedesk_commands::account_device_flow_wait,
         forgedesk_commands::account_list,
         forgedesk_commands::account_remove,
+        forgedesk_commands::repo_remote_list,
+        forgedesk_commands::repo_remote_starred,
+        forgedesk_commands::repo_remote_search,
+        forgedesk_commands::repo_remote_star,
+        forgedesk_commands::repo_remote_fork,
+        forgedesk_commands::repo_account_binding_get,
+        forgedesk_commands::repo_account_binding_set,
         forgedesk_commands::debug_throw_error,
         forgedesk_commands::debug_panic,
     ]);
@@ -442,6 +457,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         forgedesk_commands::account_device_flow_wait,
         forgedesk_commands::account_list,
         forgedesk_commands::account_remove,
+        forgedesk_commands::repo_remote_list,
+        forgedesk_commands::repo_remote_starred,
+        forgedesk_commands::repo_remote_search,
+        forgedesk_commands::repo_remote_star,
+        forgedesk_commands::repo_remote_fork,
+        forgedesk_commands::repo_account_binding_get,
+        forgedesk_commands::repo_account_binding_set,
     ]);
 
     let app = builder.build(tauri::generate_context!())?;

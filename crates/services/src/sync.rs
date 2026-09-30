@@ -46,6 +46,8 @@ pub struct SyncService<'a> {
     snapshots: &'a dyn SnapshotManager,
     /// 凭据门（T2.7）。为 `None` 时不做注入：网络操作只有匿名与 SSH 两条路。
     credentials: Option<&'a CredentialGate>,
+    /// 每仓库绑定的账号登录名（T4.5）：同 host 多账号时，凭据门按它挑人。
+    login_hint: Option<String>,
 }
 
 impl<'a> SyncService<'a> {
@@ -60,7 +62,18 @@ impl<'a> SyncService<'a> {
             store,
             snapshots,
             credentials: None,
+            login_hint: None,
         }
+    }
+
+    /// 接上"每仓库绑定的账号"（T4.5）：同 host 多账号时凭据门按它挑人。
+    ///
+    /// 值来自仓库级设置 `accounts.preferredAccount` 的解析结果，由命令层
+    /// 传入；`None` 保持旧行为（URL 里的用户名优先，否则取第一条凭据）。
+    #[must_use]
+    pub fn with_login_hint(mut self, login_hint: Option<String>) -> Self {
+        self.login_hint = login_hint;
+        self
     }
 
     /// 接上凭据门（T2.7）：fetch/pull/push 会为远端解析并注入凭据。
@@ -101,7 +114,7 @@ impl<'a> SyncService<'a> {
         let Some(url) = resolve_remote_url(self.engines, workdir, remote)? else {
             return Ok(CredentialContext::anonymous());
         };
-        CredentialContext::resolve(self.credentials, &url, None)
+        CredentialContext::resolve(self.credentials, &url, self.login_hint.as_deref())
     }
 
     // ------------------------------------------------------------ 同步

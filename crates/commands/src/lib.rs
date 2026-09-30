@@ -42,6 +42,7 @@ pub mod jobs;
 pub mod logs;
 pub mod merge;
 pub mod rebase;
+pub mod remote_repos;
 pub mod repository;
 pub mod settings;
 pub mod snapshots;
@@ -101,6 +102,10 @@ pub use rebase::{
     git_rebase_continue_edit, git_rebase_execute, git_rebase_preview_only, git_rebase_range,
     RebaseExecuteRequest, RebaseOutcomeDto, RebasePreviewDto, RebaseRangeEntryDto,
     RebaseStepRequest,
+};
+pub use remote_repos::{
+    repo_account_binding_get, repo_account_binding_set, repo_remote_fork, repo_remote_list,
+    repo_remote_search, repo_remote_star, repo_remote_starred, RemoteRepoDto, RepoPageDto,
 };
 pub use repository::{
     repo_clone, repo_close, repo_discover, repo_forget, repo_init, repo_open, repo_recent_list,

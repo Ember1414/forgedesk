@@ -53,8 +53,65 @@ pub trait AuthFlow: Send + Sync {
     ) -> Result<crate::auth::VerifiedAccount, forgedesk_domain::AppError>;
 }
 
-/// 仓库子服务：列表/搜索/fork/star/clone 联动（T4.5 落地方法）。
-pub trait RepoService: Send + Sync {}
+/// 仓库子服务：列表/搜索/星标/fork（T4.5 落地）。
+///
+/// 分页用"页码游标"（[`crate::repos::RepoPage::next_page`]）而不是泛型
+/// cursor：GitHub 的分页就是 page 参数，UI 的无限滚动每次追加一页。
+/// `token: Option<SecretString>` 的方法匿名也可用（搜索/公开仓库），
+/// 其余方法传 `None` 会以 401 → `AUTH_REQUIRED`/`AUTH_EXPIRED` 失败。
+#[async_trait::async_trait]
+pub trait RepoService: Send + Sync {
+    /// 列出已登录账号可见的仓库（按 [`crate::repos::RepoListScope`] 收窄）。
+    async fn list_authenticated(
+        &self,
+        token: secrecy::SecretString,
+        scope: crate::repos::RepoListScope,
+        page: Option<u32>,
+        per_page: Option<u32>,
+    ) -> Result<crate::repos::RepoPage, forgedesk_domain::AppError>;
+
+    /// 列出该账号星标的仓库。
+    async fn list_starred(
+        &self,
+        token: secrecy::SecretString,
+        page: Option<u32>,
+        per_page: Option<u32>,
+    ) -> Result<crate::repos::RepoPage, forgedesk_domain::AppError>;
+
+    /// 搜索仓库（匿名可用）。
+    async fn search(
+        &self,
+        query: &str,
+        token: Option<secrecy::SecretString>,
+        page: Option<u32>,
+        per_page: Option<u32>,
+    ) -> Result<crate::repos::RepoPage, forgedesk_domain::AppError>;
+
+    /// 单个仓库详情。
+    async fn get(
+        &self,
+        owner: &str,
+        repo: &str,
+        token: Option<secrecy::SecretString>,
+    ) -> Result<crate::repos::RemoteRepo, forgedesk_domain::AppError>;
+
+    /// 加星 / 取消加星。
+    async fn set_starred(
+        &self,
+        token: secrecy::SecretString,
+        owner: &str,
+        repo: &str,
+        starred: bool,
+    ) -> Result<(), forgedesk_domain::AppError>;
+
+    /// fork 到当前账号名下（GitHub 返回 202：副本异步创建中）。
+    async fn fork(
+        &self,
+        token: secrecy::SecretString,
+        owner: &str,
+        repo: &str,
+    ) -> Result<crate::repos::RemoteRepo, forgedesk_domain::AppError>;
+}
 
 /// Pull Request 子服务：列表/详情/评论/review/合并（T4.7 落地方法）。
 pub trait PullService: Send + Sync {}

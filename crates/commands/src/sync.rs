@@ -88,6 +88,8 @@ pub fn git_fetch(
     let database = std::sync::Arc::clone(&state.database);
     let snapshots = std::sync::Arc::clone(&state.snapshots);
     let credential_gate = state.credential_gate.clone();
+    // 每仓库绑定的账号（T4.5）：同 host 多账号时凭据门按它挑人（一次 DB 读）
+    let login_hint = state.host_repos.bound_login(repo_id)?;
     // 审计在任务线程里记（与 push / repo_clone 同一模式：结果在任务里才知道）
     let audit_database = state.database.clone();
     let job_id = state.jobs.spawn(jobs::reporter_for(app), move |context| {
@@ -97,7 +99,8 @@ pub fn git_fetch(
             forgedesk_storage::RepositoryStore::new(&database),
             snapshots.as_ref(),
         )
-        .with_credential_gate(credential_gate.as_deref());
+        .with_credential_gate(credential_gate.as_deref())
+        .with_login_hint(login_hint);
         let spec_ref = &spec;
         let operation = audit::record_with(
             &forgedesk_services::AuditLog::new(forgedesk_storage::OperationStore::new(
@@ -142,6 +145,7 @@ pub fn git_pull(
     let snapshots = std::sync::Arc::clone(&state.snapshots);
 
     let credential_gate = state.credential_gate.clone();
+    let login_hint = state.host_repos.bound_login(repo_id)?;
     let audit_database = state.database.clone();
     let job_id = state.jobs.spawn(jobs::reporter_for(app), move |context| {
         let progress = jobs::progress_sink(&context);
@@ -150,7 +154,8 @@ pub fn git_pull(
             forgedesk_storage::RepositoryStore::new(&database),
             snapshots.as_ref(),
         )
-        .with_credential_gate(credential_gate.as_deref());
+        .with_credential_gate(credential_gate.as_deref())
+        .with_login_hint(login_hint);
         let spec_ref = &spec;
         let operation = audit::record_with(
             &forgedesk_services::AuditLog::new(forgedesk_storage::OperationStore::new(
@@ -208,6 +213,7 @@ pub fn git_push(
     // push 的审计在任务线程里记（与 repo_clone 同一模式：结果在任务里才知道）
     let audit_database = state.database.clone();
     let credential_gate = state.credential_gate.clone();
+    let login_hint = state.host_repos.bound_login(repo_id)?;
     let job_id = state.jobs.spawn(jobs::reporter_for(app), move |context| {
         let progress = jobs::progress_sink(&context);
         let service = SyncService::new(
@@ -215,7 +221,8 @@ pub fn git_push(
             forgedesk_storage::RepositoryStore::new(&database),
             snapshots.as_ref(),
         )
-        .with_credential_gate(credential_gate.as_deref());
+        .with_credential_gate(credential_gate.as_deref())
+        .with_login_hint(login_hint);
         let spec_ref = &spec;
         let operation = audit::record_with(
             &forgedesk_services::AuditLog::new(forgedesk_storage::OperationStore::new(

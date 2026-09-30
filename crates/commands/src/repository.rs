@@ -310,6 +310,10 @@ pub struct CloneRequest {
     /// 只取单个分支的引用。
     #[serde(default)]
     pub single_branch: bool,
+    /// 克隆对话框挑定的账号登录名（T4.5）：同 host 多账号时凭据门按它挑人。
+    /// 缺省时凭据门按 URL 用户名/第一条凭据解析（与 T2.7 行为一致）。
+    #[serde(default)]
+    pub login_hint: Option<String>,
 }
 
 impl CloneRequest {
@@ -460,6 +464,7 @@ pub fn repo_clone(
     app: AppHandle,
     spec: CloneRequest,
 ) -> AppResult<JobIdDto> {
+    let login_hint = spec.login_hint.clone();
     let spec = spec.into_spec()?;
 
     // 任务体要求 `'static`，因此把需要的共享对象克隆出来而不是借出引用
@@ -479,7 +484,8 @@ pub fn repo_clone(
         let opened = {
             let service =
                 RepositoryService::new(&engines, RepositoryStore::new(&database), &open_repos)
-                    .with_credential_gate(credential_gate.as_deref());
+                    .with_credential_gate(credential_gate.as_deref())
+                    .with_login_hint(login_hint);
 
             // 审计（T1.11）：克隆是 `Network` 级操作，却在任务线程里执行，
             // 因此记录也在这里写。仓库记录 id 要等克隆成功才存在，
@@ -797,6 +803,7 @@ mod tests {
     #[test]
     fn a_clone_request_becomes_a_spec_with_every_switch_forwarded() {
         let request = CloneRequest {
+            login_hint: None,
             url: " https://example.com/a.git ".to_owned(),
             into: " dest ".to_owned(),
             depth: Some(1),
@@ -819,6 +826,7 @@ mod tests {
     #[test]
     fn a_zero_depth_is_rejected_instead_of_silently_becoming_a_full_clone() {
         let request = CloneRequest {
+            login_hint: None,
             url: "https://example.com/a.git".to_owned(),
             into: "dest".to_owned(),
             depth: Some(0),
@@ -833,6 +841,7 @@ mod tests {
     #[test]
     fn an_empty_branch_string_means_no_branch_rather_than_an_error() {
         let request = CloneRequest {
+            login_hint: None,
             url: "https://example.com/a.git".to_owned(),
             into: "dest".to_owned(),
             depth: None,

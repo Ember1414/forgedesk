@@ -106,6 +106,11 @@ impl GitHubProvider {
     pub fn api_base(&self) -> &str {
         &self.api_base
     }
+
+    /// HTTP 底座（同 crate 的子服务模块用它发请求，限流捕获等行为一致）。
+    pub(crate) fn http(&self) -> &GitHubHttp {
+        &self.http
+    }
 }
 
 /// 按上表推导 API 与 OAuth 基址（纯函数，表驱动单测）。
@@ -339,9 +344,9 @@ impl AuthFlow for GitHubProvider {
     }
 }
 
-// 各子服务的方法随各自任务落地（T4.5/T4.7/T4.8/T4.9）；先接上标记 trait，
-// 让 `Box<dyn HostProvider>` 的形态从此固定。
-impl RepoService for GitHubProvider {}
+// 各子服务的方法随各自任务落地（T4.7/T4.8/T4.9）；先接上标记 trait，
+// 让 `Box<dyn HostProvider>` 的形态从此固定。RepoService 的实现已随
+// T4.5 在 repos.rs 落地。
 impl PullService for GitHubProvider {}
 impl IssueService for GitHubProvider {}
 impl CiService for GitHubProvider {}

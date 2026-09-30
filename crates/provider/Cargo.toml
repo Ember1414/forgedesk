@@ -21,7 +21,7 @@ octocrab = { version = "0.54.2", features = ["reqwest"] }
 async-trait = "0.1.92"
 parking_lot.workspace = true
 secrecy.workspace = true
-reqwest = { version = "0.13.5", features = ["json", "form"] }
+reqwest = { version = "0.13.5", features = ["json", "form", "query"] }
 time.workspace = true
 tokio-util.workspace = true
 

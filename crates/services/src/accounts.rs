@@ -306,7 +306,7 @@ impl AccountService {
 }
 
 impl Account {
-    fn from_record(record: forgedesk_storage::AccountRecord) -> Self {
+    pub(crate) fn from_record(record: forgedesk_storage::AccountRecord) -> Self {
         Self {
             id: record.id,
             provider: record.provider,

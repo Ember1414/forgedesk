@@ -46,12 +46,13 @@ pub mod auth;
 pub mod client;
 /// `octocrab::Error` → `AppError` 的映射。
 pub mod error;
-/// GitHubProvider：GitHub / GHE 的平台实现。
 pub mod github;
 /// 限流头的解析与快照。
 pub mod rate_limit;
 /// 令牌脱敏（红线 R8 的 provider 侧兜底）。
 pub mod redact;
+/// GitHubProvider：GitHub / GHE 的平台实现。
+pub mod repos;
 
 pub use auth::{
     poll_until_authorized, AuthorizedLogin, DeviceFlowPoll, DeviceFlowStart, PollOptions,
@@ -61,6 +62,7 @@ pub use client::{ApiRequest, GitHubHttp, HttpConfig};
 pub use error::map_octocrab_error;
 pub use github::GitHubProvider;
 pub use rate_limit::{RateLimitState, RateLimitTracker};
+pub use repos::{RemoteRepo, RepoListScope, RepoPage};
 
 /// crate 名称，用于日志与诊断中标识来源。
 pub const CRATE_NAME: &str = env!("CARGO_PKG_NAME");
