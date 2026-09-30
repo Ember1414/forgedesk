@@ -95,6 +95,8 @@ interface FixAction {
 | [`snapshot_restore`](#snapshot_restore) | Mutating | T1.9 | 回滚到快照（成功后发布 repo:changed） |
 | [`snapshot_prune`](#snapshot_prune) | Mutating | T1.9 | 按保留策略清理旧快照 |
 | [`snapshot_cleanup`](#snapshot_cleanup) | Mutating | T3.8 | 立即清理：孤儿目录 + 保留策略 + 总占用回收 |
+| [`snapshot_restore_pending`](#snapshot_restore_pending) | ReadOnly | T3.9 | 未完成的回滚（崩溃恢复：上次回滚被强杀时留下） |
+| [`snapshot_restore_abandon`](#snapshot_restore_abandon) | Mutating | T3.9 | 清除未完成回滚的标记（不回退任何东西） |
 | [`audit_list`](#audit_list--audit_export--audit_prune) | ReadOnly | T1.11 | 分页查询操作历史（可按仓库 / 类型 / 时间筛选） |
 | [`audit_export`](#audit_list--audit_export--audit_prune) | ReadOnly | T1.11 | 导出操作历史到临时文件（CSV / JSON），返回路径 |
 | [`audit_prune`](#audit_list--audit_export--audit_prune) | Mutating | T1.11 | 按保留策略清理旧记录 |
@@ -877,22 +879,38 @@ interface SnapshotDiff {
 
 - **能力等级**：`Mutating`；成功后发布 `repo:changed`
 - **参数**：`repoId`、`snapshotId`
-- **执行序列（顺序即语义）**：
-  1. 校验锚点 ref 仍在——不在就直接返回 `NOT_FOUND`，绝不动仓库；
-  2. 给当前状态打**回滚前快照**（`pre-restore`）——打不出来就中止回滚：
+- **执行序列（顺序即语义；T3.9 起分阶段记录）**：
+  1. **锚点校验**：锚点 ref 不在就直接返回 `NOT_FOUND`——一个字节都不动；
+  2. `protection`：给当前状态打 `pre-restore` **保护点**。打不出来就中止回滚：
      宁可不动，不可无保护地动；
-  3. `git reset --hard <head_oid>`；
-  4. `git read-tree <index_tree_oid>` 把索引恢复到快照的树
+  3. `head`：`git reset --hard <head_oid>`；
+  4. `index`：`git read-tree <index_tree_oid>` 把索引恢复到快照的树
      （`reset --hard` 只能把索引带到 HEAD 的树，恢复不了"已暂存未提交"的内容）；
-  5. **写回未跟踪内容**（T3.8）：按清单把备份目录里的文件复制回工作区，
+  5. `untracked`：按清单把备份目录里的文件写回工作区，
      已逐字节相同的文件跳过（重复回滚是安全的 no-op）；
-  6. **用读引擎校验** HEAD 与索引树——读与写是两条独立实现（T1.2 差分测试保证一致），
-     让考生批自己的卷子是无效的；
-  7. 校验失败 → `RESTORE_VERIFY_FAILED`，并**自动恢复到回滚前快照**——
-     绝不停在中间态。
+  6. `verify`：用读引擎核对 HEAD 与索引树——读与写是两条独立实现
+     （T1.2 差分测试保证一致），让考生批自己的卷子是无效的。
+- **任一步失败**：立即停止后续阶段，然后
+  1. 退回保护点 → 结局 `rolledBack`（仓库回到动手之前，用户什么都不用做）；
+  2. 退回也失败 → 结局 `emergency`，报告里带**可复制、可执行的恢复指引**
+     （`emergency.commands` 是纯 `git ...` 命令，不含占位符；`notes` 给上下文），
+     并把"用户想回到的快照 id"与"指引的目标快照 id / 备份目录"一起显式展示。
+  退回之后还会用**仓库指纹**（T3.9 的 `RepoFingerprint`：HEAD + 未跟踪集合）
+  再核一次，对不上同样降级为 `emergency`：git 命令返回成功不等于状态真的对了。
+- **幂等**：对同一快照重复回滚是安全的 no-op（内容一致、HEAD 不动），
+  因此崩溃恢复的"继续"直接复用本命令（见 `snapshot_restore_pending`）。
 - **返回**：
   `{ restoredSnapshotId, headOid, indexTreeOid, preRestoreSnapshotId, untrackedPaths,
-     untrackedRestored, untrackedFailed, untrackedExtra, verified }`
+     untrackedRestored, untrackedFailed, untrackedExtra, verified,
+     outcome, stages, reportLines, emergency }`
+  - `outcome`：`completed` / `rolledBack` / `emergency`；
+  - `stages`：每阶段的结果（`stage` / `ok` / `detail` / `durationMs`）——
+    界面据此展示"哪一步成了、哪一步没成、为什么"；
+  - `reportLines`：人话报告行（与日志同源）；
+  - `emergency`：仅 `emergency` 时非 null。
+- **失败不再一律返回 `Err`**：只有"连第一步都没开始"（快照不存在、锚点丢失、
+  保护点打不出来）才报错——那些情况下没有任何阶段性事实可说。
+  审计里 `rolledBack` / `emergency` 记为**失败**记录，避免操作历史谎报成功。
 - **未跟踪内容的边界（界面必须如实转述）**：
   - 快照时刻**被备份过**的文件会写回（内容逐字节一致）；没有备份的（v1 记录、
     超限被跳过、备份目录被清掉）**找不回来**，逐条列在 `untrackedFailed` 里；
@@ -900,12 +918,31 @@ interface SnapshotDiff {
     交给用户决定；
   - 内容恢复失败**不触发**回退：HEAD 与索引才是回滚的主体，个别文件被占用
     不该把整次回滚推倒重来。`verified` 说的是"内容备份的校验结果"。
-- **错误**：`NOT_FOUND`（快照不存在 / 锚点丢失）、`RESTORE_VERIFY_FAILED`（已自动回退）、
-  `INTERNAL`
+- **错误**：`NOT_FOUND`（快照不存在 / 锚点丢失）、`INTERNAL`（保护点打不出来等）。
+  校验失败不再走错误通道，而是体现在 `outcome` 与 `stages` 里。
 - **前端封装**：`snapshotRestore(repoId, snapshotId)`；调用点：`src/features/snapshots/SnapshotsPage.tsx`
-- **错误**：`NOT_FOUND`（快照不存在 / 锚点丢失）、`RESTORE_VERIFY_FAILED`（已自动回退）、
-  `INTERNAL`
-- **前端封装**：`snapshotRestore(repoId, snapshotId)`；调用点：`src/features/snapshots/SnapshotsPage.tsx`
+
+#### snapshot_restore_pending
+
+- **能力等级**：`ReadOnly`
+- **参数**：`repoId`
+- **返回**：`{ snapshotId, stage, startedAtMs } | null`（`null` = 干净）
+- **用途**：崩溃恢复。回滚的每个阶段开始前都会把
+  `restore_in_progress` / `restore_stage` / `restore_started_at` 写进
+  `snapshots` 表，正常结束时清掉——**留下标记就意味着进程被强杀了**。
+  界面据此提示"检测到上次回滚未完成（停在'{{阶段}}'），继续 / 清除提示"。
+- **错误**：`NOT_FOUND`、`INTERNAL`
+- **前端封装**：`snapshotRestorePending(repoId)`；调用点：`src/features/snapshots/SnapshotsPage.tsx`
+
+#### snapshot_restore_abandon
+
+- **能力等级**：`Mutating`；记录审计（`snapshot_restore_abandon`）
+- **参数**：`repoId`
+- **返回**：被清掉的标记数
+- **语义**：**不回退任何东西**——它只把"上次没走完"标记为已处理。
+  用户之所以敢选它，是因为界面已经把当时的快照 ID 与停在哪一步摆在他面前了。
+- **错误**：`NOT_FOUND`、`INTERNAL`
+- **前端封装**：`snapshotRestoreAbandon(repoId)`；调用点：`src/features/snapshots/SnapshotsPage.tsx`
 
 #### snapshot_create
 
@@ -1015,7 +1052,7 @@ interface SnapshotWarning {
 
 - **操作类型**：`commit`、`stage`、`unstage`、`discard`、`clone`、`init`、`forget`、
   `close`、`snapshot_restore`、`snapshot_prune`、`snapshot_create`、`snapshot_cleanup`、
-  `audit_export`、`audit_prune`。
+  `snapshot_restore_abandon`、`audit_export`、`audit_prune`。
 
 #### audit_list
 
