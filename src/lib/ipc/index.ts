@@ -276,6 +276,19 @@ export type {
   ReviewEvent,
 } from './pulls';
 export {
+  repoIssueAssignees,
+  repoIssueAssigneesSet,
+  repoIssueBody,
+  repoIssueCommentCreate,
+  repoIssueCommentsList,
+  repoIssueCreate,
+  repoIssueEdit,
+  repoIssueGet,
+  repoIssueList,
+  repoIssueStateSet,
+} from './issues';
+export type { Assignee, IssueComment, IssueDetail, IssuePage, IssueSummary } from './issues';
+export {
   repoAccountBindingGet,
   repoAccountBindingSet,
   repoRemoteFork,

@@ -1560,6 +1560,28 @@ createdAt?, updatedAt? }`。
 同一 host 有多个账号时，按"仓库绑定的账号 → URL 里的用户名 → 最早登录的账号"挑人。
 绑定命令见下一节。
 
+### Issue（T4.8）
+
+Issue 与 PR 共享 GitHub 的 issue 端点族：**列表必须把 PR 滤掉**（GitHub 会把 PR
+混进 issues 列表，靠条目的 `pull_request` 键区分，provider 层过滤）；评论端点同形
+（`IssueComment = PullComment`）。编辑/关开/指派都是同一个 PATCH 端点的不同载荷。
+
+| 命令 | 能力 | 参数 | 返回 / 说明 |
+| --- | --- | --- | --- |
+| `repo_issue_list` | Network | request：`{ host, owner, repo, repoId?, stateFilter?, page?, perPage? }` | `IssuePage`：`{ items: IssueSummary[], nextPage? }`；`stateFilter ∈ "open" / "closed" / "all"`（缺省 open）；不含 PR |
+| `repo_issue_get` | Network | `host, owner, repo, number, repoId?` | `IssueDetailDto`：结构化字段 + `bodyHtml`（描述已消毒，原文不出后端） |
+| `repo_issue_body` | Network | `host, owner, repo, number, repoId?` | `string`：描述**原文**（Markdown）——只供编辑器预填进 textarea（惰性文本，与评论正文同一边界判断）；展示一律用 `repo_issue_get` 的消毒 HTML |
+| `repo_issue_create` | Network | request：`{ host, owner, repo, title, body?, repoId? }` | `IssueDetailDto`；空标题 → `VALIDATION` |
+| `repo_issue_edit` | Network | request：`{ host, owner, repo, number, title?, body?, repoId? }` | `IssueDetailDto`；`null` 字段不动，两者都缺 → `VALIDATION`（不发空写） |
+| `repo_issue_state_set` | Network | request：`{ host, owner, repo, number, open, repoId? }` | `IssueDetailDto`；`open=false` 关闭 / `true` 重新开启 |
+| `repo_issue_assignees_set` | Network | request：`{ host, owner, repo, number, assignees: string[], repoId? }` | `IssueDetailDto`；整体替换，空数组 = 全部取消指派（GitHub 显式语义） |
+| `repo_issue_comments_list` | Network | `host, owner, repo, number, repoId?` | `IssueComment[]`：`{ id, author, body, createdAt? }`（正文为 Markdown 原文，前端以纯文本渲染；单页 100 条） |
+| `repo_issue_comment_create` | Network | `host, owner, repo, number, body, repoId?` | `IssueComment`；空正文 → `VALIDATION` |
+| `repo_issue_assignees` | Network | `host, owner, repo, repoId?` | `Assignee[]`：`{ login }`（可指派人，需要登录） |
+
+`IssueSummary`：`{ number, title, state, author, labels: string[], assignees: string[],
+comments, createdAt?, updatedAt?, closedAt? }`。
+
 ### 远端仓库与账号绑定（T4.5）
 
 远端仓库走平台 REST（列表/搜索/星标/fork），分页用页码游标：`nextPage` 为 `null`

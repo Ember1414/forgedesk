@@ -34,7 +34,6 @@ pub mod pulls;
 pub mod registry;
 /// `HostProvider` trait 树（业务层唯一可见的抽象）。
 pub mod traits;
-
 pub use model::{ProviderCapabilities, ProviderId};
 pub use registry::{ProviderRegistry, ResolvedRemote};
 pub use traits::{
@@ -48,6 +47,8 @@ pub mod client;
 /// `octocrab::Error` → `AppError` 的映射。
 pub mod error;
 pub mod github;
+/// Issue 子服务（T4.8：列表滤 PR、详情、创建/编辑/关开/指派、评论）。
+pub mod issues;
 /// 限流头的解析与快照。
 pub mod rate_limit;
 /// 令牌脱敏（红线 R8 的 provider 侧兜底）。
@@ -62,6 +63,9 @@ pub use auth::{
 pub use client::{ApiRequest, GitHubHttp, HttpConfig};
 pub use error::map_octocrab_error;
 pub use github::GitHubProvider;
+pub use issues::{
+    Assignee, IssueComment, IssueDetail, IssueEdit, IssuePage, IssueState, IssueSummary,
+};
 pub use pulls::{
     CommentSide, MergeOutcome, MergePullRequest, MergeStrategy, PullComment, PullDiffHunk,
     PullDiffLine, PullFile, PullFilePage, PullPage, PullRequestDetail, PullRequestSummary,

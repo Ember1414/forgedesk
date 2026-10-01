@@ -417,9 +417,9 @@ struct GitHubPull {
     mergeable_state: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
-struct GitHubLogin {
-    login: String,
+#[derive(Debug, Clone, Deserialize)]
+pub(crate) struct GitHubLogin {
+    pub(crate) login: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -443,14 +443,14 @@ struct GitHubReview {
     submitted_at: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
-struct GitHubComment {
-    id: u64,
+#[derive(Debug, Clone, Deserialize)]
+pub(crate) struct GitHubComment {
+    pub(crate) id: u64,
     #[serde(default)]
-    user: Option<GitHubLogin>,
-    body: String,
+    pub(crate) user: Option<GitHubLogin>,
+    pub(crate) body: String,
     #[serde(default)]
-    created_at: Option<String>,
+    pub(crate) created_at: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

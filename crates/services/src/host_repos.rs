@@ -26,9 +26,10 @@ use crate::credentials::SharedStore;
 use forgedesk_credentials::CredentialRef;
 use forgedesk_domain::{AppError, AppResult, ErrorCode};
 use forgedesk_provider::{
-    GitHubHttp, GitHubProvider, HostProvider, MergeOutcome, MergePullRequest, PullComment,
-    PullFilePage, PullPage, PullRequestDetail, PullReview, PullReviewComment, PullState,
-    RemoteRepo, RepoListScope, RepoPage, ReviewCommentAnchor, ReviewEvent,
+    GitHubHttp, GitHubProvider, HostProvider, IssueDetail, IssueEdit, IssuePage, IssueState,
+    MergeOutcome, MergePullRequest, PullComment, PullFilePage, PullPage, PullRequestDetail,
+    PullReview, PullReviewComment, PullState, RemoteRepo, RepoListScope, RepoPage,
+    ReviewCommentAnchor, ReviewEvent,
 };
 use forgedesk_storage::{AccountStore, Database, Scope, SettingsRepository};
 use secrecy::SecretString;
@@ -396,14 +397,7 @@ impl HostRepoService {
         let token = self.require_token(&target.host, target.repo_id).await?;
         provider
             .pulls()
-            .list_files(
-                token,
-                &target.owner,
-                &target.repo,
-                number,
-                page,
-                per_page,
-            )
+            .list_files(token, &target.owner, &target.repo, number, page, per_page)
             .await
     }
 
@@ -437,14 +431,7 @@ impl HostRepoService {
         let token = self.require_token(&target.host, target.repo_id).await?;
         provider
             .pulls()
-            .create_review_comment(
-                token,
-                &target.owner,
-                &target.repo,
-                number,
-                anchor,
-                body,
-            )
+            .create_review_comment(token, &target.owner, &target.repo, number, anchor, body)
             .await
     }
 
@@ -460,15 +447,216 @@ impl HostRepoService {
         let token = self.require_token(&target.host, target.repo_id).await?;
         provider
             .pulls()
-            .reply_review_comment(
+            .reply_review_comment(token, &target.owner, &target.repo, number, comment_id, body)
+            .await
+    }
+
+    // ---- Issue（T4.8）----
+
+    /// 列出 Issue（不含 PR；token 解析与 PR 列表同一套）。
+    pub async fn list_issues(
+        &self,
+        target: &RemoteRepoRef,
+        query: IssueListQuery,
+    ) -> AppResult<IssuePage> {
+        let provider = self.provider_for(&target.host)?;
+        let token = self.require_token(&target.host, target.repo_id).await?;
+        provider
+            .issues()
+            .list_issues(
                 token,
                 &target.owner,
                 &target.repo,
-                number,
-                comment_id,
-                body,
+                query.state,
+                query.page,
+                query.per_page,
             )
             .await
+    }
+
+    /// Issue 详情。描述 Markdown 在此消毒为 HTML（`bodyHtml`），
+    /// 原文不越过 IPC（provider 侧已 `skip_serializing`，这里是双保险）。
+    pub async fn get_issue(
+        &self,
+        host: &str,
+        repo_id: Option<i64>,
+        owner: &str,
+        repo: &str,
+        number: u64,
+    ) -> AppResult<IssueDetailView> {
+        let provider = self.provider_for(host)?;
+        let token = self.require_token(host, repo_id).await?;
+        let mut detail = provider
+            .issues()
+            .get_issue(token, owner, repo, number)
+            .await?;
+        let body_html = detail
+            .body_markdown
+            .take()
+            .map(|markdown| crate::readme::render_readme(&markdown));
+        Ok(IssueDetailView { detail, body_html })
+    }
+
+    /// Issue 的**原始描述**（Markdown，未清洗）——只供编辑器预填。
+    ///
+    /// 与评论正文同一边界判断：原始 Markdown 只作为**惰性文本**进
+    /// textarea（React 转义、无 innerHTML），不用于展示渲染；展示仍然
+    /// 只走 [`Self::get_issue`] 的消毒 HTML。
+    pub async fn issue_body_raw(
+        &self,
+        host: &str,
+        repo_id: Option<i64>,
+        owner: &str,
+        repo: &str,
+        number: u64,
+    ) -> AppResult<String> {
+        let provider = self.provider_for(host)?;
+        let token = self.require_token(host, repo_id).await?;
+        let detail = provider
+            .issues()
+            .get_issue(token, owner, repo, number)
+            .await?;
+        Ok(detail.body_markdown.unwrap_or_default())
+    }
+
+    /// 创建 Issue，返回消毒后的详情视图。
+    pub async fn create_issue(
+        &self,
+        host: &str,
+        repo_id: Option<i64>,
+        owner: &str,
+        repo: &str,
+        title: &str,
+        body: Option<&str>,
+    ) -> AppResult<IssueDetailView> {
+        let provider = self.provider_for(host)?;
+        let token = self.require_token(host, repo_id).await?;
+        let mut detail = provider
+            .issues()
+            .create_issue(token, owner, repo, title, body)
+            .await?;
+        let body_html = detail
+            .body_markdown
+            .take()
+            .map(|markdown| crate::readme::render_readme(&markdown));
+        Ok(IssueDetailView { detail, body_html })
+    }
+
+    /// 编辑标题/描述（`None` 字段不动），返回消毒后的详情视图。
+    pub async fn edit_issue(
+        &self,
+        host: &str,
+        repo_id: Option<i64>,
+        owner: &str,
+        repo: &str,
+        number: u64,
+        edit: IssueEdit,
+    ) -> AppResult<IssueDetailView> {
+        let provider = self.provider_for(host)?;
+        let token = self.require_token(host, repo_id).await?;
+        let mut detail = provider
+            .issues()
+            .edit_issue(token, owner, repo, number, edit)
+            .await?;
+        let body_html = detail
+            .body_markdown
+            .take()
+            .map(|markdown| crate::readme::render_readme(&markdown));
+        Ok(IssueDetailView { detail, body_html })
+    }
+
+    /// 关闭 / 重新开启，返回消毒后的详情视图。
+    pub async fn set_issue_state(
+        &self,
+        host: &str,
+        repo_id: Option<i64>,
+        owner: &str,
+        repo: &str,
+        number: u64,
+        open: bool,
+    ) -> AppResult<IssueDetailView> {
+        let provider = self.provider_for(host)?;
+        let token = self.require_token(host, repo_id).await?;
+        let mut detail = provider
+            .issues()
+            .set_issue_state(token, owner, repo, number, open)
+            .await?;
+        let body_html = detail
+            .body_markdown
+            .take()
+            .map(|markdown| crate::readme::render_readme(&markdown));
+        Ok(IssueDetailView { detail, body_html })
+    }
+
+    /// 整体替换指派人，返回消毒后的详情视图。
+    pub async fn set_issue_assignees(
+        &self,
+        host: &str,
+        repo_id: Option<i64>,
+        owner: &str,
+        repo: &str,
+        number: u64,
+        assignees: &[String],
+    ) -> AppResult<IssueDetailView> {
+        let provider = self.provider_for(host)?;
+        let token = self.require_token(host, repo_id).await?;
+        let mut detail = provider
+            .issues()
+            .set_issue_assignees(token, owner, repo, number, assignees)
+            .await?;
+        let body_html = detail
+            .body_markdown
+            .take()
+            .map(|markdown| crate::readme::render_readme(&markdown));
+        Ok(IssueDetailView { detail, body_html })
+    }
+
+    /// Issue 评论列表。
+    pub async fn list_issue_comments(
+        &self,
+        host: &str,
+        repo_id: Option<i64>,
+        owner: &str,
+        repo: &str,
+        number: u64,
+    ) -> AppResult<Vec<PullComment>> {
+        let provider = self.provider_for(host)?;
+        let token = self.require_token(host, repo_id).await?;
+        provider
+            .issues()
+            .list_issue_comments(token, owner, repo, number)
+            .await
+    }
+
+    /// 发表一条 Issue 评论，返回创建结果（列表本地追加即可）。
+    pub async fn create_issue_comment(
+        &self,
+        host: &str,
+        repo_id: Option<i64>,
+        owner: &str,
+        repo: &str,
+        number: u64,
+        body: &str,
+    ) -> AppResult<PullComment> {
+        let provider = self.provider_for(host)?;
+        let token = self.require_token(host, repo_id).await?;
+        provider
+            .issues()
+            .create_issue_comment(token, owner, repo, number, body)
+            .await
+    }
+
+    /// 可指派人列表。
+    pub async fn list_assignees(
+        &self,
+        host: &str,
+        repo_id: Option<i64>,
+        owner: &str,
+        repo: &str,
+    ) -> AppResult<Vec<forgedesk_provider::Assignee>> {
+        let provider = self.provider_for(host)?;
+        let token = self.require_token(host, repo_id).await?;
+        provider.issues().list_assignees(token, owner, repo).await
     }
 
     /// 拉取并**安全渲染**仓库 README（T4.6）：返回的是白名单化 HTML，
@@ -532,6 +720,27 @@ pub struct PullListQuery {
     pub page: Option<u32>,
     /// 每页条数。
     pub per_page: Option<u32>,
+}
+
+/// Issue 列表的查询参数。
+#[derive(Debug, Clone, Copy)]
+pub struct IssueListQuery {
+    /// 状态过滤。
+    pub state: IssueState,
+    /// 页码。
+    pub page: Option<u32>,
+    /// 每页条数。
+    pub per_page: Option<u32>,
+}
+
+/// Issue 详情的 IPC 视图：结构化字段 + 消毒后的描述 HTML。
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IssueDetailView {
+    /// 详情字段（`body_markdown` 已被取走，序列化为 null/缺失）。
+    pub detail: IssueDetail,
+    /// 描述的消毒 HTML（无描述为 `None`）。
+    pub body_html: Option<String>,
 }
 
 /// PR 详情的 IPC 视图：结构化字段 + 消毒后的描述 HTML。
@@ -753,6 +962,33 @@ mod tests {
 
         assert_eq!(page.items.len(), 1);
         assert_eq!(page.items[0].full_name, "octocat/r");
+    }
+
+    #[tokio::test]
+    async fn issue_listing_without_any_account_fails_with_auth_required() {
+        let server = MockServer::start().await;
+        let fixture = fixture_at(&server);
+        let target = super::RemoteRepoRef {
+            host: "github.com".to_owned(),
+            repo_id: None,
+            owner: "octocat".to_owned(),
+            repo: "x".to_owned(),
+        };
+
+        let error = fixture
+            .repos
+            .list_issues(
+                &target,
+                super::IssueListQuery {
+                    state: forgedesk_provider::IssueState::Open,
+                    page: None,
+                    per_page: None,
+                },
+            )
+            .await
+            .unwrap_err();
+
+        assert_eq!(error.code, forgedesk_domain::ErrorCode::AuthRequired);
     }
 
     #[tokio::test]

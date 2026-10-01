@@ -170,6 +170,11 @@ impl ApiRequest {
         Self::new(reqwest::Method::PUT, url).with_body(body)
     }
 
+    /// 构造一个 PATCH 请求（JSON 体）。
+    pub fn patch_json(url: impl Into<String>, body: serde_json::Value) -> Self {
+        Self::new(reqwest::Method::PATCH, url).with_body(body)
+    }
+
     /// 构造一个 DELETE 请求。
     pub fn delete(url: impl Into<String>) -> Self {
         Self::new(reqwest::Method::DELETE, url)

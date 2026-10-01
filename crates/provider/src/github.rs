@@ -348,7 +348,7 @@ impl AuthFlow for GitHubProvider {
 // 让 `Box<dyn HostProvider>` 的形态从此固定。RepoService 的实现已随
 // T4.5 在 repos.rs 落地。
 // PullService 的实现已随 T4.7 在 pulls.rs 落地。
-impl IssueService for GitHubProvider {}
+// IssueService 的实现已随 T4.8 在 issues.rs 落地。
 impl CiService for GitHubProvider {}
 impl ReleaseService for GitHubProvider {}
 

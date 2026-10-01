@@ -1413,6 +1413,34 @@
       "replyPlaceholder": "Reply…",
       "replyPostedToast": "Reply posted",
       "outdatedComments": "Comments not on this diff"
+    },
+    "issues": {
+      "stateTabs": "Issue state",
+      "stateTab": {
+        "open": "Open",
+        "closed": "Closed",
+        "all": "All"
+      },
+      "empty": "No issues under this filter.",
+      "createOpen": "New issue",
+      "createTitle": "New issue",
+      "titleLabel": "Title",
+      "bodyLabel": "Description (Markdown)",
+      "create": "Create",
+      "createdToast": "Issue created",
+      "closeIssue": "Close issue",
+      "reopenIssue": "Reopen",
+      "closedToast": "Issue closed",
+      "reopenedToast": "Issue reopened",
+      "editOpen": "Edit",
+      "editTitle": "Edit issue",
+      "editSave": "Save",
+      "editedToast": "Issue updated",
+      "assignOpen": "Edit assignees",
+      "assignSave": "Save assignees",
+      "assignedToast": "Assignees updated",
+      "unassigned": "Unassigned",
+      "detailTitle": "#{{number}} {{title}}"
     }
   },
   "repo": {

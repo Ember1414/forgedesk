@@ -251,8 +251,100 @@ pub trait PullService: Send + Sync {
     ) -> Result<crate::pulls::PullReviewComment, forgedesk_domain::AppError>;
 }
 
-/// Issue 子服务：列表/筛选/创建/评论/关闭（T4.8 落地方法）。
-pub trait IssueService: Send + Sync {}
+/// Issue 子服务：列表/筛选/创建/编辑/评论/关闭/指派（T4.8）。
+///
+/// 列表实现**必须**把 PR 滤掉（GitHub 的 issues 端点把 PR 也当 issue
+/// 返回，靠条目的 `pull_request` 键区分）；编辑/关开/指派都是同一个
+/// PATCH 端点的不同载荷，拆成三个方法让调用方意图明确。
+#[async_trait::async_trait]
+pub trait IssueService: Send + Sync {
+    /// 列出 Issue（按状态过滤，Link 分页；不含 PR）。
+    async fn list_issues(
+        &self,
+        token: secrecy::SecretString,
+        owner: &str,
+        repo: &str,
+        state: crate::issues::IssueState,
+        page: Option<u32>,
+        per_page: Option<u32>,
+    ) -> Result<crate::issues::IssuePage, forgedesk_domain::AppError>;
+
+    /// 单个 Issue 详情（描述原文不出 provider，由 services 层消毒）。
+    async fn get_issue(
+        &self,
+        token: secrecy::SecretString,
+        owner: &str,
+        repo: &str,
+        number: u64,
+    ) -> Result<crate::issues::IssueDetail, forgedesk_domain::AppError>;
+
+    /// 创建 Issue（标题必填，描述可选）。
+    async fn create_issue(
+        &self,
+        token: secrecy::SecretString,
+        owner: &str,
+        repo: &str,
+        title: &str,
+        body: Option<&str>,
+    ) -> Result<crate::issues::IssueDetail, forgedesk_domain::AppError>;
+
+    /// 编辑标题/描述（`None` 字段不动；两者都缺是空写，本地拒绝）。
+    async fn edit_issue(
+        &self,
+        token: secrecy::SecretString,
+        owner: &str,
+        repo: &str,
+        number: u64,
+        edit: crate::issues::IssueEdit,
+    ) -> Result<crate::issues::IssueDetail, forgedesk_domain::AppError>;
+
+    /// 关闭 / 重新开启（GitHub 的 state 补丁）。
+    async fn set_issue_state(
+        &self,
+        token: secrecy::SecretString,
+        owner: &str,
+        repo: &str,
+        number: u64,
+        open: bool,
+    ) -> Result<crate::issues::IssueDetail, forgedesk_domain::AppError>;
+
+    /// 整体替换指派人（空切片 = 全部取消指派，GitHub 显式语义）。
+    async fn set_issue_assignees(
+        &self,
+        token: secrecy::SecretString,
+        owner: &str,
+        repo: &str,
+        number: u64,
+        assignees: &[String],
+    ) -> Result<crate::issues::IssueDetail, forgedesk_domain::AppError>;
+
+    /// 评论列表（与 PR 时间线评论同端点；单页 100 条）。
+    async fn list_issue_comments(
+        &self,
+        token: secrecy::SecretString,
+        owner: &str,
+        repo: &str,
+        number: u64,
+    ) -> Result<Vec<crate::issues::IssueComment>, forgedesk_domain::AppError>;
+
+    /// 发表一条评论，返回刚创建的评论。
+    async fn create_issue_comment(
+        &self,
+        token: secrecy::SecretString,
+        owner: &str,
+        repo: &str,
+        number: u64,
+        body: &str,
+    ) -> Result<crate::issues::IssueComment, forgedesk_domain::AppError>;
+
+    /// 可指派人列表（仓库 collaborators 的 assignees 视角）。
+    async fn list_assignees(
+        &self,
+        token: secrecy::SecretString,
+        owner: &str,
+        repo: &str,
+    ) -> Result<Vec<crate::issues::Assignee>, forgedesk_domain::AppError>;
+}
 
 /// CI 子服务：workflow 列表、运行记录、日志、重跑/取消（T4.9 落地方法）。
 pub trait CiService: Send + Sync {}

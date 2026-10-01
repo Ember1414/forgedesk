@@ -366,6 +366,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         forgedesk_commands::repo_pull_review_comment_reply,
         forgedesk_commands::repo_account_binding_get,
         forgedesk_commands::repo_account_binding_set,
+        forgedesk_commands::repo_issue_list,
+        forgedesk_commands::repo_issue_get,
+        forgedesk_commands::repo_issue_body,
+        forgedesk_commands::repo_issue_create,
+        forgedesk_commands::repo_issue_edit,
+        forgedesk_commands::repo_issue_state_set,
+        forgedesk_commands::repo_issue_assignees_set,
+        forgedesk_commands::repo_issue_comments_list,
+        forgedesk_commands::repo_issue_comment_create,
+        forgedesk_commands::repo_issue_assignees,
         forgedesk_commands::debug_throw_error,
         forgedesk_commands::debug_panic,
     ]);
@@ -494,6 +504,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         forgedesk_commands::repo_pull_review_comment_reply,
         forgedesk_commands::repo_account_binding_get,
         forgedesk_commands::repo_account_binding_set,
+        forgedesk_commands::repo_issue_list,
+        forgedesk_commands::repo_issue_get,
+        forgedesk_commands::repo_issue_body,
+        forgedesk_commands::repo_issue_create,
+        forgedesk_commands::repo_issue_edit,
+        forgedesk_commands::repo_issue_state_set,
+        forgedesk_commands::repo_issue_assignees_set,
+        forgedesk_commands::repo_issue_comments_list,
+        forgedesk_commands::repo_issue_comment_create,
+        forgedesk_commands::repo_issue_assignees,
     ]);
 
     let app = builder.build(tauri::generate_context!())?;

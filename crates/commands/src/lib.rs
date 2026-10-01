@@ -38,6 +38,7 @@ pub mod debug;
 pub mod error;
 pub mod history;
 pub mod history_ops;
+pub mod issues;
 pub mod jobs;
 pub mod logs;
 pub mod merge;
@@ -92,6 +93,12 @@ pub use history_ops::{
     NewBranchDto, ResetOutcomeDto, ResetPlanDto, ResetRemoteImpactDto, ResetRequest, RevertRequest,
     StashApplyRequest, StashBranchRequest, StashDiscardDto, StashSaveDto, StashSaveRequest,
     StashShowDto,
+};
+pub use issues::{
+    repo_issue_assignees, repo_issue_assignees_set, repo_issue_body, repo_issue_comment_create,
+    repo_issue_comments_list, repo_issue_create, repo_issue_edit, repo_issue_get, repo_issue_list,
+    repo_issue_state_set, IssueCreateRequest, IssueDetailDto, IssueEditRequest, IssueListRequest,
+    IssueStateRequest,
 };
 pub use jobs::{job_cancel, TauriJobReporter};
 pub use logs::{logs_open, logs_tail};

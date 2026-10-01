@@ -1413,6 +1413,34 @@
       "replyPlaceholder": "回复…",
       "replyPostedToast": "回复已发表",
       "outdatedComments": "不在此 diff 上的评论"
+    },
+    "issues": {
+      "stateTabs": "Issue 状态",
+      "stateTab": {
+        "open": "开启中",
+        "closed": "已关闭",
+        "all": "全部"
+      },
+      "empty": "这个筛选条件下没有 Issue。",
+      "createOpen": "新建 Issue",
+      "createTitle": "新建 Issue",
+      "titleLabel": "标题",
+      "bodyLabel": "描述（Markdown）",
+      "create": "创建",
+      "createdToast": "Issue 已创建",
+      "closeIssue": "关闭 Issue",
+      "reopenIssue": "重新开启",
+      "closedToast": "Issue 已关闭",
+      "reopenedToast": "Issue 已重新开启",
+      "editOpen": "编辑",
+      "editTitle": "编辑 Issue",
+      "editSave": "保存",
+      "editedToast": "Issue 已更新",
+      "assignOpen": "编辑指派",
+      "assignSave": "保存指派",
+      "assignedToast": "指派已更新",
+      "unassigned": "未指派",
+      "detailTitle": "#{{number}} {{title}}"
     }
   },
   "repo": {
