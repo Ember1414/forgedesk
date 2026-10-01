@@ -1520,7 +1520,7 @@ identity 文件）、`TLS_CERTIFICATE_REJECTED`（自签名或证书链不完整
 | `account_list` | ReadOnly | — | `Account[]`（按创建时间排序） |
 | `account_remove` | Mutating | `accountId` | `()`；先删凭据库条目再删账号行；未知 id → `NOT_FOUND` |
 
-### Pull Request（T4.7 第一批：列表 / 详情 / review / 合并）
+### Pull Request（T4.7：列表 / 详情 / review / 行内评论 / 合并）
 
 PR 命令走与仓库命令同一套 HTTP 底座与账号解析（绑定账号 → host 默认账号）。
 合并的错误语义（docs/PLAN.md"失败返回可读原因"）：
@@ -1541,11 +1541,20 @@ GitHub 的可读 message 原样保留在 `message`/`detail`。删除源分支在
 | `repo_pull_reviews` | Network | `host, owner, repo, number, repoId?` | `PullReview[]`：`{ id, author, state, body?, submittedAt? }` |
 | `repo_pull_comments_list` | Network | `host, owner, repo, number, repoId?` | `PullComment[]`：`{ id, author, body, createdAt? }`（正文为 Markdown 原文，前端以纯文本渲染） |
 | `repo_pull_comment_create` | Network | `host, owner, repo, number, body, repoId?` | `PullComment`；空正文 → `VALIDATION` |
-| `repo_pull_review_submit` | Network | request：`{ host, owner, repo, number, event, body?, repoId? }` | `()`；`event ∈ "APPROVE" / "REQUEST_CHANGES" / "COMMENT"`；COMMENT 无正文 → `VALIDATION`；行内（锚定 diff 行）评论属下一批增量 |
+| `repo_pull_review_submit` | Network | request：`{ host, owner, repo, number, event, body?, repoId? }` | `()`；`event ∈ "APPROVE" / "REQUEST_CHANGES" / "COMMENT"`；COMMENT 无正文 → `VALIDATION` |
+| `repo_pull_files` | Network | request：`{ host, owner, repo, number, repoId?, page?, perPage? }` | `PullFilePage`：`{ items: PullFile[], nextPage? }`；`PullFile = { filename, previousFilename?, status, additions, deletions, changes?, patch?, hunks: PullDiffHunk[] }`；二进制/超大 diff 无 `patch`（`hunks` 为空） |
+| `repo_pull_review_comments_list` | Network | `host, owner, repo, number, repoId?` | `PullReviewComment[]`：`{ id, inReplyTo?, author, body, path?, side?, line?, startLine?, startSide?, createdAt? }`（单页 100 条） |
+| `repo_pull_review_comment_create` | Network | request：`{ host, owner, repo, number, path, side, line, startLine?, startSide?, body, repoId? }` | `PullReviewComment`；`side ∈ "LEFT" / "RIGHT"`（LEFT=旧文件 / RIGHT=新文件）；后端**先取当前 diff 本地校验**：路径不在 diff 上 → `VALIDATION` + `path-not-in-diff`，行号越界 / 多行跨 hunk → `VALIDATION` + `line-out-of-range`，均**不发出写请求**；无 `patch`（二进制/超大 diff）时放行由 GitHub 兜底 |
+| `repo_pull_review_comment_reply` | Network | request：`{ host, owner, repo, number, commentId, body, repoId? }` | `PullReviewComment`；位置沿用被回复评论，无需锚点；空正文 / `commentId=0` → `VALIDATION` |
 | `repo_pull_merge` | Network | request：`{ host, owner, repo, number, strategy, repoId?, commitTitle?, commitMessage?, expectedHeadSha?, deleteBranch?, headBranch? }` | `MergeOutcome`：`{ merged, sha?, message?, branchDeleted }`；`strategy ∈ "merge" / "squash" / "rebase"` |
 
 `PullSummary`：`{ number, title, state, draft, merged, author, headLabel, baseLabel, htmlUrl,
 createdAt?, updatedAt? }`。
+
+`PullDiffHunk`：`{ oldStart, oldLines, newStart, newLines, header, lines: PullDiffLine[] }`，
+`PullDiffLine = { kind: "context" | "added" | "removed" | "noNewline", content, oldNo?, newNo? }`
+——与工作区 diff（T1.5）的 DTO 同名同义，前端同一套行级渲染。行内评论创建时
+后端取同一时刻的 head（`commit_id`）：校验与锚定基于同一份 diff。
 
 **多账号与仓库绑定（T4.5）**：克隆/push/fetch/pull 所用账号按远端 host 匹配已保存账号；
 同一 host 有多个账号时，按"仓库绑定的账号 → URL 里的用户名 → 最早登录的账号"挑人。

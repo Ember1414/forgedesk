@@ -63,8 +63,9 @@ pub use client::{ApiRequest, GitHubHttp, HttpConfig};
 pub use error::map_octocrab_error;
 pub use github::GitHubProvider;
 pub use pulls::{
-    MergeOutcome, MergePullRequest, MergeStrategy, PullComment, PullPage, PullRequestDetail,
-    PullRequestSummary, PullReview, PullState, ReviewEvent,
+    CommentSide, MergeOutcome, MergePullRequest, MergeStrategy, PullComment, PullDiffHunk,
+    PullDiffLine, PullFile, PullFilePage, PullPage, PullRequestDetail, PullRequestSummary,
+    PullReview, PullReviewComment, PullState, ReviewCommentAnchor, ReviewEvent,
 };
 pub use rate_limit::{RateLimitState, RateLimitTracker};
 pub use repos::{RemoteRepo, RepoListScope, RepoPage};

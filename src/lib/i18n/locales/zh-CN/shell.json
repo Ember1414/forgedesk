@@ -1390,7 +1390,29 @@
       "reviewTitle": "提交 Review",
       "reviewBodyPlaceholder": "review 正文（可选；仅评论时必填）",
       "reviewSubmit": "提交 Review",
-      "reviewSubmittedToast": "Review 已提交：{{state}}"
+      "reviewSubmittedToast": "Review 已提交：{{state}}",
+      "filesTitle": "变更文件",
+      "filesEmpty": "这个 PR 没有变更文件。",
+      "fileDiffUnavailable": "diff 不可用：二进制文件或差异过大。",
+      "filesError": "变更文件加载失败。",
+      "fileStatus": {
+        "added": "新增",
+        "removed": "删除",
+        "modified": "修改",
+        "renamed": "重命名",
+        "changed": "变更",
+        "copied": "复制"
+      },
+      "addLineComment": "在 {{path}} 的{{side}}第 {{line}} 行添加评论",
+      "inlineAnchor": "{{path}} · {{side}} · 第 {{line}} 行",
+      "sideOld": "旧文件",
+      "sideNew": "新文件",
+      "inlinePlaceholder": "写一条行内评论…",
+      "inlinePostedToast": "行内评论已发表",
+      "reply": "回复",
+      "replyPlaceholder": "回复…",
+      "replyPostedToast": "回复已发表",
+      "outdatedComments": "不在此 diff 上的评论"
     }
   },
   "repo": {

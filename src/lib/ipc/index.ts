@@ -251,18 +251,27 @@ export type {
 export {
   repoPullCommentCreate,
   repoPullCommentsList,
+  repoPullFiles,
   repoPullGet,
   repoPullList,
   repoPullMerge,
+  repoPullReviewCommentCreate,
+  repoPullReviewCommentReply,
+  repoPullReviewCommentsList,
   repoPullReviewSubmit,
   repoPullReviews,
 } from './pulls';
 export type {
   PullComment,
   PullDetail,
+  PullDiffHunk,
+  PullDiffLine,
+  PullFile,
+  PullFilePage,
   PullMergeOutcome,
   PullPage,
   PullReview,
+  PullReviewComment,
   PullSummary,
   ReviewEvent,
 } from './pulls';

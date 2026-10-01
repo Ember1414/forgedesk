@@ -192,8 +192,8 @@ pub trait PullService: Send + Sync {
 
     /// 提交一次 review（批准 / 请求修改 / 评论）。
     ///
-    /// 行内（锚定到 diff 行）的 review comments 属于下一批增量；
-    /// 本方法只提交整体结论。
+    /// 行内的"待提交评论草稿"暂未支持；本方法只提交整体结论，
+    /// 锚定 diff 行的评论走 [`PullService::create_review_comment`]。
     async fn submit_review(
         &self,
         token: secrecy::SecretString,
@@ -203,6 +203,52 @@ pub trait PullService: Send + Sync {
         event: crate::pulls::ReviewEvent,
         body: Option<&str>,
     ) -> Result<(), forgedesk_domain::AppError>;
+
+    /// PR 变更文件列表（含行级 diff；二进制/超大 diff 没有 patch）。
+    async fn list_files(
+        &self,
+        token: secrecy::SecretString,
+        owner: &str,
+        repo: &str,
+        number: u64,
+        page: Option<u32>,
+        per_page: Option<u32>,
+    ) -> Result<crate::pulls::PullFilePage, forgedesk_domain::AppError>;
+
+    /// 行内（锚定 diff 行）评论列表（单页 100 条，见 provider::pulls 模块文档）。
+    async fn list_review_comments(
+        &self,
+        token: secrecy::SecretString,
+        owner: &str,
+        repo: &str,
+        number: u64,
+    ) -> Result<Vec<crate::pulls::PullReviewComment>, forgedesk_domain::AppError>;
+
+    /// 创建一条锚定 diff 行的行内评论。
+    ///
+    /// 实现方**必须先本地校验**锚点（路径在 diff 上、行号在范围内）：
+    /// 校验失败返回 `VALIDATION`（hint `line-out-of-range` / `path-not-in-diff`）
+    /// 且不发出写请求——这是 M4 验收"行号越界有明确错误"的落点。
+    async fn create_review_comment(
+        &self,
+        token: secrecy::SecretString,
+        owner: &str,
+        repo: &str,
+        number: u64,
+        anchor: crate::pulls::ReviewCommentAnchor,
+        body: &str,
+    ) -> Result<crate::pulls::PullReviewComment, forgedesk_domain::AppError>;
+
+    /// 回复一条已有评论（无需锚点：GitHub 沿用被回复评论的位置）。
+    async fn reply_review_comment(
+        &self,
+        token: secrecy::SecretString,
+        owner: &str,
+        repo: &str,
+        number: u64,
+        comment_id: u64,
+        body: &str,
+    ) -> Result<crate::pulls::PullReviewComment, forgedesk_domain::AppError>;
 }
 
 /// Issue 子服务：列表/筛选/创建/评论/关闭（T4.8 落地方法）。

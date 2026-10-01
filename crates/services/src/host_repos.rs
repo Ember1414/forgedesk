@@ -27,8 +27,8 @@ use forgedesk_credentials::CredentialRef;
 use forgedesk_domain::{AppError, AppResult, ErrorCode};
 use forgedesk_provider::{
     GitHubHttp, GitHubProvider, HostProvider, MergeOutcome, MergePullRequest, PullComment,
-    PullPage, PullRequestDetail, PullReview, PullState, RemoteRepo, RepoListScope, RepoPage,
-    ReviewEvent,
+    PullFilePage, PullPage, PullRequestDetail, PullReview, PullReviewComment, PullState,
+    RemoteRepo, RepoListScope, RepoPage, ReviewCommentAnchor, ReviewEvent,
 };
 use forgedesk_storage::{AccountStore, Database, Scope, SettingsRepository};
 use secrecy::SecretString;
@@ -378,6 +378,95 @@ impl HostRepoService {
                 submission.number,
                 submission.event,
                 submission.body.as_deref(),
+            )
+            .await
+    }
+
+    // ---- 行内（diff 锚定）评论（T4.7 收尾）----
+
+    /// PR 变更文件列表（含行级 diff，UI 渲染与行号校验共用）。
+    pub async fn list_files(
+        &self,
+        target: &RemoteRepoRef,
+        number: u64,
+        page: Option<u32>,
+        per_page: Option<u32>,
+    ) -> AppResult<PullFilePage> {
+        let provider = self.provider_for(&target.host)?;
+        let token = self.require_token(&target.host, target.repo_id).await?;
+        provider
+            .pulls()
+            .list_files(
+                token,
+                &target.owner,
+                &target.repo,
+                number,
+                page,
+                per_page,
+            )
+            .await
+    }
+
+    /// 行内（锚定 diff 行）评论列表。
+    pub async fn list_review_comments(
+        &self,
+        host: &str,
+        repo_id: Option<i64>,
+        owner: &str,
+        repo: &str,
+        number: u64,
+    ) -> AppResult<Vec<PullReviewComment>> {
+        let provider = self.provider_for(host)?;
+        let token = self.require_token(host, repo_id).await?;
+        provider
+            .pulls()
+            .list_review_comments(token, owner, repo, number)
+            .await
+    }
+
+    /// 创建一条行内评论。行号校验在 provider 层（先取当前 diff 再写远端），
+    /// 这里只负责身份解析；`OK` 即远端已创建。
+    pub async fn create_review_comment(
+        &self,
+        target: &RemoteRepoRef,
+        number: u64,
+        anchor: ReviewCommentAnchor,
+        body: &str,
+    ) -> AppResult<PullReviewComment> {
+        let provider = self.provider_for(&target.host)?;
+        let token = self.require_token(&target.host, target.repo_id).await?;
+        provider
+            .pulls()
+            .create_review_comment(
+                token,
+                &target.owner,
+                &target.repo,
+                number,
+                anchor,
+                body,
+            )
+            .await
+    }
+
+    /// 回复一条行内评论（位置沿用被回复评论，无需锚点）。
+    pub async fn reply_review_comment(
+        &self,
+        target: &RemoteRepoRef,
+        number: u64,
+        comment_id: u64,
+        body: &str,
+    ) -> AppResult<PullReviewComment> {
+        let provider = self.provider_for(&target.host)?;
+        let token = self.require_token(&target.host, target.repo_id).await?;
+        provider
+            .pulls()
+            .reply_review_comment(
+                token,
+                &target.owner,
+                &target.repo,
+                number,
+                comment_id,
+                body,
             )
             .await
     }

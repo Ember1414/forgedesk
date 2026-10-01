@@ -1390,7 +1390,29 @@
       "reviewTitle": "Submit review",
       "reviewBodyPlaceholder": "Review body (optional; required for comment-only)",
       "reviewSubmit": "Submit review",
-      "reviewSubmittedToast": "Review submitted: {{state}}"
+      "reviewSubmittedToast": "Review submitted: {{state}}",
+      "filesTitle": "Files changed",
+      "filesEmpty": "No changed files in this pull request.",
+      "fileDiffUnavailable": "Diff unavailable: binary file or too large.",
+      "filesError": "Failed to load changed files.",
+      "fileStatus": {
+        "added": "added",
+        "removed": "deleted",
+        "modified": "modified",
+        "renamed": "renamed",
+        "changed": "changed",
+        "copied": "copied"
+      },
+      "addLineComment": "Add a comment on {{path}} {{side}} line {{line}}",
+      "inlineAnchor": "{{path}} · {{side}} · line {{line}}",
+      "sideOld": "old file",
+      "sideNew": "new file",
+      "inlinePlaceholder": "Write an inline comment…",
+      "inlinePostedToast": "Inline comment posted",
+      "reply": "Reply",
+      "replyPlaceholder": "Reply…",
+      "replyPostedToast": "Reply posted",
+      "outdatedComments": "Comments not on this diff"
     }
   },
   "repo": {

@@ -56,6 +56,8 @@ import {
 } from '@/ui/components/dialog';
 import { ErrorState } from '@/ui/components/error-state';
 
+import { PullFilesPanel } from './PullFilesPanel';
+
 /** 与其他 GitHub 页一致的站点常量。 */
 const HOST = 'github.com';
 
@@ -329,6 +331,16 @@ export function PullDetailDialog({ target, onOpenChange, onMerged }: PullDetailD
                 }}
                 data-testid="pull-body"
                 dangerouslySetInnerHTML={{ __html: detail.bodyHtml }}
+              />
+            ) : null}
+
+            {target !== null ? (
+              // key：换 PR 时面板整个重挂，展开状态与草稿不串场
+              <PullFilesPanel
+                key={`${target.owner}/${target.repo}#${target.number}`}
+                owner={target.owner}
+                repo={target.repo}
+                number={target.number}
               />
             ) : null}
 

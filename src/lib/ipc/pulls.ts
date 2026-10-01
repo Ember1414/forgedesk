@@ -84,6 +84,59 @@ export interface PullComment {
   readonly createdAt?: string;
 }
 
+/** 行内 diff 的一行（形状与工作区 diff 的 DTO 同名同义）。 */
+export type PullDiffLine = {
+  readonly kind: 'context' | 'added' | 'removed' | 'noNewline';
+  readonly content: string;
+  readonly oldNo?: number | null;
+  readonly newNo?: number | null;
+};
+
+/** 行内 diff 的一个 hunk。 */
+export type PullDiffHunk = {
+  readonly oldStart: number;
+  readonly oldLines: number;
+  readonly newStart: number;
+  readonly newLines: number;
+  readonly header: string;
+  readonly lines: readonly PullDiffLine[];
+};
+
+/** PR 变更文件（二进制/超大 diff 没有 patch，hunks 为空）。 */
+export type PullFile = {
+  readonly filename: string;
+  readonly previousFilename?: string | null;
+  readonly status: string;
+  readonly additions: number;
+  readonly deletions: number;
+  readonly changes?: number | null;
+  readonly patch?: string | null;
+  readonly hunks: readonly PullDiffHunk[];
+};
+
+/** PR 变更文件分页。 */
+export type PullFilePage = {
+  readonly items: readonly PullFile[];
+  readonly nextPage: number | null;
+};
+
+/** 行内（锚定 diff 行）评论。 */
+export type PullReviewComment = {
+  readonly id: number;
+  /** 被回复的评论 id（顶层评论为 null）。 */
+  readonly inReplyTo: number | null;
+  readonly author: string;
+  /** Markdown 原文（纯文本渲染）。 */
+  readonly body: string;
+  readonly path?: string | null;
+  /** `LEFT`（旧文件）/ `RIGHT`（新文件）。 */
+  readonly side?: string | null;
+  readonly line?: number | null;
+  readonly startLine?: number | null;
+  readonly startSide?: string | null;
+  readonly createdAt?: string;
+};
+
 /** review 结论事件。 */
 export type ReviewEvent = 'APPROVE' | 'REQUEST_CHANGES' | 'COMMENT';
 
@@ -217,4 +270,64 @@ export function repoPullMerge(request: {
   readonly headBranch?: string;
 }): Promise<PullMergeOutcome> {
   return invokeCommand<PullMergeOutcome>('repo_pull_merge', request);
+}
+
+/** PR 变更文件列表（含行级 diff）。 */
+export function repoPullFiles(request: {
+  readonly host: string;
+  readonly owner: string;
+  readonly repo: string;
+  readonly number: number;
+  readonly repoId?: number;
+  readonly page?: number;
+  readonly perPage?: number;
+}): Promise<PullFilePage> {
+  return invokeCommand<PullFilePage>('repo_pull_files', request);
+}
+
+/** 行内（锚定 diff 行）评论列表。 */
+export function repoPullReviewCommentsList(
+  host: string,
+  owner: string,
+  repo: string,
+  number: number,
+  repoId?: number,
+): Promise<PullReviewComment[]> {
+  return invokeCommand<PullReviewComment[]>('repo_pull_review_comments_list', {
+    host,
+    owner,
+    repo,
+    number,
+    ...(repoId === undefined ? {} : { repoId }),
+  });
+}
+
+/** 创建一条行内评论。行号越界/路径不在 diff 上时后端本地拒绝（不发出写请求）。 */
+export function repoPullReviewCommentCreate(request: {
+  readonly host: string;
+  readonly owner: string;
+  readonly repo: string;
+  readonly number: number;
+  readonly path: string;
+  readonly side: 'LEFT' | 'RIGHT';
+  readonly line: number;
+  readonly startLine?: number;
+  readonly startSide?: 'LEFT' | 'RIGHT';
+  readonly body: string;
+  readonly repoId?: number;
+}): Promise<PullReviewComment> {
+  return invokeCommand<PullReviewComment>('repo_pull_review_comment_create', request);
+}
+
+/** 回复一条行内评论（位置沿用被回复评论）。 */
+export function repoPullReviewCommentReply(request: {
+  readonly host: string;
+  readonly owner: string;
+  readonly repo: string;
+  readonly number: number;
+  readonly commentId: number;
+  readonly body: string;
+  readonly repoId?: number;
+}): Promise<PullReviewComment> {
+  return invokeCommand<PullReviewComment>('repo_pull_review_comment_reply', request);
 }

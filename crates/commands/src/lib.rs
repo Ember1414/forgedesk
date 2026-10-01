@@ -110,9 +110,11 @@ pub use remote_repos::{
     RepoPageDto,
 };
 pub use remote_repos::{
-    repo_pull_comment_create, repo_pull_comments_list, repo_pull_get, repo_pull_list,
-    repo_pull_merge, repo_pull_review_submit, repo_pull_reviews, PullDetailDto, PullListRequest,
-    PullMergeRequest, PullReviewSubmitRequest,
+    repo_pull_comment_create, repo_pull_comments_list, repo_pull_files, repo_pull_get,
+    repo_pull_list, repo_pull_merge, repo_pull_review_comment_create,
+    repo_pull_review_comment_reply, repo_pull_review_comments_list, repo_pull_review_submit,
+    repo_pull_reviews, PullDetailDto, PullFilesRequest, PullInlineCommentRequest, PullListRequest,
+    PullMergeRequest, PullReviewReplyRequest, PullReviewSubmitRequest,
 };
 pub use repository::{
     repo_clone, repo_close, repo_discover, repo_forget, repo_init, repo_open, repo_recent_list,

@@ -11,6 +11,10 @@
 //! | `repo_remote_fork` | Network | fork（GitHub 202：副本异步创建） |
 //! | `repo_account_binding_get` | ReadOnly | 读仓库级绑定 |
 //! | `repo_account_binding_set` | Mutating | 写/解除仓库级绑定（只写设置，不碰仓库内容） |
+//! | `repo_pull_files` | Network | PR 变更文件列表（含行级 diff） |
+//! | `repo_pull_review_comments_list` | Network | 行内（锚定 diff 行）评论列表 |
+//! | `repo_pull_review_comment_create` | Network | 创建行内评论（行号先本地校验再写远端） |
+//! | `repo_pull_review_comment_reply` | Network | 回复一条行内评论 |
 //!
 //! 不走 SnapshotManager：这些命令不改本地仓库的任何内容（红线 R7 管
 //! 的是仓库状态）；星标/fork 是远端语义，可重复执行。
@@ -25,8 +29,9 @@ use tauri::State;
 
 use forgedesk_domain::{AppError, AppResult, ErrorCode};
 use forgedesk_provider::{
-    MergeOutcome, MergePullRequest, MergeStrategy, PullComment, PullPage, PullReview, PullState,
-    RemoteRepo, RepoListScope, RepoPage, ReviewEvent,
+    CommentSide, MergeOutcome, MergePullRequest, MergeStrategy, PullComment, PullFilePage,
+    PullPage, PullReview, PullReviewComment, PullState, RemoteRepo, RepoListScope, RepoPage,
+    ReviewCommentAnchor, ReviewEvent,
 };
 
 use crate::account::AccountDto;
@@ -564,6 +569,203 @@ pub async fn repo_pull_review_submit(
         body: request.body,
     };
     state.host_repos.submit_review(&target, submission).await
+}
+
+/// `repo_pull_review_comment_create` 的请求体。
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PullInlineCommentRequest {
+    /// 站点。
+    pub host: String,
+    /// 所有者。
+    pub owner: String,
+    /// 仓库名。
+    pub repo: String,
+    /// PR 编号。
+    pub number: u64,
+    /// 锚定的文件路径（与变更文件列表的 `filename` 精确匹配）。
+    pub path: String,
+    /// 锚定侧（`LEFT` = 旧文件 / `RIGHT` = 新文件）。
+    pub side: String,
+    /// 锚定行（多行评论的末行；从 1 起）。
+    pub line: u32,
+    /// 多行评论的起始行。
+    #[serde(default)]
+    pub start_line: Option<u32>,
+    /// 多行评论的起始侧（缺省与 `side` 相同）。
+    #[serde(default)]
+    pub start_side: Option<String>,
+    /// 正文。
+    pub body: String,
+    /// 本地仓库 id（可省）。
+    #[serde(default)]
+    pub repo_id: Option<i64>,
+}
+
+fn parse_comment_side(side: &str) -> AppResult<CommentSide> {
+    match side.trim().to_ascii_uppercase().as_str() {
+        "LEFT" => Ok(CommentSide::Left),
+        "RIGHT" => Ok(CommentSide::Right),
+        other => Err(AppError::new(
+            ErrorCode::Validation,
+            format!("unknown comment side: {other}"),
+        )),
+    }
+}
+
+/// `repo_pull_files` 的请求体。
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PullFilesRequest {
+    /// 站点。
+    pub host: String,
+    /// 所有者。
+    pub owner: String,
+    /// 仓库名。
+    pub repo: String,
+    /// PR 编号。
+    pub number: u64,
+    /// 本地仓库 id（可省）。
+    #[serde(default)]
+    pub repo_id: Option<i64>,
+    /// 页码。
+    #[serde(default)]
+    pub page: Option<u32>,
+    /// 每页条数。
+    #[serde(default)]
+    pub per_page: Option<u32>,
+}
+
+/// `repo_pull_review_comment_reply` 的请求体。
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PullReviewReplyRequest {
+    /// 站点。
+    pub host: String,
+    /// 所有者。
+    pub owner: String,
+    /// 仓库名。
+    pub repo: String,
+    /// PR 编号。
+    pub number: u64,
+    /// 被回复的评论 id。
+    pub comment_id: u64,
+    /// 正文。
+    pub body: String,
+    /// 本地仓库 id（可省）。
+    #[serde(default)]
+    pub repo_id: Option<i64>,
+}
+
+/// PR 变更文件列表（含行级 diff）。能力等级：`Network`。
+#[tauri::command]
+pub async fn repo_pull_files(
+    state: State<'_, AppState>,
+    request: PullFilesRequest,
+) -> AppResult<PullFilePage> {
+    let host = validate_host(&request.host)?;
+    let number = parse_number(request.number)?;
+    let target = forgedesk_services::host_repos::RemoteRepoRef {
+        host,
+        repo_id: request.repo_id,
+        owner: request.owner,
+        repo: request.repo,
+    };
+    state
+        .host_repos
+        .list_files(&target, number, request.page, request.per_page)
+        .await
+}
+
+/// 行内（锚定 diff 行）评论列表。能力等级：`Network`。
+#[tauri::command]
+pub async fn repo_pull_review_comments_list(
+    state: State<'_, AppState>,
+    host: String,
+    owner: String,
+    repo: String,
+    number: u64,
+    repo_id: Option<i64>,
+) -> AppResult<Vec<PullReviewComment>> {
+    let host = validate_host(&host)?;
+    let number = parse_number(number)?;
+    state
+        .host_repos
+        .list_review_comments(&host, repo_id, &owner, &repo, number)
+        .await
+}
+
+/// 创建一条行内（锚定 diff 行）评论。能力等级：`Network`。
+///
+/// 行号越界 / 路径不在 diff 上时**不会发出写请求**：provider 层先取
+/// 当前 diff 本地校验，错误码 `VALIDATION`，hint 为 `line-out-of-range`
+/// 或 `path-not-in-diff`。
+#[tauri::command]
+pub async fn repo_pull_review_comment_create(
+    state: State<'_, AppState>,
+    request: PullInlineCommentRequest,
+) -> AppResult<PullReviewComment> {
+    let host = validate_host(&request.host)?;
+    let number = parse_number(request.number)?;
+    if request.line == 0 {
+        return Err(AppError::new(
+            ErrorCode::Validation,
+            "comment line must be positive",
+        ));
+    }
+    if request.start_line.is_some_and(|start| start == 0) {
+        return Err(AppError::new(
+            ErrorCode::Validation,
+            "comment start_line must be positive",
+        ));
+    }
+    let anchor = ReviewCommentAnchor {
+        path: request.path,
+        side: parse_comment_side(&request.side)?,
+        line: request.line,
+        start_line: request.start_line,
+        start_side: request
+            .start_side
+            .as_deref()
+            .map(parse_comment_side)
+            .transpose()?,
+    };
+    let target = forgedesk_services::host_repos::RemoteRepoRef {
+        host,
+        repo_id: request.repo_id,
+        owner: request.owner,
+        repo: request.repo,
+    };
+    state
+        .host_repos
+        .create_review_comment(&target, number, anchor, &request.body)
+        .await
+}
+
+/// 回复一条行内评论（位置沿用被回复评论）。能力等级：`Network`。
+#[tauri::command]
+pub async fn repo_pull_review_comment_reply(
+    state: State<'_, AppState>,
+    request: PullReviewReplyRequest,
+) -> AppResult<PullReviewComment> {
+    let host = validate_host(&request.host)?;
+    let number = parse_number(request.number)?;
+    if request.comment_id == 0 {
+        return Err(AppError::new(
+            ErrorCode::Validation,
+            "comment id must be positive",
+        ));
+    }
+    let target = forgedesk_services::host_repos::RemoteRepoRef {
+        host,
+        repo_id: request.repo_id,
+        owner: request.owner,
+        repo: request.repo,
+    };
+    state
+        .host_repos
+        .reply_review_comment(&target, number, request.comment_id, &request.body)
+        .await
 }
 
 /// 读取仓库绑定的账号。能力等级：`ReadOnly`。

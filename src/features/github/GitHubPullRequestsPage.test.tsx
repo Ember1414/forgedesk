@@ -5,9 +5,11 @@ import { GitHubPullRequestsPage } from '@/features/github/GitHubPullRequestsPage
 import {
   repoPullCommentCreate,
   repoPullCommentsList,
+  repoPullFiles,
   repoPullGet,
   repoPullList,
   repoPullMerge,
+  repoPullReviewCommentsList,
   repoPullReviewSubmit,
   repoPullReviews,
 } from '@/lib/ipc';
@@ -29,6 +31,10 @@ vi.mock('@/lib/ipc', () => ({
   repoPullCommentsList: vi.fn(),
   repoPullCommentCreate: vi.fn(),
   repoPullReviewSubmit: vi.fn(),
+  repoPullFiles: vi.fn(),
+  repoPullReviewCommentsList: vi.fn(),
+  repoPullReviewCommentCreate: vi.fn(),
+  repoPullReviewCommentReply: vi.fn(),
 }));
 
 const listMock = vi.mocked(repoPullList);
@@ -38,6 +44,8 @@ const mergeMock = vi.mocked(repoPullMerge);
 const commentsListMock = vi.mocked(repoPullCommentsList);
 const commentCreateMock = vi.mocked(repoPullCommentCreate);
 const reviewSubmitMock = vi.mocked(repoPullReviewSubmit);
+const filesMock = vi.mocked(repoPullFiles);
+const reviewCommentsListMock = vi.mocked(repoPullReviewCommentsList);
 
 function summary(number: number, title: string): PullSummary {
   return {
@@ -96,6 +104,8 @@ beforeEach(() => {
     createdAt: '2026-10-01T01:00:00Z',
   });
   reviewSubmitMock.mockResolvedValue(undefined);
+  filesMock.mockResolvedValue({ items: [], nextPage: null });
+  reviewCommentsListMock.mockResolvedValue([]);
   mergeMock.mockResolvedValue({
     merged: true,
     sha: 'deadbeef',
