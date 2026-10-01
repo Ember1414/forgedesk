@@ -1381,7 +1381,16 @@
       "mergeConfirm": "确认合并",
       "mergeImpact": "合并会改动目标分支（远端），并以 head 预检保证期间没有新提交。",
       "mergedToast": "PR #{{number}} 已合并",
-      "detailTitle": "#{{number}} {{title}}"
+      "detailTitle": "#{{number}} {{title}}",
+      "commentsTitle": "评论",
+      "noComments": "还没有评论。",
+      "commentPlaceholder": "写一条评论…",
+      "commentPost": "发表",
+      "commentPostedToast": "评论已发表",
+      "reviewTitle": "提交 Review",
+      "reviewBodyPlaceholder": "review 正文（可选；仅评论时必填）",
+      "reviewSubmit": "提交 Review",
+      "reviewSubmittedToast": "Review 已提交：{{state}}"
     }
   },
   "repo": {

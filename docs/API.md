@@ -1539,6 +1539,9 @@ GitHub 的可读 message 原样保留在 `message`/`detail`。删除源分支在
 | `repo_pull_list` | Network | request：`{ host, owner, repo, repoId?, stateFilter?, page?, perPage? }` | `PullPage`：`{ items: PullSummary[], nextPage? }`；`stateFilter ∈ "open" / "closed" / "all"`（缺省 open） |
 | `repo_pull_get` | Network | `host, owner, repo, number, repoId?` | `PullDetail`：结构化字段 + `bodyHtml`（描述已消毒，原文不出后端）+ `mergeable`/`mergeableState`/`headSha`/变更统计 |
 | `repo_pull_reviews` | Network | `host, owner, repo, number, repoId?` | `PullReview[]`：`{ id, author, state, body?, submittedAt? }` |
+| `repo_pull_comments_list` | Network | `host, owner, repo, number, repoId?` | `PullComment[]`：`{ id, author, body, createdAt? }`（正文为 Markdown 原文，前端以纯文本渲染） |
+| `repo_pull_comment_create` | Network | `host, owner, repo, number, body, repoId?` | `PullComment`；空正文 → `VALIDATION` |
+| `repo_pull_review_submit` | Network | request：`{ host, owner, repo, number, event, body?, repoId? }` | `()`；`event ∈ "APPROVE" / "REQUEST_CHANGES" / "COMMENT"`；COMMENT 无正文 → `VALIDATION`；行内（锚定 diff 行）评论属下一批增量 |
 | `repo_pull_merge` | Network | request：`{ host, owner, repo, number, strategy, repoId?, commitTitle?, commitMessage?, expectedHeadSha?, deleteBranch?, headBranch? }` | `MergeOutcome`：`{ merged, sha?, message?, branchDeleted }`；`strategy ∈ "merge" / "squash" / "rebase"` |
 
 `PullSummary`：`{ number, title, state, draft, merged, author, headLabel, baseLabel, htmlUrl,

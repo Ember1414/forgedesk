@@ -248,8 +248,24 @@ export type {
   SignatureStatus,
 } from './history';
 
-export { repoPullGet, repoPullList, repoPullMerge, repoPullReviews } from './pulls';
-export type { PullDetail, PullMergeOutcome, PullPage, PullReview, PullSummary } from './pulls';
+export {
+  repoPullCommentCreate,
+  repoPullCommentsList,
+  repoPullGet,
+  repoPullList,
+  repoPullMerge,
+  repoPullReviewSubmit,
+  repoPullReviews,
+} from './pulls';
+export type {
+  PullComment,
+  PullDetail,
+  PullMergeOutcome,
+  PullPage,
+  PullReview,
+  PullSummary,
+  ReviewEvent,
+} from './pulls';
 export {
   repoAccountBindingGet,
   repoAccountBindingSet,

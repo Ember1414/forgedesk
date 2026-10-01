@@ -1381,7 +1381,16 @@
       "mergeConfirm": "Confirm merge",
       "mergeImpact": "Merging changes the target branch on the remote, with a head precheck so no new commits slip in.",
       "mergedToast": "PR #{{number}} merged",
-      "detailTitle": "#{{number}} {{title}}"
+      "detailTitle": "#{{number}} {{title}}",
+      "commentsTitle": "Comments",
+      "noComments": "No comments yet.",
+      "commentPlaceholder": "Write a comment…",
+      "commentPost": "Post",
+      "commentPostedToast": "Comment posted",
+      "reviewTitle": "Submit review",
+      "reviewBodyPlaceholder": "Review body (optional; required for comment-only)",
+      "reviewSubmit": "Submit review",
+      "reviewSubmittedToast": "Review submitted: {{state}}"
     }
   },
   "repo": {

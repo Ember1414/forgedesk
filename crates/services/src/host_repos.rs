@@ -26,8 +26,9 @@ use crate::credentials::SharedStore;
 use forgedesk_credentials::CredentialRef;
 use forgedesk_domain::{AppError, AppResult, ErrorCode};
 use forgedesk_provider::{
-    GitHubHttp, GitHubProvider, HostProvider, MergeOutcome, MergePullRequest, PullPage,
-    PullRequestDetail, PullReview, PullState, RemoteRepo, RepoListScope, RepoPage,
+    GitHubHttp, GitHubProvider, HostProvider, MergeOutcome, MergePullRequest, PullComment,
+    PullPage, PullRequestDetail, PullReview, PullState, RemoteRepo, RepoListScope, RepoPage,
+    ReviewEvent,
 };
 use forgedesk_storage::{AccountStore, Database, Scope, SettingsRepository};
 use secrecy::SecretString;
@@ -323,6 +324,64 @@ impl HostRepoService {
             .await
     }
 
+    // ---- PR 评论与 review 提交（T4.7 第二批）----
+
+    /// PR 时间线评论列表。
+    pub async fn list_comments(
+        &self,
+        host: &str,
+        repo_id: Option<i64>,
+        owner: &str,
+        repo: &str,
+        number: u64,
+    ) -> AppResult<Vec<PullComment>> {
+        let provider = self.provider_for(host)?;
+        let token = self.require_token(host, repo_id).await?;
+        provider
+            .pulls()
+            .list_comments(token, owner, repo, number)
+            .await
+    }
+
+    /// 发表一条时间线评论，返回创建结果（列表本地追加即可）。
+    pub async fn create_comment(
+        &self,
+        host: &str,
+        repo_id: Option<i64>,
+        owner: &str,
+        repo: &str,
+        number: u64,
+        body: &str,
+    ) -> AppResult<PullComment> {
+        let provider = self.provider_for(host)?;
+        let token = self.require_token(host, repo_id).await?;
+        provider
+            .pulls()
+            .create_comment(token, owner, repo, number, body)
+            .await
+    }
+
+    /// 提交一次 review（批准 / 请求修改 / 评论）；返回刷新用的提示。
+    pub async fn submit_review(
+        &self,
+        target: &RemoteRepoRef,
+        submission: ReviewSubmission,
+    ) -> AppResult<()> {
+        let provider = self.provider_for(&target.host)?;
+        let token = self.require_token(&target.host, target.repo_id).await?;
+        provider
+            .pulls()
+            .submit_review(
+                token,
+                &target.owner,
+                &target.repo,
+                submission.number,
+                submission.event,
+                submission.body.as_deref(),
+            )
+            .await
+    }
+
     /// 拉取并**安全渲染**仓库 README（T4.6）：返回的是白名单化 HTML，
     /// 前端不接触原始 Markdown（清洗规则见 [`crate::readme`]，XSS 用例在
     /// 那里穷举）。匿名可用（公开仓库）。
@@ -362,6 +421,17 @@ pub struct RemoteRepoRef {
     pub owner: String,
     /// 仓库名。
     pub repo: String,
+}
+
+/// 一次 review 提交的参数。
+#[derive(Debug, Clone)]
+pub struct ReviewSubmission {
+    /// PR 编号。
+    pub number: u64,
+    /// 结论。
+    pub event: ReviewEvent,
+    /// 正文（COMMENT 时必填，由 provider 层校验）。
+    pub body: Option<String>,
 }
 
 /// PR 列表的查询参数。

@@ -25,8 +25,8 @@ use tauri::State;
 
 use forgedesk_domain::{AppError, AppResult, ErrorCode};
 use forgedesk_provider::{
-    MergeOutcome, MergePullRequest, MergeStrategy, PullPage, PullReview, PullState, RemoteRepo,
-    RepoListScope, RepoPage,
+    MergeOutcome, MergePullRequest, MergeStrategy, PullComment, PullPage, PullReview, PullState,
+    RemoteRepo, RepoListScope, RepoPage, ReviewEvent,
 };
 
 use crate::account::AccountDto;
@@ -472,6 +472,98 @@ pub async fn repo_remote_readme(
 ) -> AppResult<String> {
     let host = validate_host(&host)?;
     state.host_repos.readme(&host, repo_id, &owner, &repo).await
+}
+
+/// PR 时间线评论列表。能力等级：`Network`。
+#[tauri::command]
+pub async fn repo_pull_comments_list(
+    state: State<'_, AppState>,
+    host: String,
+    owner: String,
+    repo: String,
+    number: u64,
+    repo_id: Option<i64>,
+) -> AppResult<Vec<PullComment>> {
+    let host = validate_host(&host)?;
+    let number = parse_number(number)?;
+    state
+        .host_repos
+        .list_comments(&host, repo_id, &owner, &repo, number)
+        .await
+}
+
+/// 发表一条 PR 时间线评论。能力等级：`Network`。
+#[tauri::command]
+pub async fn repo_pull_comment_create(
+    state: State<'_, AppState>,
+    host: String,
+    owner: String,
+    repo: String,
+    number: u64,
+    body: String,
+    repo_id: Option<i64>,
+) -> AppResult<PullComment> {
+    let host = validate_host(&host)?;
+    let number = parse_number(number)?;
+    state
+        .host_repos
+        .create_comment(&host, repo_id, &owner, &repo, number, &body)
+        .await
+}
+
+/// `repo_pull_review_submit` 的请求体。
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PullReviewSubmitRequest {
+    /// 站点。
+    pub host: String,
+    /// 所有者。
+    pub owner: String,
+    /// 仓库名。
+    pub repo: String,
+    /// PR 编号。
+    pub number: u64,
+    /// 结论（`APPROVE` / `REQUEST_CHANGES` / `COMMENT`）。
+    pub event: String,
+    /// 正文（COMMENT 时必填）。
+    #[serde(default)]
+    pub body: Option<String>,
+    /// 本地仓库 id（可省）。
+    #[serde(default)]
+    pub repo_id: Option<i64>,
+}
+
+/// 提交一次 review（批准 / 请求修改 / 评论）。能力等级：`Network`。
+#[tauri::command]
+pub async fn repo_pull_review_submit(
+    state: State<'_, AppState>,
+    request: PullReviewSubmitRequest,
+) -> AppResult<()> {
+    let host = validate_host(&request.host)?;
+    let number = parse_number(request.number)?;
+    let event = match request.event.trim() {
+        "APPROVE" => ReviewEvent::Approve,
+        "REQUEST_CHANGES" => ReviewEvent::RequestChanges,
+        "COMMENT" => ReviewEvent::Comment,
+        other => {
+            return Err(AppError::new(
+                ErrorCode::Validation,
+                format!("unknown review event: {other}"),
+            ))
+        }
+    };
+    let target = forgedesk_services::host_repos::RemoteRepoRef {
+        host,
+        repo_id: request.repo_id,
+        owner: request.owner,
+        repo: request.repo,
+    };
+    let submission = forgedesk_services::host_repos::ReviewSubmission {
+        number,
+        event,
+        body: request.body,
+    };
+    state.host_repos.submit_review(&target, submission).await
 }
 
 /// 读取仓库绑定的账号。能力等级：`ReadOnly`。

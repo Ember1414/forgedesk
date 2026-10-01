@@ -2,7 +2,15 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { GitHubPullRequestsPage } from '@/features/github/GitHubPullRequestsPage';
-import { repoPullGet, repoPullList, repoPullMerge, repoPullReviews } from '@/lib/ipc';
+import {
+  repoPullCommentCreate,
+  repoPullCommentsList,
+  repoPullGet,
+  repoPullList,
+  repoPullMerge,
+  repoPullReviewSubmit,
+  repoPullReviews,
+} from '@/lib/ipc';
 import type { PullDetail, PullReview, PullSummary } from '@/lib/ipc';
 import { initialToastState, useToastStore } from '@/stores/toastStore';
 
@@ -18,12 +26,18 @@ vi.mock('@/lib/ipc', () => ({
   repoPullGet: vi.fn(),
   repoPullReviews: vi.fn(),
   repoPullMerge: vi.fn(),
+  repoPullCommentsList: vi.fn(),
+  repoPullCommentCreate: vi.fn(),
+  repoPullReviewSubmit: vi.fn(),
 }));
 
 const listMock = vi.mocked(repoPullList);
 const getMock = vi.mocked(repoPullGet);
 const reviewsMock = vi.mocked(repoPullReviews);
 const mergeMock = vi.mocked(repoPullMerge);
+const commentsListMock = vi.mocked(repoPullCommentsList);
+const commentCreateMock = vi.mocked(repoPullCommentCreate);
+const reviewSubmitMock = vi.mocked(repoPullReviewSubmit);
 
 function summary(number: number, title: string): PullSummary {
   return {
@@ -72,6 +86,16 @@ beforeEach(() => {
   listMock.mockResolvedValue({ items: [summary(1, 'Add feature')], nextPage: null });
   getMock.mockResolvedValue(detail(1));
   reviewsMock.mockResolvedValue(reviews);
+  commentsListMock.mockResolvedValue([
+    { id: 9, author: 'hubot', body: 'ping', createdAt: '2026-10-01T00:00:00Z' },
+  ]);
+  commentCreateMock.mockResolvedValue({
+    id: 10,
+    author: 'me',
+    body: 'pong',
+    createdAt: '2026-10-01T01:00:00Z',
+  });
+  reviewSubmitMock.mockResolvedValue(undefined);
   mergeMock.mockResolvedValue({
     merged: true,
     sha: 'deadbeef',
@@ -147,6 +171,80 @@ describe('GitHubPullRequestsPage — 列表', () => {
 
     await waitFor(() => {
       expect(screen.getByText('还没有登录账号')).toBeVisible();
+    });
+  });
+});
+
+describe('GitHubPullRequestsPage — 评论与 review', () => {
+  it('详情加载评论列表，发表后追加并清空输入', async () => {
+    renderPage();
+
+    fireEvent.change(screen.getByTestId('prs-repo-input'), { target: { value: 'octocat/x' } });
+    fireEvent.click(screen.getByTestId('prs-repo-go'));
+    await waitFor(() => {
+      expect(screen.getByTestId('prs-item-1')).toBeVisible();
+    });
+    fireEvent.click(screen.getByTestId('prs-item-1'));
+    await waitFor(() => {
+      expect(screen.getByTestId('pull-comment-list')).toBeVisible();
+    });
+    expect(screen.getByText('ping')).toBeVisible();
+
+    fireEvent.change(screen.getByTestId('pull-comment-input'), { target: { value: 'pong' } });
+    fireEvent.click(screen.getByTestId('pull-comment-post'));
+    await waitFor(() => {
+      expect(commentCreateMock).toHaveBeenCalledWith('github.com', 'octocat', 'x', 1, 'pong');
+    });
+    await waitFor(() => {
+      expect(screen.getByText('pong')).toBeVisible();
+    });
+    expect(screen.getByTestId('pull-comment-input')).toHaveValue('');
+  });
+
+  it('空评论不能发表', async () => {
+    renderPage();
+
+    fireEvent.change(screen.getByTestId('prs-repo-input'), { target: { value: 'octocat/x' } });
+    fireEvent.click(screen.getByTestId('prs-repo-go'));
+    await waitFor(() => {
+      expect(screen.getByTestId('prs-item-1')).toBeVisible();
+    });
+    fireEvent.click(screen.getByTestId('prs-item-1'));
+    await waitFor(() => {
+      expect(screen.getByTestId('pull-comment-post')).toBeVisible();
+    });
+    expect(screen.getByTestId('pull-comment-post')).toBeDisabled();
+    expect(commentCreateMock).not.toHaveBeenCalled();
+  });
+
+  it('review 提交携带事件与正文，成功后刷新 reviews', async () => {
+    renderPage();
+
+    fireEvent.change(screen.getByTestId('prs-repo-input'), { target: { value: 'octocat/x' } });
+    fireEvent.click(screen.getByTestId('prs-repo-go'));
+    await waitFor(() => {
+      expect(screen.getByTestId('prs-item-1')).toBeVisible();
+    });
+    fireEvent.click(screen.getByTestId('prs-item-1'));
+    await waitFor(() => {
+      expect(screen.getByTestId('pull-review-controls')).toBeVisible();
+    });
+    fireEvent.click(screen.getByTestId('pull-review-APPROVE'));
+    fireEvent.change(screen.getByTestId('pull-review-body'), { target: { value: 'ship it' } });
+    fireEvent.click(screen.getByTestId('pull-review-submit'));
+
+    await waitFor(() => {
+      expect(reviewSubmitMock).toHaveBeenCalledWith(
+        'github.com',
+        'octocat',
+        'x',
+        1,
+        'APPROVE',
+        'ship it',
+      );
+    });
+    await waitFor(() => {
+      expect(reviewsMock).toHaveBeenCalledTimes(2);
     });
   });
 });

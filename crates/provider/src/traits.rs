@@ -170,6 +170,39 @@ pub trait PullService: Send + Sync {
         number: u64,
         merge: crate::pulls::MergePullRequest,
     ) -> Result<crate::pulls::MergeOutcome, forgedesk_domain::AppError>;
+
+    /// PR 时间线评论列表（PR 复用 Issue 的评论端点）。
+    async fn list_comments(
+        &self,
+        token: secrecy::SecretString,
+        owner: &str,
+        repo: &str,
+        number: u64,
+    ) -> Result<Vec<crate::pulls::PullComment>, forgedesk_domain::AppError>;
+
+    /// 发表一条时间线评论，返回刚创建的评论。
+    async fn create_comment(
+        &self,
+        token: secrecy::SecretString,
+        owner: &str,
+        repo: &str,
+        number: u64,
+        body: &str,
+    ) -> Result<crate::pulls::PullComment, forgedesk_domain::AppError>;
+
+    /// 提交一次 review（批准 / 请求修改 / 评论）。
+    ///
+    /// 行内（锚定到 diff 行）的 review comments 属于下一批增量；
+    /// 本方法只提交整体结论。
+    async fn submit_review(
+        &self,
+        token: secrecy::SecretString,
+        owner: &str,
+        repo: &str,
+        number: u64,
+        event: crate::pulls::ReviewEvent,
+        body: Option<&str>,
+    ) -> Result<(), forgedesk_domain::AppError>;
 }
 
 /// Issue 子服务：列表/筛选/创建/评论/关闭（T4.8 落地方法）。

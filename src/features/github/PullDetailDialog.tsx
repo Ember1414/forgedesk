@@ -13,14 +13,27 @@
  *
  * `bodyHtml` 来自后端白名单渲染（与 README 同一规则），这里不再对它
  * 做任何二次解析；链接点击委托为复制（无 opener 插件，与全应用一致）。
+ *
+ * # 评论是纯文本渲染
+ *
+ * 时间线评论的正文是 Markdown 原文（来自 API），这里用 React 文本节点
+ * 显示（默认转义）——没有消毒命令之前，不给"前端自己渲染不可信
+ * Markdown"留口子；样式化的评论渲染等专门的消毒命令就位后再说。
  */
 import { useEffect, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
 import { useAppError } from '@/lib/errors';
-import { repoPullGet, repoPullMerge, repoPullReviews } from '@/lib/ipc';
-import type { PullDetail, PullMergeOutcome, PullReview } from '@/lib/ipc';
+import {
+  repoPullCommentCreate,
+  repoPullCommentsList,
+  repoPullGet,
+  repoPullMerge,
+  repoPullReviewSubmit,
+  repoPullReviews,
+} from '@/lib/ipc';
+import type { PullComment, PullDetail, PullMergeOutcome, PullReview, ReviewEvent } from '@/lib/ipc';
 import { pushToast } from '@/stores/toastStore';
 
 import {
@@ -51,6 +64,9 @@ type MergeStrategy = 'merge' | 'squash' | 'rebase';
 
 const STRATEGIES: readonly MergeStrategy[] = ['merge', 'squash', 'rebase'];
 
+/** review 结论选项（顺序即 UI 顺序）。 */
+const REVIEW_EVENTS: readonly ReviewEvent[] = ['APPROVE', 'REQUEST_CHANGES', 'COMMENT'];
+
 /** 详情对话框的目标（仓库 + PR 号）。 */
 export interface PullTarget {
   readonly owner: string;
@@ -71,6 +87,12 @@ export function PullDetailDialog({ target, onOpenChange, onMerged }: PullDetailD
   const { show } = useAppError();
   const [detail, setDetail] = useState<PullDetail | null>(null);
   const [reviews, setReviews] = useState<readonly PullReview[]>([]);
+  const [comments, setComments] = useState<readonly PullComment[]>([]);
+  const [commentInput, setCommentInput] = useState('');
+  const [postingComment, setPostingComment] = useState(false);
+  const [reviewEvent, setReviewEvent] = useState<ReviewEvent>('APPROVE');
+  const [reviewBody, setReviewBody] = useState('');
+  const [submittingReview, setSubmittingReview] = useState(false);
   const [failed, setFailed] = useState(false);
   const [loading, setLoading] = useState(false);
   const [strategy, setStrategy] = useState<MergeStrategy>('squash');
@@ -98,14 +120,18 @@ export function PullDetailDialog({ target, onOpenChange, onMerged }: PullDetailD
           repoPullReviews(HOST, target.owner, target.repo, target.number).catch(
             () => [] as PullReview[],
           ),
+          repoPullCommentsList(HOST, target.owner, target.repo, target.number).catch(
+            () => [] as PullComment[],
+          ),
         ]);
       })
-      .then(([pull, reviewList]) => {
+      .then(([pull, reviewList, commentList]) => {
         if (cancelled.value) {
           return;
         }
         setDetail(pull);
         setReviews(reviewList);
+        setComments(commentList);
       })
       .catch((raw: unknown) => {
         if (!cancelled.value) {
@@ -154,6 +180,61 @@ export function PullDetailDialog({ target, onOpenChange, onMerged }: PullDetailD
       show(raw);
     } finally {
       setMerging(false);
+    }
+  };
+
+  const postComment = async () => {
+    if (detail === null || target === null || commentInput.trim() === '') {
+      return;
+    }
+    setPostingComment(true);
+    try {
+      const created = await repoPullCommentCreate(
+        HOST,
+        target.owner,
+        target.repo,
+        detail.number,
+        commentInput,
+      );
+      setComments((current) => [...current, created]);
+      setCommentInput('');
+      pushToast({ tone: 'success', title: t('github.prs.commentPostedToast') });
+    } catch (raw) {
+      show(raw);
+    } finally {
+      setPostingComment(false);
+    }
+  };
+
+  const submitReview = async () => {
+    if (detail === null || target === null) {
+      return;
+    }
+    setSubmittingReview(true);
+    try {
+      await repoPullReviewSubmit(
+        HOST,
+        target.owner,
+        target.repo,
+        detail.number,
+        reviewEvent,
+        reviewBody.trim() === '' ? undefined : reviewBody,
+      );
+      pushToast({
+        tone: 'success',
+        title: t('github.prs.reviewSubmittedToast', {
+          state: t(`github.prs.reviewState.${reviewEvent}`),
+        }),
+      });
+      setReviewBody('');
+      const refreshed = await repoPullReviews(HOST, target.owner, target.repo, detail.number).catch(
+        () => [] as PullReview[],
+      );
+      setReviews(refreshed);
+    } catch (raw) {
+      show(raw);
+    } finally {
+      setSubmittingReview(false);
     }
   };
 
@@ -249,6 +330,84 @@ export function PullDetailDialog({ target, onOpenChange, onMerged }: PullDetailD
                 data-testid="pull-body"
                 dangerouslySetInnerHTML={{ __html: detail.bodyHtml }}
               />
+            ) : null}
+
+            <div className="flex flex-col gap-2" data-testid="pull-comments">
+              <p className="text-13 font-medium">{t('github.prs.commentsTitle')}</p>
+              <ul className="flex flex-col gap-1 text-12" data-testid="pull-comment-list">
+                {comments.length === 0 ? (
+                  <li className="text-fg-subtle">{t('github.prs.noComments')}</li>
+                ) : (
+                  comments.map((comment) => (
+                    <li key={comment.id} className="rounded-sm border border-line px-2 py-1">
+                      <span className="font-medium">{comment.author}</span>
+                      <span className="ml-2 text-fg-muted">{comment.body}</span>
+                    </li>
+                  ))
+                )}
+              </ul>
+              <div className="flex flex-col gap-1">
+                <textarea
+                  value={commentInput}
+                  onChange={(event) => setCommentInput(event.target.value)}
+                  placeholder={t('github.prs.commentPlaceholder')}
+                  aria-label={t('github.prs.commentPlaceholder')}
+                  rows={2}
+                  className="fd-transition rounded-md border border-line bg-surface px-2.5 py-1.5 text-13 focus:border-brand"
+                  data-testid="pull-comment-input"
+                />
+                <Button
+                  type="button"
+                  variant="secondary"
+                  disabled={postingComment || commentInput.trim() === ''}
+                  onClick={() => void postComment()}
+                  data-testid="pull-comment-post"
+                >
+                  {t('github.prs.commentPost')}
+                </Button>
+              </div>
+            </div>
+
+            {!detail.merged ? (
+              <div className="flex flex-col gap-2" data-testid="pull-review-controls">
+                <p className="text-13 font-medium">{t('github.prs.reviewTitle')}</p>
+                <div
+                  role="radiogroup"
+                  aria-label={t('github.prs.reviewTitle')}
+                  className="flex gap-2"
+                >
+                  {REVIEW_EVENTS.map((event) => (
+                    <Button
+                      key={event}
+                      type="button"
+                      variant={reviewEvent === event ? 'primary' : 'secondary'}
+                      aria-pressed={reviewEvent === event}
+                      onClick={() => setReviewEvent(event)}
+                      data-testid={`pull-review-${event}`}
+                    >
+                      {t(`github.prs.reviewState.${event}`)}
+                    </Button>
+                  ))}
+                </div>
+                <textarea
+                  value={reviewBody}
+                  onChange={(event) => setReviewBody(event.target.value)}
+                  placeholder={t('github.prs.reviewBodyPlaceholder')}
+                  aria-label={t('github.prs.reviewBodyPlaceholder')}
+                  rows={2}
+                  className="fd-transition rounded-md border border-line bg-surface px-2.5 py-1.5 text-13 focus:border-brand"
+                  data-testid="pull-review-body"
+                />
+                <Button
+                  type="button"
+                  variant="secondary"
+                  disabled={submittingReview}
+                  onClick={() => void submitReview()}
+                  data-testid="pull-review-submit"
+                >
+                  {t('github.prs.reviewSubmit')}
+                </Button>
+              </div>
             ) : null}
 
             {!detail.merged ? (

@@ -75,6 +75,18 @@ export interface PullReview {
   readonly submittedAt?: string;
 }
 
+/** PR 时间线评论。 */
+export interface PullComment {
+  readonly id: number;
+  readonly author: string;
+  /** Markdown 原文（展示层消毒）。 */
+  readonly body: string;
+  readonly createdAt?: string;
+}
+
+/** review 结论事件。 */
+export type ReviewEvent = 'APPROVE' | 'REQUEST_CHANGES' | 'COMMENT';
+
 /** 合并结果。 */
 export type PullMergeOutcome = {
   readonly merged: boolean;
@@ -129,6 +141,63 @@ export function repoPullReviews(
     owner,
     repo,
     number,
+    ...(repoId === undefined ? {} : { repoId }),
+  });
+}
+
+/** PR 时间线评论列表。 */
+export function repoPullCommentsList(
+  host: string,
+  owner: string,
+  repo: string,
+  number: number,
+  repoId?: number,
+): Promise<PullComment[]> {
+  return invokeCommand<PullComment[]>('repo_pull_comments_list', {
+    host,
+    owner,
+    repo,
+    number,
+    ...(repoId === undefined ? {} : { repoId }),
+  });
+}
+
+/** 发表一条时间线评论。 */
+export function repoPullCommentCreate(
+  host: string,
+  owner: string,
+  repo: string,
+  number: number,
+  body: string,
+  repoId?: number,
+): Promise<PullComment> {
+  return invokeCommand<PullComment>('repo_pull_comment_create', {
+    host,
+    owner,
+    repo,
+    number,
+    body,
+    ...(repoId === undefined ? {} : { repoId }),
+  });
+}
+
+/** 提交一次 review（批准 / 请求修改 / 评论）。 */
+export function repoPullReviewSubmit(
+  host: string,
+  owner: string,
+  repo: string,
+  number: number,
+  event: ReviewEvent,
+  body?: string,
+  repoId?: number,
+): Promise<void> {
+  return invokeCommand<void>('repo_pull_review_submit', {
+    host,
+    owner,
+    repo,
+    number,
+    event,
+    ...(body === undefined ? {} : { body }),
     ...(repoId === undefined ? {} : { repoId }),
   });
 }

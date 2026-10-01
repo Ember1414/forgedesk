@@ -200,6 +200,41 @@ pub struct MergeOutcome {
     pub branch_deleted: bool,
 }
 
+/// PR 时间线评论（复用 Issue 评论端点）。
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PullComment {
+    /// 评论 id。
+    pub id: u64,
+    /// 评论者。
+    pub author: String,
+    /// 正文（Markdown 原文；展示层消毒）。
+    pub body: String,
+    /// 创建时间（RFC3339）。
+    pub created_at: Option<String>,
+}
+
+/// review 结论。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReviewEvent {
+    /// 批准。
+    Approve,
+    /// 请求修改。
+    RequestChanges,
+    /// 仅评论。
+    Comment,
+}
+
+impl ReviewEvent {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Approve => "APPROVE",
+            Self::RequestChanges => "REQUEST_CHANGES",
+            Self::Comment => "COMMENT",
+        }
+    }
+}
+
 #[derive(Debug, Deserialize)]
 struct GitHubPull {
     number: u64,
@@ -260,6 +295,27 @@ struct GitHubReview {
     body: Option<String>,
     #[serde(default)]
     submitted_at: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct GitHubComment {
+    id: u64,
+    #[serde(default)]
+    user: Option<GitHubLogin>,
+    body: String,
+    #[serde(default)]
+    created_at: Option<String>,
+}
+
+impl From<GitHubComment> for PullComment {
+    fn from(comment: GitHubComment) -> Self {
+        Self {
+            id: comment.id,
+            author: comment.user.map(|user| user.login).unwrap_or_default(),
+            body: comment.body,
+            created_at: comment.created_at,
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -475,6 +531,81 @@ impl PullService for GitHubProvider {
             message: outcome.message,
             branch_deleted,
         })
+    }
+
+    async fn list_comments(
+        &self,
+        token: SecretString,
+        owner: &str,
+        repo: &str,
+        number: u64,
+    ) -> Result<Vec<PullComment>, AppError> {
+        // PR 的评论挂在 issue 端点上（GitHub 的 PR 本就是 issue + diff 的组合）
+        let url = format!("{}/issues/{number}/comments", self.repo_path(owner, repo)?);
+        let request = ApiRequest::get(url).with_bearer(token);
+        let response = self.http().send(&request).await?;
+        let comments = response
+            .json::<Vec<GitHubComment>>()
+            .await
+            .map_err(map_transport_error)?
+            .into_iter()
+            .map(Into::into)
+            .collect();
+        Ok(comments)
+    }
+
+    async fn create_comment(
+        &self,
+        token: SecretString,
+        owner: &str,
+        repo: &str,
+        number: u64,
+        body: &str,
+    ) -> Result<PullComment, AppError> {
+        let trimmed = body.trim();
+        if trimmed.is_empty() {
+            return Err(AppError::new(
+                ErrorCode::Validation,
+                "comment body must not be empty",
+            ));
+        }
+        let url = format!("{}/issues/{number}/comments", self.repo_path(owner, repo)?);
+        let request =
+            ApiRequest::post_json(url, serde_json::json!({ "body": trimmed })).with_bearer(token);
+        let response = self.http().send(&request).await?;
+        response
+            .json::<GitHubComment>()
+            .await
+            .map_err(map_transport_error)
+            .map(Into::into)
+    }
+
+    async fn submit_review(
+        &self,
+        token: SecretString,
+        owner: &str,
+        repo: &str,
+        number: u64,
+        event: ReviewEvent,
+        body: Option<&str>,
+    ) -> Result<(), AppError> {
+        // 无正文的 COMMENT 是空评论，直接拒绝；APPROVE/REQUEST_CHANGES 的
+        // body 是可选的（GitHub 允许纯结论）
+        let trimmed = body.map(str::trim).unwrap_or("");
+        if event == ReviewEvent::Comment && trimmed.is_empty() {
+            return Err(AppError::new(
+                ErrorCode::Validation,
+                "review body must not be empty",
+            ));
+        }
+        let mut payload = serde_json::json!({ "event": event.as_str() });
+        if !trimmed.is_empty() {
+            payload["body"] = serde_json::Value::String(trimmed.to_owned());
+        }
+        let url = format!("{}/reviews", self.pull_path(owner, repo, Some(number))?);
+        let request = ApiRequest::post_json(url, payload).with_bearer(token);
+        self.http().send(&request).await?;
+        Ok(())
     }
 }
 
@@ -783,6 +914,107 @@ mod tests {
             .unwrap_err();
 
         assert!(!format!("{error:?}").contains("ghp_supersecret"));
+    }
+
+    #[tokio::test]
+    async fn comments_round_trip_through_the_issue_endpoint() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/repos/octocat/x/issues/1/comments"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!([
+                { "id": 5, "user": {"login": "hubot"}, "body": "ping", "created_at": "2026-10-01T00:00:00Z" }
+            ])))
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/repos/octocat/x/issues/1/comments"))
+            .respond_with(ResponseTemplate::new(201).set_body_json(serde_json::json!(
+                { "id": 6, "user": {"login": "octocat"}, "body": "pong", "created_at": "2026-10-01T01:00:00Z" }
+            )))
+            .mount(&server)
+            .await;
+
+        let provider = provider_at(&server);
+        let comments = provider
+            .pulls()
+            .list_comments(token(), "octocat", "x", 1)
+            .await
+            .unwrap();
+        assert_eq!(comments.len(), 1);
+        assert_eq!(comments[0].author, "hubot");
+
+        let created = provider
+            .pulls()
+            .create_comment(token(), "octocat", "x", 1, "  pong  ")
+            .await
+            .unwrap();
+        assert_eq!(created.body, "pong");
+    }
+
+    #[tokio::test]
+    async fn an_empty_comment_or_comment_only_review_is_rejected_locally() {
+        let server = MockServer::start().await;
+        let provider = provider_at(&server);
+
+        let error = provider
+            .pulls()
+            .create_comment(token(), "octocat", "x", 1, "   ")
+            .await
+            .unwrap_err();
+        assert_eq!(error.code, ErrorCode::Validation);
+
+        let error = provider
+            .pulls()
+            .submit_review(
+                token(),
+                "octocat",
+                "x",
+                1,
+                super::ReviewEvent::Comment,
+                Some("  "),
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(error.code, ErrorCode::Validation);
+    }
+
+    #[tokio::test]
+    async fn review_submission_carries_the_event_and_optional_body() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/repos/octocat/x/pulls/1/reviews"))
+            .respond_with(ResponseTemplate::new(200))
+            .expect(2)
+            .mount(&server)
+            .await;
+
+        let provider = provider_at(&server);
+        provider
+            .pulls()
+            .submit_review(
+                token(),
+                "octocat",
+                "x",
+                1,
+                super::ReviewEvent::Approve,
+                Some("ship it"),
+            )
+            .await
+            .unwrap();
+        provider
+            .pulls()
+            .submit_review(
+                token(),
+                "octocat",
+                "x",
+                1,
+                super::ReviewEvent::RequestChanges,
+                None,
+            )
+            .await
+            .unwrap();
+
+        server.verify().await;
     }
 
     #[test]
