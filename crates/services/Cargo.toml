@@ -15,6 +15,7 @@ forgedesk-domain.workspace = true
 forgedesk-git-engine.workspace = true
 forgedesk-storage.workspace = true
 forgedesk-provider.workspace = true
+reqwest = { version = "0.13.5", features = ["json", "form", "query"] }
 forgedesk-snapshot.workspace = true
 forgedesk-diagnostics.workspace = true
 forgedesk-credentials.workspace = true

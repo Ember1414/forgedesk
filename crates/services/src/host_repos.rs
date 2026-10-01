@@ -659,6 +659,92 @@ impl HostRepoService {
         provider.issues().list_assignees(token, owner, repo).await
     }
 
+    // ---- Actions（T4.9）----
+
+    /// 列出仓库的 workflow run。
+    pub async fn list_runs(
+        &self,
+        target: &RemoteRepoRef,
+        page: Option<u32>,
+        per_page: Option<u32>,
+    ) -> AppResult<forgedesk_provider::RunPage> {
+        let provider = self.provider_for(&target.host)?;
+        let token = self.require_token(&target.host, target.repo_id).await?;
+        provider
+            .actions()
+            .list_runs(token, &target.owner, &target.repo, page, per_page)
+            .await
+    }
+
+    /// 一个 run 的 job 列表。
+    pub async fn list_run_jobs(
+        &self,
+        host: &str,
+        repo_id: Option<i64>,
+        owner: &str,
+        repo: &str,
+        run_id: u64,
+    ) -> AppResult<Vec<forgedesk_provider::RunJob>> {
+        let provider = self.provider_for(host)?;
+        let token = self.require_token(host, repo_id).await?;
+        provider
+            .actions()
+            .list_run_jobs(token, owner, repo, run_id)
+            .await
+    }
+
+    /// 取消一个 run。
+    pub async fn cancel_run(
+        &self,
+        host: &str,
+        repo_id: Option<i64>,
+        owner: &str,
+        repo: &str,
+        run_id: u64,
+    ) -> AppResult<()> {
+        let provider = self.provider_for(host)?;
+        let token = self.require_token(host, repo_id).await?;
+        provider
+            .actions()
+            .cancel_run(token, owner, repo, run_id)
+            .await
+    }
+
+    /// 重跑一个 run。
+    pub async fn rerun_run(
+        &self,
+        host: &str,
+        repo_id: Option<i64>,
+        owner: &str,
+        repo: &str,
+        run_id: u64,
+    ) -> AppResult<()> {
+        let provider = self.provider_for(host)?;
+        let token = self.require_token(host, repo_id).await?;
+        provider
+            .actions()
+            .rerun_run(token, owner, repo, run_id)
+            .await
+    }
+
+    /// 一个 job 的日志**流式响应**（未消费的 `reqwest::Response`）。
+    ///
+    /// 返回未封装的响应是刻意的：日志可以远超 5MB，任何"读完整再返回"
+    /// 的包装都会把流式变成整体缓冲（M4 验收"大日志不卡 UI"落空的点）。
+    /// 分块读取与事件推送在命令层（`commands::actions` 的模块文档）。
+    pub async fn job_logs_response(
+        &self,
+        host: &str,
+        repo_id: Option<i64>,
+        owner: &str,
+        repo: &str,
+        job_id: u64,
+    ) -> AppResult<reqwest::Response> {
+        let provider = self.provider_for(host)?;
+        let token = self.require_token(host, repo_id).await?;
+        provider.job_logs_response(token, owner, repo, job_id).await
+    }
+
     /// 拉取并**安全渲染**仓库 README（T4.6）：返回的是白名单化 HTML，
     /// 前端不接触原始 Markdown（清洗规则见 [`crate::readme`]，XSS 用例在
     /// 那里穷举）。匿名可用（公开仓库）。

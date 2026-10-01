@@ -349,7 +349,7 @@ impl AuthFlow for GitHubProvider {
 // T4.5 在 repos.rs 落地。
 // PullService 的实现已随 T4.7 在 pulls.rs 落地。
 // IssueService 的实现已随 T4.8 在 issues.rs 落地。
-impl CiService for GitHubProvider {}
+// CiService 的实现已随 T4.9 在 actions.rs 落地。
 impl ReleaseService for GitHubProvider {}
 
 impl HostProvider for GitHubProvider {

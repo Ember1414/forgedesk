@@ -40,6 +40,7 @@ pub use traits::{
     AuthFlow, CiService, HostProvider, IssueService, PullService, ReleaseService, RepoService,
 };
 
+pub mod actions;
 /// Device Flow 与 PAT 校验的数据类型。
 pub mod auth;
 /// GitHub 的 HTTP 底座（UA / 超时 / 代理 / 重试 / 限流捕获）。
@@ -56,6 +57,7 @@ pub mod redact;
 /// GitHubProvider：GitHub / GHE 的平台实现。
 pub mod repos;
 
+pub use actions::{RunJob, RunPage, WorkflowRunSummary};
 pub use auth::{
     poll_until_authorized, AuthorizedLogin, DeviceFlowPoll, DeviceFlowStart, PollOptions,
     VerifiedAccount, DEFAULT_SCOPES,

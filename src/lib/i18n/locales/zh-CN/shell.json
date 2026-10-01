@@ -1441,6 +1441,37 @@
       "assignedToast": "指派已更新",
       "unassigned": "未指派",
       "detailTitle": "#{{number}} {{title}}"
+    },
+    "actions": {
+      "empty": "没有 workflow 运行记录。",
+      "runNumber": "运行 #{{number}}",
+      "status": {
+        "queued": "排队中",
+        "in_progress": "运行中",
+        "completed": "已完成"
+      },
+      "conclusion": {
+        "success": "成功",
+        "failure": "失败",
+        "cancelled": "已取消",
+        "skipped": "已跳过",
+        "timed_out": "已超时",
+        "neutral": "中性",
+        "startup_failure": "启动失败"
+      },
+      "cancelRun": "取消运行",
+      "rerunRun": "重跑",
+      "cancelToast": "已请求取消",
+      "rerunToast": "已请求重跑",
+      "jobsTitle": "Jobs",
+      "noJobs": "没有 job 记录。",
+      "viewLogs": "查看日志",
+      "logsTitle": "日志：{{job}}",
+      "logsStreaming": "加载中…（{{lines}} 行）",
+      "logsDone": "共 {{lines}} 行",
+      "logsCancelled": "下载已取消（{{lines}} 行）",
+      "logsFailed": "日志加载失败。",
+      "logsEmpty": "日志还没有内容。"
     }
   },
   "repo": {

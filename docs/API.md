@@ -526,6 +526,7 @@ interface RepoChangedPayload {
 | `job:progress` | `{ jobId, phase, current, total, message? }` | 长任务进度（>500ms 的操作必须走 `JobRunner`） | T1.3 / M1 | ✅ `crates/commands/src/jobs.rs` |
 | `job:done` | `{ jobId, result }` | 长任务成功结束 | T1.3 / M1 | ✅ `crates/commands/src/jobs.rs` |
 | `job:failed` | `{ jobId, error: AppError }` | 长任务失败结束（错误形状同 §1.1） | T1.3 / M1 | ✅ `crates/commands/src/jobs.rs` |
+| `actions:log-chunk` | `{ jobId, text, totalLines }` | Actions 日志流式分块（`text` 是完整行的文本块；`job:done.result = { totalLines }`，取消走 `job_cancel`） | T4.9 / M4 | ✅ `crates/commands/src/actions.rs` |
 
 | `git:state-changed` | `{ repoId, opState }` | 仓库正处于 rebase/merge/cherry-pick 中途 | T2.x / M2 | ⬜ 未实现 |
 | `term:output` | `{ termId, bytes }` | 终端输出流 | T5.x / M5 | ⬜ 未实现 |
@@ -1581,6 +1582,25 @@ Issue 与 PR 共享 GitHub 的 issue 端点族：**列表必须把 PR 滤掉**�
 
 `IssueSummary`：`{ number, title, state, author, labels: string[], assignees: string[],
 comments, createdAt?, updatedAt?, closedAt? }`。
+
+### Actions（T4.9）
+
+run 的可取消/可重跑判定在前端按 `status`（`queued`/`in_progress`/`completed`）分档；
+取消未运行的 run GitHub 返回 409 → `GIT_CONFLICT`。日志走**事件流**（`actions:log-chunk`，
+见 §3）：命令立即返回 `jobId`，行按完整行分块推送（UTF-8 不会被块边界劈开），
+`>5MB` 的日志不整体缓冲。
+
+| 命令 | 能力 | 参数 | 返回 / 说明 |
+| --- | --- | --- | --- |
+| `repo_actions_runs_list` | Network | request：`{ host, owner, repo, repoId?, page?, perPage? }` | `RunPage`：`{ items: WorkflowRunSummary[], nextPage? }` |
+| `repo_actions_run_jobs` | Network | `host, owner, repo, runId, repoId?` | `RunJob[]`：`{ id, name, status, conclusion?, startedAt?, completedAt? }`（单页 100 条） |
+| `repo_actions_run_cancel` | Network | `host, owner, repo, runId, repoId?` | `()`；run 未运行（409）→ `GIT_CONFLICT` |
+| `repo_actions_run_rerun` | Network | `host, owner, repo, runId, repoId?` | `()` |
+| `repo_actions_job_logs` | Network | `host, owner, repo, jobId, repoId?` | `jobId`（长任务）；日志行经 `actions:log-chunk` 事件分块送达，结束 `{ totalLines }`；取消走 `job_cancel`（`job:failed` code=`CANCELLED`） |
+
+`WorkflowRunSummary`：`{ id, name, headBranch?, headSha?, status, conclusion?, event?,
+actor, runNumber, createdAt?, updatedAt?, htmlUrl }`（`name` 取 `display_title`，
+回退 `name`）。
 
 ### 远端仓库与账号绑定（T4.5）
 

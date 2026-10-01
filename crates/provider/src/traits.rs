@@ -346,8 +346,51 @@ pub trait IssueService: Send + Sync {
     ) -> Result<Vec<crate::issues::Assignee>, forgedesk_domain::AppError>;
 }
 
-/// CI 子服务：workflow 列表、运行记录、日志、重跑/取消（T4.9 落地方法）。
-pub trait CiService: Send + Sync {}
+/// CI 子服务：workflow run 列表、job 列表、取消/重跑（T4.9）。
+///
+/// 日志读取不在本 trait：GitHub 的日志端点是**流式明文**（可能远超
+/// 5MB），trait 签名要等命令层的流式消费形态定型后由跨平台实现一起
+/// 上移；当前由 [`crate::github::GitHubProvider::job_logs_response`]
+/// 提供（见该方法的文档）。
+#[async_trait::async_trait]
+pub trait CiService: Send + Sync {
+    /// 列出仓库的 workflow run（Link 分页）。
+    async fn list_runs(
+        &self,
+        token: secrecy::SecretString,
+        owner: &str,
+        repo: &str,
+        page: Option<u32>,
+        per_page: Option<u32>,
+    ) -> Result<crate::actions::RunPage, forgedesk_domain::AppError>;
+
+    /// 一个 run 的 job 列表（单页 100 条）。
+    async fn list_run_jobs(
+        &self,
+        token: secrecy::SecretString,
+        owner: &str,
+        repo: &str,
+        run_id: u64,
+    ) -> Result<Vec<crate::actions::RunJob>, forgedesk_domain::AppError>;
+
+    /// 取消一个 run（未运行的 run GitHub 返回 409 → `GIT_CONFLICT`）。
+    async fn cancel_run(
+        &self,
+        token: secrecy::SecretString,
+        owner: &str,
+        repo: &str,
+        run_id: u64,
+    ) -> Result<(), forgedesk_domain::AppError>;
+
+    /// 重跑一个 run。
+    async fn rerun_run(
+        &self,
+        token: secrecy::SecretString,
+        owner: &str,
+        repo: &str,
+        run_id: u64,
+    ) -> Result<(), forgedesk_domain::AppError>;
+}
 
 /// Release 子服务：列表与产物下载（M4 计划外，随需求落地）。
 pub trait ReleaseService: Send + Sync {}

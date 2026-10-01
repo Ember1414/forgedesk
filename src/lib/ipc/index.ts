@@ -276,6 +276,16 @@ export type {
   ReviewEvent,
 } from './pulls';
 export {
+  listenActionsLogChunks,
+  repoActionsJobLogs,
+  repoActionsRunCancel,
+  repoActionsRunJobs,
+  repoActionsRunRerun,
+  repoActionsRunsList,
+  ACTIONS_LOG_CHUNK_EVENT,
+} from './actions';
+export type { ActionsLogChunkPayload, RunJob, RunPage, WorkflowRunSummary } from './actions';
+export {
   repoIssueAssignees,
   repoIssueAssigneesSet,
   repoIssueBody,

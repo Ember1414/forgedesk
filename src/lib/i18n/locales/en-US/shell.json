@@ -1441,6 +1441,37 @@
       "assignedToast": "Assignees updated",
       "unassigned": "Unassigned",
       "detailTitle": "#{{number}} {{title}}"
+    },
+    "actions": {
+      "empty": "No workflow runs.",
+      "runNumber": "Run #{{number}}",
+      "status": {
+        "queued": "Queued",
+        "in_progress": "In progress",
+        "completed": "Completed"
+      },
+      "conclusion": {
+        "success": "Success",
+        "failure": "Failure",
+        "cancelled": "Cancelled",
+        "skipped": "Skipped",
+        "timed_out": "Timed out",
+        "neutral": "Neutral",
+        "startup_failure": "Startup failure"
+      },
+      "cancelRun": "Cancel run",
+      "rerunRun": "Re-run",
+      "cancelToast": "Cancellation requested",
+      "rerunToast": "Re-run requested",
+      "jobsTitle": "Jobs",
+      "noJobs": "No job records.",
+      "viewLogs": "View logs",
+      "logsTitle": "Logs: {{job}}",
+      "logsStreaming": "Loading… ({{lines}} lines)",
+      "logsDone": "{{lines}} lines",
+      "logsCancelled": "Download cancelled ({{lines}} lines)",
+      "logsFailed": "Failed to load logs.",
+      "logsEmpty": "No log content yet."
     }
   },
   "repo": {

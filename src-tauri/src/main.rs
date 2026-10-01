@@ -376,6 +376,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         forgedesk_commands::repo_issue_comments_list,
         forgedesk_commands::repo_issue_comment_create,
         forgedesk_commands::repo_issue_assignees,
+        forgedesk_commands::repo_actions_runs_list,
+        forgedesk_commands::repo_actions_run_jobs,
+        forgedesk_commands::repo_actions_run_cancel,
+        forgedesk_commands::repo_actions_run_rerun,
+        forgedesk_commands::repo_actions_job_logs,
         forgedesk_commands::debug_throw_error,
         forgedesk_commands::debug_panic,
     ]);
@@ -514,6 +519,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         forgedesk_commands::repo_issue_comments_list,
         forgedesk_commands::repo_issue_comment_create,
         forgedesk_commands::repo_issue_assignees,
+        forgedesk_commands::repo_actions_runs_list,
+        forgedesk_commands::repo_actions_run_jobs,
+        forgedesk_commands::repo_actions_run_cancel,
+        forgedesk_commands::repo_actions_run_rerun,
+        forgedesk_commands::repo_actions_job_logs,
     ]);
 
     let app = builder.build(tauri::generate_context!())?;

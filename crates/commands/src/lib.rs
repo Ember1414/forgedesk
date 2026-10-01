@@ -28,6 +28,7 @@
 #![forbid(unsafe_code)]
 
 pub mod account;
+pub mod actions;
 pub mod audit;
 pub mod branch;
 pub mod commit;
@@ -56,6 +57,10 @@ pub mod workspace;
 pub use account::{
     account_device_flow_start, account_device_flow_wait, account_list, account_login_with_pat,
     account_remove, AccountDto, DeviceFlowSessionDto,
+};
+pub use actions::{
+    repo_actions_job_logs, repo_actions_run_cancel, repo_actions_run_jobs, repo_actions_run_rerun,
+    repo_actions_runs_list, EVENT_ACTIONS_LOG_CHUNK,
 };
 pub use audit::{
     audit_export, audit_list, audit_prune, collect_history, operation_history, record_with,
