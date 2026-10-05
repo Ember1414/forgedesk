@@ -196,5 +196,34 @@ declare global {
     __rebaseExecuteOutcome?: unknown;
     /** rebase 面板 e2e：自定义 continue_edit 结局。 */
     __rebaseContinueOutcome?: unknown;
+    /**
+     * GitHub 区域 e2e 的 mock 调用记录（T4.12）。
+     *
+     * 断言"界面把什么发给了后端"：PR 列表的站点/所有者/状态过滤、
+     * 行内评论的锚点（路径 + 侧 + 行号）、review 的结论与正文。
+     */
+    __githubCalls?: readonly {
+      readonly command: string;
+      readonly args?: {
+        readonly host?: string;
+        readonly owner?: string;
+        readonly repo?: string;
+        readonly number?: number;
+        readonly stateFilter?: string;
+        readonly page?: number;
+        readonly path?: string;
+        readonly side?: string;
+        readonly line?: number;
+        readonly body?: string;
+        readonly event?: string;
+      };
+    }[];
+    /**
+     * GitHub 区域 e2e：把托管接口切成"未登录"（T4.12 / M4 验收第 9 条）。
+     *
+     * 放在 mock 上而不是改数据：要验证的是**同一个错误码在多个页面都走同一条引导**，
+     * 因此需要在运行中切换，而不是换个夹具再跑一遍。
+     */
+    __githubAuthRequired?: boolean;
   }
 }
