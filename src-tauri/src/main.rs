@@ -18,6 +18,7 @@ use forgedesk_platform::watcher::NotifyFileWatcher;
 use forgedesk_platform::{install_panic_hook, non_blocking_writer, LogFlushGuard, LogPolicy};
 use forgedesk_provider::{GitHubHttp, HttpConfig};
 use forgedesk_services::repository::OpenRepoRegistry;
+use forgedesk_services::terminal::TerminalRegistry;
 use forgedesk_services::{
     accounts::AccountService, host_repos::HostRepoService, CommitPlanRegistry, CredentialGate,
     CredentialsService, GitEngines, LogPageCache, MergePlanRegistry, ResetPlanRegistry,
@@ -224,6 +225,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 accounts,
                 host_repos,
                 watchers,
+                // T5.2：终端会话注册表。退出时的清理见 RunEvent::Exit。
+                terminals: Arc::new(TerminalRegistry::new()),
             });
 
             // 审计的保留策略在**启动时**执行一次（T1.11）：查历史不该顺带删记录，
@@ -384,6 +387,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         forgedesk_commands::repo_rate_limit_state,
         forgedesk_commands::repo_rate_limit_refresh,
         forgedesk_commands::repo_dashboard,
+        // T5.2 内嵌终端（正式命令族，全构建注册）
+        forgedesk_commands::term_create,
+        forgedesk_commands::term_write,
+        forgedesk_commands::term_resize,
+        forgedesk_commands::term_close,
+        forgedesk_commands::term_list,
+        forgedesk_commands::term_output_tail,
+        forgedesk_commands::term_shell_list,
         // T5.1 PTY Spike 调试通道（仅开发构建；结论见 docs/PTY-SPIKE.md）
         forgedesk_commands::pty_spike_create,
         forgedesk_commands::pty_spike_write,
@@ -536,6 +547,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         forgedesk_commands::repo_rate_limit_state,
         forgedesk_commands::repo_rate_limit_refresh,
         forgedesk_commands::repo_dashboard,
+        // T5.2 内嵌终端（正式命令族，全构建注册）
+        forgedesk_commands::term_create,
+        forgedesk_commands::term_write,
+        forgedesk_commands::term_resize,
+        forgedesk_commands::term_close,
+        forgedesk_commands::term_list,
+        forgedesk_commands::term_output_tail,
+        forgedesk_commands::term_shell_list,
     ]);
 
     let app = builder.build(tauri::generate_context!())?;
@@ -551,6 +570,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 // 进程马上就要退出，但显式停掉能让"立刻重启应用"这条路干净，
                 // 也不给"退出时还有线程在跑"留下解释不清的日志。
                 state.watchers.stop_all();
+                // T5.2：杀掉还开着的终端会话（shell 是真子进程，不能留给孤儿）。
+                state.terminals.stop_all();
             }
 
             // 正常退出：删除会话标记。留在这里而不是 Drop 里，是因为

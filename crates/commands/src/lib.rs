@@ -54,6 +54,7 @@ pub mod snapshots;
 pub mod state;
 pub mod sync;
 pub mod system;
+pub mod terminal;
 pub mod watch;
 pub mod workspace;
 
@@ -156,8 +157,12 @@ pub use sync::{
     git_fetch, git_pull, git_push, git_remote_add, git_remote_list, git_remote_remove,
     git_remote_rename, git_remote_set_url,
 };
-pub use system::log_frontend_error;
-pub use system::{app_version, AppVersion};
+pub use system::{app_version, log_frontend_error, system_open_url, AppVersion};
+pub use terminal::{
+    term_close, term_create, term_list, term_output_tail, term_resize, term_shell_list, term_write,
+    TermCreateRequest, TermCreatedDto, TermExitPayload, TermOutputPayload, TermShellDto,
+    EVENT_TERM_EXIT, EVENT_TERM_OUTPUT,
+};
 pub use watch::{emit_watch_event, WatchSettings, WatcherRegistry, AUTO_REFRESH_KEY, DEBOUNCE_KEY};
 pub use workspace::{
     workspace_diff, workspace_diff_patch, workspace_discard, workspace_reveal, workspace_stage,

@@ -603,8 +603,20 @@ pub fn repo_forget(state: State<'_, AppState>, repo_id: i64) -> AppResult<()> {
 /// 关闭一个已打开的仓库（结束会话内的"已打开"状态）。
 ///
 /// 能力等级：`ReadOnly`（不改数据库、不碰仓库，只改本进程内的会话状态）。
+///
+/// 终端安全网（T5.2）：该仓库还有活跃终端时拒绝关闭（`VALIDATION` + 计数 hint），
+/// 由前端弹确认后再带着"关闭终端"的意图调用 `term_close`/重试——
+/// 绝不静默杀掉用户正在用的 shell（里面可能有没跑完的命令）。
 #[tauri::command]
 pub fn repo_close(state: State<'_, AppState>, repo_id: i64) -> AppResult<()> {
+    let active_terminals = state.terminals.active_for_repo(repo_id);
+    if active_terminals > 0 {
+        return Err(AppError::new(
+            ErrorCode::Validation,
+            "active terminal sessions are attached to this repository",
+        )
+        .with_hint(active_terminals.to_string()));
+    }
     state.repository_service().close(repo_id)?;
     // 关闭仓库即停止监听：继续监听一个用户已经关掉的仓库既是浪费，
     // 也会让前端收到"没人在看"的事件

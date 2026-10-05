@@ -106,3 +106,83 @@ mod tests {
         }
     }
 }
+
+/// 用默认浏览器打开一个 http(s) 链接（终端链接识别、文档入口等）。
+///
+/// 能力边界（安全）：只接受 `http://` 与 `https://` 且不含空白/控制字符的 URL——
+/// 这个入口的调用方包括"终端输出里识别到的链接"， Anything else（`file:`、
+/// 自定义协议）都可能演变成任意程序执行，一律 `VALIDATION` 拒绝。
+///
+/// 复用 [`opener_command`]：explorer / open / xdg-open 对 URL 的处理与
+/// 对路径一致（转交系统默认处理程序），无需引入浏览器专用依赖。
+pub fn open_url(url: &str) -> AppResult<()> {
+    let lowered = url.to_ascii_lowercase();
+    let scheme_ok = lowered.starts_with("http://") || lowered.starts_with("https://");
+    let has_forbidden = url.chars().any(|c| c.is_whitespace() || c.is_control());
+    if !scheme_ok || has_forbidden {
+        return Err(AppError::new(
+            ErrorCode::Validation,
+            "only http(s) URLs without whitespace can be opened",
+        )
+        .with_detail(url.to_string()));
+    }
+
+    let (program, args) = opener_command(std::env::consts::OS).ok_or_else(|| {
+        AppError::new(
+            ErrorCode::Internal,
+            "opening a URL is not supported on this platform",
+        )
+        .with_detail(std::env::consts::OS.to_owned())
+    })?;
+
+    let resolved: Vec<String> = args.iter().map(|arg| arg.replace("{path}", url)).collect();
+
+    let spawned = Command::new(program).args(&resolved).spawn();
+    match spawned {
+        Ok(_child) => Ok(()),
+        Err(error) => Err(AppError::new(ErrorCode::Internal, "could not open the URL")
+            .with_detail(format!("{program}: {error}"))
+            .with_hint(url.to_string())),
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod url_tests {
+    use super::open_url;
+
+    /// 非 http(s) 协议一律拒绝：这个入口会拿到终端输出里的任意字符串，
+    /// `file:` / 自定义协议都可能演变成任意程序执行。
+    #[test]
+    fn rejects_non_http_schemes_and_control_characters() {
+        for bad in [
+            "file:///C:/Windows/System32/calc.exe",
+            "ftp://example.com/pub",
+            "calc.exe",
+            "https://example.com/ with space",
+            "",
+        ] {
+            let error = open_url(bad).expect_err("必须拒绝");
+            assert_eq!(error.code, forgedesk_domain::ErrorCode::Validation, "{bad}");
+        }
+    }
+
+    /// 合法 URL 走到 spawn 这一步：用一个不可解析的假程序间接断言"参数检查
+    /// 已通过、失败来自程序本身"——open_url 不真正开浏览器的可测写法。
+    #[test]
+    fn accepts_wellformed_https_url() {
+        // 不注入 opener_command 的桩：本测试只断言"合法 URL 不被参数校验拦截"。
+        // spawn 失败（explorer/open/xdg-open 在 CI 沙箱可能可用）两种结果都可接受：
+        // Ok（真开了）或 INTERNAL（spawn 层失败），但绝不能是 VALIDATION。
+        match open_url("https://example.com/forgedesk-test") {
+            Ok(()) => {}
+            Err(error) => {
+                assert_ne!(
+                    error.code,
+                    forgedesk_domain::ErrorCode::Validation,
+                    "合法 URL 不应被参数校验拒绝"
+                );
+            }
+        }
+    }
+}

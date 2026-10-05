@@ -23,6 +23,7 @@ use std::sync::Arc;
 
 use forgedesk_jobs::JobRunner;
 use forgedesk_services::repository::OpenRepoRegistry;
+use forgedesk_services::terminal::TerminalRegistry;
 use forgedesk_services::{
     accounts::AccountService, host_repos::HostRepoService, AuditLog, BranchService,
     CommitDetailService, CommitPlanRegistry, CommitService, ConflictService, CredentialGate,
@@ -94,6 +95,8 @@ pub struct AppState {
     /// Arc 而不是裸值，与 `engines`/`jobs` 同一理由：它是**有状态的全进程资源**，
     /// 且未来的长任务闭包只拿得到 Arc 克隆（T2.7 的"漏接"教训）。
     pub log_pages: Arc<LogPageCache>,
+    /// 终端会话注册表（T5.2）：`term_*` 命令与 `repo_close` 的安全网共用。
+    pub terminals: Arc<TerminalRegistry>,
 }
 
 impl AppState {

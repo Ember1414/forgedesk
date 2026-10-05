@@ -33,7 +33,7 @@ pub mod watcher;
 pub use logging::{non_blocking_writer, tail, LogFlushGuard, LogLine, LogPolicy, RotatingWriter};
 pub use panic::{install_panic_hook, write_panic_report, PanicReport};
 pub use session::{start_session, PreviousSession, SessionInfo, SessionMarker};
-pub use shell::open_in_file_manager;
+pub use shell::{open_in_file_manager, open_url};
 pub use watcher::{
     FileWatcher, NotifyFileWatcher, WatchCallback, WatchError, WatchEvent, WatchKind, WatchOptions,
     WatcherHandle, DEFAULT_DEBOUNCE, DEFAULT_DEBOUNCE_MS, DEFAULT_MAX_PATHS,

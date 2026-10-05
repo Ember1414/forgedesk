@@ -308,6 +308,29 @@ export type {
   PtySpikeOutputPayload,
   PtySpikeThroughput,
 } from './ptySpike';
+
+export {
+  listenTermExit,
+  listenTermOutput,
+  systemOpenUrl,
+  termClose,
+  termCreate,
+  termList,
+  termOutputTail,
+  termResize,
+  termShellList,
+  termWrite,
+  EVENT_TERM_EXIT,
+  EVENT_TERM_OUTPUT,
+} from './terminal';
+export type {
+  TermCreateRequest,
+  TermCreated,
+  TermExitPayload,
+  TermOutputPayload,
+  TermShell,
+  TermSummary,
+} from './terminal';
 export {
   repoIssueAssignees,
   repoIssueAssigneesSet,

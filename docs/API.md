@@ -78,6 +78,14 @@ interface FixAction {
 | [`debug_throw_error`](#debug_throw_error) | ReadOnly | T0.6 | 触发受控失败，用于验证错误链路（**仅开发构建注册**） |
 | [`debug_panic`](#debug_panic) | ReadOnly | T0.8 | 触发真实 panic，用于验证崩溃留档（**仅开发构建注册**） |
 | [`pty_spike_*`](#pty_spike_create--pty_spike_write--pty_spike_resize--pty_spike_close--pty_spike_throughput) | Mutating | T5.1 | PTY Spike 调试通道：会话 + IPC 吞吐量测（**仅开发构建注册**；throughput 为 ReadOnly） |
+| [`term_create`](#term_create--term_write--term_resize--term_close--term_list--term_output_tail--term_shell_list) | Mutating | T5.2 | 创建终端会话（cwd 逃逸校验；成功后推送 term:output） |
+| [`term_write`](#term_create--term_write--term_resize--term_close--term_list--term_output_tail--term_shell_list) | Mutating | T5.2 | 向会话写入键盘字节 |
+| [`term_resize`](#term_create--term_write--term_resize--term_close--term_list--term_output_tail--term_shell_list) | Mutating | T5.2 | 调整会话尺寸 |
+| [`term_close`](#term_create--term_write--term_resize--term_close--term_list--term_output_tail--term_shell_list) | Mutating | T5.2 | 关闭并移除会话 |
+| [`term_list`](#term_create--term_write--term_resize--term_close--term_list--term_output_tail--term_shell_list) | ReadOnly | T5.2 | 列出全部会话 |
+| [`term_output_tail`](#term_create--term_write--term_resize--term_close--term_list--term_output_tail--term_shell_list) | ReadOnly | T5.2 | 读取会话尾部输出（≤1000 行，退出后仍可读） |
+| [`term_shell_list`](#term_create--term_write--term_resize--term_close--term_list--term_output_tail--term_shell_list) | ReadOnly | T5.2 | 列出本平台可选 shell |
+| [`system_open_url`](#system_open_url) | Network | T5.2 | 用系统默认浏览器打开 http(s) 链接 |
 | [`workspace_status`](#workspace_status) | ReadOnly | T1.4 | 读取工作区状态（分组、分支头、操作状态） |
 | [`workspace_stage`](#workspace_stage--workspace_unstage--workspace_discard--workspace_reveal) | Mutating | T1.4 / T1.6 | 暂存路径 / 块 / 行（成功后发布 repo:changed） |
 | [`workspace_unstage`](#workspace_stage--workspace_unstage--workspace_discard--workspace_reveal) | Mutating | T1.4 / T1.6 | 取消暂存路径 / 块 / 行 |
@@ -438,6 +446,45 @@ interface RecentRepository {
 
 ---
 
+### term_create / term_write / term_resize / term_close / term_list / term_output_tail / term_shell_list
+
+内嵌终端（T5.2）的正式命令族。会话模型（三线程 + 16ms 合并 + base64 输出）与
+spike 的实测结论见 `docs/PTY-SPIKE.md`；与 spike 命令族的关键差异：
+`auto_reply_dsr` 固定 `false`（前端 xterm.js 原生应答 DSR，双份应答会混进输入流）、
+cwd 绑定仓库根（后端做逃逸校验）。
+
+- **能力等级**：create/write/resize/close = `Mutating`（创建/驱动进程；不改仓库数据）；
+  list/output_tail/shell_list = `ReadOnly`
+- **注册范围**：全构建
+
+| 命令 | 参数 | 返回 | 说明 / 错误 |
+| --- | --- | --- | --- |
+| `term_create` | request：`{ repoId, shell?, cwd?, cols, rows, env? }`；`cols ∈ 2..=500`，`rows ∈ 2..=200`（越界 `VALIDATION`） | `{ termId, program }` | cwd 缺省为仓库根；显式 cwd 必须 canonicalize 后仍在仓库根内（逃逸 → `PERMISSION_DENIED`，不存在 → `VALIDATION`）；仓库未打开 → `NOT_FOUND`；PTY 创建失败 → `PTY_UNSUPPORTED`；全部 shell 候选 spawn 失败 → `NOT_FOUND` |
+| `term_write` | `termId`，`data: number[]`（原始字节） | `null` | 未知 `termId` → `NOT_FOUND` |
+| `term_resize` | `termId`，`cols`，`rows`（同上范围） | `null` | 会话已退出 → `INTERNAL`（视图应按"已死"处理） |
+| `term_close` | `termId` | `null` | 杀子进程并移出注册表；exit 事件由服务线程补发；幂等 |
+| `term_list` | 无 | `TermSummary[]`：`{ id, repoId, program, exited }` | 跨仓库全量；前端按 repoId 过滤 |
+| `term_output_tail` | `termId`，`lines?`（缺省 200，收敛到 1..=1000） | `string[]`（行，旧 → 新） | 从后端行式回滚缓冲读取（独立于前端 xterm 缓冲）；会话退出后依然可读 |
+| `term_shell_list` | 无 | `TermShell[]`：`{ id, program }` | 本平台探测（Windows 不含 WSL bash；`default` 恒在首位）；展示名由前端 i18n 提供 |
+
+- **`repo_close` 的安全网**：仓库还有活跃终端时 `repo_close` 返回 `VALIDATION`，
+  `hint` 为终端数；由前端确认后先关终端再重试。
+- **会话持久化**：应用重启后不恢复会话；`term_output_tail` 是"会话退出后保留
+  最后 1000 行供查看"的后端出口。
+- **前端封装**：`src/lib/ipc/terminal.ts`（`termCreate` 等）；调用点：`src/features/terminal/`
+
+### system_open_url
+
+用系统默认浏览器打开一个 http(s) 链接（终端链接识别、文档与反馈入口）。
+
+- **能力等级**：`Network`（把 URL 交给系统默认处理程序）
+- **参数**：`url: string`——只接受 `http://` / `https://` 且不含空白或控制字符
+  （其余一律 `VALIDATION`；`file:` 与自定义协议可能演变成任意程序执行，绝不放行）
+- **返回**：`null`；打开失败 → `INTERNAL`（`hint` 为原 URL，用户可手动打开）
+- **前端封装**：`systemOpenUrl(url)`；调用点：终端的链接处理（`src/features/terminal/manager.ts`）
+
+---
+
 ### debug_throw_error
 
 触发一个受控失败的演示错误。存在的理由：错误链路（后端分类 → 脱敏 → IPC → 前端 i18n →
@@ -560,7 +607,8 @@ interface RepoChangedPayload {
 | `pty-spike:exit` | `{ id, code }` | PTY Spike 会话退出（仅 debug 构建） | T5.1 / M5 | ✅ `crates/commands/src/pty_spike.rs` |
 
 | `git:state-changed` | `{ repoId, opState }` | 仓库正处于 rebase/merge/cherry-pick 中途 | T2.x / M2 | ⬜ 未实现 |
-| `term:output` | `{ termId, bytes }` | 终端输出流 | T5.x / M5 | ⬜ 未实现 |
+| `term:output` | `{ termId, data }` | 终端输出流（base64、16ms 合并块） | T5.2 / M5 | ✅ `crates/commands/src/terminal.rs` |
+| `term:exit` | `{ termId, code }` | 终端会话退出（`code` 为 null 表示拿不到退出码） | T5.2 / M5 | ✅ `crates/commands/src/terminal.rs` |
 | `auth:expired` | `{ accountId }` | 令牌失效，提示重新登录 | T4.x / M4 | ⬜ 未实现 |
 | `update:available` | `{ version, notes }` | 发现新版本 | T7.3 / M7 | ⬜ 未实现 |
 

@@ -86,6 +86,16 @@ pub fn log_frontend_error(message: String, stack: Option<String>) -> AppResult<(
     Ok(())
 }
 
+/// 用系统默认浏览器打开 http(s) 链接（终端链接识别、文档与反馈入口）。
+///
+/// 能力等级：`Network`（把一个 URL 交给系统默认处理程序；只接受
+/// http/https 且无空白/控制字符，其余一律 `VALIDATION`——
+/// 见 `forgedesk_platform::shell::open_url` 的安全说明）。
+#[tauri::command]
+pub fn system_open_url(url: String) -> AppResult<()> {
+    forgedesk_platform::open_url(&url)
+}
+
 /// 单条错误消息的上限（2KB）。
 pub const MESSAGE_LIMIT: usize = 2 * 1024;
 /// 调用栈的上限（8KB）。

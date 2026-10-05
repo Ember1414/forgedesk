@@ -1,10 +1,15 @@
-//! 终端会话核心（T5.1 Spike → T5.2 在其上补全会话管理）。
+//! 终端会话核心（T5.1 Spike → T5.2 会话管理）。
 //!
 //! # 职责与边界
 //!
 //! 把 `portable-pty` 的「创建 → 读写 → resize → 退出」包成一个与 Tauri 无关的
 //! [`PtySession`]；PTY 输出经 **16ms 合并**后回调给调用方（命令层负责 base64 编码
 //! 与事件发送，spike 的实测数据见 `docs/PTY-SPIKE.md`）。
+//!
+//! 子模块分工：
+//! - [`shell`]：本平台可用 shell 的探测、编码设置与解析；
+//! - [`scrollback`]：行式回滚缓冲（会话退出后保留最后 1000 行）；
+//! - [`registry`]：全进程会话注册表（`term_*` 命令与 `repo_close` 安全网用）。
 //!
 //! 为什么放在 `services` 而不是 `platform`：任务书（AGENT-PROMPTS T5.2）把终端
 //! 会话管理定在 `crates/services/terminal`；本模块不感知 Tauri，因此能在纯 Rust
@@ -24,6 +29,7 @@
 //! 逐字节唤醒只会把窗拆碎；62 次/秒的定时唤醒对 CPU 的贡献 < 0.1%，换来的是
 //! 实现简单与每事件载荷更大（IPC 次数更少）。
 
+use std::collections::BTreeMap;
 use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -35,71 +41,19 @@ use portable_pty::{native_pty_system, CommandBuilder, MasterPty, PtySize};
 
 use forgedesk_domain::{AppError, ErrorCode};
 
+pub mod registry;
+pub mod scrollback;
+pub mod shell;
+
+pub use registry::{TerminalHandle, TerminalRegistry, TerminalSpawnSpec, TerminalSummary};
+pub use scrollback::{Scrollback, SCROLLBACK_MAX_LINES};
+pub use shell::{available_shells, probe_in_path, resolve_shell, ShellCommand, ShellOption};
+
 /// 输出合并窗口：每次回调之间至少间隔这么久（T5.2 任务书指定 16ms）。
 pub const OUTPUT_COALESCE_INTERVAL: Duration = Duration::from_millis(16);
 
 /// PTY 读取块大小：ConPTY/openpty 的典型管道粒度，8KB 足以吃满吞吐又不占内存。
 const READ_CHUNK_SIZE: usize = 8 * 1024;
-
-/// 一个 shell 候选项：程序名 + 启动参数。
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ShellCommand {
-    /// 程序名（交给系统按 PATH 解析，如 `powershell` / `bash`）。
-    pub program: String,
-    /// 启动参数（不含程序名本身）。
-    pub args: Vec<String>,
-}
-
-impl ShellCommand {
-    fn new(program: &str, args: &[&str]) -> Self {
-        Self {
-            program: program.to_string(),
-            args: args.iter().map(|arg| (*arg).to_string()).collect(),
-        }
-    }
-}
-
-/// 按优先级返回本平台的 shell 候选列表。
-///
-/// `preferred`（大小写不敏感的前缀匹配，如 `"pwsh"`、`"bash"`）会被提到最前；
-/// 匹配不到任何候选时原样返回默认列表——**宁可回落默认也不报错**：
-/// 终端拿不到首选 shell 时给一个能用的 shell 比一个错误对话框有价值。
-///
-/// Windows 刻意不把 `bash` 放进默认列表：`System32\bash.exe` 是 WSL 而不是
-/// Git Bash，静默落进 WSL 会让用户在错误的文件系统里执行 git 命令。
-/// Git Bash 的显式探测（安装路径定位）是 T5.2 shell 选择器的一部分。
-#[must_use]
-pub fn shell_candidates(preferred: Option<&str>) -> Vec<ShellCommand> {
-    let mut candidates = if cfg!(windows) {
-        vec![
-            ShellCommand::new("pwsh", &["-NoLogo"]),
-            ShellCommand::new("powershell", &["-NoLogo"]),
-            ShellCommand::new("cmd", &[]),
-        ]
-    } else {
-        let login_shell = std::env::var("SHELL").ok().filter(|s| !s.is_empty());
-        let mut list = Vec::new();
-        if let Some(shell) = login_shell {
-            list.push(ShellCommand::new(&shell, &[]));
-        }
-        list.push(ShellCommand::new("bash", &[]));
-        list.push(ShellCommand::new("zsh", &[]));
-        list.push(ShellCommand::new("sh", &[]));
-        list
-    };
-
-    if let Some(want) = preferred {
-        let want = want.to_ascii_lowercase();
-        if let Some(index) = candidates
-            .iter()
-            .position(|c| c.program.to_ascii_lowercase().starts_with(&want))
-        {
-            let picked = candidates.remove(index);
-            candidates.insert(0, picked);
-        }
-    }
-    candidates
-}
 
 /// 会话创建参数。
 #[derive(Debug, Clone)]
@@ -110,8 +64,11 @@ pub struct PtyConfig {
     pub cols: u16,
     /// 初始行数（< 2 会被夹到 2）。
     pub rows: u16,
-    /// 优先使用的 shell（`None` = 本平台默认候选顺序）。
-    pub shell: Option<String>,
+    /// 要启动的 shell（`None` = 本平台内置候选顺序，spike 时代的兜底路径；
+    /// 正式路径由 [`shell::resolve_shell`] 解析出显式候选）。
+    pub shell: Option<ShellCommand>,
+    /// 额外环境变量（命令层从 IPC 请求收敛而来）。
+    pub env: BTreeMap<String, String>,
     /// 输出中出现 DSR 光标位置请求（`ESC[6n`）时自动以 `ESC[1;1R` 应答。
     ///
     /// 为什么需要：PSReadLine 等交互 shell 启动时会向"终端"查询光标位置并**阻塞等待**；
@@ -121,6 +78,11 @@ pub struct PtyConfig {
     pub auto_reply_dsr: bool,
 }
 
+/// 输出回调的形状（clippy::type_complexity：同一个签名出现在三处，集中付账）。
+pub type OutputCallback = Arc<dyn Fn(&[u8]) + Send + Sync>;
+/// 退出回调的形状。
+pub type ExitCallback = Arc<dyn Fn(Option<u32>) + Send + Sync>;
+
 /// 会话的事件回调：输出块与退出通知。
 ///
 /// 为什么用回调而不是通道：命令层要在回调里做 base64 + Tauri emit，
@@ -129,9 +91,9 @@ pub struct PtyConfig {
 #[derive(Clone)]
 pub struct TerminalCallbacks {
     /// 一次合并窗口内的输出（≤ 16ms 的量 + 读取块边界）。
-    pub on_output: Arc<dyn Fn(&[u8]) + Send + Sync>,
+    pub on_output: OutputCallback,
     /// 子进程退出；`None` 表示拿不到退出码（被杀 / ConPTY 未报告）。
-    pub on_exit: Arc<dyn Fn(Option<u32>) + Send + Sync>,
+    pub on_exit: ExitCallback,
 }
 
 /// 16ms 合并缓冲：reader 线程写入，flusher 线程定时取走。
@@ -172,9 +134,10 @@ pub struct PtySession {
 impl PtySession {
     /// 创建会话并启动服务线程。
     ///
-    /// shell 按候选顺序尝试 spawn：第一个启动失败的候选（不存在 / 权限不足）
-    /// 静默换下一个，全部失败才报错——报错码是 [`ErrorCode::NotFound`]（找不到
-    /// 可用 shell），PTY 本身创建失败才是 [`ErrorCode::PtyUnsupported`]。
+    /// shell 解析顺序：显式候选（[`PtyConfig::shell`]）→ 内置候选列表；
+    /// 第一个启动失败的候选（不存在 / 权限不足）静默换下一个，全部失败才报错
+    /// ——报错码是 [`ErrorCode::NotFound`]（找不到可用 shell），PTY 本身
+    /// 创建失败才是 [`ErrorCode::PtyUnsupported`]。
     pub fn spawn(config: &PtyConfig, callbacks: TerminalCallbacks) -> Result<Self, AppError> {
         let cols = config.cols.clamp(2, 500);
         let rows = config.rows.clamp(2, 200);
@@ -195,13 +158,33 @@ impl PtySession {
                 .with_detail(error.to_string())
             })?;
 
-        let candidates = shell_candidates(config.shell.as_deref());
+        let mut candidates: Vec<ShellCommand> = Vec::new();
+        if let Some(explicit) = &config.shell {
+            candidates.push(explicit.clone());
+        } else if cfg!(windows) {
+            candidates.push(ShellCommand::new("pwsh", &["-NoLogo"]));
+            candidates.push(ShellCommand::new("powershell", &["-NoLogo"]));
+            candidates.push(ShellCommand::new("cmd", &[]));
+        } else {
+            if let Ok(login_shell) = std::env::var("SHELL") {
+                if !login_shell.is_empty() {
+                    candidates.push(ShellCommand::new(&login_shell, &[]));
+                }
+            }
+            candidates.push(ShellCommand::new("bash", &[]));
+            candidates.push(ShellCommand::new("zsh", &[]));
+            candidates.push(ShellCommand::new("sh", &[]));
+        }
+
         let mut spawned = None;
         let mut last_error = String::new();
         for candidate in &candidates {
             let mut command = CommandBuilder::new(&candidate.program);
             command.args(&candidate.args);
             command.cwd(&config.cwd);
+            for (key, value) in &config.env {
+                command.env(key, value);
+            }
             let result = pair.slave.spawn_command(command);
             match result {
                 Ok(child) => {
@@ -388,9 +371,9 @@ impl PtySession {
 }
 
 /// DSR 光标位置请求：`ESC [ 6 n`。
-const DSR_REQUEST: &[u8] = b"[6n";
+const DSR_REQUEST: &[u8] = b"\x1b[6n";
 /// 无头读取端的 DSR 应答：行 1 列 1（交互 shell 只关心"有应答"，不关心坐标）。
-const DSR_REPLY: &[u8] = b"[1;1R";
+const DSR_REPLY: &[u8] = b"\x1b[1;1R";
 
 fn contains_dsr_request(haystack: &[u8]) -> bool {
     haystack.len() >= DSR_REQUEST.len()
@@ -420,44 +403,6 @@ mod tests {
 
     use super::*;
 
-    /// Windows 默认候选必须是 PowerShell 系在前、cmd 兜底，且不出现 bash
-    /// （System32 的 bash.exe 是 WSL，见 shell_candidates 的注释）。
-    #[test]
-    fn windows_defaults_prefer_powershell_and_exclude_bash() {
-        let candidates = shell_candidates(None);
-        assert!(!candidates.is_empty());
-        if cfg!(windows) {
-            assert!(
-                candidates[0].program.starts_with("pwsh")
-                    || candidates[0].program.starts_with("powershell")
-            );
-            assert!(candidates
-                .iter()
-                .all(|c| !c.program.to_ascii_lowercase().starts_with("bash")));
-            assert!(candidates
-                .iter()
-                .any(|c| c.program.to_ascii_lowercase() == "cmd"));
-        } else {
-            // Unix：$SHELL（若有）在最前，且一定有 sh 兜底。
-            assert_eq!(
-                candidates.last().expect("non-empty").program,
-                "sh",
-                "sh must be the last-resort candidate"
-            );
-        }
-    }
-
-    /// 首选项按大小写不敏感前缀匹配并提到最前；匹配不到时保持默认顺序。
-    #[test]
-    fn preferred_shell_moves_to_front_case_insensitively() {
-        let candidates = shell_candidates(Some("PWSH"));
-        assert!(candidates[0].program.starts_with("pwsh"));
-
-        let untouched = shell_candidates(Some("fish"));
-        let default = shell_candidates(None);
-        assert_eq!(untouched, default, "unknown preference must not reorder");
-    }
-
     /// 合并缓冲：多次 push 累积，take 清空并返回全部字节（含跨块的多字节字符）。
     #[test]
     fn pending_output_accumulates_then_empties() {
@@ -484,8 +429,7 @@ mod dsr_tests {
         assert!(contains_dsr_request(DSR_REQUEST));
         assert!(!contains_dsr_request(b"\x1b[6"));
 
-        let tail_width = DSR_REQUEST.len() - 1;
-        let previous_tail = &b"\x1b[6"[..DSR_REQUEST.len().saturating_sub(1).min(tail_width)];
+        let previous_tail = &b"\x1b[6"[..];
         let next_chunk = b"n more output";
         let mut joined = previous_tail.to_vec();
         joined.extend_from_slice(next_chunk);

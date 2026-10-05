@@ -139,6 +139,7 @@ pub fn pty_spike_create(app: AppHandle, cols: u16, rows: u16) -> AppResult<Spike
         cols,
         rows,
         shell: None,
+        env: std::collections::BTreeMap::new(),
         // spike 前端是 <pre>，应答不了 DSR；正式终端（xterm.js）必须关掉它。
         auto_reply_dsr: true,
     };

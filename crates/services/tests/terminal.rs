@@ -15,13 +15,18 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use forgedesk_services::terminal::{PtyConfig, PtySession, TerminalCallbacks};
+use forgedesk_services::terminal::{PtyConfig, PtySession, ShellCommand, TerminalCallbacks};
 use parking_lot::Mutex;
 
 /// 输出收集器：测试里只做"攒字节 + 等标记"。
 struct Collector {
     text: Mutex<Vec<u8>>,
     exited: Mutex<Option<Option<u32>>>,
+    /// registry 路径的 DSR 应答槽：registry 固定 `auto_reply_dsr: false`
+    /// （生产由 xterm.js 应答），测试在这里模拟同一行为——create 后填入会话。
+    dsr_session: Mutex<Option<Arc<PtySession>>>,
+    /// DSR 在会话槽位填好之前就到达过的标记（create 返回后补发应答）。
+    pending_dsr: std::sync::atomic::AtomicBool,
 }
 
 impl Collector {
@@ -29,7 +34,22 @@ impl Collector {
         Arc::new(Self {
             text: Mutex::new(Vec::new()),
             exited: Mutex::new(None),
+            dsr_session: Mutex::new(None),
+            pending_dsr: std::sync::atomic::AtomicBool::new(false),
         })
+    }
+
+    /// create 之后调用：接上会话并补发"早到"的 DSR 应答。
+    fn attach_dsr_session(self: &Arc<Self>, session: Arc<PtySession>) {
+        *self.dsr_session.lock() = Some(session);
+        if self
+            .pending_dsr
+            .swap(false, std::sync::atomic::Ordering::AcqRel)
+        {
+            if let Some(session) = self.dsr_session.lock().clone() {
+                let _ = session.write(b"[1;1R");
+            }
+        }
     }
 
     fn callbacks(self: &Arc<Self>) -> TerminalCallbacks {
@@ -38,6 +58,17 @@ impl Collector {
         TerminalCallbacks {
             on_output: Arc::new(move |data| {
                 output.text.lock().extend_from_slice(data);
+                // cmd 与 PowerShell 启动时都会发 DSR（ESC[6n）；xterm.js
+                // 在真实前端应答它，测试里由本回调代劳。
+                if data.windows(4).any(|w| w == [0x1b, b'[', b'6', b'n']) {
+                    if let Some(session) = output.dsr_session.lock().clone() {
+                        let _ = session.write(b"[1;1R");
+                    } else {
+                        output
+                            .pending_dsr
+                            .store(true, std::sync::atomic::Ordering::Release);
+                    }
+                }
             }),
             on_exit: Arc::new(move |code| {
                 *exit.exited.lock() = Some(code);
@@ -78,13 +109,13 @@ impl Collector {
     fn wait_exit(self: &Arc<Self>, timeout: Duration) -> Option<Option<u32>> {
         let deadline = Instant::now() + timeout;
         while Instant::now() < deadline {
-            let exited = self.exited.lock().clone();
+            let exited = *self.exited.lock();
             if exited.is_some() {
                 return exited;
             }
             std::thread::sleep(Duration::from_millis(50));
         }
-        self.exited.lock().clone()
+        *self.exited.lock()
     }
 }
 
@@ -94,7 +125,8 @@ fn spawn(shell: Option<&str>) -> (Arc<PtySession>, Arc<Collector>) {
         cwd: std::env::temp_dir(),
         cols: 80,
         rows: 24,
-        shell: shell.map(str::to_string),
+        shell: shell.map(|program| ShellCommand::new(program, &[])),
+        env: std::collections::BTreeMap::new(),
         // 测试与 spike 一样是无头读取端：PSReadLine 的 DSR 等待必须被应答。
         auto_reply_dsr: true,
     };
@@ -165,4 +197,99 @@ fn etx_interrupts_a_running_external_command() {
         "prompt must return after Ctrl+C (external command aborted)"
     );
     session.close();
+}
+
+// ---------------------------------------------------------------- registry（T5.2）
+
+use forgedesk_services::terminal::{TerminalRegistry, TerminalSpawnSpec};
+
+fn spec(repo_id: i64, shell: Option<&str>) -> TerminalSpawnSpec {
+    TerminalSpawnSpec {
+        repo_id,
+        cwd: std::env::temp_dir(),
+        shell: shell.map(str::to_string),
+        cols: 80,
+        rows: 24,
+        env: std::collections::BTreeMap::new(),
+    }
+}
+
+fn silent_sink(collector: &Arc<Collector>) -> TerminalCallbacks {
+    let output = Arc::clone(collector);
+    let exit = Arc::clone(collector);
+    TerminalCallbacks {
+        on_output: Arc::new(move |data| {
+            output.text.lock().extend_from_slice(data);
+            // 与 Collector::callbacks 相同的 DSR 模拟（registry 路径专用）。
+            if data.windows(4).any(|w| w == [0x1b, b'[', b'6', b'n']) {
+                if let Some(session) = output.dsr_session.lock().clone() {
+                    let _ = session.write(b"[1;1R");
+                } else {
+                    output
+                        .pending_dsr
+                        .store(true, std::sync::atomic::Ordering::Release);
+                }
+            }
+        }),
+        on_exit: Arc::new(move |code| {
+            *exit.exited.lock() = Some(code);
+        }),
+    }
+}
+
+/// registry 全链路：create → 输出流经回调与 scrollback → close_for_repo 清理。
+#[test]
+fn registry_wires_output_scrollback_and_repo_scoped_close() {
+    let registry = TerminalRegistry::new();
+    let collector = Collector::new();
+    let handle = registry
+        .create(&spec(7, Some("cmd")), silent_sink(&collector))
+        .expect("create");
+    collector.attach_dsr_session(Arc::clone(&handle.session));
+
+    // 等 cmd 就绪再发命令
+    assert!(
+        collector.wait_any_output(0, Duration::from_secs(15)),
+        "startup"
+    );
+    std::thread::sleep(Duration::from_millis(500));
+    handle
+        .session
+        .write(b"echo FORGEDESK_REG_ECHO\r\n")
+        .expect("write");
+    assert!(
+        collector.wait_marker("FORGEDESK_REG_ECHO", Duration::from_secs(15)),
+        "echo 必须到达"
+    );
+
+    // scrollback 已经收到输出（与回调并行）
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let has = scrollback_contains(&handle, "FORGEDESK_REG_ECHO");
+        if has || Instant::now() > deadline {
+            assert!(has, "scrollback 必须捕获回显");
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+
+    assert_eq!(registry.active_for_repo(7), 1);
+    assert_eq!(registry.active_for_repo(8), 0);
+    assert_eq!(registry.close_for_repo(7), 1);
+    assert_eq!(registry.active_for_repo(7), 0);
+    assert!(
+        registry.get(&handle.id).is_none(),
+        "close_for_repo 必须移除会话"
+    );
+}
+
+fn scrollback_contains(
+    handle: &forgedesk_services::terminal::TerminalHandle,
+    marker: &str,
+) -> bool {
+    handle
+        .scrollback
+        .tail(1000)
+        .iter()
+        .any(|line| line.contains(marker))
 }

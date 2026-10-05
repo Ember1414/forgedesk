@@ -290,6 +290,47 @@
       "description": "Multi-repo status, PRs awaiting your review, and CI failures at a glance."
     }
   },
+  "terminal": {
+    "tablistLabel": "Terminal tabs",
+    "newTab": "New terminal",
+    "shellPickerTitle": "Choose a shell",
+    "empty": "No terminal yet. Create one with the + button above.",
+    "notOpen": "Open a repository first.",
+    "closeTab": "Close terminal {{title}}",
+    "rename": {
+      "label": "Rename terminal tab"
+    },
+    "shells": {
+      "default": "Default shell",
+      "pwsh": "PowerShell 7",
+      "powershell": "Windows PowerShell",
+      "gitbash": "Git Bash",
+      "cmd": "Command Prompt",
+      "bash": "Bash",
+      "zsh": "Zsh"
+    },
+    "menu": {
+      "copy": "Copy",
+      "paste": "Paste",
+      "selectAll": "Select all",
+      "clear": "Clear screen",
+      "search": "Search…",
+      "insertLastCommand": "Insert last command"
+    },
+    "exitBanner": {
+      "title": "Session ended (exit code {{code}})",
+      "restart": "Start again",
+      "close": "Close tab"
+    },
+    "search": {
+      "placeholder": "Search terminal content",
+      "caseSensitive": "Match case",
+      "regex": "Regular expression",
+      "previous": "Previous match",
+      "next": "Next match",
+      "close": "Close search"
+    }
+  },
   "diff": {
     "loading": "Reading diff…",
     "error": "Could not read the diff",

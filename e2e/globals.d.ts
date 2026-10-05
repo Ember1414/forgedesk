@@ -225,5 +225,19 @@ declare global {
      * 因此需要在运行中切换，而不是换个夹具再跑一遍。
      */
     __githubAuthRequired?: boolean;
+    /** 终端 e2e 的 mock 调用记录（T5.2：term_write / resize / close / create）。 */
+    __termWrites?: readonly { readonly termId: string; readonly text: string }[];
+    __termResize?: readonly {
+      readonly termId: string;
+      readonly cols: number;
+      readonly rows: number;
+    }[];
+    __termClosed?: readonly string[];
+    __createdSessions?: readonly { readonly termId: string; readonly request: unknown }[];
+    /** 手动投递一次终端输出 / 退出事件（mock 后端的 push 通道）。 */
+    __emitTermOutput?: (termId: string, text: string) => void;
+    __emitTermExit?: (termId: string, code: number | null) => void;
+    /** 终端缓冲文本（xterm canvas 渲染器无 DOM 文本，E2E 从缓冲断言；manager.ts 挂载）。 */
+    __forgedeskTermText?: (termId: string) => string;
   }
 }

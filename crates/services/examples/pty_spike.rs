@@ -26,7 +26,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use forgedesk_services::terminal::{wait_for_exit, PtyConfig, PtySession, TerminalCallbacks};
+use forgedesk_services::terminal::{
+    resolve_shell, wait_for_exit, PtyConfig, PtySession, TerminalCallbacks,
+};
 use parking_lot::Mutex;
 
 const CJK_MARKER: &str = "MARK_\u{4e2d}\u{6587}_OK"; // MARK_中文_OK
@@ -135,7 +137,9 @@ fn default_config(cols: u16, rows: u16) -> PtyConfig {
         cwd: std::env::temp_dir(),
         cols,
         rows,
-        shell: None,
+        // spike 是无头读取端：走 resolve_shell（带编码设置），不依赖 None 兜底路径。
+        shell: Some(resolve_shell(None)),
+        env: std::collections::BTreeMap::new(),
         // 无头读取端：PSReadLine 启动时等 DSR 应答，不开就永远等不到提示符。
         auto_reply_dsr: true,
     }
