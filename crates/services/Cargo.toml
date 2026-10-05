@@ -32,6 +32,9 @@ parking_lot.workspace = true
 secrecy.workspace = true
 pulldown-cmark = "0.13.4"
 ammonia = "4.2.0"
+# portable-pty（T5.1/T5.2）：跨平台 PTY（Windows ConPTY / Unix openpty），wezterm 项目出品，
+# Apache-2.0。终端会话的创建/读写/resize 全部经它，避免手写三平台 fork/exec 差异。
+portable-pty = "0.9"
 
 [dev-dependencies]
 wiremock = "0.6.5"

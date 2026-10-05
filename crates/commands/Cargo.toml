@@ -26,6 +26,9 @@ forgedesk-storage.workspace = true
 anyhow.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+# base64（T5.1/T5.2）：终端输出是二进制流，IPC 事件载荷用 base64 字符串传输
+# （JSON 数字数组约 3.9 字节/字节，base64 约 1.33 字节/字节，实测数据见 docs/PTY-SPIKE.md）。
+base64 = "0.22"
 tauri.workspace = true
 reqwest = { version = "0.13.5", features = ["json", "form", "query"] }
 thiserror.workspace = true
