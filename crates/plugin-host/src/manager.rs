@@ -104,6 +104,8 @@ pub struct PluginSummary {
     pub license: String,
     /// 描述。
     pub description: String,
+    /// 主页链接（清单未填则为 None）。
+    pub homepage: Option<String>,
     /// 管理态。
     pub state: ManagedState,
     /// 清单声明的权限。
@@ -446,6 +448,7 @@ impl PluginManager {
                     author: plugin.manifest.author.clone(),
                     license: plugin.manifest.license.clone(),
                     description: plugin.manifest.description.clone(),
+                    homepage: plugin.manifest.homepage.clone(),
                     state: plugin.state,
                     declared_permissions: plugin.manifest.permissions.clone(),
                     granted_permissions: plugin.granted.iter().copied().collect(),

@@ -1302,6 +1302,7 @@ dependencies = [
  "forgedesk-git-engine",
  "forgedesk-jobs",
  "forgedesk-platform",
+ "forgedesk-plugin-host",
  "forgedesk-provider",
  "forgedesk-services",
  "forgedesk-snapshot",

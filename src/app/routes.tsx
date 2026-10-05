@@ -41,6 +41,7 @@ import { AppearanceSettingsPage } from '@/features/settings/AppearanceSettingsPa
 import { GeneralSettingsPage } from '@/features/settings/GeneralSettingsPage';
 import { GitSettingsPage } from '@/features/settings/GitSettingsPage';
 import { GitHubSettingsPage } from '@/features/settings/GitHubSettingsPage';
+import { PluginSettingsPage } from '@/features/settings/PluginSettingsPage';
 import { SettingsLayout } from '@/features/settings/SettingsLayout';
 import { ComponentsPage } from '@/ui/__dev__/ComponentsPage';
 import { DesignSystemPage } from '@/ui/__dev__/DesignSystemPage';
@@ -99,6 +100,7 @@ export const appRoutes: RouteObject[] = [
           { index: true, element: <Navigate to="general" replace /> },
           { path: 'general', element: <GeneralSettingsPage /> },
           { path: 'appearance', element: <AppearanceSettingsPage /> },
+          { path: 'plugins', element: <PluginSettingsPage /> },
           { path: 'git', element: <GitSettingsPage /> },
           { path: 'github', element: <GitHubSettingsPage /> },
           { path: 'advanced', element: <AdvancedSettingsPage /> },

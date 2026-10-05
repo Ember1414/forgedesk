@@ -386,7 +386,8 @@ impl HostServices for AppHostServices {
             kind: "command".to_owned(),
             id: id.to_owned(),
             title: title.to_owned(),
-            location: keybinding.is_some().then(|| keybinding.clone()).flatten(),
+            // command 没有面板位置；keybinding 走设置页改绑，不进 location
+            location: None,
         });
         drop(registry);
         let _ = self.app.emit(EVENT_PLUGIN_REGISTRATIONS, ());

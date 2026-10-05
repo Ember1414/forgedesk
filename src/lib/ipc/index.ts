@@ -469,6 +469,7 @@ export interface PluginSummary {
   readonly author: string;
   readonly license: string;
   readonly description: string;
+  readonly homepage?: string;
   readonly state: PluginManagedState;
   readonly declaredPermissions: readonly string[];
   readonly grantedPermissions: readonly string[];
