@@ -1,0 +1,13 @@
+[package]
+name = "forgedesk-plugin-sdk"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["rlib"]
+
+[dependencies]
+# no_std wasm 全局分配器（std 给 wasm32 用的同款实现；MIT/Apache）。
+# freestanding 插件因此不带任何 WASI 导入，宿主无需 WASI 运行时。
+dlmalloc = { version = "0.2", features = ["global"] }

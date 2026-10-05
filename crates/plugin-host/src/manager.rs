@@ -148,6 +148,7 @@ impl std::fmt::Debug for PluginManager {
     }
 }
 
+/// 插件生命周期管理器（安装/授权/启用禁用/卸载/热重载的唯一入口）。
 pub struct PluginManager {
     engine: Arc<WasmiEngine>,
     plugins_root: PathBuf,

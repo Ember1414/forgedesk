@@ -22,16 +22,17 @@
 //! prepare/execute 管线），本期返回结构化错误而不是绕过安全网（红线 R7）。
 //! 接入随提交钩子扩展点一起完成。
 
+use parking_lot::Mutex;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use forgedesk_domain::{AppError, AppResult};
 use forgedesk_git_engine::engines::GitEngines;
 use forgedesk_plugin_host::engine_wasmi::WasmiEngine;
-use forgedesk_plugin_host::host::{self, HostServices, SharedServices};
+use forgedesk_plugin_host::host::{HostServices, SharedServices};
 use forgedesk_plugin_host::manager::{
-    InstallReport, ManagedState, PersistedEntry, PluginManager, PluginSummary, RegistryStore,
+    InstallReport, PersistedEntry, PluginManager, PluginSummary, RegistryStore,
 };
 use forgedesk_plugin_host::permission::Permission;
 use forgedesk_plugin_host::runtime::HostError;
@@ -59,6 +60,7 @@ pub struct RegistrationDto {
     pub kind: String,
     /// 全名（`<plugin-id>.<id>`）。
     pub id: String,
+    /// 展示标题。
     pub title: String,
     /// 仅面板有：sidebar / bottom / repo-tab。
     pub location: Option<String>,
@@ -71,15 +73,13 @@ pub struct RegistrationDto {
 impl std::fmt::Debug for AppHostServices {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("AppHostServices")
-            .field("registrations", &self.registrations.lock().map(|r| r.len()))
-            .field(
-                "subscribed_plugins",
-                &self.subscriptions.lock().map(|s| s.len()),
-            )
+            .field("registrations", &self.registrations.lock().len())
+            .field("subscribed_plugins", &self.subscriptions.lock().len())
             .finish()
     }
 }
 
+/// 插件宿主服务的真实实现（组合根）。
 pub struct AppHostServices {
     database: Arc<Database>,
     engines: Arc<GitEngines>,
@@ -161,10 +161,7 @@ impl AppHostServices {
 
     /// 已注册的贡献点（命令面板 / 面板挂载查询）。
     pub fn registrations(&self) -> Vec<RegistrationDto> {
-        self.registrations
-            .lock()
-            .expect("registry poisoned")
-            .clone()
+        self.registrations.lock().clone()
     }
 }
 
@@ -379,7 +376,8 @@ impl HostServices for AppHostServices {
         title: &str,
         keybinding: Option<String>,
     ) -> Result<Value, HostError> {
-        let mut registry = self.registrations.lock().expect("registry poisoned");
+        let _ = keybinding; // 快捷键经设置页改绑，注册时不消费
+        let mut registry = self.registrations.lock();
         registry.retain(|r| !(r.plugin_id == plugin_id && r.id == id));
         registry.push(RegistrationDto {
             plugin_id: plugin_id.to_owned(),
@@ -401,7 +399,7 @@ impl HostServices for AppHostServices {
         title: &str,
         location: &str,
     ) -> Result<Value, HostError> {
-        let mut registry = self.registrations.lock().expect("registry poisoned");
+        let mut registry = self.registrations.lock();
         registry.retain(|r| !(r.plugin_id == plugin_id && r.id == id));
         registry.push(RegistrationDto {
             plugin_id: plugin_id.to_owned(),
@@ -426,7 +424,6 @@ impl HostServices for AppHostServices {
     fn subscribe_events(&self, plugin_id: &str, events: Vec<String>) -> Result<Value, HostError> {
         self.subscriptions
             .lock()
-            .expect("subscriptions poisoned")
             .insert(plugin_id.to_owned(), events);
         Ok(json!({}))
     }
@@ -434,7 +431,6 @@ impl HostServices for AppHostServices {
     fn event_interest(&self, plugin_id: &str, event: &str) -> bool {
         self.subscriptions
             .lock()
-            .expect("subscriptions poisoned")
             .get(plugin_id)
             .is_some_and(|events| events.iter().any(|e| e == event))
     }
@@ -451,6 +447,7 @@ pub struct SettingsRegistryStore {
 }
 
 impl SettingsRegistryStore {
+    /// 绑定数据库构建注册表持久化。
     pub fn new(database: Arc<Database>) -> Self {
         Self { database }
     }

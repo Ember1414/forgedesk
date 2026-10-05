@@ -3,8 +3,50 @@
 > 面向插件开发者的宿主接口规范。版本：**apiVersion `0.1`**。
 > **1.0 之前不保证任何兼容性**：MINOR 升级只新增（不改签名、不删除），
 > MAJOR 不匹配的插件拒绝加载（清单校验在加载时执行）。
->
-> 三个官方示例插件（T6.5）落地后，本文档将以它们为主线补充完整源码解读。
+
+## 0. 从三个示例开始（源码即文档）
+
+| 示例 | 演示的能力 | 关键源码 |
+| --- | --- | --- |
+| `plugins/examples/commit-template` | 命令 + toast + 优雅降级（无仓库时返回错误提示） | `plugins/commit-template/src/lib.rs` |
+| `plugins/examples/repo-stats` | 面板渲染（DSL：标题/文本/表格/文本条形图） | `plugins/repo-stats/src/lib.rs` |
+| `plugins/examples/repo-audit` | 多检查项面板 + Markdown 报告命令 + fs:read | `plugins/repo-audit/src/lib.rs` |
+
+插件是 **freestanding WASI 模块**（无任何 WASI 导入），用 Rust 编写：
+
+```bash
+rustup target add wasm32-wasip1
+node scripts/build-plugins.mjs   # 构建 plugins/ 下全部示例并同步产物
+```
+
+三个示例共用 [`plugins/sdk`](../plugins/sdk/src/lib.rs)：`fd_alloc` 分配导出、
+`fd.log`/`fd.host_call`/`fd.host_result` 导入封装、结果打包
+（`(指针 << 32) | 长度`）、no_std 分配器（dlmalloc）与 panic handler
+（panic = wasm trap，宿主隔离）。
+
+从示例抄的最小骨架（以 repo-stats 为例）：
+
+```rust
+#[no_mangle]
+pub extern "C" fn fd_activate() -> i32 {
+    let _ = forgedesk_plugin_sdk::host_call(
+        13, // register_panel
+        &format!("{{\"id\":\"stats\",\"title\":\"仓库统计\",\"location\":\"sidebar\"}}"),
+    );
+    0
+}
+
+#[no_mangle]
+pub extern "C" fn fd_render_panel(ptr: i32, len: i32) -> i64 {
+    forgedesk_plugin_sdk::pack_result(&render())
+}
+```
+
+行为规范（示例共同遵守，作者应遵循）：
+
+- **无仓库时优雅降级**：仓库范围调用失败返回提示内容，不 trap；
+- **panic 只留给真正的 bug**：预期错误用 `log` 记录并以数据返回；
+- **只读优先**：`git:write` / `fs:write` 仅在确有必要时申请。
 
 ## 1. 清单（plugin.json）
 

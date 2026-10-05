@@ -1307,6 +1307,7 @@ dependencies = [
  "forgedesk-services",
  "forgedesk-snapshot",
  "forgedesk-storage",
+ "parking_lot",
  "reqwest",
  "secrecy",
  "serde",

@@ -1,0 +1,16 @@
+{
+  "id": "com.example.repo-audit",
+  "name": "Repo Audit",
+  "version": "0.1.0",
+  "apiVersion": "0.1",
+  "author": "ForgeDesk contributors",
+  "license": "Apache-2.0",
+  "description": "Read-only repository audit: secret files, unignored build outputs, case conflicts, commit message convention rate. Exports a Markdown report.",
+  "homepage": "https://github.com/Ember1414/forgedesk",
+  "main": "plugin.wasm",
+  "permissions": ["git:read", "fs:read", "ui:panel", "ui:command"],
+  "contributes": {
+    "panels": [{ "id": "audit", "title": "仓库巡检", "location": "repo-tab" }],
+    "commands": [{ "id": "copy-report", "title": "复制巡检报告（Markdown）" }]
+  }
+}

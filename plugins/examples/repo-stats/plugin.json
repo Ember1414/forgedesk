@@ -1,0 +1,15 @@
+{
+  "id": "com.example.repo-stats",
+  "name": "Repo Stats",
+  "version": "0.1.0",
+  "apiVersion": "0.1",
+  "author": "ForgeDesk contributors",
+  "license": "Apache-2.0",
+  "description": "Sidebar panel with 30-day commit count, author distribution and an hour-of-day bar chart.",
+  "homepage": "https://github.com/Ember1414/forgedesk",
+  "main": "plugin.wasm",
+  "permissions": ["git:read", "ui:panel"],
+  "contributes": {
+    "panels": [{ "id": "stats", "title": "仓库统计", "location": "sidebar" }]
+  }
+}

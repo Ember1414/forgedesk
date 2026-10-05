@@ -95,7 +95,7 @@ impl OpenRepoRegistry {
                     .open
                     .lock()
                     .ok()
-                    .and_then(|open| open.iter().rev().next().copied());
+                    .and_then(|open| open.iter().next_back().copied());
             }
         }
         self.open

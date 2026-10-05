@@ -182,6 +182,22 @@ jobs:
       - name: Destructive operation safety matrix
         run: cargo test -p forgedesk-services --test destructive_safety_matrix
 
+  example-plugins:
+    name: example-plugins
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-wasip1
+      - name: 构建示例插件并同步产物
+        run: node scripts/build-plugins.mjs
+      - name: 校验产物与源码同步（忘了跑构建脚本会在这里红）
+        run: git diff --exit-code -- plugins/examples
+      - name: 冒烟测试（加载入库产物）
+        run: cargo test -p forgedesk-plugin-host --test example_plugins
+
   build:
     name: build (${{ matrix.platform }})
     needs: [quality, safety]

@@ -482,7 +482,7 @@ impl PluginEngine for WasmiEngine {
     fn invoke(
         &self,
         handle: PluginHandle,
-        _command: &str,
+        command: &str,
         arg_json: &str,
     ) -> Result<String, HostError> {
         let mut instances = self.instances.write();
@@ -508,7 +508,16 @@ impl PluginEngine for WasmiEngine {
                 .get_typed_func::<(i32, i32), i64>(&plugin.store, "fd_invoke")
                 .map_err(|_| HostError::Engine("plugin does not export fd_invoke".to_owned()))?;
 
-            let args = arg_json.as_bytes();
+            // 命令与参数合并成一个 payload：插件从 `command` 字段知道该执行什么
+            //（arg_json 必须是合法 JSON 对象/值，否则按参数错误处理）
+            let args_value: serde_json::Value = serde_json::from_str(arg_json)
+                .map_err(|error| HostError::InvalidArgument("arg_json", error.to_string()))?;
+            let payload = format!(
+                "{{\"command\":{},\"args\":{}}}",
+                serde_json::to_string(command).unwrap_or_default(),
+                args_value
+            );
+            let args = payload.as_bytes();
             let args_len = i32::try_from(args.len())
                 .map_err(|_| HostError::InvalidArgument("arg_json", "too large".to_owned()))?;
             let ptr = alloc
