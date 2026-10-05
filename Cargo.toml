@@ -59,6 +59,10 @@ serde_json = "1"
 # schemars：由 serde 结构体生成 JSON Schema。plugin-host 用它从 plugin.json
 # 清单结构生成正式 schema，供文档与第三方校验工具使用（T6.1）。
 schemars = "1"
+# wasmi：插件 wasm 引擎（T6.1）。选型对比：wasmtime 裁剪+WASI +5.59MB、
+# wasmi 仅 +0.74MB（release/lto/opt-level=s 实测）；UI 胶水类插件对解释器
+# 性能足够，日后可经 PluginEngine trait 无痛切换引擎。审批结论 2026-10-05。
+wasmi = "2"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "time", "json"] }
 # tracing-appender 提供**非阻塞写入**（WorkerGuard 保证退出前 flush）。
