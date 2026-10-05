@@ -29,6 +29,18 @@ const MOCK_SCRIPT = `
       if (command === "app_version") return Promise.resolve({ version: "0.0.1", gitDescribe: null });
       if (command === "logs_tail") return Promise.resolve([]);
       if (command === "plugin:event|unlisten") return Promise.resolve(null);
+      // 代码托管区域的读取命令：路由表用例会逐个打开每个导航项，而它们的 DTO
+      // 是**非空**契约形状（{items, nextPage} / {repos}）。落到"兜底 null"
+      // 上页面会当场进错误边界——那既不是"路由解析成功"，也不是这个用例要测的东西。
+      // 给空页：页面渲染空态，断言仍然有效。
+      if (command === "account_list") return Promise.resolve([]);
+      if (command === "repo_rate_limit_state") return Promise.resolve(null);
+      if (command === "repo_dashboard") return Promise.resolve({ repos: [] });
+      if (command === "repo_remote_list" || command === "repo_remote_starred"
+          || command === "repo_remote_search" || command === "repo_pull_list"
+          || command === "repo_issue_list" || command === "repo_actions_runs_list") {
+        return Promise.resolve({ items: [], nextPage: null });
+      }
       return Promise.resolve(null);
     },
     metadata: { currentWindow: { label: "main" }, currentWebview: { label: "main" } }
@@ -100,8 +112,10 @@ test('every sidebar entry opens its own page', async ({ page }) => {
     ['设置', '通用'],
   ];
   for (const [name, heading] of expectations) {
-    // 仓库页内部还有同名标签（如"工作区"），必须把范围限定在侧栏导航内
-    await nav.getByRole('link', { name }).click();
+    // 仓库页内部还有同名标签（如"工作区"），必须把范围限定在侧栏导航内；
+    // `exact` 同样必要：T3.10 之后侧栏同时有"历史"与"操作历史"，
+    // 子串匹配会一次命中两个链接（strict mode violation）
+    await nav.getByRole('link', { name, exact: true }).click();
     await expect(page.getByRole('heading', { level: 1, name: heading })).toBeVisible();
   }
 });
