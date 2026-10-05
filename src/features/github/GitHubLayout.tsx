@@ -1,6 +1,7 @@
 import { useTranslation } from 'react-i18next';
 import { NavLink, Outlet } from 'react-router-dom';
 
+import { RateLimitBanner } from '@/features/github/RateLimitBanner';
 import { cn } from '@/lib/utils';
 
 /**
@@ -40,6 +41,10 @@ export function GitHubLayout() {
           </NavLink>
         ))}
       </nav>
+
+      {/* 限流横幅（T4.10）：额度耗尽时告知"正在展示缓存数据 + 重置时间"，
+          覆盖 GitHub 区域的所有页面；额度充足时零占位 */}
+      <RateLimitBanner />
 
       <div className="min-h-0 flex-1 overflow-auto">
         <Outlet />

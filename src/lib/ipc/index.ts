@@ -285,6 +285,8 @@ export {
   ACTIONS_LOG_CHUNK_EVENT,
 } from './actions';
 export type { ActionsLogChunkPayload, RunJob, RunPage, WorkflowRunSummary } from './actions';
+export { repoRateLimitRefresh, repoRateLimitState } from './rateLimit';
+export type { RateLimitSnapshot } from './rateLimit';
 export {
   repoIssueAssignees,
   repoIssueAssigneesSet,

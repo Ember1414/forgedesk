@@ -1472,6 +1472,12 @@
       "logsCancelled": "下载已取消（{{lines}} 行）",
       "logsFailed": "日志加载失败。",
       "logsEmpty": "日志还没有内容。"
+    },
+    "rateLimit": {
+      "exhausted": "GitHub API 额度已用尽，正在展示缓存数据。",
+      "nearLimit": "GitHub API 剩余额度较低：{{remaining}}/{{limit}}。",
+      "resetAt": "{{time}} 恢复",
+      "refresh": "刷新额度"
     }
   },
   "repo": {

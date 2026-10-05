@@ -381,6 +381,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         forgedesk_commands::repo_actions_run_cancel,
         forgedesk_commands::repo_actions_run_rerun,
         forgedesk_commands::repo_actions_job_logs,
+        forgedesk_commands::repo_rate_limit_state,
+        forgedesk_commands::repo_rate_limit_refresh,
         forgedesk_commands::debug_throw_error,
         forgedesk_commands::debug_panic,
     ]);
@@ -524,6 +526,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         forgedesk_commands::repo_actions_run_cancel,
         forgedesk_commands::repo_actions_run_rerun,
         forgedesk_commands::repo_actions_job_logs,
+        forgedesk_commands::repo_rate_limit_state,
+        forgedesk_commands::repo_rate_limit_refresh,
     ]);
 
     let app = builder.build(tauri::generate_context!())?;

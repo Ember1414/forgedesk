@@ -1602,6 +1602,19 @@ run 的可取消/可重跑判定在前端按 `status`（`queued`/`in_progress`/`
 actor, runNumber, createdAt?, updatedAt?, htmlUrl }`（`name` 取 `display_title`，
 回退 `name`）。
 
+### 限流状态与降级（T4.10）
+
+`x-ratelimit-*` 头由 HTTP 底座在**每一个**响应上捕获进共享快照（错误响应也带）；
+`GET` 请求带 ETag 条件请求，304 回放缓存体（省配额），**限流（403 remaining=0 / 429）
+或传输失败时自动回退缓存体**——调用方拿到的是正常成功响应，降级对服务层透明
+（响应带 `x-forgedesk-cache: stale` 标记）。只缓存 ≤1MB 的 JSON 响应（日志流/raw
+README 直连）。UI 判定：快照 `remaining == 0` → 横幅"额度耗尽、展示缓存数据 + 重置时间"。
+
+| 命令 | 能力 | 参数 | 返回 / 说明 |
+| --- | --- | --- | --- |
+| `repo_rate_limit_state` | ReadOnly | — | `RateLimitSnapshot?`：`{ resource?, limit, remaining, used, resetUnixSecs }`（本地快照，零网络成本；会话内没发过请求为 `null`） |
+| `repo_rate_limit_refresh` | Network | `host, repoId?` | `RateLimitSnapshot`；走 `GET /rate_limit`（不耗配额、值权威、含同令牌在其他端的消耗） |
+
 ### 远端仓库与账号绑定（T4.5）
 
 远端仓库走平台 REST（列表/搜索/星标/fork），分页用页码游标：`nextPage` 为 `null`

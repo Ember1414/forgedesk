@@ -1414,6 +1414,7 @@ version = "0.0.1"
 dependencies = [
  "async-trait",
  "forgedesk-domain",
+ "http",
  "octocrab",
  "parking_lot",
  "reqwest",

@@ -1472,6 +1472,12 @@
       "logsCancelled": "Download cancelled ({{lines}} lines)",
       "logsFailed": "Failed to load logs.",
       "logsEmpty": "No log content yet."
+    },
+    "rateLimit": {
+      "exhausted": "GitHub API quota exhausted; showing cached data.",
+      "nearLimit": "GitHub API quota running low: {{remaining}}/{{limit}}.",
+      "resetAt": "resets at {{time}}",
+      "refresh": "Refresh quota"
     }
   },
   "repo": {

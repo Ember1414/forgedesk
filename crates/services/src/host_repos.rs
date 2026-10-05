@@ -44,6 +44,8 @@ type ProviderFactory = Box<dyn Fn(&str) -> AppResult<GitHubProvider> + Send + Sy
 pub struct HostRepoService {
     database: Arc<Database>,
     credentials: SharedStore,
+    /// 本服务的基础 HTTP 底座（限流快照的持有源；工厂克隆的都是它）。
+    http: GitHubHttp,
     /// `host → provider 实例`。远端仓库端点不需要 client_id
     /// （只有 Device Flow 需要），因此这里不带设置校验。
     factory: ProviderFactory,
@@ -60,7 +62,7 @@ impl std::fmt::Debug for HostRepoService {
 impl HostRepoService {
     /// 用给定 HTTP 底座构造（限流捕获、代理与账号服务共享同一套）。
     pub fn new(database: Arc<Database>, credentials: SharedStore, http: GitHubHttp) -> Self {
-        Self::with_factory(database, credentials, {
+        Self::with_factory(database, credentials, http.clone(), {
             let http = http;
             Box::new(move |host| GitHubProvider::new(host, "", http.clone()))
         })
@@ -70,13 +72,33 @@ impl HostRepoService {
     pub fn with_factory(
         database: Arc<Database>,
         credentials: SharedStore,
+        http: GitHubHttp,
         factory: ProviderFactory,
     ) -> Self {
         Self {
             database,
             credentials,
+            http,
             factory,
         }
+    }
+
+    /// 最近一次限流快照（T4.10 降级 UI 的数据源；工厂克隆共享同一底座）。
+    #[must_use]
+    pub fn rate_limit_snapshot(&self) -> Option<forgedesk_provider::RateLimitState> {
+        self.http.rate_limit()
+    }
+
+    /// 主动刷新限流额度（`GET /rate_limit`：不耗配额、含其他端的消耗）。
+    /// 匿名可用（有账号则带账号视角的额度）。
+    pub async fn refresh_rate_limit(
+        &self,
+        host: &str,
+        repo_id: Option<i64>,
+    ) -> AppResult<forgedesk_provider::RateLimitState> {
+        let provider = self.provider_for(host)?;
+        let token = self.token_for(host, repo_id)?;
+        provider.refresh_rate_limit(token).await
     }
 
     /// 仓库绑定的账号（未绑定为 `None`）。
@@ -885,6 +907,7 @@ mod tests {
         let repos = HostRepoService::with_factory(
             Arc::clone(&database),
             keyring.clone(),
+            http.clone(),
             Box::new(move |host| {
                 Ok(GitHubProvider::with_endpoints(
                     host,

@@ -47,6 +47,8 @@ pub mod auth;
 pub mod client;
 /// `octocrab::Error` → `AppError` 的映射。
 pub mod error;
+/// GET 的 ETag 缓存与限流/离线降级（T4.10）。
+pub mod etag_cache;
 pub mod github;
 /// Issue 子服务（T4.8：列表滤 PR、详情、创建/编辑/关开/指派、评论）。
 pub mod issues;
@@ -64,6 +66,7 @@ pub use auth::{
 };
 pub use client::{ApiRequest, GitHubHttp, HttpConfig};
 pub use error::map_octocrab_error;
+pub use etag_cache::EtagCache;
 pub use github::GitHubProvider;
 pub use issues::{
     Assignee, IssueComment, IssueDetail, IssueEdit, IssuePage, IssueState, IssueSummary,

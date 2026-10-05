@@ -48,6 +48,7 @@ use forgedesk_domain::{AppError, ErrorCode};
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
+use crate::etag_cache::{cache_key, EtagCache};
 use crate::rate_limit::{RateLimitState, RateLimitTracker};
 use crate::redact::redact_tokens;
 
@@ -217,6 +218,7 @@ pub struct GitHubHttp {
     client: reqwest::Client,
     config: HttpConfig,
     rate_limit: RateLimitTracker,
+    cache: EtagCache,
 }
 
 impl GitHubHttp {
@@ -242,6 +244,7 @@ impl GitHubHttp {
             })?,
             config,
             rate_limit: RateLimitTracker::new(),
+            cache: EtagCache::new(),
         })
     }
 
@@ -263,11 +266,36 @@ impl GitHubHttp {
     }
 
     /// 发送请求：限流捕获 → 5xx 重试 → 错误映射。
+    ///
+    /// GET 请求参与 ETag 缓存（T4.10，见 [`crate::etag_cache`]）：
+    /// 带上轮的 `If-None-Match`，304 回放缓存体（省配额）；限流（403
+    /// remaining=0 / 429）或传输失败时回退缓存体——"过期但可用"优于
+    /// "什么都没有"（ARCHITECTURE.md §4.3 的降级路径）。缓存与回退对
+    /// 上层完全透明：调用方拿到的永远是一个正常的成功响应。
     pub async fn send(&self, request: &ApiRequest) -> Result<reqwest::Response, AppError> {
+        let is_get = request.method == reqwest::Method::GET;
+        let key = cache_key(&request.url, request.query.as_deref());
+        let etag = if is_get {
+            self.cache.etag_for(&key)
+        } else {
+            None
+        };
         let mut attempt: u32 = 0;
         loop {
-            let builder = self.build(request);
-            let response = builder.send().await.map_err(map_transport_error)?;
+            let builder = self.build(request, etag.as_deref());
+            let response = match builder.send().await {
+                Ok(response) => response,
+                Err(error) => {
+                    // 断网/超时等传输失败：有缓存就降级，别让离线的用户看空白页
+                    if is_get {
+                        if let Some(cached) = self.stale_fallback(&key) {
+                            tracing::warn!(%error, "GitHub 传输失败，回退 ETag 缓存");
+                            return Ok(cached);
+                        }
+                    }
+                    return Err(map_transport_error(error));
+                }
+            };
 
             self.rate_limit.capture(response.headers());
             let status = response.status();
@@ -283,7 +311,38 @@ impl GitHubHttp {
                 continue;
             }
 
+            // 304：内容未变，回放缓存体（304 的响应体是空的，必须用缓存）
+            if status == reqwest::StatusCode::NOT_MODIFIED && is_get {
+                return self.stale_fallback(&key).ok_or_else(|| {
+                    // etag 与缓存体同生共死，实际不可达；防御一条可读错误
+                    AppError::new(
+                        ErrorCode::Internal,
+                        "cache entry vanished during ETag revalidation",
+                    )
+                });
+            }
+
             if !status.is_success() {
+                // 主配额耗尽的降级：缓存命中就回退缓存体，让用户继续翻
+                // 已看过的数据，而不是被一堵 403 墙挡死
+                let rate_exhausted = self
+                    .rate_limit
+                    .snapshot()
+                    .is_some_and(|rate| rate.remaining == 0);
+                if is_get
+                    && (status == reqwest::StatusCode::TOO_MANY_REQUESTS
+                        || (status == reqwest::StatusCode::FORBIDDEN && rate_exhausted))
+                    && self.cache.body_for(&key).is_some()
+                {
+                    tracing::warn!(status = %status, "GitHub 限流，回退 ETag 缓存");
+                    return match self.stale_fallback(&key) {
+                        Some(cached) => Ok(cached),
+                        None => Err(AppError::new(
+                            ErrorCode::Internal,
+                            "cache entry vanished during rate-limit fallback",
+                        )),
+                    };
+                }
                 let has_credentials = request.has_credentials();
                 let (message, detail) = take_error_body(response).await;
                 return Err(map_github_failure(
@@ -294,11 +353,44 @@ impl GitHubHttp {
                     self.rate_limit.snapshot(),
                 ));
             }
+
+            // 有 ETag 的 JSON 响应进缓存（体 ≤1MB 才存，见 etag_cache）。
+            // 体读出后必须按**原头**重建——Link 分页头要活着穿过这次往返；
+            // 不是这个形状的响应（日志流、raw README）原样交还，一字节不动。
+            if is_get && cacheable_etag(response.headers()).is_some() {
+                let headers: reqwest::header::HeaderMap = response.headers().clone();
+                let body = response.bytes().await.map_err(map_transport_error)?;
+                if let Some(etag_value) = cacheable_etag(&headers) {
+                    let content_type = content_type_of(&headers);
+                    self.cache
+                        .store(&key, &etag_value, &content_type, body.to_vec());
+                }
+                return rebuild_response(status, &headers, body);
+            }
             return Ok(response);
         }
     }
 
-    fn build(&self, request: &ApiRequest) -> reqwest::RequestBuilder {
+    /// 从缓存重建一个 200 响应（304 回放与限流降级共用）。
+    fn stale_fallback(&self, key: &str) -> Option<reqwest::Response> {
+        let (content_type, body) = self.cache.body_for(key)?;
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.insert(
+            reqwest::header::CONTENT_TYPE,
+            reqwest::header::HeaderValue::from_str(&content_type).ok()?,
+        );
+        headers.insert(
+            reqwest::header::HeaderName::from_static("x-forgedesk-cache"),
+            reqwest::header::HeaderValue::from_static("stale"),
+        );
+        rebuild_response(http::StatusCode::OK, &headers, body).ok()
+    }
+
+    fn build(
+        &self,
+        request: &ApiRequest,
+        conditional_etag: Option<&str>,
+    ) -> reqwest::RequestBuilder {
         let mut builder = self.client.request(request.method.clone(), &request.url);
         // 默认 Accept 是 JSON（REST API 的绝大多数形态）；请求描述里已显式
         // 携带 accept 时以显式为准（README 的 raw 端点等），避免出现两个
@@ -325,8 +417,50 @@ impl GitHubHttp {
         for (name, value) in &request.headers {
             builder = builder.header(name, value);
         }
+        if let Some(etag) = conditional_etag {
+            builder = builder.header(reqwest::header::IF_NONE_MATCH, etag);
+        }
         builder
     }
+}
+
+/// 响应是否值得缓存：有 ETag 且 body 是 JSON。返回 etag 值。
+fn cacheable_etag(headers: &reqwest::header::HeaderMap) -> Option<String> {
+    let is_json = headers
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value.starts_with("application/json"));
+    let etag = headers
+        .get(reqwest::header::ETAG)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
+    etag.filter(|_| is_json)
+}
+
+fn content_type_of(headers: &reqwest::header::HeaderMap) -> String {
+    headers
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .map_or_else(|| "application/json".to_owned(), str::to_owned)
+}
+
+/// 用给定状态、头与体重建一个响应（缓存写入回放 / stale 回退共用）。
+fn rebuild_response<T: Into<reqwest::Body>>(
+    status: reqwest::StatusCode,
+    headers: &reqwest::header::HeaderMap,
+    body: T,
+) -> Result<reqwest::Response, AppError> {
+    let mut builder = http::Response::builder().status(status);
+    for (name, value) in headers {
+        builder = builder.header(name, value);
+    }
+    builder
+        .body(body)
+        .map(reqwest::Response::from)
+        .map_err(|error| {
+            AppError::new(ErrorCode::Internal, "failed to rebuild cached response")
+                .with_detail(error.to_string())
+        })
 }
 
 /// 传输层错误 → `NETWORK`（detail 脱敏：错误里可能带 URL 查询参数）。
@@ -838,5 +972,139 @@ mod tests {
             }
         ));
         assert!(error.detail.unwrap().contains(crate::redact::REDACTED));
+    }
+
+    // ---- ETag 缓存与限流/离线降级（T4.10）----
+
+    #[tokio::test]
+    async fn a_304_revalidates_from_the_cached_body_without_reaching_the_caller() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(header("if-none-match", "\"v1\""))
+            .respond_with(ResponseTemplate::new(304))
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            // 第一轮：If-None-Match 还没有（无缓存），走这个不带该头的分支
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .insert_header("etag", "\"v1\"")
+                    .set_body_json(serde_json::json!({ "page": 1 })),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let http = client().await;
+        let first = http.send(&ApiRequest::get(server.uri())).await.unwrap();
+        assert_eq!(first.status(), 200);
+
+        // 第二轮：服务器只回 304，调用方应拿到缓存体重建的 200
+        let second = http.send(&ApiRequest::get(server.uri())).await.unwrap();
+        assert_eq!(second.status(), 200);
+        let body: serde_json::Value = second.json().await.unwrap();
+        assert_eq!(body["page"], 1);
+        server.verify().await;
+    }
+
+    #[tokio::test]
+    async fn rate_limiting_falls_back_to_the_cached_body() {
+        let server = MockServer::start().await;
+        // wiremock 先挂载先匹配：给第一发一个专属头，让第二轮落进 403 mock
+        Mock::given(method("GET"))
+            .and(header("x-test-round", "first"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .insert_header("etag", "\"v1\"")
+                    .set_body_json(serde_json::json!({ "cached": true })),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+        // 第二轮起恒为限流 403（remaining=0 的头由捕获进 tracker）
+        Mock::given(method("GET"))
+            .respond_with(
+                ResponseTemplate::new(403)
+                    .insert_header("x-ratelimit-limit", "5000")
+                    .insert_header("x-ratelimit-remaining", "0")
+                    .insert_header("x-ratelimit-reset", "1790000000")
+                    .set_body_string(r#"{"message":"API rate limit exceeded"}"#),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let http = client().await;
+        let first = ApiRequest::get(server.uri())
+            .with_header("x-test-round", "first")
+            .unwrap();
+        http.send(&first).await.unwrap();
+        let degraded = http.send(&ApiRequest::get(server.uri())).await.unwrap();
+        assert_eq!(degraded.status(), 200, "限流时缓存回退，不是错误");
+        let body: serde_json::Value = degraded.json().await.unwrap();
+        assert_eq!(body["cached"], true);
+        server.verify().await;
+    }
+
+    #[tokio::test]
+    async fn without_a_cache_entry_rate_limiting_is_still_an_error() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .respond_with(
+                ResponseTemplate::new(403)
+                    .insert_header("x-ratelimit-limit", "5000")
+                    .insert_header("x-ratelimit-remaining", "0")
+                    .insert_header("x-ratelimit-reset", "1790000000"),
+            )
+            .mount(&server)
+            .await;
+
+        let http = client().await;
+        let error = http.send(&ApiRequest::get(server.uri())).await.unwrap_err();
+        assert_eq!(error.code, ErrorCode::RateLimited);
+    }
+
+    #[tokio::test]
+    async fn a_transport_failure_falls_back_to_the_cached_body() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .insert_header("etag", "\"v1\"")
+                    .set_body_json(serde_json::json!({ "offline": true })),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let http = client().await;
+        let uri = server.uri();
+        http.send(&ApiRequest::get(uri.clone())).await.unwrap();
+        drop(server); // "断网"：服务器没了
+
+        let degraded = http.send(&ApiRequest::get(uri)).await.unwrap();
+        let body: serde_json::Value = degraded.json().await.unwrap();
+        assert_eq!(body["offline"], true);
+    }
+
+    #[tokio::test]
+    async fn non_json_responses_are_never_cached() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .insert_header("etag", "\"v1\"")
+                    .set_body_string("log line"),
+            )
+            .expect(2)
+            .mount(&server)
+            .await;
+
+        let http = client().await;
+        http.send(&ApiRequest::get(server.uri())).await.unwrap();
+        // 第二轮必须原样到达服务器（没有 If-None-Match），日志流永远直连
+        http.send(&ApiRequest::get(server.uri())).await.unwrap();
+        server.verify().await;
     }
 }

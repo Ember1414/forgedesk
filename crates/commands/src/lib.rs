@@ -43,6 +43,7 @@ pub mod issues;
 pub mod jobs;
 pub mod logs;
 pub mod merge;
+pub mod rate_limit;
 pub mod rebase;
 pub mod remote_repos;
 pub mod repository;
@@ -111,6 +112,7 @@ pub use merge::{
     git_merge_continue, git_merge_execute, git_merge_prepare, MergeExecuteRequest, MergePlanDto,
     MergeRequest,
 };
+pub use rate_limit::{repo_rate_limit_refresh, repo_rate_limit_state};
 pub use rebase::{
     git_rebase_continue_edit, git_rebase_execute, git_rebase_preview_only, git_rebase_range,
     RebaseExecuteRequest, RebaseOutcomeDto, RebasePreviewDto, RebaseRangeEntryDto,
