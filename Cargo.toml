@@ -56,6 +56,9 @@ thiserror = "2"
 anyhow = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# schemars：由 serde 结构体生成 JSON Schema。plugin-host 用它从 plugin.json
+# 清单结构生成正式 schema，供文档与第三方校验工具使用（T6.1）。
+schemars = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "time", "json"] }
 # tracing-appender 提供**非阻塞写入**（WorkerGuard 保证退出前 flush）。
