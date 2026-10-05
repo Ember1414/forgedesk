@@ -86,6 +86,8 @@ interface FixAction {
 | [`term_output_tail`](#term_create--term_write--term_resize--term_close--term_list--term_output_tail--term_shell_list) | ReadOnly | T5.2 | 读取会话尾部输出（≤1000 行，退出后仍可读） |
 | [`term_shell_list`](#term_create--term_write--term_resize--term_close--term_list--term_output_tail--term_shell_list) | ReadOnly | T5.2 | 列出本平台可选 shell |
 | [`system_open_url`](#system_open_url) | Network | T5.2 | 用系统默认浏览器打开 http(s) 链接 |
+| [`system_diagnose_error`](#system_diagnose_error--system_diagnose_keys) | ReadOnly | T5.5 | 诊断一段 stderr（规则引擎，本地） |
+| [`system_diagnose_keys`](#system_diagnose_error--system_diagnose_keys) | ReadOnly | T5.5 | 诊断命中的规则 id 清单（诊断历史用） |
 | [`workspace_status`](#workspace_status) | ReadOnly | T1.4 | 读取工作区状态（分组、分支头、操作状态） |
 | [`workspace_stage`](#workspace_stage--workspace_unstage--workspace_discard--workspace_reveal) | Mutating | T1.4 / T1.6 | 暂存路径 / 块 / 行（成功后发布 repo:changed） |
 | [`workspace_unstage`](#workspace_stage--workspace_unstage--workspace_discard--workspace_reveal) | Mutating | T1.4 / T1.6 | 取消暂存路径 / 块 / 行 |
@@ -472,6 +474,28 @@ cwd 绑定仓库根（后端做逃逸校验）。
 - **会话持久化**：应用重启后不恢复会话；`term_output_tail` 是"会话退出后保留
   最后 1000 行供查看"的后端出口。
 - **前端封装**：`src/lib/ipc/terminal.ts`（`termCreate` 等）；调用点：`src/features/terminal/`
+
+### system_diagnose_error / system_diagnose_keys
+
+诊断规则引擎（T5.5）的 IPC 入口：把一段原始 stderr 映射为结构化诊断
+（`diag.<id>.*` 的 i18n key + 置信度 + 原因列表 + 修复动作）。规则只含 key，
+中英文由前端渲染；规则文件在 `crates/diagnostics/rules/*.yaml`（编译期内嵌），
+运行时可被 `app_config_dir()/diagnostics/*.yaml` 覆盖（同 id 替换、新 id 追加，
+"不发版修规则"）。匹配语义与验收（每规则 fixture / 20 误报 / 消歧）见
+`crates/diagnostics/tests/rules.rs`。
+
+- **能力等级**：`ReadOnly`（纯计算 + 可选的覆盖目录读取）
+- **注册范围**：全构建
+
+| 命令 | 参数 | 返回 | 说明 / 错误 |
+| --- | --- | --- | --- |
+| `system_diagnose_error` | `stderr`（截断到 8KB），`context?: { opType?, upstream?, detached?, shallow? }` | `DiagnosticReport`：`{ primary?, alternatives[], rawSummary }`；`primary = { id, confidence, titleKey, explanationKey, causes[], fixes[] }`；`fix.action.kind ∈ command / guide / dangerous` | **kind=command 前端可直接执行；kind=dangerous 必须走 DangerousActionDialog**；无命中时 `primary` 为 null（原始错误照常展示） |
+| `system_diagnose_keys` | 同上 | `{ primary?, alternatives[] }`（规则 id 清单） | "诊断历史"的轻量指纹（T5.6） |
+
+- **前端封装**：`src/lib/ipc/diagnostics.ts`（T5.6 落地）
+- **测试**：`crates/diagnostics/tests/rules.rs`（51 规则 × fixture 表驱动）
+
+---
 
 ### system_open_url
 

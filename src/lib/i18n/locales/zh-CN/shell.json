@@ -1624,5 +1624,315 @@
       "loadErrorHint": "账号列表与绑定状态加载失败，请重试。",
       "retry": "重试"
     }
+  },
+  "diag": {
+    "push-non-fast-forward": {
+      "title": "推送被拒绝：远端有新提交",
+      "explanation": "远端分支已经领先于你本地的记录，直接推送会丢掉别人的工作，所以被 Git 拒绝了。",
+      "cause1": "远端分支上有你本地还没有的提交（别人先推了）。",
+      "fix_fetch_then_retry": "先抓取再重试（推荐）",
+      "fix_use_force_with_lease": "用 force-with-lease 强推"
+    },
+    "push-no-upstream": {
+      "title": "分支没有上游",
+      "explanation": "这个分支还没告诉 Git 它对应远端的哪个分支，所以不知道该推到哪里。",
+      "cause1": "新分支还没有与远端分支建立关联。",
+      "fix_set_upstream": "推送并建立关联"
+    },
+    "push-fetch-first": {
+      "title": "推送被拒：先抓取",
+      "explanation": "远端分支比本地新，Git 要求先抓取并整合远端的提交。",
+      "cause1": "远端有新提交，需要先整合再推。",
+      "fix_fetch_then_retry": "先抓取再重试"
+    },
+    "push-stale-lease": {
+      "title": "force-with-lease 被拒：信息过期",
+      "explanation": "安全强推检测到远端比你本地记录的更新——这是保护机制在工作。先抓取确认没有别人的提交，再重试。",
+      "cause1": "远端在你上次抓取之后又更新了，本地记录已过期。",
+      "fix_fetch_then_retry": "先抓取再重试"
+    },
+    "push-remote-rejected": {
+      "title": "远端拒绝了推送",
+      "explanation": "推送被远端服务器（而不是本地 Git）拒绝，通常是分支保护或服务端钩子所致。",
+      "cause1": "远端服务器（而非 Git 本身）拒绝了这次推送，常见于分支保护规则或服务端钩子。",
+      "fix_check_branch_protection": "了解分支保护规则"
+    },
+    "push-permission-403": {
+      "title": "推送被拒：没有权限",
+      "explanation": "当前账号没有向这个仓库推送的权限（403）。",
+      "cause1": "当前账号对该仓库没有推送权限。",
+      "fix_check_account": "检查账号与授权"
+    },
+    "net-dns-failure": {
+      "title": "无法解析主机名",
+      "explanation": "DNS 查不到这个主机名——检查网络连接、代理或远端地址拼写。",
+      "cause1": "域名解析失败：DNS 配置、网络断开或网址写错。",
+      "fix_check_network": "检查网络与代理设置"
+    },
+    "net-connection-refused": {
+      "title": "连接被拒绝",
+      "explanation": "TCP 连接被对端或中途设备拒绝。",
+      "cause1": "目标端口没有服务在监听，或防火墙/代理拦截了连接。",
+      "fix_check_network": "检查网络与代理设置"
+    },
+    "net-timeout": {
+      "title": "连接超时",
+      "explanation": "等待对端响应超时。",
+      "cause1": "网络太慢或不通；大仓库克隆尤其容易超时。",
+      "fix_retry": "重试并检查网络"
+    },
+    "net-ssl-certificate": {
+      "title": "TLS 证书校验失败",
+      "explanation": "HTTPS 证书没有被信任——连接是通的，是证书链的问题。",
+      "cause1": "服务器证书过期/自签名，或企业代理替换了证书链。",
+      "fix_check_cert": "检查证书与代理"
+    },
+    "net-proxy-failure": {
+      "title": "代理不可用",
+      "explanation": "连接代理失败：认证缺失、代理宕机或配置错误。",
+      "cause1": "代理需要认证、拒绝连接，或代理配置不完整。",
+      "fix_check_proxy": "检查代理设置"
+    },
+    "net-auth-failed": {
+      "title": "认证失败",
+      "explanation": "远端拒绝了凭据：令牌可能过期、被撤销或权限不足。",
+      "cause1": "用户名或令牌无效/过期。",
+      "fix_relogin": "重新登录账号"
+    },
+    "net-prompts-disabled": {
+      "title": "无法询问凭据",
+      "explanation": "ForgeDesk 以非交互方式运行 git，而这次操作需要输入用户名/密码——请先在设置里保存凭据。",
+      "cause1": "Git 以非交互方式运行，且没有可用的已保存凭据。",
+      "fix_save_credential": "保存凭据"
+    },
+    "net-could-not-read-remote": {
+      "title": "无法读取远端仓库",
+      "explanation": "与远端的连接建立后读取失败——凭据或仓库权限问题。",
+      "cause1": "SSH/HTTPS 通道不通：凭据、网络或远端仓库权限问题。",
+      "fix_check_remote": "检查凭据与远端"
+    },
+    "ssh-publickey-denied": {
+      "title": "SSH 公钥被拒绝",
+      "explanation": "服务器没有接受你的 SSH 公钥。",
+      "cause1": "SSH 公钥没有被服务端接受：公钥未上传、agent 未加载或选错了 key。",
+      "fix_check_ssh": "检查 SSH 配置"
+    },
+    "ssh-host-key-verification": {
+      "title": "主机指纹未信任",
+      "explanation": "known_hosts 里没有这台主机的记录，SSH 拒绝继续——核对指纹后信任它。",
+      "cause1": "首次连接该主机且指纹未被信任（known_hosts 里没有）。",
+      "fix_trust_host": "核对并信任主机指纹"
+    },
+    "remote-not-a-repo": {
+      "title": "远端不是 Git 仓库",
+      "explanation": "地址能连上，但对端不是 Git 仓库——检查 URL 是否拼写正确。",
+      "cause1": "远端地址写错，或地址指向的不是 Git 仓库。",
+      "fix_check_url": "检查远端地址"
+    },
+    "wt-not-a-repo": {
+      "title": "这里不是 Git 仓库",
+      "explanation": "Git 在指定目录（及其上层）都没有找到 .git。",
+      "cause1": "目标路径不是仓库，也不在其子目录中。",
+      "fix_open_repo": "打开一个仓库"
+    },
+    "wt-dubious-ownership": {
+      "title": "仓库所有权存疑",
+      "explanation": "仓库目录属于另一个用户，Git 出于安全拒绝操作。确认来源可信后，可将该目录加入 safe.directory 白名单。",
+      "cause1": "仓库目录属于另一个用户（Git 的安全保护）。",
+      "fix_mark_safe": "了解 safe.directory"
+    },
+    "wt-index-lock": {
+      "title": "索引被锁",
+      "explanation": "存在 index.lock：另一个 Git 进程正在操作这个仓库。确认没有其它进程后再清理锁文件。",
+      "cause1": "另一个 git 进程正在写索引（或上次进程崩溃留下了锁文件）。",
+      "fix_close_other_process": "如何安全处理锁文件"
+    },
+    "wt-local-changes-overwritten": {
+      "title": "本地修改会被覆盖",
+      "explanation": "这次操作会覆盖你未提交的修改，Git 拒绝执行。先暂存（stash）或提交它们。",
+      "cause1": "未提交的修改与即将合入的内容冲突。",
+      "fix_stash_first": "先暂存（stash）",
+      "fix_commit_first": "先提交"
+    },
+    "wt-detached-head": {
+      "title": "处于分离 HEAD 状态",
+      "explanation": "HEAD 指向一个具体提交而不是分支。在这里的提交切走后可能找不到——先建一个分支再继续。",
+      "cause1": "HEAD 直接指向某个提交而不是分支，此时的新提交不属于任何分支。",
+      "fix_create_branch": "创建分支收留当前状态"
+    },
+    "wt-filename-too-long": {
+      "title": "文件名过长",
+      "explanation": "路径超过了系统限制（Windows 默认 260 字符）。",
+      "cause1": "Windows 默认 260 字符路径上限（可用 core.longpaths 解除）。",
+      "fix_longpaths_guide": "了解 longpaths 选项"
+    },
+    "wt-permission-denied-fs": {
+      "title": "文件系统权限不足",
+      "explanation": "操作系统拒绝了对文件/目录的写入。",
+      "cause1": "文件系统权限不足：目录只读或被其他程序占用。",
+      "fix_check_permissions": "检查目录权限"
+    },
+    "wt-disk-full": {
+      "title": "磁盘空间不足",
+      "explanation": "写入失败因为磁盘满了——清理快照缓存或其它大文件后重试。",
+      "cause1": "磁盘空间不足。",
+      "fix_cleanup_snapshots": "查看快照占用"
+    },
+    "wt-lf-replaced": {
+      "title": "换行符将被转换",
+      "explanation": "这是 autocrlf 的提示（不是错误）：检出的文件用 LF，提交时会转成 CRLF。跨平台团队建议统一约定。",
+      "cause1": "换行符自动转换（core.autocrlf）会在提交时把 LF 转成 CRLF。",
+      "fix_autocrlf_guide": "了解换行符配置"
+    },
+    "wt-large-file": {
+      "title": "文件超过平台大小限制",
+      "explanation": "托管平台拒绝过大的文件——用 Git LFS 或从历史中移除它。",
+      "cause1": "单个文件超过托管平台的体积上限（GitHub 普通文件 100MB）。",
+      "fix_use_lfs": "了解 Git LFS"
+    },
+    "commit-no-identity": {
+      "title": "缺少提交者身份",
+      "explanation": "Git 不知道你是谁（没有 user.name / user.email）。在提交面板填写一次即可。",
+      "cause1": "没有配置 user.name / user.email。",
+      "fix_set_identity": "在提交面板填写身份"
+    },
+    "commit-empty-message": {
+      "title": "提交信息为空",
+      "explanation": "Git 拒绝空提交信息。",
+      "cause1": "提交信息为空。",
+      "fix_write_message": "填写提交信息"
+    },
+    "commit-nothing": {
+      "title": "没有可提交的内容",
+      "explanation": "暂存区是空的。先暂存一些改动。",
+      "cause1": "暂存区没有内容（或与上次提交相同）。",
+      "fix_review_status": "查看工作区状态"
+    },
+    "commit-hook-rejected": {
+      "title": "钩子拒绝了操作",
+      "explanation": "pre-commit / commit-msg 钩子检查未通过。按钩子的输出修正问题后重试。",
+      "cause1": "仓库的钩子脚本拒绝了这次操作。",
+      "fix_review_hooks": "查看钩子清单"
+    },
+    "conflict-content": {
+      "title": "内容冲突",
+      "explanation": "同一文件的同一区域被两边同时修改——在冲突向导里逐个解决。",
+      "cause1": "双方修改了同一区域，Git 无法自动合并。",
+      "fix_open_conflict_wizard": "打开冲突向导"
+    },
+    "merge-auto-failed": {
+      "title": "自动合并失败",
+      "explanation": "合并产生了冲突：解决后 git add，再继续合并。",
+      "cause1": "自动合并产生了冲突，等待人工解决。",
+      "fix_open_conflict_wizard": "打开冲突向导"
+    },
+    "hist-bad-object": {
+      "title": "对象不存在",
+      "explanation": "指定的哈希或引用在仓库里找不到。",
+      "cause1": "引用/哈希不存在：拼写错误，或对象不在本仓库。",
+      "fix_review_history": "浏览提交历史"
+    },
+    "hist-unknown-revision": {
+      "title": "未知版本或路径",
+      "explanation": "指定的分支/提交/路径不存在于本地——可能需要先 fetch。",
+      "cause1": "分支/路径拼写错误，或该提交不在本地。",
+      "fix_fetch_then_retry": "先抓取远端"
+    },
+    "hist-branch-not-exist": {
+      "title": "分支不存在",
+      "explanation": "找不到这个分支——检查名字，或确认它是否已被删除。",
+      "cause1": "远端/本地都没有这个名字的分支。",
+      "fix_list_branches": "浏览分支列表"
+    },
+    "hist-tag-exists": {
+      "title": "标签已存在",
+      "explanation": "这个名字的标签已经打过了。",
+      "cause1": "同名标签已存在。",
+      "fix_list_tags": "浏览标签"
+    },
+    "hist-branch-exists": {
+      "title": "分支已存在",
+      "explanation": "这个名字的分支已经有了。",
+      "cause1": "同名分支已存在。",
+      "fix_list_branches": "浏览分支列表"
+    },
+    "hist-no-tracking-info": {
+      "title": "没有跟踪信息",
+      "explanation": "这个分支没有上游。用 --set-upstream 建立关联，之后 pull/push 就不用带参数了。",
+      "cause1": "当前分支没有关联远端分支，pull/push 不知道要跟谁对齐。",
+      "fix_set_upstream": "推送并建立关联"
+    },
+    "hist-rebase-in-progress": {
+      "title": "变基仍在进行中",
+      "explanation": "仓库处于 rebase 中途：先解决全部冲突并标记，再 continue（或 abort 放弃）。",
+      "cause1": "上一次变基还没结束（有冲突未解决）。",
+      "fix_open_conflict_wizard": "打开冲突向导"
+    },
+    "hist-merge-in-progress": {
+      "title": "合并仍在进行中",
+      "explanation": "仓库处于 merge 中途：解决冲突后提交，或 abort 放弃。",
+      "cause1": "上一次合并还没结束。",
+      "fix_open_conflict_wizard": "打开冲突向导"
+    },
+    "hist-shallow-clone": {
+      "title": "浅克隆仓库",
+      "explanation": "这个仓库是浅克隆（--depth），历史不完整。",
+      "cause1": "浅克隆的历史不完整，某些操作（对比/深历史）受限。",
+      "fix_unshallow": "补全完整历史"
+    },
+    "lfs-not-installed": {
+      "title": "Git LFS 未安装",
+      "explanation": "仓库使用了 Git LFS，但本机没有安装 git-lfs。",
+      "cause1": "本机没有安装 git-lfs，无法读写 LFS 指针指向的大文件。",
+      "fix_install_lfs": "了解如何安装 LFS"
+    },
+    "lfs-missing-objects": {
+      "title": "LFS 对象获取失败",
+      "explanation": "从 LFS 存储下载对象失败：网络、权限或服务器问题。",
+      "cause1": "LFS 对象服务器不可达或拒绝访问。",
+      "fix_check_lfs_server": "检查网络与 LFS 设置"
+    },
+    "api-rate-limit": {
+      "title": "API 配额用尽",
+      "explanation": "托管平台的 API 请求配额用完了。登录账号可大幅提高配额。",
+      "cause1": "GitHub API 配额用尽（未认证请求每小时 60 次）。",
+      "fix_add_account": "登录账号提升配额"
+    },
+    "api-bad-credentials": {
+      "title": "API 凭据无效",
+      "explanation": "令牌被拒绝：可能已过期或被撤销，重新登录即可。",
+      "cause1": "API 令牌无效或已被撤销。",
+      "fix_relogin": "重新登录账号"
+    },
+    "submodule-missing": {
+      "title": "子模块问题",
+      "explanation": "子模块没有初始化或无法访问。",
+      "cause1": "子模块未初始化，或其仓库无法访问。",
+      "fix_init_submodules": "了解子模块初始化"
+    },
+    "wt-invalid-filename": {
+      "title": "文件名包含非法字符",
+      "explanation": "文件系统拒绝了这个名字。",
+      "cause1": "文件名包含目标文件系统不允许的字符。",
+      "fix_rename_file": "回到工作区重命名"
+    },
+    "wt-crlf-replaced": {
+      "title": "换行符将被转换",
+      "explanation": "这是 autocrlf 的提示（不是错误）：提交时 CRLF 会被规范化为 LF。",
+      "cause1": "换行符自动转换（core.autocrlf=input）会在提交时把 CRLF 转成 LF。",
+      "fix_autocrlf_guide": "了解换行符配置"
+    },
+    "net-cert-expired": {
+      "title": "服务器证书已过期",
+      "explanation": "对端 HTTPS 证书过期——这可能是服务器配置问题，也可能与系统时间有关。",
+      "cause1": "服务器证书已过期。",
+      "fix_check_cert": "检查证书与系统时间"
+    },
+    "hist-branches-diverged": {
+      "title": "本地与远端分叉",
+      "explanation": "两条历史各有前进——需要指定合并或变基策略。",
+      "cause1": "本地与远端分支各有新提交，Git 不知道该用合并还是变基接入。",
+      "fix_choose_strategy": "选择整合策略"
+    }
   }
 }

@@ -9,13 +9,18 @@
 //!   （控制台、文件、将来的崩溃报告）都会被过筛——这是结构性保证，而不是靠自觉。
 //!   放在写入层而不是事件格式化层的原因见该模块头（JSON 格式化器无法被包装）。
 //!
-//! 诊断规则引擎（Regex + 结构化规则 + 动作绑定）落在 T5.5；本 crate 目前不含 IO。
 
 #![forbid(unsafe_code)]
 
+pub mod rules;
 pub mod sanitize;
 pub mod sanitizing_writer;
 
+pub use rules::{
+    diagnose, diagnose_with, embedded_rules, load_with_overrides, parse_rules, validate_rules,
+    DiagContext, Diagnostic, DiagnosticReport, Rule, RuleCondition, RuleFix, RuleFixAction,
+    RuleMatch, RuleWhen,
+};
 pub use sanitize::{sanitize_log, REDACTED};
 pub use sanitizing_writer::{SanitizingMakeWriter, SanitizingWriter};
 

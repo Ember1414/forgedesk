@@ -37,6 +37,7 @@ pub mod conflict;
 pub mod credentials;
 pub mod dashboard;
 pub mod debug;
+pub mod diagnostics;
 pub mod error;
 pub mod history;
 pub mod history_ops;
@@ -94,6 +95,9 @@ pub use credentials::{
 };
 pub use dashboard::{repo_dashboard, DashboardReportDto, DashboardRequest, DashboardTargetDto};
 pub use debug::{debug_panic, debug_throw_error};
+pub use diagnostics::{
+    system_diagnose_error, system_diagnose_keys, DiagContextDto, DiagKeysSummary,
+};
 pub use error::{to_app_error, Fallible};
 pub use history::{git_branch_list, git_log_authors, git_log_page};
 pub use history_ops::{

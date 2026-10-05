@@ -1,0 +1,175 @@
+# 诊断规则（T5.5）——由生成器维护，请勿手工编辑条目顺序。
+# 文案只存 key（diag.<id>.*），中英文在 src/lib/i18n/locales/*/shell.json。
+# kind=command 的动作由前端直接执行；kind=dangerous 必须走 DangerousActionDialog。
+
+  - id: wt-not-a-repo
+    stage: [read]
+    match:
+      all_of:
+        - contains: "not a git repository"
+      none_of: []
+    confidence: 0.95
+    title_key: diag.wt-not-a-repo.title
+    explanation_key: diag.wt-not-a-repo.explanation
+    causes:
+      - diag.wt-not-a-repo.cause1
+    fixes:
+      - id: open-repo
+        label_key: diag.wt-not-a-repo.fix_open_repo
+        action: { kind: "guide", value: "/" }
+  - id: wt-dubious-ownership
+    stage: [read]
+    match:
+      all_of:
+        - contains: "dubious ownership"
+      none_of: []
+    confidence: 0.95
+    title_key: diag.wt-dubious-ownership.title
+    explanation_key: diag.wt-dubious-ownership.explanation
+    causes:
+      - diag.wt-dubious-ownership.cause1
+    fixes:
+      - id: mark-safe
+        label_key: diag.wt-dubious-ownership.fix_mark_safe
+        action: { kind: "guide", value: "/settings/advanced" }
+  - id: wt-index-lock
+    stage: [write]
+    match:
+      all_of:
+        - regex: 'index\.lock.*exists|Unable to create .*index\.lock'
+      none_of: []
+    confidence: 0.95
+    title_key: diag.wt-index-lock.title
+    explanation_key: diag.wt-index-lock.explanation
+    causes:
+      - diag.wt-index-lock.cause1
+    fixes:
+      - id: close-other-process
+        label_key: diag.wt-index-lock.fix_close_other_process
+        action: { kind: "guide", value: "/settings/advanced" }
+  - id: wt-local-changes-overwritten
+    stage: [write]
+    match:
+      all_of:
+        - regex: 'local changes to the following files would be overwritten|local changes would be overwritten'
+      none_of: []
+    confidence: 0.92
+    title_key: diag.wt-local-changes-overwritten.title
+    explanation_key: diag.wt-local-changes-overwritten.explanation
+    causes:
+      - diag.wt-local-changes-overwritten.cause1
+    fixes:
+      - id: stash-first
+        label_key: diag.wt-local-changes-overwritten.fix_stash_first
+        action: { kind: "command", command: "git_stash_save" }
+      - id: commit-first
+        label_key: diag.wt-local-changes-overwritten.fix_commit_first
+        action: { kind: "guide", value: "/commit" }
+  - id: wt-detached-head
+    stage: [read]
+    match:
+      all_of:
+        - regex: 'detached HEAD'
+      none_of: []
+    confidence: 0.9
+    when:
+      detached: true
+    title_key: diag.wt-detached-head.title
+    explanation_key: diag.wt-detached-head.explanation
+    causes:
+      - diag.wt-detached-head.cause1
+    fixes:
+      - id: create-branch
+        label_key: diag.wt-detached-head.fix_create_branch
+        action: { kind: "guide", value: "/branches" }
+  - id: wt-filename-too-long
+    stage: [write]
+    match:
+      all_of:
+        - contains: "Filename too long"
+      none_of: []
+    confidence: 0.9
+    title_key: diag.wt-filename-too-long.title
+    explanation_key: diag.wt-filename-too-long.explanation
+    causes:
+      - diag.wt-filename-too-long.cause1
+    fixes:
+      - id: longpaths-guide
+        label_key: diag.wt-filename-too-long.fix_longpaths_guide
+        action: { kind: "guide", value: "/settings/advanced" }
+  - id: wt-permission-denied-fs
+    stage: [write]
+    match:
+      all_of:
+        - regex: 'Permission denied|Access is denied'
+      none_of:
+        - contains: "(publickey)"
+    confidence: 0.8
+    title_key: diag.wt-permission-denied-fs.title
+    explanation_key: diag.wt-permission-denied-fs.explanation
+    causes:
+      - diag.wt-permission-denied-fs.cause1
+    fixes:
+      - id: check-permissions
+        label_key: diag.wt-permission-denied-fs.fix_check_permissions
+        action: { kind: "guide", value: "/settings/advanced" }
+  - id: wt-disk-full
+    stage: [write]
+    match:
+      all_of:
+        - regex: 'No space left on device|not enough space on the disk'
+      none_of: []
+    confidence: 0.95
+    title_key: diag.wt-disk-full.title
+    explanation_key: diag.wt-disk-full.explanation
+    causes:
+      - diag.wt-disk-full.cause1
+    fixes:
+      - id: cleanup-snapshots
+        label_key: diag.wt-disk-full.fix_cleanup_snapshots
+        action: { kind: "guide", value: "/snapshots" }
+  - id: wt-lf-replaced
+    stage: [write]
+    match:
+      all_of:
+        - contains: "LF will be replaced by CRLF"
+      none_of: []
+    confidence: 0.9
+    title_key: diag.wt-lf-replaced.title
+    explanation_key: diag.wt-lf-replaced.explanation
+    causes:
+      - diag.wt-lf-replaced.cause1
+    fixes:
+      - id: autocrlf-guide
+        label_key: diag.wt-lf-replaced.fix_autocrlf_guide
+        action: { kind: "guide", value: "/settings/advanced" }
+  - id: wt-crlf-replaced
+    stage: [write]
+    match:
+      all_of:
+        - contains: "CRLF will be replaced by LF"
+      none_of: []
+    confidence: 0.9
+    title_key: diag.wt-crlf-replaced.title
+    explanation_key: diag.wt-crlf-replaced.explanation
+    causes:
+      - diag.wt-crlf-replaced.cause1
+    fixes:
+      - id: autocrlf-guide
+        label_key: diag.wt-crlf-replaced.fix_autocrlf_guide
+        action: { kind: "guide", value: "/settings/advanced" }
+  - id: wt-large-file
+    stage: [network]
+    match:
+      all_of:
+        - regex: 'exceeds GitHub|Large files detected|file too large'
+      none_of: []
+    confidence: 0.88
+    title_key: diag.wt-large-file.title
+    explanation_key: diag.wt-large-file.explanation
+    causes:
+      - diag.wt-large-file.cause1
+    fixes:
+      - id: use-lfs
+        label_key: diag.wt-large-file.fix_use_lfs
+        action: { kind: "guide", value: "/settings/advanced" }

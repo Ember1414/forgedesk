@@ -1,0 +1,99 @@
+# 诊断规则（T5.5）——由生成器维护，请勿手工编辑条目顺序。
+# 文案只存 key（diag.<id>.*），中英文在 src/lib/i18n/locales/*/shell.json。
+# kind=command 的动作由前端直接执行；kind=dangerous 必须走 DangerousActionDialog。
+
+  - id: commit-no-identity
+    stage: [write]
+    match:
+      all_of:
+        - contains: "unable to auto-detect email address"
+      none_of: []
+    confidence: 0.95
+    when:
+      op_type: "commit"
+    title_key: diag.commit-no-identity.title
+    explanation_key: diag.commit-no-identity.explanation
+    causes:
+      - diag.commit-no-identity.cause1
+    fixes:
+      - id: set-identity
+        label_key: diag.commit-no-identity.fix_set_identity
+        action: { kind: "guide", value: "/commit" }
+  - id: commit-empty-message
+    stage: [write]
+    match:
+      all_of:
+        - contains: "Aborting commit due to empty commit message"
+      none_of: []
+    confidence: 0.92
+    when:
+      op_type: "commit"
+    title_key: diag.commit-empty-message.title
+    explanation_key: diag.commit-empty-message.explanation
+    causes:
+      - diag.commit-empty-message.cause1
+    fixes:
+      - id: write-message
+        label_key: diag.commit-empty-message.fix_write_message
+        action: { kind: "guide", value: "/commit" }
+  - id: commit-nothing
+    stage: [write]
+    match:
+      all_of:
+        - regex: 'nothing to commit|no changes added to commit'
+      none_of: []
+    confidence: 0.9
+    title_key: diag.commit-nothing.title
+    explanation_key: diag.commit-nothing.explanation
+    causes:
+      - diag.commit-nothing.cause1
+    fixes:
+      - id: review-status
+        label_key: diag.commit-nothing.fix_review_status
+        action: { kind: "guide", value: "/status" }
+  - id: commit-hook-rejected
+    stage: [write]
+    match:
+      all_of:
+        - regex: 'pre-commit hook|commit-msg hook|hook declined'
+      none_of:
+        - contains: "! [remote rejected]"
+    confidence: 0.88
+    title_key: diag.commit-hook-rejected.title
+    explanation_key: diag.commit-hook-rejected.explanation
+    causes:
+      - diag.commit-hook-rejected.cause1
+    fixes:
+      - id: review-hooks
+        label_key: diag.commit-hook-rejected.fix_review_hooks
+        action: { kind: "guide", value: "/commit" }
+  - id: conflict-content
+    stage: [write]
+    match:
+      all_of:
+        - regex: 'CONFLICT \(content\)|CONFLICT \(modify'
+      none_of: []
+    confidence: 0.93
+    title_key: diag.conflict-content.title
+    explanation_key: diag.conflict-content.explanation
+    causes:
+      - diag.conflict-content.cause1
+    fixes:
+      - id: open-conflict-wizard
+        label_key: diag.conflict-content.fix_open_conflict_wizard
+        action: { kind: "guide", value: "/conflict" }
+  - id: merge-auto-failed
+    stage: [write]
+    match:
+      all_of:
+        - contains: "Automatic merge failed"
+      none_of: []
+    confidence: 0.93
+    title_key: diag.merge-auto-failed.title
+    explanation_key: diag.merge-auto-failed.explanation
+    causes:
+      - diag.merge-auto-failed.cause1
+    fixes:
+      - id: open-conflict-wizard
+        label_key: diag.merge-auto-failed.fix_open_conflict_wizard
+        action: { kind: "guide", value: "/conflict" }

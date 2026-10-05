@@ -398,6 +398,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // T5.3 终端安全衔接（全构建注册）
         forgedesk_commands::term_scan_command,
         forgedesk_commands::term_report_command,
+        // T5.5 诊断引擎（全构建注册）
+        forgedesk_commands::system_diagnose_error,
+        forgedesk_commands::system_diagnose_keys,
         // T5.1 PTY Spike 调试通道（仅开发构建；结论见 docs/PTY-SPIKE.md）
         forgedesk_commands::pty_spike_create,
         forgedesk_commands::pty_spike_write,
@@ -561,6 +564,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // T5.3 终端安全衔接（全构建注册）
         forgedesk_commands::term_scan_command,
         forgedesk_commands::term_report_command,
+        // T5.5 诊断引擎（全构建注册）
+        forgedesk_commands::system_diagnose_error,
+        forgedesk_commands::system_diagnose_keys,
     ]);
 
     let app = builder.build(tauri::generate_context!())?;

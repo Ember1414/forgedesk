@@ -13,13 +13,22 @@ authors.workspace = true
 [dependencies]
 forgedesk-domain.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+# regex（T5.5 诊断规则引擎）：规则的 match.regex 需要；Apache-2.0/MIT 双许可。
+regex = "1"
+# yaml 解析（T5.5）：规则文件是 YAML；serde_yml 是 serde_yaml 的维护续作（Apache-2.0）。
+serde_yml = "0.0.12"
+
 
 [dev-dependencies]
 # 仅测试使用：断言 JSON 日志行在脱敏后仍是合法 JSON（生产代码不解析 JSON）
 serde_json.workspace = true
+# 规则加载的运行时覆盖目录测试需要临时目录
+tempfile = "3"
+
 
 [lints]
 workspace = true

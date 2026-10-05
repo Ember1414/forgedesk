@@ -1624,5 +1624,315 @@
       "loadErrorHint": "Loading the account list or binding failed; please retry.",
       "retry": "Retry"
     }
+  },
+  "diag": {
+    "push-non-fast-forward": {
+      "title": "Push rejected: the remote has new commits",
+      "explanation": "The remote branch is ahead of your local record; pushing as-is would discard someone else's work, so Git refused.",
+      "cause1": "The remote branch contains commits you do not have locally (someone pushed first).",
+      "fix_fetch_then_retry": "Fetch then retry (recommended)",
+      "fix_use_force_with_lease": "Force push with lease"
+    },
+    "push-no-upstream": {
+      "title": "Branch has no upstream",
+      "explanation": "This branch has not been linked to a remote branch yet, so Git does not know where to push.",
+      "cause1": "A newly created branch is not linked to a remote branch yet.",
+      "fix_set_upstream": "Push and set upstream"
+    },
+    "push-fetch-first": {
+      "title": "Push rejected: fetch first",
+      "explanation": "The remote branch is newer; Git asks you to fetch and integrate first.",
+      "cause1": "The remote has new commits to integrate before pushing.",
+      "fix_fetch_then_retry": "Fetch then retry"
+    },
+    "push-stale-lease": {
+      "title": "Force-with-lease rejected: stale info",
+      "explanation": "The safe force push detected the remote moved past your local knowledge - the protection working as intended. Fetch, verify, then retry.",
+      "cause1": "The remote updated after your last fetch; the local record is stale.",
+      "fix_fetch_then_retry": "Fetch then retry"
+    },
+    "push-remote-rejected": {
+      "title": "Remote rejected the push",
+      "explanation": "The push was rejected by the remote server (not local Git), typically by branch protection or a server-side hook.",
+      "cause1": "The remote server (not local Git) rejected the push, commonly branch protection or a server hook.",
+      "fix_check_branch_protection": "Learn about protected branches"
+    },
+    "push-permission-403": {
+      "title": "Push rejected: no permission",
+      "explanation": "The current account lacks push access to this repository (403).",
+      "cause1": "The current account lacks push access to this repository.",
+      "fix_check_account": "Check account and authorization"
+    },
+    "net-dns-failure": {
+      "title": "Could not resolve host",
+      "explanation": "DNS lookup failed - check the network, proxy, or the remote URL spelling.",
+      "cause1": "DNS lookup failed: network down, DNS misconfigured, or a typo in the URL.",
+      "fix_check_network": "Check network and proxy settings"
+    },
+    "net-connection-refused": {
+      "title": "Connection refused",
+      "explanation": "The TCP connection was refused by the peer or an intermediate device.",
+      "cause1": "Nothing listens on the target port, or a firewall/proxy intercepted the connection.",
+      "fix_check_network": "Check network and proxy settings"
+    },
+    "net-timeout": {
+      "title": "Connection timed out",
+      "explanation": "Waiting for the peer timed out.",
+      "cause1": "The network is slow or down; large clones are especially prone to timeouts.",
+      "fix_retry": "Retry and check the network"
+    },
+    "net-ssl-certificate": {
+      "title": "TLS certificate verification failed",
+      "explanation": "The HTTPS certificate is not trusted - the connection works, the certificate chain is the problem.",
+      "cause1": "Expired or self-signed server certificate, or a corporate proxy re-signing the chain.",
+      "fix_check_cert": "Check certificates and proxy"
+    },
+    "net-proxy-failure": {
+      "title": "Proxy unavailable",
+      "explanation": "The proxy connection failed: missing credentials, proxy down, or misconfigured.",
+      "cause1": "The proxy needs credentials, refused the connection, or is misconfigured.",
+      "fix_check_proxy": "Check proxy settings"
+    },
+    "net-auth-failed": {
+      "title": "Authentication failed",
+      "explanation": "The remote rejected the credentials: the token may be expired, revoked, or lacking scopes.",
+      "cause1": "The username or token is invalid or expired.",
+      "fix_relogin": "Sign in again"
+    },
+    "net-prompts-disabled": {
+      "title": "Cannot prompt for credentials",
+      "explanation": "Git runs non-interactively and this operation needs a username/password - save a credential in settings first.",
+      "cause1": "Git runs non-interactively and no saved credential is available.",
+      "fix_save_credential": "Save a credential"
+    },
+    "net-could-not-read-remote": {
+      "title": "Could not read from remote repository",
+      "explanation": "The connection was established but reading the repository failed - credentials or permissions.",
+      "cause1": "The SSH/HTTPS channel failed: credentials, network, or repository permissions.",
+      "fix_check_remote": "Check credentials and remote"
+    },
+    "ssh-publickey-denied": {
+      "title": "SSH public key rejected",
+      "explanation": "The server did not accept your SSH public key.",
+      "cause1": "The server rejected the SSH public key: not uploaded, agent not loaded, or the wrong key.",
+      "fix_check_ssh": "Check SSH configuration"
+    },
+    "ssh-host-key-verification": {
+      "title": "Host key verification failed",
+      "explanation": "The host is not in known_hosts, so SSH refused to continue - verify the fingerprint and trust it.",
+      "cause1": "First connection to this host; its fingerprint is not trusted yet (missing from known_hosts).",
+      "fix_trust_host": "Verify and trust the host fingerprint"
+    },
+    "remote-not-a-repo": {
+      "title": "Remote is not a git repository",
+      "explanation": "The address connects but is not a Git repository - check the URL.",
+      "cause1": "The remote URL is wrong or does not point at a Git repository.",
+      "fix_check_url": "Check the remote URL"
+    },
+    "wt-not-a-repo": {
+      "title": "Not a git repository",
+      "explanation": "Git found no .git in the given directory or any parent.",
+      "cause1": "The target path is not inside a Git repository.",
+      "fix_open_repo": "Open a repository"
+    },
+    "wt-dubious-ownership": {
+      "title": "Dubious ownership",
+      "explanation": "The repository belongs to another user and Git refuses to operate. After verifying it is trusted, add the directory to safe.directory.",
+      "cause1": "The repository directory is owned by another user (Git's safety check).",
+      "fix_mark_safe": "Learn about safe.directory"
+    },
+    "wt-index-lock": {
+      "title": "Index is locked",
+      "explanation": "An index.lock exists: another Git process is working on this repository. Make sure nothing else is running before removing the lock.",
+      "cause1": "Another git process is writing the index (or a crashed one left the lock behind).",
+      "fix_close_other_process": "How to handle a stale lock safely"
+    },
+    "wt-local-changes-overwritten": {
+      "title": "Local changes would be overwritten",
+      "explanation": "This operation would overwrite uncommitted changes, so Git refused. Stash or commit them first.",
+      "cause1": "Uncommitted changes conflict with what is about to be applied.",
+      "fix_stash_first": "Stash first",
+      "fix_commit_first": "Commit first"
+    },
+    "wt-detached-head": {
+      "title": "Detached HEAD",
+      "explanation": "HEAD points at a commit instead of a branch. Commits made here may become unreachable - create a branch first.",
+      "cause1": "HEAD points at a commit, not a branch; new commits here belong to no branch.",
+      "fix_create_branch": "Create a branch for the current state"
+    },
+    "wt-filename-too-long": {
+      "title": "Filename too long",
+      "explanation": "The path exceeds the system limit (260 characters on Windows by default).",
+      "cause1": "The Windows default 260-character path limit (core.longpaths can lift it).",
+      "fix_longpaths_guide": "Learn about longpaths"
+    },
+    "wt-permission-denied-fs": {
+      "title": "Filesystem permission denied",
+      "explanation": "The operating system refused the write to a file or directory.",
+      "cause1": "Insufficient filesystem permissions: read-only directory or a file in use.",
+      "fix_check_permissions": "Check directory permissions"
+    },
+    "wt-disk-full": {
+      "title": "Disk full",
+      "explanation": "The write failed because the disk is full - clean up snapshot caches or other large files and retry.",
+      "cause1": "The disk has no space left.",
+      "fix_cleanup_snapshots": "Review snapshot storage"
+    },
+    "wt-lf-replaced": {
+      "title": "Line endings will be converted",
+      "explanation": "This is an autocrlf notice (not an error): LF in the working tree becomes CRLF on commit. Cross-platform teams should agree on a policy.",
+      "cause1": "Automatic line-ending conversion (core.autocrlf) turns LF into CRLF on commit.",
+      "fix_autocrlf_guide": "Learn about line-ending settings"
+    },
+    "wt-large-file": {
+      "title": "File exceeds the platform size limit",
+      "explanation": "The hosting platform rejected the oversized file - use Git LFS or remove it from history.",
+      "cause1": "A single file exceeds the platform limit (100MB for regular GitHub files).",
+      "fix_use_lfs": "Learn about Git LFS"
+    },
+    "commit-no-identity": {
+      "title": "Missing committer identity",
+      "explanation": "Git does not know who you are (no user.name / user.email). Fill it in once on the commit panel.",
+      "cause1": "No user.name / user.email is configured.",
+      "fix_set_identity": "Set your identity on the commit panel"
+    },
+    "commit-empty-message": {
+      "title": "Empty commit message",
+      "explanation": "Git refuses a commit with an empty message.",
+      "cause1": "The commit message is empty.",
+      "fix_write_message": "Write a commit message"
+    },
+    "commit-nothing": {
+      "title": "Nothing to commit",
+      "explanation": "The staging area is empty. Stage some changes first.",
+      "cause1": "The staging area is empty (or matches the last commit).",
+      "fix_review_status": "Review workspace status"
+    },
+    "commit-hook-rejected": {
+      "title": "Hook rejected the operation",
+      "explanation": "A pre-commit / commit-msg hook failed. Fix what it reports and retry.",
+      "cause1": "A repository hook script rejected the operation.",
+      "fix_review_hooks": "Review hooks"
+    },
+    "conflict-content": {
+      "title": "Content conflict",
+      "explanation": "Both sides modified the same region - resolve them in the conflict wizard.",
+      "cause1": "Both sides modified the same region; Git cannot merge it automatically.",
+      "fix_open_conflict_wizard": "Open the conflict wizard"
+    },
+    "merge-auto-failed": {
+      "title": "Automatic merge failed",
+      "explanation": "The merge produced conflicts: resolve them, git add, then continue.",
+      "cause1": "The merge hit conflicts that need manual resolution.",
+      "fix_open_conflict_wizard": "Open the conflict wizard"
+    },
+    "hist-bad-object": {
+      "title": "Bad object",
+      "explanation": "The given hash or reference does not exist in this repository.",
+      "cause1": "The hash or reference is a typo, or the object is not in this repository.",
+      "fix_review_history": "Browse history"
+    },
+    "hist-unknown-revision": {
+      "title": "Unknown revision or path",
+      "explanation": "The branch/commit/path does not exist locally - a fetch may help.",
+      "cause1": "The branch/commit/path is misspelled or not fetched yet.",
+      "fix_fetch_then_retry": "Fetch from remote"
+    },
+    "hist-branch-not-exist": {
+      "title": "Branch does not exist",
+      "explanation": "The branch cannot be found - check the name or whether it was deleted.",
+      "cause1": "No branch with this name exists locally or on the remote.",
+      "fix_list_branches": "List branches"
+    },
+    "hist-tag-exists": {
+      "title": "Tag already exists",
+      "explanation": "A tag with this name already exists.",
+      "cause1": "A tag with the same name already exists.",
+      "fix_list_tags": "List tags"
+    },
+    "hist-branch-exists": {
+      "title": "Branch already exists",
+      "explanation": "A branch with this name already exists.",
+      "cause1": "A branch with the same name already exists.",
+      "fix_list_branches": "List branches"
+    },
+    "hist-no-tracking-info": {
+      "title": "No tracking information",
+      "explanation": "This branch has no upstream. Set one with --set-upstream so plain pull/push work.",
+      "cause1": "The branch has no upstream, so pull/push has no target.",
+      "fix_set_upstream": "Push and set upstream"
+    },
+    "hist-rebase-in-progress": {
+      "title": "Rebase still in progress",
+      "explanation": "A rebase is mid-flight: resolve all conflicts, mark them, then continue (or abort).",
+      "cause1": "A previous rebase is unfinished (conflicts unresolved).",
+      "fix_open_conflict_wizard": "Open the conflict wizard"
+    },
+    "hist-merge-in-progress": {
+      "title": "Merge still in progress",
+      "explanation": "A merge is mid-flight: resolve conflicts and commit, or abort.",
+      "cause1": "A previous merge is unfinished.",
+      "fix_open_conflict_wizard": "Open the conflict wizard"
+    },
+    "hist-shallow-clone": {
+      "title": "Shallow clone",
+      "explanation": "This repository was cloned shallow (--depth); the history is incomplete.",
+      "cause1": "A shallow clone has incomplete history, limiting some operations.",
+      "fix_unshallow": "Fetch the full history"
+    },
+    "lfs-not-installed": {
+      "title": "Git LFS not installed",
+      "explanation": "The repository uses Git LFS but git-lfs is not installed locally.",
+      "cause1": "git-lfs is not installed, so LFS pointer files cannot be resolved.",
+      "fix_install_lfs": "How to install LFS"
+    },
+    "lfs-missing-objects": {
+      "title": "LFS object fetch failed",
+      "explanation": "Downloading LFS objects failed: network, permission, or server issue.",
+      "cause1": "The LFS object server is unreachable or rejected the request.",
+      "fix_check_lfs_server": "Check network and LFS settings"
+    },
+    "api-rate-limit": {
+      "title": "API rate limit exceeded",
+      "explanation": "The platform API quota is exhausted. Signing in raises the limit substantially.",
+      "cause1": "The GitHub API quota is exhausted (60 unauthenticated requests/hour).",
+      "fix_add_account": "Sign in to raise the quota"
+    },
+    "api-bad-credentials": {
+      "title": "Bad API credentials",
+      "explanation": "The token was rejected: expired or revoked. Sign in again.",
+      "cause1": "The API token is invalid or was revoked.",
+      "fix_relogin": "Sign in again"
+    },
+    "submodule-missing": {
+      "title": "Submodule problem",
+      "explanation": "A submodule is not initialized or cannot be accessed.",
+      "cause1": "A submodule is missing its mapping or was never initialized.",
+      "fix_init_submodules": "How to initialize submodules"
+    },
+    "wt-invalid-filename": {
+      "title": "Invalid filename",
+      "explanation": "The filesystem rejected this file name.",
+      "cause1": "The file name contains characters the filesystem disallows.",
+      "fix_rename_file": "Rename it in the workspace"
+    },
+    "wt-crlf-replaced": {
+      "title": "Line endings will be converted",
+      "explanation": "This is an autocrlf notice (not an error): CRLF becomes LF on commit.",
+      "cause1": "Automatic conversion (core.autocrlf=input) turns CRLF into LF on commit.",
+      "fix_autocrlf_guide": "Learn about line-ending settings"
+    },
+    "net-cert-expired": {
+      "title": "Server certificate expired",
+      "explanation": "The peer HTTPS certificate has expired - a server misconfiguration, or a wrong system clock.",
+      "cause1": "The peer HTTPS certificate has expired.",
+      "fix_check_cert": "Check certificates and system clock"
+    },
+    "hist-branches-diverged": {
+      "title": "Local and remote have diverged",
+      "explanation": "Both histories moved forward - pick a merge or rebase strategy.",
+      "cause1": "Both sides have new commits; the integration strategy is unspecified.",
+      "fix_choose_strategy": "Choose an integration strategy"
+    }
   }
 }

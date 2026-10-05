@@ -1,0 +1,111 @@
+# 诊断规则（T5.5）——由生成器维护，请勿手工编辑条目顺序。
+# 文案只存 key（diag.<id>.*），中英文在 src/lib/i18n/locales/*/shell.json。
+# kind=command 的动作由前端直接执行；kind=dangerous 必须走 DangerousActionDialog。
+
+  - id: push-non-fast-forward
+    stage: [write, network]
+    match:
+      all_of:
+        - contains: "! [rejected]"
+        - regex: 'non-fast-forward|behind its remote counterpart'
+      none_of: []
+    confidence: 0.95
+    when:
+      op_type: "push"
+    title_key: diag.push-non-fast-forward.title
+    explanation_key: diag.push-non-fast-forward.explanation
+    causes:
+      - diag.push-non-fast-forward.cause1
+    fixes:
+      - id: fetch-then-retry
+        label_key: diag.push-non-fast-forward.fix_fetch_then_retry
+        action: { kind: "command", command: "git_fetch" }
+      - id: use-force-with-lease
+        label_key: diag.push-non-fast-forward.fix_use_force_with_lease
+        action: { kind: "dangerous", command: "git_push", args: {"force_with_lease":true} }
+  - id: push-no-upstream
+    stage: [write, network]
+    match:
+      all_of:
+        - contains: "has no upstream branch"
+      none_of: []
+    confidence: 0.9
+    when:
+      op_type: "push"
+    title_key: diag.push-no-upstream.title
+    explanation_key: diag.push-no-upstream.explanation
+    causes:
+      - diag.push-no-upstream.cause1
+    fixes:
+      - id: set-upstream
+        label_key: diag.push-no-upstream.fix_set_upstream
+        action: { kind: "command", command: "git_push", args: {"set_upstream":true} }
+  - id: push-fetch-first
+    stage: [write, network]
+    match:
+      all_of:
+        - contains: "fetch first"
+      none_of:
+        - contains: "non-fast-forward"
+    confidence: 0.9
+    when:
+      op_type: "push"
+    title_key: diag.push-fetch-first.title
+    explanation_key: diag.push-fetch-first.explanation
+    causes:
+      - diag.push-fetch-first.cause1
+    fixes:
+      - id: fetch-then-retry
+        label_key: diag.push-fetch-first.fix_fetch_then_retry
+        action: { kind: "command", command: "git_fetch" }
+  - id: push-stale-lease
+    stage: [write, network]
+    match:
+      all_of:
+        - contains: "stale info"
+      none_of: []
+    confidence: 0.9
+    when:
+      op_type: "push"
+    title_key: diag.push-stale-lease.title
+    explanation_key: diag.push-stale-lease.explanation
+    causes:
+      - diag.push-stale-lease.cause1
+    fixes:
+      - id: fetch-then-retry
+        label_key: diag.push-stale-lease.fix_fetch_then_retry
+        action: { kind: "command", command: "git_fetch" }
+  - id: push-remote-rejected
+    stage: [network]
+    match:
+      all_of:
+        - contains: "! [remote rejected]"
+      none_of: []
+    confidence: 0.9
+    when:
+      op_type: "push"
+    title_key: diag.push-remote-rejected.title
+    explanation_key: diag.push-remote-rejected.explanation
+    causes:
+      - diag.push-remote-rejected.cause1
+    fixes:
+      - id: check-branch-protection
+        label_key: diag.push-remote-rejected.fix_check_branch_protection
+        action: { kind: "guide", value: "https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches" }
+  - id: push-permission-403
+    stage: [network]
+    match:
+      all_of:
+        - contains: "The requested URL returned error: 403"
+      none_of: []
+    confidence: 0.85
+    when:
+      op_type: "push"
+    title_key: diag.push-permission-403.title
+    explanation_key: diag.push-permission-403.explanation
+    causes:
+      - diag.push-permission-403.cause1
+    fixes:
+      - id: check-account
+        label_key: diag.push-permission-403.fix_check_account
+        action: { kind: "guide", value: "/settings/github" }

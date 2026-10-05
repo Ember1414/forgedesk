@@ -1,0 +1,158 @@
+# 诊断规则（T5.5）——由生成器维护，请勿手工编辑条目顺序。
+# 文案只存 key（diag.<id>.*），中英文在 src/lib/i18n/locales/*/shell.json。
+# kind=command 的动作由前端直接执行；kind=dangerous 必须走 DangerousActionDialog。
+
+  - id: hist-branches-diverged
+    stage: [network]
+    match:
+      all_of:
+        - contains: "have diverged"
+      none_of: []
+    confidence: 0.85
+    title_key: diag.hist-branches-diverged.title
+    explanation_key: diag.hist-branches-diverged.explanation
+    causes:
+      - diag.hist-branches-diverged.cause1
+    fixes:
+      - id: choose-strategy
+        label_key: diag.hist-branches-diverged.fix_choose_strategy
+        action: { kind: "guide", value: "/branches" }
+  - id: hist-bad-object
+    stage: [read]
+    match:
+      all_of:
+        - regex: 'bad object|not a valid object name'
+      none_of: []
+    confidence: 0.9
+    title_key: diag.hist-bad-object.title
+    explanation_key: diag.hist-bad-object.explanation
+    causes:
+      - diag.hist-bad-object.cause1
+    fixes:
+      - id: review-history
+        label_key: diag.hist-bad-object.fix_review_history
+        action: { kind: "guide", value: "/history" }
+  - id: hist-unknown-revision
+    stage: [read]
+    match:
+      all_of:
+        - contains: "unknown revision or path not in the working tree"
+      none_of: []
+    confidence: 0.85
+    title_key: diag.hist-unknown-revision.title
+    explanation_key: diag.hist-unknown-revision.explanation
+    causes:
+      - diag.hist-unknown-revision.cause1
+    fixes:
+      - id: fetch-then-retry
+        label_key: diag.hist-unknown-revision.fix_fetch_then_retry
+        action: { kind: "command", command: "git_fetch" }
+  - id: hist-branch-not-exist
+    stage: [read]
+    match:
+      all_of:
+        - regex: 'branch .* does not exist|couldn''t find remote ref'
+      none_of: []
+    confidence: 0.85
+    title_key: diag.hist-branch-not-exist.title
+    explanation_key: diag.hist-branch-not-exist.explanation
+    causes:
+      - diag.hist-branch-not-exist.cause1
+    fixes:
+      - id: list-branches
+        label_key: diag.hist-branch-not-exist.fix_list_branches
+        action: { kind: "guide", value: "/branches" }
+  - id: hist-tag-exists
+    stage: [write]
+    match:
+      all_of:
+        - regex: 'tag [^ ]+ already exists'
+      none_of: []
+    confidence: 0.9
+    title_key: diag.hist-tag-exists.title
+    explanation_key: diag.hist-tag-exists.explanation
+    causes:
+      - diag.hist-tag-exists.cause1
+    fixes:
+      - id: list-tags
+        label_key: diag.hist-tag-exists.fix_list_tags
+        action: { kind: "guide", value: "/branches" }
+  - id: hist-branch-exists
+    stage: [write]
+    match:
+      all_of:
+        - regex: 'branch named [^ ]+ already exists'
+      none_of: []
+    confidence: 0.9
+    title_key: diag.hist-branch-exists.title
+    explanation_key: diag.hist-branch-exists.explanation
+    causes:
+      - diag.hist-branch-exists.cause1
+    fixes:
+      - id: list-branches
+        label_key: diag.hist-branch-exists.fix_list_branches
+        action: { kind: "guide", value: "/branches" }
+  - id: hist-no-tracking-info
+    stage: [network]
+    match:
+      all_of:
+        - contains: "There is no tracking information"
+      none_of: []
+    confidence: 0.92
+    when:
+      upstream: false
+    title_key: diag.hist-no-tracking-info.title
+    explanation_key: diag.hist-no-tracking-info.explanation
+    causes:
+      - diag.hist-no-tracking-info.cause1
+    fixes:
+      - id: set-upstream
+        label_key: diag.hist-no-tracking-info.fix_set_upstream
+        action: { kind: "command", command: "git_push", args: {"set_upstream":true} }
+  - id: hist-rebase-in-progress
+    stage: [write]
+    match:
+      all_of:
+        - regex: 'already a rebase-merge|You must edit all merge conflicts'
+      none_of: []
+    confidence: 0.92
+    title_key: diag.hist-rebase-in-progress.title
+    explanation_key: diag.hist-rebase-in-progress.explanation
+    causes:
+      - diag.hist-rebase-in-progress.cause1
+    fixes:
+      - id: open-conflict-wizard
+        label_key: diag.hist-rebase-in-progress.fix_open_conflict_wizard
+        action: { kind: "guide", value: "/conflict" }
+  - id: hist-merge-in-progress
+    stage: [write]
+    match:
+      all_of:
+        - regex: 'You have not concluded your merge|MERGE_HEAD exists'
+      none_of: []
+    confidence: 0.9
+    title_key: diag.hist-merge-in-progress.title
+    explanation_key: diag.hist-merge-in-progress.explanation
+    causes:
+      - diag.hist-merge-in-progress.cause1
+    fixes:
+      - id: open-conflict-wizard
+        label_key: diag.hist-merge-in-progress.fix_open_conflict_wizard
+        action: { kind: "guide", value: "/conflict" }
+  - id: hist-shallow-clone
+    stage: [network]
+    match:
+      all_of:
+        - regex: 'shallow clone|shallow repository'
+      none_of: []
+    confidence: 0.85
+    when:
+      shallow: true
+    title_key: diag.hist-shallow-clone.title
+    explanation_key: diag.hist-shallow-clone.explanation
+    causes:
+      - diag.hist-shallow-clone.cause1
+    fixes:
+      - id: unshallow
+        label_key: diag.hist-shallow-clone.fix_unshallow
+        action: { kind: "command", command: "git_fetch", args: {"unshallow":true} }
