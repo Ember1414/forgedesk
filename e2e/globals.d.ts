@@ -240,6 +240,20 @@ declare global {
     }[];
     __termClosed?: readonly string[];
     __createdSessions?: readonly { readonly termId: string; readonly request: unknown }[];
+    /** 编辑器实例（EditorPanel onMount 挂载；E2E 用公共 API 编辑 model）。 */
+    __forgedeskEditor?: {
+      getModel?: () => {
+        getFullModelRange: () => unknown;
+        applyEdits: (edits: unknown) => void;
+      } | null;
+    };
+    /** 编辑器 e2e：mock 记录的 fs_write 请求（T5.7）。 */
+    __fsWrites?: readonly {
+      readonly path: string;
+      readonly content: string;
+      readonly eol: string;
+      readonly hasBom: boolean;
+    }[];
     /** mock 记录的强制登记请求（T5.3：断言 term_report_command 到达后端）。 */
     __termReports?: readonly {
       readonly repoId: number;

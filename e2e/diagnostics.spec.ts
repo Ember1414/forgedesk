@@ -141,7 +141,7 @@ test('① 拉取产生 non-fast-forward：诊断卡片出现，先抓取再重�
   await expect
     .poll(() => page.evaluate(() => (window.__syncCalls ?? []).map((c) => c.command)))
     .toContain('git_fetch');
-  await expect(page.getByText(/修复动作已完成/)).toBeVisible();
+  await expect(page.getByText(/修复动作已完成/).first()).toBeVisible();
 
   await expectNoPageErrors(page);
 });

@@ -13,6 +13,7 @@
  *
  * 页面全部为 M0 骨架，除「外壳导航」与「外观设置」外不实现功能。
  */
+import { lazy, Suspense } from 'react';
 import { Navigate, createHashRouter } from 'react-router-dom';
 import type { RouteObject } from 'react-router-dom';
 
@@ -36,6 +37,10 @@ import { RepoConflictPage } from '@/features/repo/RepoConflictPage';
 import { RepoHistoryPage } from '@/features/repo/RepoHistoryPage';
 import { RepoLayout } from '@/features/repo/RepoLayout';
 import { RepoStatusPage } from '@/features/repo/RepoStatusPage';
+// T5.7：编辑器携带 Monaco 核心（~3MB）——lazy chunk，不进首屏
+const RepoEditorPage = lazy(() =>
+  import('@/features/editor/RepoEditorPage').then((m) => ({ default: m.RepoEditorPage })),
+);
 import { RepoTerminalPage } from '@/features/repo/RepoTerminalPage';
 import { AdvancedSettingsPage } from '@/features/settings/AdvancedSettingsPage';
 import { AppearanceSettingsPage } from '@/features/settings/AppearanceSettingsPage';
@@ -79,6 +84,14 @@ export const appRoutes: RouteObject[] = [
           { path: 'branches', element: <RepoBranchesPage /> },
           { path: 'conflict', element: <RepoConflictPage /> },
           { path: 'terminal', element: <RepoTerminalPage /> },
+          {
+            path: 'editor',
+            element: (
+              <Suspense fallback={<div className="text-fg-muted p-4 text-13">…</div>}>
+                <RepoEditorPage />
+              </Suspense>
+            ),
+          },
           { path: 'settings', element: <RepoSettingsPage /> },
         ],
       },

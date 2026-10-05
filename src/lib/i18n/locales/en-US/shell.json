@@ -50,7 +50,8 @@
     "plugins": "Plugins",
     "settings": "Settings",
     "repoSettings": "Repository settings",
-    "commands": "Commands"
+    "commands": "Commands",
+    "editor": "Editor"
   },
   "statusBar": {
     "ariaLabel": "Status bar",
@@ -296,6 +297,10 @@
     "commands": {
       "title": "Command dictionary",
       "description": "An offline quick reference for common git commands and flags (bundled locally; may lag behind the latest git release)."
+    },
+    "editor": {
+      "title": "Editor",
+      "description": "View and edit repository files (Monaco, bundled locally)."
     }
   },
   "terminal": {
@@ -1959,6 +1964,37 @@
       "explanation": "Both histories moved forward - pick a merge or rebase strategy.",
       "cause1": "Both sides have new commits; the integration strategy is unspecified.",
       "fix_choose_strategy": "Choose an integration strategy"
+    }
+  },
+  "editor": {
+    "tablistLabel": "Open files",
+    "empty": "Open a file from the tree on the left.",
+    "notOpen": "Open a repository first.",
+    "toggleTree": "File tree",
+    "save": "Save",
+    "close": "Close",
+    "binaryNotice": "{size} is a binary file; use an external editor.",
+    "externalChanged": "The file was modified externally",
+    "conflictPrompt": "The file changed on disk:",
+    "conflictReload": "Reload (discard my edits)",
+    "conflictKeepMine": "Keep my edits",
+    "conflictCompare": "Compare side by side",
+    "tree": {
+      "refresh": "Refresh",
+      "newFile": "New file",
+      "newDir": "New folder",
+      "showHidden": "Show hidden",
+      "onlyChanged": "Changed only",
+      "rename": "Rename",
+      "deleteTitle": "Delete",
+      "deleteImpact": "{name} will be moved to the system trash (recoverable).",
+      "promptImpact": "Enter a name and confirm.",
+      "promptName": "Name",
+      "promptConfirm": "Confirm",
+      "promptCancel": "Cancel",
+      "renameAria": "Rename {name}",
+      "deleteAria": "Delete {name}",
+      "changedMark": "●"
     }
   }
 }

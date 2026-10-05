@@ -50,7 +50,8 @@
     "plugins": "插件",
     "settings": "设置",
     "repoSettings": "仓库设置",
-    "commands": "命令字典"
+    "commands": "命令字典",
+    "editor": "编辑器"
   },
   "statusBar": {
     "ariaLabel": "状态栏",
@@ -296,6 +297,10 @@
     "commands": {
       "title": "命令字典",
       "description": "常用 git 命令与参数的本地速查手册（内容离线打包，可能滞后于最新 git 版本）。"
+    },
+    "editor": {
+      "title": "编辑器",
+      "description": "查看与编辑仓库文件（Monaco 内置，本地打包）。"
     }
   },
   "terminal": {
@@ -1959,6 +1964,37 @@
       "explanation": "两条历史各有前进——需要指定合并或变基策略。",
       "cause1": "本地与远端分支各有新提交，Git 不知道该用合并还是变基接入。",
       "fix_choose_strategy": "选择整合策略"
+    }
+  },
+  "editor": {
+    "tablistLabel": "打开的文件",
+    "empty": "从左侧文件树打开一个文件。",
+    "notOpen": "请先打开一个仓库。",
+    "toggleTree": "文件树",
+    "save": "保存",
+    "close": "关闭",
+    "binaryNotice": "{size} 是二进制文件，请用外部编辑器查看。",
+    "externalChanged": "磁盘上的文件已被外部修改",
+    "conflictPrompt": "文件在外部被修改：",
+    "conflictReload": "重新加载（丢弃我的编辑）",
+    "conflictKeepMine": "保留我的编辑",
+    "conflictCompare": "并排对比",
+    "tree": {
+      "refresh": "刷新",
+      "newFile": "新建文件",
+      "newDir": "新建文件夹",
+      "showHidden": "显示隐藏",
+      "onlyChanged": "只看已修改",
+      "rename": "重命名",
+      "deleteTitle": "删除",
+      "deleteImpact": "将把 {name} 移入系统回收站（可恢复）。",
+      "promptImpact": "输入名称后确认。",
+      "promptName": "名称",
+      "promptConfirm": "确认",
+      "promptCancel": "取消",
+      "renameAria": "重命名 {name}",
+      "deleteAria": "删除 {name}",
+      "changedMark": "●"
     }
   }
 }

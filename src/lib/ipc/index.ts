@@ -336,6 +336,9 @@ export type {
   TermSummary,
 } from './terminal';
 
+export { fsCreate, fsDelete, fsRead, fsRename, fsTree, fsWrite } from './fs';
+export type { FsEol, FsFileContent, FsKind, FsNode } from './fs';
+
 export { systemDiagnoseError, systemDiagnoseKeys } from './diagnostics';
 export type {
   DiagContextInput,
