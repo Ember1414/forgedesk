@@ -8,6 +8,7 @@
 
 pub mod manifest;
 pub mod permission;
+pub mod runtime;
 
 /// crate 名称，用于日志与诊断中标识来源。
 pub const CRATE_NAME: &str = env!("CARGO_PKG_NAME");
