@@ -1545,5 +1545,10 @@
       "loadErrorHint": "账号列表与绑定状态加载失败，请重试。",
       "retry": "重试"
     }
+  },
+  "plugins": {
+    "panelRenderFailedTitle": "插件面板暂时无法显示",
+    "panelRenderFailedHint": "面板返回的内容不合法，已阻止渲染。可在插件的日志页查看详情。",
+    "progressLabel": "{{label}} 进度"
   }
 }

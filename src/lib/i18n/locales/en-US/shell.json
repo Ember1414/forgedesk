@@ -1545,5 +1545,10 @@
       "loadErrorHint": "Loading the account list or binding failed; please retry.",
       "retry": "Retry"
     }
+  },
+  "plugins": {
+    "panelRenderFailedTitle": "This plugin panel cannot be displayed",
+    "panelRenderFailedHint": "The panel returned invalid content and rendering was blocked. See the plugin log for details.",
+    "progressLabel": "{{label}} progress"
   }
 }
