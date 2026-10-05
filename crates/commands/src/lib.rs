@@ -39,6 +39,7 @@ pub mod dashboard;
 pub mod debug;
 pub mod diagnostics;
 pub mod error;
+pub mod file_history;
 pub mod fs;
 pub mod history;
 pub mod history_ops;
@@ -100,6 +101,9 @@ pub use diagnostics::{
     system_diagnose_error, system_diagnose_keys, DiagContextDto, DiagKeysSummary,
 };
 pub use error::{to_app_error, Fallible};
+pub use file_history::{
+    git_blame, git_file_at, git_file_history, FileAtDto, GitBlameRequest, GitFileHistoryRequest,
+};
 pub use fs::{
     fs_create, fs_delete, fs_read, fs_rename, fs_tree, fs_write, FsCreateRequest, FsReadRequest,
     FsRenameRequest, FsTreeRequest, FsWriteOutcome, FsWriteRequest,

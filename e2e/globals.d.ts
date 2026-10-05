@@ -247,6 +247,8 @@ declare global {
         applyEdits: (edits: unknown) => void;
       } | null;
     };
+    /** 编辑器 e2e：git_blame 调用计数（T5.8）。 */
+    __blameCalls?: number;
     /** 编辑器 e2e：mock 记录的 fs_write 请求（T5.7）。 */
     __fsWrites?: readonly {
       readonly path: string;

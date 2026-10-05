@@ -29,6 +29,7 @@ pub mod commit_detail;
 pub mod conflict;
 pub mod credentials;
 pub mod engines;
+pub mod file_history;
 pub mod history;
 pub mod history_cache;
 pub mod history_ops;
@@ -63,6 +64,9 @@ pub use credentials::{
     SharedStore, MAX_CONSECUTIVE_AUTH_FAILURES,
 };
 pub use engines::GitEngines;
+pub use file_history::{
+    git_blame, git_file_at, git_file_history, BlameOptions, FileHistoryEntry, FileHistoryPage,
+};
 pub use history::{
     HistoryPage, HistoryQuery, HistoryService, MAX_PAGE_SIZE as MAX_HISTORY_PAGE_SIZE,
 };

@@ -48,6 +48,17 @@ const EDITOR_MOCK = `
           { name: "main.rs", relPath: "src/main.rs", kind: "file", size: 13 },
         ]);
       }
+      if (command === "git_blame") {
+        window.__blameCalls = (window.__blameCalls || 0) + 1;
+        return Promise.resolve([
+          { oid: "a1b2c3d4e5f6a7b8a1b2c3d4e5f6a7b8a1b2c3d4", shortOid: "a1b2c3d4", lineNo: 1,
+            author: "Alice", authorMail: "alice@example.com", authorTime: 1696000000,
+            summary: "add main module", isUncommitted: false, previousPath: null },
+          { oid: "0000000000000000000000000000000000000000", shortOid: "00000000", lineNo: 2,
+            author: "me", authorMail: "me@local", authorTime: 1700000000,
+            summary: "Uncommitted changes", isUncommitted: true, previousPath: null }
+        ]);
+      }
       if (command === "fs_read") {
         const file = files[args.path];
         if (!file) return Promise.reject({ code: "NOT_FOUND", message: "the file does not exist" });
@@ -150,3 +161,26 @@ async function expectNoPageErrors(page: Page): Promise<void> {
   const errors = await page.evaluate(() => window.__errs ?? []);
   expect(errors, JSON.stringify(errors)).toEqual([]);
 }
+
+test('T5.8 blame：开启后显示色条装饰（未提交行单独标记）', async ({ page }) => {
+  await page.addInitScript(() => {
+    window.localStorage.setItem('forgedesk.language', 'zh-CN');
+  });
+  await page.addInitScript(EDITOR_MOCK);
+  await openEditor(page);
+  await expandSrcAndOpenMain(page);
+
+  await page.getByRole('button', { name: 'Blame' }).click();
+
+  await expect
+    .poll(async () => (await page.evaluate(() => window.__blameCalls)) ?? 0)
+    .toBeGreaterThan(0);
+  await expect
+    .poll(() => page.evaluate(() => document.querySelectorAll('[class*=fd-blame-]').length))
+    .toBeGreaterThan(0);
+  await expect
+    .poll(() => page.evaluate(() => document.querySelectorAll('.fd-blame-uncommitted').length))
+    .toBeGreaterThan(0);
+
+  await expectNoPageErrors(page);
+});

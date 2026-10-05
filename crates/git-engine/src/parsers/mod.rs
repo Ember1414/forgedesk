@@ -14,6 +14,7 @@
 //! 解析器**不做 IO**：它们只把字节变成 [`forgedesk_domain::git`] 里的领域类型，
 //! 因此可以用固定样本（`tests/fixtures/`）完整覆盖边界。
 
+pub mod blame;
 mod common;
 pub mod config;
 pub mod diff;
@@ -23,6 +24,7 @@ pub mod status;
 pub mod unified_diff;
 pub mod worktree;
 
+pub use blame::parse_blame_porcelain;
 pub use config::parse_config_list;
 pub use diff::parse_diff_numstat;
 pub use log::{parse_log_format, parse_show_format, LOG_FORMAT, SHOW_FORMAT};

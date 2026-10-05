@@ -1,0 +1,47 @@
+/* Blame 色条（T5.8）：色值全部取既有 graph-lane token（8 色循环，不引入新色板）。
+   未提交行用 warning token 单独标记。 */
+
+.fd-blame-lane-0 {
+  background: var(--fd-graph-lane-0);
+}
+.fd-blame-lane-1 {
+  background: var(--fd-graph-lane-1);
+}
+.fd-blame-lane-2 {
+  background: var(--fd-graph-lane-2);
+}
+.fd-blame-lane-3 {
+  background: var(--fd-graph-lane-3);
+}
+.fd-blame-lane-4 {
+  background: var(--fd-graph-lane-4);
+}
+.fd-blame-lane-5 {
+  background: var(--fd-graph-lane-5);
+}
+.fd-blame-lane-6 {
+  background: var(--fd-graph-lane-6);
+}
+.fd-blame-lane-7 {
+  background: var(--fd-graph-lane-7);
+}
+
+/* 行号左侧的装饰宽度（Monaco 的 linesDecorations 默认 0 宽） */
+.monaco-editor .fd-blame-lane-0,
+.monaco-editor .fd-blame-lane-1,
+.monaco-editor .fd-blame-lane-2,
+.monaco-editor .fd-blame-lane-3,
+.monaco-editor .fd-blame-lane-4,
+.monaco-editor .fd-blame-lane-5,
+.monaco-editor .fd-blame-lane-6,
+.monaco-editor .fd-blame-lane-7,
+.monaco-editor .fd-blame-uncommitted {
+  margin-left: 6px;
+  width: 3px;
+  border-radius: 2px;
+}
+
+.monaco-editor .fd-blame-uncommitted {
+  background: var(--fd-warning);
+  opacity: 0.6;
+}

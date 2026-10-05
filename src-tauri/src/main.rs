@@ -408,6 +408,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         forgedesk_commands::fs_create,
         forgedesk_commands::fs_rename,
         forgedesk_commands::fs_delete,
+        // T5.8 文件历史与 Blame（全构建注册）
+        forgedesk_commands::git_blame,
+        forgedesk_commands::git_file_history,
+        forgedesk_commands::git_file_at,
         // T5.1 PTY Spike 调试通道（仅开发构建；结论见 docs/PTY-SPIKE.md）
         forgedesk_commands::pty_spike_create,
         forgedesk_commands::pty_spike_write,
@@ -581,6 +585,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         forgedesk_commands::fs_create,
         forgedesk_commands::fs_rename,
         forgedesk_commands::fs_delete,
+        // T5.8 文件历史与 Blame（全构建注册）
+        forgedesk_commands::git_blame,
+        forgedesk_commands::git_file_history,
+        forgedesk_commands::git_file_at,
     ]);
 
     let app = builder.build(tauri::generate_context!())?;

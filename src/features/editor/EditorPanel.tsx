@@ -1,19 +1,22 @@
 /**
- * 编辑器面板（T5.7）：Monaco + 多标签 + 外部变更三选一。
+ * 编辑器面板（T5.7/T5.8）：Monaco + 多标签 + 外部变更三选一 + Blame + 文件历史。
  *
  * # 资源策略
  *
- * - Monaco **本地打包**（不用 CDN：CSP 禁止远程脚本、离线必须可用），
- *   语言 worker 只带 editor 核心 + ts/css/html/json——任务书明确
- *   "不得打包全部语言"；其余扩展名仍可编辑（无高亮但功能完整）。
- * - `@monaco-editor/react` 的 loader 被指向本地 monaco，因此真正加载
- *   发生在首个文件打开时（懒 chunk，不进首屏）。
+ * Monaco 本地打包（不用 CDN：CSP 禁止远程脚本、离线必须可用），语言 worker
+ * 只带 editor 核心（0.5MB）；语法高亮用 basic-languages 的 Monarch tokenizer
+ * （每个语言几十 KB）——任务书明确"不得打包全部语言"。
  *
  * # 外部变更三选一（任务书硬性要求：绝不静默覆盖）
  *
- * 文件打开/保存时记录磁盘基线；`repo:changed`（文件监听，T1.10）到达后
- * 对打开的文件重新 fs_read，与基线不同 → 提示三选一：
- * 重新加载（丢弃我的编辑）/ 保留我的编辑 / 并排对比。
+ * 打开/保存时记录磁盘基线；`repo:changed`（文件监听，T1.10）到达后重读
+ * 磁盘比对，不一致 → 提示三选一：重新加载 / 保留我的编辑 / 并排对比。
+ *
+ * # Blame 与文件历史（T5.8）
+ *
+ * Blame 用 Monaco 装饰渲染（左侧色条 + hover 摘要，未提交行单独标记）；
+ * 点击行打开提交详情对话框。文件历史面板列出 A/M/D/R 时间线，条目可
+ * "与当前内容并排对比"（git_file_at 取历史版本）。
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Unlisten } from '@/lib/ipc/client';
@@ -21,25 +24,24 @@ import type { Unlisten } from '@/lib/ipc/client';
 import { Editor, loader, type Monaco } from '@monaco-editor/react';
 import { useTranslation } from 'react-i18next';
 
+import { applyBlameDecorations, blameAtLine } from '@/features/editor/blameDecorations';
+import { CommitDetailDialog } from '@/features/editor/FileHistoryPanel';
+import { FileHistoryPanel } from '@/features/editor/FileHistoryPanel';
 import { watchExternalChanges } from '@/features/editor/editorSupport';
+import { gitBlame } from '@/lib/ipc/blame';
+import type { BlameLine } from '@/lib/ipc/blame';
 import { fsRead, fsWrite } from '@/lib/ipc/fs';
 import type { EditorTab } from '@/stores/editorStore';
 import { useEditorStore } from '@/stores/editorStore';
 import { Button } from '@/ui/components/button';
 import { cn } from '@/lib/utils';
+import '@/features/editor/blame.css';
 
 // Monaco 本地装配（一次即可）。
-//
-// 语言策略（任务书：不得打包全部语言、不做 LSP/智能补全）：
-// - worker 只有 editor 核心（查找/多光标/折叠等基础能力都在主线程 API 里，
-//   worker 负责跨文件功能——正是"不做清单"里的东西）；
-// - 语法高亮用 basic-languages 的 Monarch tokenizer（每个语言几十 KB），
-//   按常用集合手动列出；集合之外的扩展名仍可编辑（无高亮，功能完整）。
-// - 因此没有 ts/css/html/json worker（ts.worker 独占 10MB，是最大的一块）。
+// 语言策略（任务书：不得打包全部语言、不做 LSP）：只有 0.5MB editor worker；
+// 高亮用 basic-languages 的 Monarch tokenizer（import 即注册，~16KB/语言）。
 import * as monacoCore from 'monaco-editor/esm/vs/editor/editor.api';
 import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker';
-
-// 常用语言的 Monarch 高亮（import 即注册；几十 KB/语言）
 import 'monaco-editor/esm/vs/basic-languages/typescript/typescript.contribution';
 import 'monaco-editor/esm/vs/basic-languages/javascript/javascript.contribution';
 import 'monaco-editor/esm/vs/basic-languages/css/css.contribution';
@@ -152,7 +154,18 @@ function EditorTabView({
   const [saving, setSaving] = useState(false);
   const [showCompare, setShowCompare] = useState(false);
   const [diskContent, setDiskContent] = useState<string | null>(null);
+  const [compareContent, setCompareContent] = useState<string | null>(null);
+  const [blameOn, setBlameOn] = useState(false);
+  const [blame, setBlame] = useState<readonly BlameLine[]>([]);
+  const [historyOn, setHistoryOn] = useState(false);
+  const [detailOid, setDetailOid] = useState<string | null>(null);
+  const [editorReady, setEditorReady] = useState(false);
   const modelRef = useRef<string | null>(model);
+  const editorRef = useRef<
+    Parameters<NonNullable<Parameters<typeof Editor>[0]['onMount']>>[0] | null
+  >(null);
+  const blameCollectionRef = useRef<{ clear: () => void } | null>(null);
+
   useEffect(() => {
     modelRef.current = model;
   }, [model]);
@@ -189,6 +202,52 @@ function EditorTabView({
     };
   }, [active, markDirtyDisk, markSaved, repoId, tab.path]);
 
+  // blame 开关：拉取逐行归属并渲染为 Monaco 装饰（未提交行单独标记）
+  useEffect(() => {
+    const editor = editorRef.current;
+    if (!editorReady || !editor || !blameOn || !active) {
+      return;
+    }
+    let cancelled = false;
+    void gitBlame(repoId, tab.path, { detectMoves: true })
+      .then((lines) => {
+        if (cancelled) {
+          return;
+        }
+        setBlame(lines);
+        blameCollectionRef.current = applyBlameDecorations(editor, lines);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+      blameCollectionRef.current?.clear();
+      blameCollectionRef.current = null;
+      setBlame([]);
+    };
+  }, [blameOn, active, editorReady, repoId, tab.path]);
+  void editorReady;
+
+  // blame 点击 → 该行提交详情
+  useEffect(() => {
+    const editor = editorRef.current;
+    if (!editor || !blameOn || blame.length === 0) {
+      return;
+    }
+    const listener = editor.onMouseDown((event) => {
+      const line = event.target.position?.lineNumber;
+      if (line === undefined) {
+        return;
+      }
+      const hit = blameAtLine(blame, line);
+      if (hit !== null) {
+        setDetailOid(hit.oid);
+      }
+    });
+    return () => {
+      listener.dispose();
+    };
+  }, [blameOn, blame]);
+
   const save = useCallback(async () => {
     if (modelRef.current === null) {
       return;
@@ -212,81 +271,124 @@ function EditorTabView({
     }
   }, [diskContent, markSaved, tab.path]);
 
+  const insertExample = useCallback((example: string) => {
+    const managed = editorRef.current;
+    if (managed) {
+      managed.trigger('insertExample', 'type', { text: example });
+    }
+  }, []);
+  void insertExample;
+
   return (
-    <div className={cn('relative min-h-0 min-w-0 flex-1', active ? 'flex' : 'hidden')}>
+    <div className={cn('relative flex min-h-0 min-w-0 flex-1', active ? '' : 'hidden')}>
+      {detailOid !== null ? (
+        <CommitDetailDialog repoId={repoId} oid={detailOid} onClose={() => setDetailOid(null)} />
+      ) : null}
       {tab.isBinary ? (
         <div className="text-fg-muted flex flex-1 items-center justify-center text-13">
-          {t('editor.binaryNotice', { size: tab.name })}
+          {t('editor.binaryNotice', { name: tab.name })}
         </div>
       ) : (
-        <>
-          <div className="border-line flex items-center gap-2 border-b px-2 py-1">
-            <Button size="sm" disabled={saving} onClick={() => void save()}>
-              {t('editor.save')}
-            </Button>
+        <div className="flex min-h-0 min-w-0 flex-1">
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+            <div className="border-line flex items-center gap-2 border-b px-2 py-1">
+              <Button size="sm" disabled={saving} onClick={() => void save()}>
+                {t('editor.save')}
+              </Button>
+              {tab.dirtyDisk ? (
+                <span className="text-warning text-12">{t('editor.externalChanged')}</span>
+              ) : null}
+              <span className="text-fg-subtle font-mono text-11">{tab.path}</span>
+              <span className="flex-1" />
+              <Button
+                size="sm"
+                variant={blameOn ? 'primary' : 'ghost'}
+                onClick={() => setBlameOn((on) => !on)}
+              >
+                {t('editor.blame.toggle')}
+              </Button>
+              <Button
+                size="sm"
+                variant={historyOn ? 'primary' : 'ghost'}
+                onClick={() => setHistoryOn((on) => !on)}
+              >
+                {t('editor.history.toggle')}
+              </Button>
+              <Button size="sm" variant="ghost" onClick={onClose}>
+                {t('editor.close')}
+              </Button>
+            </div>
+
             {tab.dirtyDisk ? (
-              <span className="text-warning text-12">{t('editor.externalChanged')}</span>
+              <div className="border-warning bg-surface-raised text-fg flex flex-wrap items-center gap-2 border-b px-3 py-2">
+                <span className="text-12">{t('editor.conflictPrompt')}</span>
+                <Button size="sm" variant="danger" onClick={reloadFromDisk}>
+                  {t('editor.conflictReload')}
+                </Button>
+                <Button size="sm" onClick={() => keepMine(tab.path)}>
+                  {t('editor.conflictKeepMine')}
+                </Button>
+                {diskContent !== null ? (
+                  <Button size="sm" variant="secondary" onClick={() => setShowCompare((v) => !v)}>
+                    {t('editor.conflictCompare')}
+                  </Button>
+                ) : null}
+              </div>
             ) : null}
-            <span className="text-fg-subtle font-mono text-11">{tab.path}</span>
-            <span className="flex-1" />
-            <Button size="sm" variant="ghost" onClick={onClose}>
-              {t('editor.close')}
-            </Button>
+
+            {showCompare && !tab.isBinary ? (
+              <div className="border-line flex min-h-0 flex-1 border-b">
+                <pre className="border-line w-1/2 overflow-auto border-e p-2 font-mono text-12">
+                  {compareContent ?? diskContent}
+                </pre>
+                <pre className="w-1/2 overflow-auto p-2 font-mono text-12">{model}</pre>
+              </div>
+            ) : null}
+
+            <div className="min-h-0 flex-1">
+              <Editor
+                theme="vs-dark"
+                path={tab.path}
+                value={model ?? ''}
+                onChange={(value) => setModel(value ?? '')}
+                onMount={(editor, monaco) => {
+                  configureMonaco();
+                  // 诊断/E2E 钩子（与 __forgedeskTermText 同款做法）：只读暴露实例
+                  (window as unknown as { __forgedeskEditor?: unknown }).__forgedeskEditor = editor;
+                  editorRef.current = editor;
+                  setEditorReady(true);
+                  editor.focus();
+                  // 不做 LSP（"不做清单"）：关掉 TS 语义校验，只留语法高亮
+                  monaco.languages.typescript?.typescriptDefaults?.setCompilerOptions({
+                    allowNonTsExtensions: true,
+                    noSemanticValidation: true,
+                    noSyntaxValidation: false,
+                  });
+                }}
+                options={{
+                  fontSize: 13,
+                  minimap: { enabled: false },
+                  // blame 色条按行对齐的前提是行高恒定（word wrap 会让一行占多行）
+                  wordWrap: blameOn ? ('off' as const) : ('on' as const),
+                  automaticLayout: true,
+                  lineDecorationsWidth: blameOn ? 16 : 10,
+                }}
+              />
+            </div>
           </div>
 
-          {tab.dirtyDisk ? (
-            <div className="border-warning bg-surface-raised text-fg flex flex-wrap items-center gap-2 border-b px-3 py-2">
-              <span className="text-12">{t('editor.conflictPrompt')}</span>
-              <Button size="sm" variant="danger" onClick={reloadFromDisk}>
-                {t('editor.conflictReload')}
-              </Button>
-              <Button size="sm" onClick={() => keepMine(tab.path)}>
-                {t('editor.conflictKeepMine')}
-              </Button>
-              {diskContent !== null ? (
-                <Button size="sm" variant="secondary" onClick={() => setShowCompare((v) => !v)}>
-                  {t('editor.conflictCompare')}
-                </Button>
-              ) : null}
-            </div>
-          ) : null}
-
-          {showCompare && diskContent !== null ? (
-            <div className="border-line flex min-h-0 flex-1 border-b">
-              <pre className="border-line w-1/2 overflow-auto border-e p-2 font-mono text-12">
-                {diskContent}
-              </pre>
-              <pre className="w-1/2 overflow-auto p-2 font-mono text-12">{model}</pre>
-            </div>
-          ) : null}
-
-          <div className="min-h-0 flex-1">
-            <Editor
-              theme="vs-dark"
+          {historyOn ? (
+            <FileHistoryPanel
+              repoId={repoId}
               path={tab.path}
-              value={model ?? ''}
-              onChange={(value) => setModel(value ?? '')}
-              onMount={(editor, monaco) => {
-                configureMonaco();
-                // 诊断/E2E 钩子（与 __forgedeskTermText 同款做法）：只读暴露实例
-                (window as unknown as { __forgedeskEditor?: unknown }).__forgedeskEditor = editor;
-                editor.focus();
-                // 默认基础补全（编辑器内置；不做 LSP——"不做清单"）
-                monaco.languages.typescript?.typescriptDefaults?.setCompilerOptions({
-                  allowNonTsExtensions: true,
-                  noSemanticValidation: true,
-                  noSyntaxValidation: false,
-                });
-              }}
-              options={{
-                fontSize: 13,
-                minimap: { enabled: false },
-                wordWrap: 'on',
-                automaticLayout: true,
+              onClose={() => setHistoryOn(false)}
+              onCompare={(content) => {
+                setCompareContent(content);
+                setShowCompare(true);
               }}
             />
-          </div>
-        </>
+          ) : null}
+        </div>
       )}
     </div>
   );
