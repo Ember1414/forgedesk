@@ -30,8 +30,11 @@
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use crate::host::{self, SharedServices};
 use crate::manifest::ValidatedManifest;
-use crate::runtime::{HostError, LifecycleState, PluginEngine, PluginHandle, RuntimeLimits};
+use crate::runtime::{
+    HostError, LifecycleState, PermissionSet, PluginEngine, PluginHandle, RuntimeLimits,
+};
 
 /// 插件返回值的最大字节数（防止一个返回值拖垮宿主内存）。
 const MAX_RESULT_BYTES: usize = 1024 * 1024;
@@ -84,11 +87,16 @@ impl std::fmt::Display for EngineStop {
 
 impl wasmi::errors::HostError for EngineStop {}
 
-/// 每个 Store 挂的资源上限与 fuel 预算（limiter 闭包需要从 data 取）。
-#[derive(Debug)]
+/// 每个 Store 挂的资源上限、fuel 预算与宿主调用上下文
+/// （limiter 闭包与 `fd.*` 导入都要从 data 取）。
 struct PluginData {
     limits: wasmi::StoreLimits,
     fuel_budget: u64,
+    plugin_id: String,
+    granted: PermissionSet,
+    services: SharedServices,
+    /// `fd.host_call` 的结果/错误详情 staging，`fd.host_result` 取回。
+    staging: Vec<u8>,
 }
 
 struct PluginInstance {
@@ -102,26 +110,28 @@ struct PluginInstance {
 pub struct WasmiEngine {
     engine: wasmi::Engine,
     limits: RuntimeLimits,
+    services: SharedServices,
     instances: parking_lot::RwLock<BTreeMap<u64, PluginInstance>>,
     next_id: AtomicU64,
 }
 
 impl WasmiEngine {
-    /// 以给定资源上限构建引擎。
-    pub fn new(limits: RuntimeLimits) -> Self {
+    /// 以给定资源上限与宿主服务实现构建引擎。
+    pub fn new(limits: RuntimeLimits, services: SharedServices) -> Self {
         let mut config = wasmi::Config::default();
         config.consume_fuel(true);
         Self {
             engine: wasmi::Engine::new(&config),
             limits,
+            services,
             instances: parking_lot::RwLock::new(BTreeMap::new()),
             next_id: AtomicU64::new(1),
         }
     }
 
-    /// 以规格默认上限构建（64MB / 5s / 30s）。
-    pub fn with_default_limits() -> Self {
-        Self::new(RuntimeLimits::default())
+    /// 以规格默认上限构建（64MB / 5s / 30s / fuel 按 profile）。
+    pub fn with_default_limits(services: SharedServices) -> Self {
+        Self::new(RuntimeLimits::default(), services)
     }
 
     /// 把 wasmi 错误归一为结构化 [`HostError`]。
@@ -137,6 +147,8 @@ impl WasmiEngine {
             wasmi::errors::ErrorKind::TrapCode(wasmi::TrapCode::OutOfFuel)
                 | wasmi::errors::ErrorKind::Memory(wasmi::errors::MemoryError::OutOfFuel { .. })
                 | wasmi::errors::ErrorKind::Table(wasmi::errors::TableError::OutOfFuel { .. })
+                // fuel 在宿主函数边界耗尽时，wasmi 以可恢复错误的形式冒出
+                | wasmi::errors::ErrorKind::ResumableOutOfFuel(_)
         );
         if out_of_fuel {
             return HostError::Timeout {
@@ -157,6 +169,162 @@ impl WasmiEngine {
             .ok_or_else(|| HostError::Engine("plugin does not export its linear memory".to_owned()))
     }
 
+    /// 导入（host function）内读取插件内存中的一段字节。
+    fn import_read_bytes(
+        caller: &wasmi::Caller<'_, PluginData>,
+        field: &'static str,
+        ptr: i32,
+        len: i32,
+        max: usize,
+    ) -> Result<Vec<u8>, HostError> {
+        if ptr < 0 || len < 0 {
+            return Err(HostError::InvalidArgument(
+                field,
+                "negative ptr/len".to_owned(),
+            ));
+        }
+        let len = len as usize;
+        if len > max {
+            return Err(HostError::InvalidArgument(
+                field,
+                "exceeds the size cap".to_owned(),
+            ));
+        }
+        let memory = caller
+            .get_export("memory")
+            .and_then(|entry| entry.into_memory())
+            .ok_or_else(|| {
+                HostError::Engine("plugin does not export its linear memory".to_owned())
+            })?;
+        let size = memory.data_size(caller);
+        let start = ptr as usize;
+        if start.checked_add(len).is_none_or(|end| end > size) {
+            return Err(HostError::InvalidArgument(
+                field,
+                "out of the plugin's memory bounds".to_owned(),
+            ));
+        }
+        let mut buffer = vec![0u8; len];
+        memory
+            .read(caller, start, &mut buffer)
+            .map_err(|error| HostError::Engine(format!("reading plugin memory failed: {error}")))?;
+        Ok(buffer)
+    }
+
+    /// 注册 `fd.*` 导入（T6.2 宿主函数）。
+    ///
+    /// 对所有插件注册同一套导入：能力裁剪不在这里做——清单声明之外的能力
+    /// 由派发器的权限表拦截（结构保证），导入集合只暴露"存在哪些操作"，
+    /// 不暴露"这个插件被允许哪些操作"。
+    fn register_imports(linker: &mut wasmi::Linker<PluginData>) -> Result<(), HostError> {
+        linker
+            .func_wrap(
+                "fd",
+                "log",
+                |caller: wasmi::Caller<'_, PluginData>, level: i32, ptr: i32, len: i32| {
+                    let message = WasmiEngine::import_read_bytes(
+                        &caller,
+                        "log",
+                        ptr,
+                        len,
+                        host::MAX_LOG_BYTES,
+                    );
+                    let Ok(message) = message else {
+                        return; // 读不出来就丢弃：日志是尽力而为的通道
+                    };
+                    let text = String::from_utf8_lossy(&message).into_owned();
+                    let plugin_id = caller.data().plugin_id.clone();
+                    match level {
+                        2 => tracing::warn!(target: "plugin", plugin_id, "{text}"),
+                        3 => tracing::error!(target: "plugin", plugin_id, "{text}"),
+                        0 => tracing::debug!(target: "plugin", plugin_id, "{text}"),
+                        _ => tracing::info!(target: "plugin", plugin_id, "{text}"),
+                    }
+                },
+            )
+            .map_err(|error| HostError::Engine(format!("could not register fd.log: {error}")))?;
+        linker
+            .func_wrap(
+                "fd",
+                "host_call",
+                |mut caller: wasmi::Caller<'_, PluginData>,
+                 op: i32,
+                 arg_ptr: i32,
+                 arg_len: i32|
+                 -> i32 {
+                    let args = match WasmiEngine::import_read_bytes(
+                        &caller,
+                        "args",
+                        arg_ptr,
+                        arg_len,
+                        host::MAX_ARG_BYTES,
+                    ) {
+                        Ok(args) => args,
+                        Err(error) => {
+                            caller.data_mut().staging.clear();
+                            host::stage_error(&mut caller.data_mut().staging, &error);
+                            return host::error_code(&error);
+                        }
+                    };
+                    let data = caller.data();
+                    let plugin_id = data.plugin_id.clone();
+                    let granted = data.granted.clone();
+                    let services = std::sync::Arc::clone(&data.services);
+                    host::dispatch_host_call(
+                        &plugin_id,
+                        &granted,
+                        services.as_ref(),
+                        op,
+                        &args,
+                        &mut caller.data_mut().staging,
+                    )
+                },
+            )
+            .map_err(|error| {
+                HostError::Engine(format!("could not register fd.host_call: {error}"))
+            })?;
+        linker
+            .func_wrap(
+                "fd",
+                "host_result",
+                |mut caller: wasmi::Caller<'_, PluginData>, out_ptr: i32, out_cap: i32| -> i32 {
+                    if out_ptr < 0 || out_cap < 0 {
+                        return host::ERR_INVALID_ARGUMENT;
+                    }
+                    let Some(memory) = caller.get_export("memory").and_then(|e| e.into_memory())
+                    else {
+                        return host::ERR_GENERIC;
+                    };
+                    let size = memory.data_size(&caller);
+                    let start = out_ptr as usize;
+                    let cap = out_cap as usize;
+                    if start.checked_add(cap).is_none_or(|end| end > size) {
+                        return host::ERR_INVALID_ARGUMENT;
+                    }
+                    let mut buffer = vec![0u8; cap];
+                    match host::take_staged_result_into(&mut caller.data_mut().staging, &mut buffer)
+                    {
+                        Ok(0) => 0,
+                        Ok(written) => {
+                            memory
+                                .write(&mut caller, start, &buffer[..written])
+                                .unwrap_or_else(|_| {
+                                    tracing::error!(
+                                        "writing host result into plugin memory failed"
+                                    );
+                                });
+                            written as i32
+                        }
+                        Err(code) => code,
+                    }
+                },
+            )
+            .map_err(|error| {
+                HostError::Engine(format!("could not register fd.host_result: {error}"))
+            })?;
+        Ok(())
+    }
+
     fn reset_fuel(store: &mut wasmi::Store<PluginData>) -> Result<(), HostError> {
         store
             .set_fuel(store.data().fuel_budget)
@@ -172,10 +340,11 @@ impl WasmiEngine {
 }
 
 impl PluginEngine for WasmiEngine {
-    fn load(&self, _manifest: &ValidatedManifest, wasm: &[u8]) -> Result<PluginHandle, HostError> {
+    fn load(&self, manifest: &ValidatedManifest, wasm: &[u8]) -> Result<PluginHandle, HostError> {
         // 翻译 + 实例化是原生栈需求最深的一段，放到执行线程上
         let engine = &self.engine;
         let limits = self.limits;
+        let services = std::sync::Arc::clone(&self.services);
         let (store, instance) = on_executor_stack(move || {
             let module = wasmi::Module::new(engine, wasm).map_err(|error| {
                 HostError::Engine(format!("wasm module failed to load: {error}"))
@@ -187,10 +356,17 @@ impl PluginEngine for WasmiEngine {
                         .memory_size(limits.max_plugin_memory_bytes as usize)
                         .build(),
                     fuel_budget: limits.fuel_budget,
+                    plugin_id: manifest.id.clone(),
+                    // T6.4 会在这里取"清单声明 ∩ 用户逐项授权"的交集；
+                    // 当前阶段以清单声明为准（与 T6.1 行为一致）
+                    granted: PermissionSet::from_declared(manifest.permissions.iter().copied()),
+                    services: std::sync::Arc::clone(&services),
+                    staging: Vec::new(),
                 },
             );
             store.limiter(|data: &mut PluginData| &mut data.limits);
-            let linker = <wasmi::Linker<PluginData>>::new(engine);
+            let mut linker = <wasmi::Linker<PluginData>>::new(engine);
+            Self::register_imports(&mut linker)?;
             let instance = linker
                 .instantiate_and_start(&mut store, &module)
                 .map_err(|error| {
@@ -388,31 +564,181 @@ mod tests {
     use crate::manifest::PluginManifest;
     use crate::runtime::RuntimeLimits;
 
+    fn manifest_with_permissions(perms: &[&str]) -> ValidatedManifest {
+        let permissions = perms
+            .iter()
+            .map(|p| format!(r#""{p}""#))
+            .collect::<Vec<_>>()
+            .join(",");
+        let text = format!(
+            r#"{{"id": "com.example.wasmi", "name": "Wasmi Test", "version": "1.0.0",
+                "apiVersion": "0.1", "author": "test", "license": "MIT",
+                "description": "test plugin", "main": "plugin.wasm",
+                "permissions": [{permissions}]}}"#
+        );
+        PluginManifest::parse(&text).unwrap()
+    }
+
     fn validated_manifest() -> ValidatedManifest {
-        PluginManifest::parse(
-            r#"{
-                "id": "com.example.wasmi",
-                "name": "Wasmi Test",
-                "version": "1.0.0",
-                "apiVersion": "0.1",
-                "author": "test",
-                "license": "MIT",
-                "description": "test plugin",
-                "main": "plugin.wasm",
-                "permissions": ["ui:toast"]
-            }"#,
-        )
-        .unwrap()
+        manifest_with_permissions(&["ui:toast"])
+    }
+
+    /// 记录调用轨迹的宿主服务（引擎测试用；host.rs 有自己的更全 mock）。
+    #[derive(Default)]
+    struct RecordingServices {
+        calls: std::sync::Mutex<Vec<String>>,
+    }
+
+    impl RecordingServices {
+        fn record(&self, what: String) {
+            self.calls.lock().unwrap().push(what);
+        }
+
+        fn calls(&self) -> Vec<String> {
+            self.calls.lock().unwrap().clone()
+        }
+    }
+
+    impl crate::host::HostServices for RecordingServices {
+        fn repo_info(&self, plugin_id: &str) -> Result<serde_json::Value, HostError> {
+            self.record(format!("repo_info:{plugin_id}"));
+            Ok(serde_json::json!({
+                "path": "/repo", "name": "repo",
+                "currentBranch": "main", "isDirty": false
+            }))
+        }
+        fn status(
+            &self,
+            plugin_id: &str,
+            _filter: Option<String>,
+        ) -> Result<serde_json::Value, HostError> {
+            self.record(format!("status:{plugin_id}"));
+            Ok(serde_json::json!({"entries": []}))
+        }
+        fn read_file(
+            &self,
+            plugin_id: &str,
+            rel_path: &str,
+        ) -> Result<serde_json::Value, HostError> {
+            self.record(format!("read_file:{plugin_id}:{rel_path}"));
+            Ok(serde_json::json!({"content": "x"}))
+        }
+        fn list_dir(
+            &self,
+            plugin_id: &str,
+            rel_path: &str,
+        ) -> Result<serde_json::Value, HostError> {
+            self.record(format!("list_dir:{plugin_id}:{rel_path}"));
+            Ok(serde_json::json!({"entries": []}))
+        }
+        fn write_file(
+            &self,
+            plugin_id: &str,
+            rel_path: &str,
+            _content: &str,
+        ) -> Result<serde_json::Value, HostError> {
+            self.record(format!("write_file:{plugin_id}:{rel_path}"));
+            Ok(serde_json::json!({}))
+        }
+        fn http_get_json(
+            &self,
+            plugin_id: &str,
+            url: &str,
+            _headers: serde_json::Value,
+        ) -> Result<serde_json::Value, HostError> {
+            self.record(format!("http:{plugin_id}:{url}"));
+            Ok(serde_json::json!({"status": 200, "body": {}}))
+        }
+        fn get_setting(&self, plugin_id: &str, key: &str) -> Result<serde_json::Value, HostError> {
+            self.record(format!("get_setting:{plugin_id}:{key}"));
+            Ok(serde_json::json!({"value": null}))
+        }
+        fn set_setting(
+            &self,
+            plugin_id: &str,
+            key: &str,
+            _value: serde_json::Value,
+        ) -> Result<serde_json::Value, HostError> {
+            self.record(format!("set_setting:{plugin_id}:{key}"));
+            Ok(serde_json::json!({}))
+        }
+        fn git_log(
+            &self,
+            plugin_id: &str,
+            _limit: u32,
+            _path: Option<String>,
+        ) -> Result<serde_json::Value, HostError> {
+            self.record(format!("git_log:{plugin_id}"));
+            Ok(serde_json::json!({"commits": []}))
+        }
+        fn git_stage(
+            &self,
+            plugin_id: &str,
+            _paths: Vec<String>,
+        ) -> Result<serde_json::Value, HostError> {
+            self.record(format!("git_stage:{plugin_id}"));
+            Ok(serde_json::json!({}))
+        }
+        fn git_commit(
+            &self,
+            plugin_id: &str,
+            _message: &str,
+        ) -> Result<serde_json::Value, HostError> {
+            self.record(format!("git_commit:{plugin_id}"));
+            Ok(serde_json::json!({"commitId": "abc1234"}))
+        }
+        fn register_command(
+            &self,
+            plugin_id: &str,
+            id: &str,
+            _title: &str,
+            _keybinding: Option<String>,
+        ) -> Result<serde_json::Value, HostError> {
+            self.record(format!("register_command:{plugin_id}:{id}"));
+            Ok(serde_json::json!({}))
+        }
+        fn register_panel(
+            &self,
+            plugin_id: &str,
+            id: &str,
+            _title: &str,
+            _location: &str,
+        ) -> Result<serde_json::Value, HostError> {
+            self.record(format!("register_panel:{plugin_id}:{id}"));
+            Ok(serde_json::json!({}))
+        }
+        fn show_toast(
+            &self,
+            plugin_id: &str,
+            level: &str,
+            _message: &str,
+        ) -> Result<serde_json::Value, HostError> {
+            self.record(format!("toast:{plugin_id}:{level}"));
+            Ok(serde_json::json!({}))
+        }
+    }
+
+    fn test_services() -> (std::sync::Arc<RecordingServices>, SharedServices) {
+        let services: std::sync::Arc<RecordingServices> =
+            std::sync::Arc::new(RecordingServices::default());
+        // 通过显式标注触发 Arc<RecordingServices> → Arc<dyn HostServices> 的
+        // unsize 强转（Arc::clone 的泛型参数不会自动窄化）
+        let shared: SharedServices = services.clone();
+        (services, shared)
     }
 
     // ---------- 手编 wasm 夹具 ----------
     //
     // 测试插件不引入 wasm32 构建目标（CI 与本地都要 rustup target），而是直接
-    // 编码最小模块。类型区固定三条：t0=()->i32、t1=(i32,i32)->i64、t2=(i32)->i32。
+    // 编码最小模块。类型区固定五条：t0=()->i32、t1=(i32,i32)->i64、t2=(i32)->i32、
+    // t3=(i32,i32,i32)->i32（fd.host_call）、t4=(i32,i32)->i32（fd.host_result）。
 
     const TYPE_UNIT_I32: u32 = 0;
     const TYPE_ARGS_I64: u32 = 1;
     const TYPE_LEN_PTR: u32 = 2;
+    const TYPE_HOST_CALL: u32 = 3;
+    const TYPE_HOST_RESULT: u32 = 4;
+    const TYPE_LOG: u32 = 5;
 
     fn leb_u64(mut value: u64, out: &mut Vec<u8>) {
         loop {
@@ -447,19 +773,43 @@ mod tests {
         out.extend_from_slice(payload);
     }
 
-    /// 构建一个测试插件模块：`exports` 按序为（导出名、类型、函数体）；
-    /// `data` 作为线性内存 1024 偏移处的数据段（"hello world" 用）。
-    fn build_module(exports: &[(&'static str, u32, &[u8])], data: Option<&[u8]>) -> Vec<u8> {
+    /// 构建一个测试插件模块。
+    ///
+    /// `imports` 为 `fd` 模块下的导入（按序占据函数索引 0..n）；
+    /// `exports` 为本地定义的导出（索引 = imports.len() + 序号）；
+    /// `data` 为 (偏移, 字节) 数据段列表。
+    fn build_module(
+        imports: &[(&'static str, u32)],
+        exports: &[(&'static str, u32, &[u8])],
+        data: &[(u32, &[u8])],
+    ) -> Vec<u8> {
         let mut module = vec![0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00];
 
-        // type section：三条固定类型
-        let mut types = vec![0x03];
+        // type section：六条固定类型（wasm 段顺序固定：type 必须在 import 之前）
+        let mut types = vec![0x06];
         types.extend_from_slice(&[
             0x60, 0x00, 0x01, 0x7f, // t0: () -> i32
             0x60, 0x02, 0x7f, 0x7f, 0x01, 0x7e, // t1: (i32,i32) -> i64
             0x60, 0x01, 0x7f, 0x01, 0x7f, // t2: (i32) -> i32
+            0x60, 0x03, 0x7f, 0x7f, 0x7f, 0x01, 0x7f, // t3: (i32,i32,i32) -> i32
+            0x60, 0x02, 0x7f, 0x7f, 0x01, 0x7f, // t4: (i32,i32) -> i32
+            0x60, 0x03, 0x7f, 0x7f, 0x7f, 0x00, // t5: (i32,i32,i32) -> ()
         ]);
         section(0x01, &types, &mut module);
+
+        // import section：全部来自 "fd" 模块
+        if !imports.is_empty() {
+            let mut import_section = vec![imports.len() as u8];
+            for (name, type_idx) in imports {
+                leb_u64(2, &mut import_section); // "fd".len()
+                import_section.extend_from_slice(b"fd");
+                leb_u64(name.len() as u64, &mut import_section);
+                import_section.extend_from_slice(name.as_bytes());
+                import_section.push(0x00); // func
+                leb_u64(u64::from(*type_idx), &mut import_section);
+            }
+            section(0x02, &import_section, &mut module);
+        }
 
         // function section：导出顺序即函数索引
         let mut funcs = vec![exports.len() as u8];
@@ -471,13 +821,13 @@ mod tests {
         // memory section：1 页，无上限（上限由宿主 limiter 管）
         section(0x05, &[0x01, 0x00, 0x01], &mut module);
 
-        // export section：函数 + memory
+        // export section：函数（索引要加上导入数）+ memory
         let mut export_section = vec![exports.len() as u8 + 1];
         for (index, (name, _, _)) in exports.iter().enumerate() {
             leb_u64(name.len() as u64, &mut export_section);
             export_section.extend_from_slice(name.as_bytes());
             export_section.push(0x00);
-            leb_u64(index as u64, &mut export_section);
+            leb_u64((imports.len() + index) as u64, &mut export_section);
         }
         export_section.extend_from_slice(b"\x06memory\x02\x00");
         section(0x07, &export_section, &mut module);
@@ -492,11 +842,17 @@ mod tests {
         }
         section(0x0a, &code, &mut module);
 
-        // data section：offset i32.const 1024
-        if let Some(bytes) = data {
-            let mut payload = vec![0x01, 0x00, 0x41, 0x80, 0x08, 0x0b];
-            leb_u64(bytes.len() as u64, &mut payload);
-            payload.extend_from_slice(bytes);
+        // data section：每个段 = memidx 0 + offset(i32.const) + 字节
+        if !data.is_empty() {
+            let mut payload = vec![data.len() as u8];
+            for (offset, bytes) in data {
+                payload.push(0x00);
+                payload.push(0x41); // i32.const
+                sleb_i64(i64::from(*offset), &mut payload);
+                payload.push(0x0b);
+                leb_u64(bytes.len() as u64, &mut payload);
+                payload.extend_from_slice(bytes);
+            }
             section(0x0b, &payload, &mut module);
         }
         module
@@ -547,37 +903,121 @@ mod tests {
     }
 
     fn normal_plugin() -> Vec<u8> {
-        let hello = b"hello world";
         build_module(
+            &[],
             &[
                 ("fd_activate", TYPE_UNIT_I32, &ok_body()),
                 ("fd_deactivate", TYPE_UNIT_I32, &ok_body()),
                 ("fd_alloc", TYPE_LEN_PTR, &alloc_body()),
                 ("fd_invoke", TYPE_ARGS_I64, &invoke_body_returning_hello()),
             ],
-            Some(hello),
+            &[(1024, b"hello world")],
+        )
+    }
+
+    /// 调用一次 `fd.host_call` 并把 staging 结果带回 fd_invoke 返回区的插件体。
+    ///
+    /// 约定内存布局：参数 JSON 位于 1024，输出缓冲位于 2048（容量 1024）。
+    fn host_call_body(op: i32, arg_len: i32) -> Vec<u8> {
+        const ARG_PTR: i32 = 1024;
+        const OUT_PTR: i32 = 2048;
+        const OUT_CAP: i32 = 1024;
+        let mut body = vec![];
+        for value in [op, ARG_PTR, arg_len] {
+            body.push(0x41);
+            sleb_i64(i64::from(value), &mut body);
+        }
+        body.extend_from_slice(&[0x10, 0x00]); // call 0 = fd.host_call
+        body.push(0x1a); // drop 返回码（结果看 staging）
+        for value in [OUT_PTR, OUT_CAP] {
+            body.push(0x41);
+            sleb_i64(i64::from(value), &mut body);
+        }
+        body.extend_from_slice(&[0x10, 0x01]); // call 1 = fd.host_result
+        body.push(0x1a); // drop 写入字节数
+        body.push(0x42); // i64.const (OUT_PTR << 32) | OUT_CAP
+        sleb_i64(((OUT_PTR as i64) << 32) | i64::from(OUT_CAP), &mut body);
+        body.push(0x0b);
+        body
+    }
+
+    /// 只调 `fd.log` 的最小插件：二分定位导入崩溃点（纯内存读路径）。
+    /// fd_invoke 返回数据段内容，便于断言。
+    fn log_plugin() -> Vec<u8> {
+        let mut body = vec![];
+        for value in [0i32, 1024, 5] {
+            body.push(0x41);
+            sleb_i64(i64::from(value), &mut body);
+        }
+        body.extend_from_slice(&[0x10, 0x00]); // call 0 = fd.log
+        body.push(0x42); // i64.const (1024 << 32) | 5
+        sleb_i64((1024i64 << 32) | 5, &mut body);
+        body.push(0x0b);
+        build_module(
+            &[("log", TYPE_LOG)],
+            &[
+                ("fd_activate", TYPE_UNIT_I32, &ok_body()),
+                ("fd_deactivate", TYPE_UNIT_I32, &ok_body()),
+                ("fd_alloc", TYPE_LEN_PTR, &alloc_body_at(8192)),
+                ("fd_invoke", TYPE_ARGS_I64, &body),
+            ],
+            &[(1024, b"hello")],
+        )
+    }
+
+    fn alloc_body_at(ptr: i32) -> Vec<u8> {
+        let mut body = vec![0x41];
+        sleb_i64(i64::from(ptr), &mut body);
+        body.push(0x0b);
+        body
+    }
+
+    /// 构建一个"调用指定宿主操作"的测试插件。
+    ///
+    /// 内存布局：1024 = 宿主操作参数 JSON（数据段）；2048 = staging 输出缓冲；
+    /// 8192 = fd_alloc 的 invoke 参数区（引擎 invoke 会把命令参数写到这里，
+    /// 本夹具不读它）。三者互不重叠。
+    fn host_call_plugin(op: crate::host::HostOp, arg_json: &str) -> Vec<u8> {
+        build_module(
+            &[
+                ("host_call", TYPE_HOST_CALL),
+                ("host_result", TYPE_HOST_RESULT),
+            ],
+            &[
+                ("fd_activate", TYPE_UNIT_I32, &ok_body()),
+                ("fd_deactivate", TYPE_UNIT_I32, &ok_body()),
+                ("fd_alloc", TYPE_LEN_PTR, &alloc_body_at(8192)),
+                (
+                    "fd_invoke",
+                    TYPE_ARGS_I64,
+                    &host_call_body(op.id(), arg_json.len() as i32),
+                ),
+            ],
+            &[(1024, arg_json.as_bytes())],
         )
     }
 
     fn bomb_plugin() -> Vec<u8> {
         build_module(
+            &[],
             &[
                 ("fd_activate", TYPE_UNIT_I32, &infinite_loop_body()),
                 ("fd_deactivate", TYPE_UNIT_I32, &ok_body()),
             ],
-            None,
+            &[],
         )
     }
 
     fn trap_plugin() -> Vec<u8> {
         build_module(
+            &[],
             &[
                 ("fd_activate", TYPE_UNIT_I32, &ok_body()),
                 ("fd_deactivate", TYPE_UNIT_I32, &ok_body()),
                 ("fd_alloc", TYPE_LEN_PTR, &alloc_body()),
                 ("fd_invoke", TYPE_ARGS_I64, &trap_body()),
             ],
-            None,
+            &[],
         )
     }
 
@@ -585,7 +1025,8 @@ mod tests {
 
     #[test]
     fn a_normal_plugin_round_trips_the_full_lifecycle_and_returns_its_result() {
-        let engine = WasmiEngine::with_default_limits();
+        let (_services, services) = test_services();
+        let engine = WasmiEngine::with_default_limits(services);
         let handle = engine
             .load(&validated_manifest(), &normal_plugin())
             .unwrap();
@@ -606,7 +1047,8 @@ mod tests {
 
     #[test]
     fn a_deactivated_plugin_can_be_reactivated() {
-        let engine = WasmiEngine::with_default_limits();
+        let (_services, services) = test_services();
+        let engine = WasmiEngine::with_default_limits(services);
         let handle = engine
             .load(&validated_manifest(), &normal_plugin())
             .unwrap();
@@ -624,7 +1066,8 @@ mod tests {
 
     #[test]
     fn an_infinite_loop_plugin_is_stopped_by_the_fuel_budget_and_quarantined() {
-        let engine = WasmiEngine::with_default_limits();
+        let (_services, services) = test_services();
+        let engine = WasmiEngine::with_default_limits(services);
         let good = engine
             .load(&validated_manifest(), &normal_plugin())
             .unwrap();
@@ -655,7 +1098,8 @@ mod tests {
 
     #[test]
     fn a_trapping_plugin_becomes_a_structured_error_and_never_panics_the_host() {
-        let engine = WasmiEngine::with_default_limits();
+        let (_services, services) = test_services();
+        let engine = WasmiEngine::with_default_limits(services);
         let handle = engine.load(&validated_manifest(), &trap_plugin()).unwrap();
         engine.activate(handle).unwrap();
 
@@ -668,7 +1112,8 @@ mod tests {
 
     #[test]
     fn invalid_wasm_bytes_fail_to_load_with_a_structured_engine_error() {
-        let engine = WasmiEngine::with_default_limits();
+        let (_services, services) = test_services();
+        let engine = WasmiEngine::with_default_limits(services);
         let error = engine
             .load(&validated_manifest(), b"not wasm at all")
             .unwrap_err();
@@ -683,13 +1128,15 @@ mod tests {
             max_plugin_memory_bytes: 8 * 1024 * 1024,
             ..RuntimeLimits::default()
         };
-        let engine = WasmiEngine::new(small);
+        let (_services, services) = test_services();
+        let engine = WasmiEngine::new(small, services);
         let grow_bomb = build_module(
+            &[],
             &[
                 ("fd_activate", TYPE_UNIT_I32, &grow_bomb_body()),
                 ("fd_deactivate", TYPE_UNIT_I32, &ok_body()),
             ],
-            None,
+            &[],
         );
         let handle = engine.load(&validated_manifest(), &grow_bomb).unwrap();
         let error = engine.activate(handle).unwrap_err();
@@ -708,13 +1155,15 @@ mod tests {
     fn plugins_without_optional_lifecycle_exports_activate_immediately() {
         // 只有 fd_alloc/fd_invoke 的插件：activate 无导出 → 直接 Active
         let module = build_module(
+            &[],
             &[
                 ("fd_alloc", TYPE_LEN_PTR, &alloc_body()),
                 ("fd_invoke", TYPE_ARGS_I64, &invoke_body_returning_hello()),
             ],
-            Some(b"hello world"),
+            &[(1024, b"hello world")],
         );
-        let engine = WasmiEngine::with_default_limits();
+        let (_services, services) = test_services();
+        let engine = WasmiEngine::with_default_limits(services);
         let handle = engine.load(&validated_manifest(), &module).unwrap();
         engine.activate(handle).unwrap();
         assert_eq!(engine.state(handle).unwrap(), LifecycleState::Active);
@@ -723,12 +1172,155 @@ mod tests {
 
     #[test]
     fn unloading_a_missing_handle_is_an_idempotent_success() {
-        let engine = WasmiEngine::with_default_limits();
+        let (_services, services) = test_services();
+        let engine = WasmiEngine::with_default_limits(services);
         let handle = PluginHandle::new(999);
         assert!(engine.unload(handle).is_ok());
         assert_eq!(
             engine.state(handle),
             Err(HostError::InstanceNotFound(handle.raw()))
         );
+    }
+
+    // ---------- T6.2：宿主函数端到端（真实 wasmi 导入路径） ----------
+
+    #[test]
+    fn a_plugin_reaches_host_services_through_the_real_wasmi_imports() {
+        let (recorder, services) = test_services();
+        let engine = WasmiEngine::with_default_limits(services);
+        let module = host_call_plugin(crate::host::HostOp::GetRepoInfo, "{}");
+        let manifest = manifest_with_permissions(&["git:read"]);
+        let handle = engine.load(&manifest, &module).unwrap();
+        engine.activate(handle).unwrap();
+
+        // fd_invoke → fd.host_call → 派发器 → 服务 → staging → fd.host_result
+        // → 插件内存 → fd_invoke 返回区 → 引擎读回
+        let result = engine.invoke(handle, "repo", "{}").unwrap();
+        assert!(
+            result.contains("\"currentBranch\":\"main\""),
+            "实际结果: {result}"
+        );
+        assert_eq!(
+            recorder.calls(),
+            vec!["repo_info:com.example.wasmi".to_owned()],
+            "服务应恰好收到一次带 plugin_id 的调用"
+        );
+    }
+
+    #[test]
+    fn a_plugin_calling_an_op_outside_its_manifest_permissions_is_denied_end_to_end() {
+        let (recorder, services) = test_services();
+        let engine = WasmiEngine::with_default_limits(services);
+        // 清单未声明 git:read，但插件仍尝试 get_repo_info
+        let module = host_call_plugin(crate::host::HostOp::GetRepoInfo, "{}");
+        let manifest = manifest_with_permissions(&["ui:toast"]);
+        let handle = engine.load(&manifest, &module).unwrap();
+        engine.activate(handle).unwrap();
+
+        let result = engine.invoke(handle, "repo", "{}").unwrap();
+        assert!(result.contains("\"error\""), "实际结果: {result}");
+        assert!(
+            result.contains("-2"),
+            "应携带 PERMISSION_DENIED 码: {result}"
+        );
+        assert!(recorder.calls().is_empty(), "越权调用绝不能触达服务层");
+        // 宿主不崩：引擎还能继续正常工作
+        assert_eq!(engine.state(handle).unwrap(), LifecycleState::Active);
+    }
+
+    #[test]
+    fn a_host_call_with_malformed_args_returns_the_error_payload_via_staging() {
+        let (_recorder, services) = test_services();
+        let engine = WasmiEngine::with_default_limits(services);
+        // limit=0 违反 1..=1000 的范围校验
+        let module = host_call_plugin(crate::host::HostOp::GetGitLog, r#"{"limit":0}"#);
+        let manifest = manifest_with_permissions(&["git:read"]);
+        let handle = engine.load(&manifest, &module).unwrap();
+        engine.activate(handle).unwrap();
+
+        let result = engine.invoke(handle, "log", "{}").unwrap();
+        assert!(result.contains("\"error\""), "实际结果: {result}");
+        assert!(
+            result.contains("-3"),
+            "应携带 INVALID_ARGUMENT 码: {result}"
+        );
+    }
+
+    #[test]
+    fn a_plugin_reaches_the_log_import_and_the_host_reads_its_memory() {
+        let (_recorder, services) = test_services();
+        let engine = WasmiEngine::with_default_limits(services);
+        let module = log_plugin();
+        let manifest = manifest_with_permissions(&[]);
+        let handle = engine.load(&manifest, &module).unwrap();
+        engine.activate(handle).unwrap();
+        let result = engine.invoke(handle, "log", "{}").unwrap();
+        assert_eq!(result, "hello");
+    }
+
+    #[test]
+    fn single_threaded_manual_repro_of_the_host_import_path() {
+        let (_recorder, services) = test_services();
+        let engine_wasmi = WasmiEngine::with_default_limits(std::sync::Arc::clone(&services));
+        let module_bytes = log_plugin();
+        let manifest = manifest_with_permissions(&[]);
+
+        let engine = &engine_wasmi.engine;
+        let limits = engine_wasmi.limits;
+        let module = wasmi::Module::new(engine, &module_bytes).unwrap();
+        let mut store = wasmi::Store::new(
+            engine,
+            PluginData {
+                limits: wasmi::StoreLimitsBuilder::new()
+                    .memory_size(limits.max_plugin_memory_bytes as usize)
+                    .build(),
+                fuel_budget: limits.fuel_budget,
+                plugin_id: manifest.id.clone(),
+                granted: PermissionSet::from_declared(manifest.permissions.iter().copied()),
+                services,
+                staging: Vec::new(),
+            },
+        );
+        store.limiter(|data: &mut PluginData| &mut data.limits);
+        let mut linker = <wasmi::Linker<PluginData>>::new(engine);
+        // BISECT A：探针式内联简化闭包（无 import_read_bytes / 无 tracing）
+        linker
+            .func_wrap(
+                "fd",
+                "log",
+                |caller: wasmi::Caller<'_, PluginData>, _level: i32, ptr: i32, len: i32| {
+                    let memory = caller
+                        .get_export("memory")
+                        .and_then(|e| e.into_memory())
+                        .unwrap();
+                    let size = memory.data_size(&caller);
+                    assert!(ptr >= 0 && len >= 0);
+                    let start = ptr as usize;
+                    let len = len as usize;
+                    assert!(start + len <= size);
+                    let mut buf = vec![0u8; len];
+                    memory.read(&caller, start, &mut buf).unwrap();
+                    assert_eq!(String::from_utf8_lossy(&buf), "hello");
+                },
+            )
+            .unwrap();
+        let instance = linker.instantiate_and_start(&mut store, &module).unwrap();
+        store.set_fuel(limits.fuel_budget).unwrap();
+
+        let test = instance
+            .get_typed_func::<(i32, i32), i64>(&mut store, "fd_invoke")
+            .unwrap();
+        // fd_invoke 自身的 wasm 参数 (ptr, len)：宿主操作忽略它
+        let packed = test.call(&mut store, (8192, 2)).unwrap();
+        let packed = packed as u64;
+        let ptr = (packed >> 32) as u32 as usize;
+        let len = (packed & 0xFFFF_FFFF) as usize;
+        let memory = instance
+            .get_export(&store, "memory")
+            .and_then(|e| e.into_memory())
+            .unwrap();
+        let mut buf = vec![0u8; len];
+        memory.read(&store, ptr, &mut buf).unwrap();
+        assert_eq!(String::from_utf8_lossy(&buf), "hello");
     }
 }

@@ -112,6 +112,9 @@ pub enum HostError {
     /// 线性内存超出上限。
     #[error("plugin exceeded its memory limit")]
     MemoryLimitExceeded,
+    /// 目标不存在（读不存在的文件、未知的设置键等——不是故障而是可预期结果）。
+    #[error("not found: {0}")]
+    NotFound(String),
     /// 插件 trap（panic、不可恢复错误、死循环被引擎打断等）。
     #[error("plugin trapped: {0}")]
     Trap(String),

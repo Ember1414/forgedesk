@@ -126,6 +126,15 @@ incremental = true
 [profile.dev.package."*"]
 opt-level = 2
 
+# wasmi 在 dev profile 以 opt-level>=2 编译时，fuel+宿主函数路径存在原生内存
+# 错误（STATUS_ACCESS_VIOLATION；探针 E:/Projects/fd-wasm-probe 复现并锁定：
+# O0/O1 均正常，O2/O3 崩，与 debug-assertions / codegen-units 无关；wasmi
+# 自家 CI 只覆盖 O0-debug 与 O3-release，恰好漏掉 dev 依赖提速这个组合）。
+# dev 下 wasmi 用 O1：避开 bug 且解释器性能可用；release（O3+LTO）实测正常。
+# 升级 wasmi 补丁版本后应重测并移除此覆盖。
+[profile.dev.package.wasmi]
+opt-level = 1
+
 [profile.release]
 codegen-units = 1
 lto = true
