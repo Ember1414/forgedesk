@@ -75,6 +75,12 @@ parking_lot = "0.12"
 # （Windows ReadDirectoryChangesW、macOS FSEvents、Linux inotify），
 # 我们只做"过滤 + 去抖动"，不自己轮询。
 notify = "8"
+# winreg：仅 Windows 读写注册表，用于开机自启（T6.9，HKCU Run 键）。
+# 平台 crate 保持 forbid(unsafe_code)：unsafe 都在 winreg 内部。
+# Windows-only 由 platform crate 的 [target.'cfg(windows)'.dependencies] 门控。
+winreg = "0.55"
+# unicode-normalization：macOS 文件系统用 NFD 保存路径，比较前必须统一到 NFC（T6.9）。
+unicode-normalization = "0.1"
 
 # ---- 本地存储 ----
 # bundled：把 SQLite 源码一起编译进产物。为什么不用系统库：
