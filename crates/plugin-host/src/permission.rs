@@ -17,7 +17,7 @@
 use serde::{Deserialize, Serialize};
 
 /// 插件可申请的全部权限（白名单，T6.1 定义，共 10 项）。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, schemars::JsonSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, schemars::JsonSchema)]
 pub enum Permission {
     /// 只读访问用户显式选择的仓库目录。
     #[serde(rename = "fs:read")]
