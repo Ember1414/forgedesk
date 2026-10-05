@@ -24,6 +24,7 @@ import { OperationsPage } from '@/features/operations/OperationsPage';
 import { SnapshotsPage } from '@/features/snapshots/SnapshotsPage';
 import { RepoSettingsPage } from '@/features/repo/RepoSettingsPage';
 import { GitHubActionsPage } from '@/features/github/GitHubActionsPage';
+import { GitHubDashboardPage } from '@/features/github/GitHubDashboardPage';
 import { GitHubIssuesPage } from '@/features/github/GitHubIssuesPage';
 import { GitHubLayout } from '@/features/github/GitHubLayout';
 import { GitHubPullRequestsPage } from '@/features/github/GitHubPullRequestsPage';
@@ -87,6 +88,7 @@ export const appRoutes: RouteObject[] = [
           { path: 'pull-requests', element: <GitHubPullRequestsPage /> },
           { path: 'issues', element: <GitHubIssuesPage /> },
           { path: 'actions', element: <GitHubActionsPage /> },
+          { path: 'dashboard', element: <GitHubDashboardPage /> },
         ],
       },
 

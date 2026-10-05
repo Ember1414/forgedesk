@@ -12,6 +12,7 @@ import { cn } from '@/lib/utils';
  * 路由段落仍保留 `github`，因为它描述的是**接入的服务**，而非产品自身名称。
  */
 const GITHUB_TABS = [
+  { segment: 'dashboard', labelKey: 'pages.githubDashboard.title' },
   { segment: 'repos', labelKey: 'pages.githubRepos.title' },
   { segment: 'pull-requests', labelKey: 'pages.githubPullRequests.title' },
   { segment: 'issues', labelKey: 'pages.githubIssues.title' },

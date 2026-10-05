@@ -116,6 +116,8 @@ pub struct PullRequestSummary {
     pub created_at: Option<String>,
     /// 最近更新时间（RFC3339）。
     pub updated_at: Option<String>,
+    /// 被 request review 的 login（T4.11 Dashboard"待我审查"的判定输入）。
+    pub requested_reviewers: Vec<String>,
 }
 
 /// PR 一页 + 下一页游标。
@@ -402,6 +404,8 @@ struct GitHubPull {
     created_at: Option<String>,
     #[serde(default)]
     updated_at: Option<String>,
+    #[serde(default)]
+    requested_reviewers: Option<Vec<GitHubLogin>>,
     // 以下字段列表响应为 null/缺省、详情响应才有值
     #[serde(default)]
     body: Option<String>,
@@ -564,6 +568,12 @@ impl From<GitHubPull> for PullRequestSummary {
             html_url: pull.html_url.unwrap_or_default(),
             created_at: pull.created_at,
             updated_at: pull.updated_at,
+            requested_reviewers: pull
+                .requested_reviewers
+                .unwrap_or_default()
+                .into_iter()
+                .map(|user| user.login)
+                .collect(),
         }
     }
 }
@@ -676,6 +686,12 @@ impl GitHubProvider {
                 html_url: pull.html_url.unwrap_or_default(),
                 created_at: pull.created_at,
                 updated_at: pull.updated_at,
+                requested_reviewers: pull
+                    .requested_reviewers
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|user| user.login)
+                    .collect(),
             },
             body_markdown: pull.body,
             changed_files: pull.changed_files.unwrap_or(0),
@@ -1337,6 +1353,7 @@ mod tests {
             "created_at": "2026-09-30T00:00:00Z", "updated_at": "2026-09-30T01:00:00Z",
             "body": "描述正文", "changed_files": 2, "additions": 10, "deletions": 4,
             "mergeable": true, "mergeable_state": "clean",
+            "requested_reviewers": [{"login": "hubot"}, {"login": "octocat"}],
             "some_future_field": true
         })
     }
@@ -1378,6 +1395,35 @@ mod tests {
         assert_eq!(summary.author, "octocat");
         assert_eq!(summary.head_label, "octocat:feature");
         assert!(!summary.draft);
+    }
+
+    #[tokio::test]
+    async fn list_maps_requested_reviewers_for_the_dashboard() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/repos/octocat/x/pulls"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(vec![
+                pull_json(1, "Add feature"),
+                // 缺字段的条目回退空列表（未知 PR 形态不炸）
+                serde_json::json!({
+                    "number": 2, "title": "No reviewers", "state": "open",
+                    "user": {"login": "octocat"}
+                }),
+            ]))
+            .mount(&server)
+            .await;
+
+        let page = provider_at(&server)
+            .pulls()
+            .list_pulls(token(), "octocat", "x", PullState::Open, None, None)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            page.items[0].requested_reviewers,
+            vec!["hubot".to_owned(), "octocat".to_owned()]
+        );
+        assert!(page.items[1].requested_reviewers.is_empty());
     }
 
     #[tokio::test]

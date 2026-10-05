@@ -1615,6 +1615,17 @@ README 直连）。UI 判定：快照 `remaining == 0` → 横幅"额度耗尽�
 | `repo_rate_limit_state` | ReadOnly | — | `RateLimitSnapshot?`：`{ resource?, limit, remaining, used, resetUnixSecs }`（本地快照，零网络成本；会话内没发过请求为 `null`） |
 | `repo_rate_limit_refresh` | Network | `host, repoId?` | `RateLimitSnapshot`；走 `GET /rate_limit`（不耗配额、值权威、含同令牌在其他端的消耗） |
 
+### Dashboard 聚合（T4.11）
+
+多仓库状态一屏可见（D4.9）。请求预算：每仓库 2 个请求（open PR 首页 100 条 +
+最近 1 次 run），目标 ≤10。**单仓库失败降级不炸全局**：该仓库摘要为 `null` 并在
+`errors` 里带说明，其余仓库照常。"待我审查"按 open PR 的 `requestedReviewers`
+含当前账号 login 判定（大小写不敏感）；无登录账号直接 `AUTH_REQUIRED`。
+
+| 命令 | 能力 | 参数 | 返回 / 说明 |
+| --- | --- | --- | --- |
+| `repo_dashboard` | Network | request：`{ host, targets: [{owner, repo}] (1..=10), repoId? }` | `{ repos: RepoDashboard[] }`；`RepoDashboard = { owner, repo, pulls: PullsDigest?, runs: RunDigest?, errors: string[] }`；`PullsDigest = { openTotal, openTruncated, awaitingReview }`；`RunDigest = { name, status, conclusion? }` |
+
 ### 远端仓库与账号绑定（T4.5）
 
 远端仓库走平台 REST（列表/搜索/星标/fork），分页用页码游标：`nextPage` 为 `null`

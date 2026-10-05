@@ -35,6 +35,7 @@ pub mod commit;
 pub mod commit_detail;
 pub mod conflict;
 pub mod credentials;
+pub mod dashboard;
 pub mod debug;
 pub mod error;
 pub mod history;
@@ -89,6 +90,7 @@ pub use credentials::{
     credentials_vault_unlock, preferred_backend, CredentialKindDto, CredentialsStatusDto,
     RemoteProbeDto, BACKEND_ENCRYPTED_VAULT, CREDENTIALS_BACKEND_KEY,
 };
+pub use dashboard::{repo_dashboard, DashboardReportDto, DashboardRequest, DashboardTargetDto};
 pub use debug::{debug_panic, debug_throw_error};
 pub use error::{to_app_error, Fallible};
 pub use history::{git_branch_list, git_log_authors, git_log_page};

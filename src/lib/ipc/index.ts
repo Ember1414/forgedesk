@@ -285,6 +285,8 @@ export {
   ACTIONS_LOG_CHUNK_EVENT,
 } from './actions';
 export type { ActionsLogChunkPayload, RunJob, RunPage, WorkflowRunSummary } from './actions';
+export { repoDashboard, MAX_DASHBOARD_TARGETS } from './dashboard';
+export type { PullsDigest, RepoDashboard, RunDigest } from './dashboard';
 export { repoRateLimitRefresh, repoRateLimitState } from './rateLimit';
 export type { RateLimitSnapshot } from './rateLimit';
 export {

@@ -284,6 +284,10 @@
     "settingsAdvanced": {
       "title": "高级",
       "description": "日志、诊断与数据目录。"
+    },
+    "githubDashboard": {
+      "title": "概览",
+      "description": "多仓库状态、待我审查的 PR 与 CI 失败，一屏可见。"
     }
   },
   "diff": {
@@ -1478,6 +1482,17 @@
       "nearLimit": "GitHub API 剩余额度较低：{{remaining}}/{{limit}}。",
       "resetAt": "{{time}} 恢复",
       "refresh": "刷新额度"
+    },
+    "dashboard": {
+      "repoInput": "仓库列表（逗号分隔的 owner/repo，最多 10 个）",
+      "refresh": "刷新",
+      "openPulls": "进行中 PR",
+      "truncated": "100+",
+      "awaitingReview": "待我审查",
+      "latestRun": "最近 CI",
+      "noRuns": "还没有运行记录",
+      "fetchFailed": "获取失败",
+      "empty": "输入仓库列表后查看聚合状态。"
     }
   },
   "repo": {

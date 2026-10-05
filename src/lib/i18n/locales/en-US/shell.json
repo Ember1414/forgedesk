@@ -284,6 +284,10 @@
     "settingsAdvanced": {
       "title": "Advanced",
       "description": "Logs, diagnostics and data directory."
+    },
+    "githubDashboard": {
+      "title": "Overview",
+      "description": "Multi-repo status, PRs awaiting your review, and CI failures at a glance."
     }
   },
   "diff": {
@@ -1478,6 +1482,17 @@
       "nearLimit": "GitHub API quota running low: {{remaining}}/{{limit}}.",
       "resetAt": "resets at {{time}}",
       "refresh": "Refresh quota"
+    },
+    "dashboard": {
+      "repoInput": "Repositories (comma-separated owner/repo, up to 10)",
+      "refresh": "Refresh",
+      "openPulls": "Open PRs",
+      "truncated": "100+",
+      "awaitingReview": "Awaiting my review",
+      "latestRun": "Latest CI",
+      "noRuns": "No runs yet",
+      "fetchFailed": "Failed to fetch",
+      "empty": "Enter repositories to see the aggregated status."
     }
   },
   "repo": {

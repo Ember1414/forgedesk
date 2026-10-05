@@ -767,6 +767,103 @@ impl HostRepoService {
         provider.job_logs_response(token, owner, repo, job_id).await
     }
 
+    // ---- Dashboard 聚合（T4.11）----
+
+    /// 多仓库聚合视图（D4.9：多仓库状态、待审 PR、CI 失败）。
+    ///
+    /// 每仓库两个请求（open PR 首页 100 条 + 最近 1 次 run），≤10 个
+    /// 仓库 = 最多 20 个请求——聚合的请求数必须可控，否则打开一次
+    /// Dashboard 就把配额烧掉一角（M4 风险表）。单仓库失败**降级不炸
+    /// 全局**：错误进 `errors`（开发者读），对应摘要为 `None`，其他
+    /// 仓库照常返回——网络失败不能让用户看空白页（ARCHITECTURE §4.3）。
+    /// "待我审查"按 `requested_reviewers` ∩ 当前账号 login 判定（大小写
+    /// 不敏感）；无登录账号时 `require_token` 已给出 `AUTH_REQUIRED`。
+    pub async fn dashboard(
+        &self,
+        host: &str,
+        repo_id: Option<i64>,
+        targets: &[DashboardTarget],
+    ) -> AppResult<Vec<RepoDashboard>> {
+        const MAX_DASHBOARD_TARGETS: usize = 10;
+        const PULLS_FIRST_PAGE: u32 = 100;
+        const RUNS_FIRST_PAGE: u32 = 1;
+
+        let viewer = self
+            .account_for(host, repo_id)?
+            .map(|account| account.login);
+        let provider = self.provider_for(host)?;
+        let token = self.require_token(host, repo_id).await?;
+
+        let mut reports = Vec::with_capacity(targets.len());
+        for target in targets.iter().take(MAX_DASHBOARD_TARGETS) {
+            let mut errors = Vec::new();
+
+            let pulls = match provider
+                .pulls()
+                .list_pulls(
+                    token.clone(),
+                    &target.owner,
+                    &target.repo,
+                    PullState::Open,
+                    None,
+                    Some(PULLS_FIRST_PAGE),
+                )
+                .await
+            {
+                Ok(page) => Some(PullsDigest {
+                    open_total: page.items.len() as u64,
+                    open_truncated: page.next_page.is_some(),
+                    awaiting_review: page
+                        .items
+                        .iter()
+                        .filter(|pull| {
+                            viewer.as_ref().is_some_and(|login| {
+                                pull.requested_reviewers
+                                    .iter()
+                                    .any(|reviewer| reviewer.eq_ignore_ascii_case(login))
+                            })
+                        })
+                        .count() as u64,
+                }),
+                Err(error) => {
+                    errors.push(error.message);
+                    None
+                }
+            };
+
+            let runs = match provider
+                .actions()
+                .list_runs(
+                    token.clone(),
+                    &target.owner,
+                    &target.repo,
+                    None,
+                    Some(RUNS_FIRST_PAGE),
+                )
+                .await
+            {
+                Ok(page) => page.items.first().map(|run| RunDigest {
+                    name: run.name.clone(),
+                    status: run.status.clone(),
+                    conclusion: run.conclusion.clone(),
+                }),
+                Err(error) => {
+                    errors.push(error.message);
+                    None
+                }
+            };
+
+            reports.push(RepoDashboard {
+                owner: target.owner.clone(),
+                repo: target.repo.clone(),
+                pulls,
+                runs,
+                errors,
+            });
+        }
+        Ok(reports)
+    }
+
     /// 拉取并**安全渲染**仓库 README（T4.6）：返回的是白名单化 HTML，
     /// 前端不接触原始 Markdown（清洗规则见 [`crate::readme`]，XSS 用例在
     /// 那里穷举）。匿名可用（公开仓库）。
@@ -859,6 +956,55 @@ pub struct PullDetailView {
     pub detail: PullRequestDetail,
     /// 描述的消毒 HTML（无描述为 `None`）。
     pub body_html: Option<String>,
+}
+
+/// Dashboard 聚合的目标仓库。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DashboardTarget {
+    /// 所有者。
+    pub owner: String,
+    /// 仓库名。
+    pub repo: String,
+}
+
+/// 单仓库的 open PR 摘要。
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PullsDigest {
+    /// open PR 数（首页 100 条内的计数）。
+    pub open_total: u64,
+    /// 超过 100 条被截断（首页计数不代表全量）。
+    pub open_truncated: bool,
+    /// 被请求审查且请求对象含当前账号的 open PR 数。
+    pub awaiting_review: u64,
+}
+
+/// 单仓库最近一次 workflow run。
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RunDigest {
+    /// 展示标题。
+    pub name: String,
+    /// `queued` / `in_progress` / `completed`。
+    pub status: String,
+    /// 结论（未完成为 `None`）。
+    pub conclusion: Option<String>,
+}
+
+/// 单仓库的聚合摘要（部分失败降级：对应摘要 `None` + errors 说明）。
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoDashboard {
+    /// 所有者。
+    pub owner: String,
+    /// 仓库名。
+    pub repo: String,
+    /// open PR 摘要（`None` = 拉取失败）。
+    pub pulls: Option<PullsDigest>,
+    /// 最近一次 run（`None` = 无 run 或拉取失败）。
+    pub runs: Option<RunDigest>,
+    /// 降级说明（开发者读；英文，见 CODING_STYLE 错误分工）。
+    pub errors: Vec<String>,
 }
 
 /// 取账号记录里保存的 credential_ref 字符串。
@@ -1098,6 +1244,87 @@ mod tests {
             .unwrap_err();
 
         assert_eq!(error.code, forgedesk_domain::ErrorCode::AuthRequired);
+    }
+
+    #[tokio::test]
+    async fn dashboard_aggregates_pulls_and_runs_and_degrades_per_repo() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/user"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(serde_json::json!({ "login": "octocat", "avatar_url": null })),
+            )
+            .mount(&server)
+            .await;
+        // 仓库 A：PR 1 条请求了 octocat 审查 + 最近 run 失败
+        Mock::given(method("GET"))
+            .and(path("/repos/octocat/a/pulls"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!([
+                { "number": 1, "title": "Fix", "state": "open",
+                  "user": {"login": "hubot"},
+                  "requested_reviewers": [{"login": "OCTOCAT"}] }
+            ])))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/repos/octocat/a/actions/runs"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "workflow_runs": [
+                    { "id": 10, "name": "CI", "status": "completed", "conclusion": "failure" }
+                ]
+            })))
+            .mount(&server)
+            .await;
+        // 仓库 B：两个端点都 500 → 该仓库降级，其他仓库不受影响
+        Mock::given(method("GET"))
+            .and(path("/repos/octocat/b/pulls"))
+            .respond_with(ResponseTemplate::new(500))
+            .expect(4)
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/repos/octocat/b/actions/runs"))
+            .respond_with(ResponseTemplate::new(500))
+            .expect(4)
+            .mount(&server)
+            .await;
+
+        let fixture = fixture_at(&server);
+        login_account(&fixture, "ghp_dash", "octocat").await;
+        let reports = fixture
+            .repos
+            .dashboard(
+                "github.com",
+                None,
+                &[
+                    super::DashboardTarget {
+                        owner: "octocat".to_owned(),
+                        repo: "a".to_owned(),
+                    },
+                    super::DashboardTarget {
+                        owner: "octocat".to_owned(),
+                        repo: "b".to_owned(),
+                    },
+                ],
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(reports.len(), 2);
+        let healthy = &reports[0];
+        let pulls = healthy.pulls.as_ref().unwrap();
+        assert_eq!(pulls.open_total, 1);
+        // 大小写不敏感匹配：OCTOCAT 视作 octocat 的待审
+        assert_eq!(pulls.awaiting_review, 1);
+        assert!(!pulls.open_truncated);
+        let runs = healthy.runs.as_ref().unwrap();
+        assert_eq!(runs.conclusion.as_deref(), Some("failure"));
+
+        let degraded = &reports[1];
+        assert!(degraded.pulls.is_none());
+        assert!(degraded.runs.is_none());
+        assert_eq!(degraded.errors.len(), 2);
     }
 
     #[tokio::test]
