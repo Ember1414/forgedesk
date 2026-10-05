@@ -2,183 +2,183 @@
 # 文案只存 key（diag.<id>.*），中英文在 src/lib/i18n/locales/*/shell.json。
 # kind=command 的动作由前端直接执行；kind=dangerous 必须走 DangerousActionDialog。
 
-  - id: net-dns-failure
-    stage: [network]
-    match:
-      all_of:
-        - contains: "Could not resolve host"
-      none_of: []
-    confidence: 0.9
-    title_key: diag.net-dns-failure.title
-    explanation_key: diag.net-dns-failure.explanation
-    causes:
-      - diag.net-dns-failure.cause1
-    fixes:
-      - id: check-network
-        label_key: diag.net-dns-failure.fix_check_network
-        action: { kind: "guide", value: "/settings/advanced" }
-  - id: net-connection-refused
-    stage: [network]
-    match:
-      all_of:
-        - regex: 'Connection refused|Failed to connect to'
-      none_of: []
-    confidence: 0.8
-    title_key: diag.net-connection-refused.title
-    explanation_key: diag.net-connection-refused.explanation
-    causes:
-      - diag.net-connection-refused.cause1
-    fixes:
-      - id: check-network
-        label_key: diag.net-connection-refused.fix_check_network
-        action: { kind: "guide", value: "/settings/advanced" }
-  - id: net-timeout
-    stage: [network]
-    match:
-      all_of:
-        - regex: 'timed out|Connection timed out'
-      none_of: []
-    confidence: 0.85
-    title_key: diag.net-timeout.title
-    explanation_key: diag.net-timeout.explanation
-    causes:
-      - diag.net-timeout.cause1
-    fixes:
-      - id: retry
-        label_key: diag.net-timeout.fix_retry
-        action: { kind: "guide", value: "/settings/advanced" }
-  - id: net-ssl-certificate
-    stage: [network]
-    match:
-      all_of:
-        - contains: "SSL certificate problem"
-      none_of: []
-    confidence: 0.9
-    title_key: diag.net-ssl-certificate.title
-    explanation_key: diag.net-ssl-certificate.explanation
-    causes:
-      - diag.net-ssl-certificate.cause1
-    fixes:
-      - id: check-cert
-        label_key: diag.net-ssl-certificate.fix_check_cert
-        action: { kind: "guide", value: "/settings/advanced" }
-  - id: net-proxy-failure
-    stage: [network]
-    match:
-      all_of:
-        - regex: 'Proxy CONNECT aborted|407'
-      none_of: []
-    confidence: 0.85
-    title_key: diag.net-proxy-failure.title
-    explanation_key: diag.net-proxy-failure.explanation
-    causes:
-      - diag.net-proxy-failure.cause1
-    fixes:
-      - id: check-proxy
-        label_key: diag.net-proxy-failure.fix_check_proxy
-        action: { kind: "guide", value: "/settings/advanced" }
-  - id: net-auth-failed
-    stage: [network]
-    match:
-      all_of:
-        - contains: "Authentication failed for"
-      none_of: []
-    confidence: 0.9
-    title_key: diag.net-auth-failed.title
-    explanation_key: diag.net-auth-failed.explanation
-    causes:
-      - diag.net-auth-failed.cause1
-    fixes:
-      - id: relogin
-        label_key: diag.net-auth-failed.fix_relogin
-        action: { kind: "guide", value: "/settings/github" }
-  - id: net-prompts-disabled
-    stage: [network]
-    match:
-      all_of:
-        - contains: "Terminal prompts disabled"
-      none_of: []
-    confidence: 0.9
-    title_key: diag.net-prompts-disabled.title
-    explanation_key: diag.net-prompts-disabled.explanation
-    causes:
-      - diag.net-prompts-disabled.cause1
-    fixes:
-      - id: save-credential
-        label_key: diag.net-prompts-disabled.fix_save_credential
-        action: { kind: "guide", value: "/settings/github" }
-  - id: net-could-not-read-remote
-    stage: [network]
-    match:
-      all_of:
-        - contains: "Could not read from remote repository"
-      none_of: []
-    confidence: 0.8
-    title_key: diag.net-could-not-read-remote.title
-    explanation_key: diag.net-could-not-read-remote.explanation
-    causes:
-      - diag.net-could-not-read-remote.cause1
-    fixes:
-      - id: check-remote
-        label_key: diag.net-could-not-read-remote.fix_check_remote
-        action: { kind: "guide", value: "/settings/github" }
-  - id: ssh-publickey-denied
-    stage: [network]
-    match:
-      all_of:
-        - contains: "Permission denied (publickey)"
-      none_of: []
-    confidence: 0.92
-    title_key: diag.ssh-publickey-denied.title
-    explanation_key: diag.ssh-publickey-denied.explanation
-    causes:
-      - diag.ssh-publickey-denied.cause1
-    fixes:
-      - id: check-ssh
-        label_key: diag.ssh-publickey-denied.fix_check_ssh
-        action: { kind: "guide", value: "/settings/advanced" }
-  - id: ssh-host-key-verification
-    stage: [network]
-    match:
-      all_of:
-        - contains: "Host key verification failed"
-      none_of: []
-    confidence: 0.92
-    title_key: diag.ssh-host-key-verification.title
-    explanation_key: diag.ssh-host-key-verification.explanation
-    causes:
-      - diag.ssh-host-key-verification.cause1
-    fixes:
-      - id: trust-host
-        label_key: diag.ssh-host-key-verification.fix_trust_host
-        action: { kind: "guide", value: "/settings/advanced" }
-  - id: remote-not-a-repo
-    stage: [network]
-    match:
-      all_of:
-        - contains: "does not appear to be a git repository"
-      none_of: []
-    confidence: 0.9
-    title_key: diag.remote-not-a-repo.title
-    explanation_key: diag.remote-not-a-repo.explanation
-    causes:
-      - diag.remote-not-a-repo.cause1
-    fixes:
-      - id: check-url
-        label_key: diag.remote-not-a-repo.fix_check_url
-        action: { kind: "guide", value: "/branches" }
-  - id: net-cert-expired
-    stage: [network]
-    match:
-      all_of:
-        - contains: "certificate has expired"
-      none_of: []
-    confidence: 0.88
-    title_key: diag.net-cert-expired.title
-    explanation_key: diag.net-cert-expired.explanation
-    causes:
-      - diag.net-cert-expired.cause1
-    fixes:
-      - id: check-cert
-        label_key: diag.net-cert-expired.fix_check_cert
-        action: { kind: "guide", value: "/settings/advanced" }
+- id: net-dns-failure
+  stage: [network]
+  match:
+    all_of:
+      - contains: 'Could not resolve host'
+    none_of: []
+  confidence: 0.9
+  title_key: diag.net-dns-failure.title
+  explanation_key: diag.net-dns-failure.explanation
+  causes:
+    - diag.net-dns-failure.cause1
+  fixes:
+    - id: check-network
+      label_key: diag.net-dns-failure.fix_check_network
+      action: { kind: 'guide', value: '/settings/advanced' }
+- id: net-connection-refused
+  stage: [network]
+  match:
+    all_of:
+      - regex: 'Connection refused|Failed to connect to'
+    none_of: []
+  confidence: 0.8
+  title_key: diag.net-connection-refused.title
+  explanation_key: diag.net-connection-refused.explanation
+  causes:
+    - diag.net-connection-refused.cause1
+  fixes:
+    - id: check-network
+      label_key: diag.net-connection-refused.fix_check_network
+      action: { kind: 'guide', value: '/settings/advanced' }
+- id: net-timeout
+  stage: [network]
+  match:
+    all_of:
+      - regex: 'timed out|Connection timed out'
+    none_of: []
+  confidence: 0.85
+  title_key: diag.net-timeout.title
+  explanation_key: diag.net-timeout.explanation
+  causes:
+    - diag.net-timeout.cause1
+  fixes:
+    - id: retry
+      label_key: diag.net-timeout.fix_retry
+      action: { kind: 'guide', value: '/settings/advanced' }
+- id: net-ssl-certificate
+  stage: [network]
+  match:
+    all_of:
+      - contains: 'SSL certificate problem'
+    none_of: []
+  confidence: 0.9
+  title_key: diag.net-ssl-certificate.title
+  explanation_key: diag.net-ssl-certificate.explanation
+  causes:
+    - diag.net-ssl-certificate.cause1
+  fixes:
+    - id: check-cert
+      label_key: diag.net-ssl-certificate.fix_check_cert
+      action: { kind: 'guide', value: '/settings/advanced' }
+- id: net-proxy-failure
+  stage: [network]
+  match:
+    all_of:
+      - regex: 'Proxy CONNECT aborted|407'
+    none_of: []
+  confidence: 0.85
+  title_key: diag.net-proxy-failure.title
+  explanation_key: diag.net-proxy-failure.explanation
+  causes:
+    - diag.net-proxy-failure.cause1
+  fixes:
+    - id: check-proxy
+      label_key: diag.net-proxy-failure.fix_check_proxy
+      action: { kind: 'guide', value: '/settings/advanced' }
+- id: net-auth-failed
+  stage: [network]
+  match:
+    all_of:
+      - contains: 'Authentication failed for'
+    none_of: []
+  confidence: 0.9
+  title_key: diag.net-auth-failed.title
+  explanation_key: diag.net-auth-failed.explanation
+  causes:
+    - diag.net-auth-failed.cause1
+  fixes:
+    - id: relogin
+      label_key: diag.net-auth-failed.fix_relogin
+      action: { kind: 'guide', value: '/settings/github' }
+- id: net-prompts-disabled
+  stage: [network]
+  match:
+    all_of:
+      - contains: 'Terminal prompts disabled'
+    none_of: []
+  confidence: 0.9
+  title_key: diag.net-prompts-disabled.title
+  explanation_key: diag.net-prompts-disabled.explanation
+  causes:
+    - diag.net-prompts-disabled.cause1
+  fixes:
+    - id: save-credential
+      label_key: diag.net-prompts-disabled.fix_save_credential
+      action: { kind: 'guide', value: '/settings/github' }
+- id: net-could-not-read-remote
+  stage: [network]
+  match:
+    all_of:
+      - contains: 'Could not read from remote repository'
+    none_of: []
+  confidence: 0.8
+  title_key: diag.net-could-not-read-remote.title
+  explanation_key: diag.net-could-not-read-remote.explanation
+  causes:
+    - diag.net-could-not-read-remote.cause1
+  fixes:
+    - id: check-remote
+      label_key: diag.net-could-not-read-remote.fix_check_remote
+      action: { kind: 'guide', value: '/settings/github' }
+- id: ssh-publickey-denied
+  stage: [network]
+  match:
+    all_of:
+      - contains: 'Permission denied (publickey)'
+    none_of: []
+  confidence: 0.92
+  title_key: diag.ssh-publickey-denied.title
+  explanation_key: diag.ssh-publickey-denied.explanation
+  causes:
+    - diag.ssh-publickey-denied.cause1
+  fixes:
+    - id: check-ssh
+      label_key: diag.ssh-publickey-denied.fix_check_ssh
+      action: { kind: 'guide', value: '/settings/advanced' }
+- id: ssh-host-key-verification
+  stage: [network]
+  match:
+    all_of:
+      - contains: 'Host key verification failed'
+    none_of: []
+  confidence: 0.92
+  title_key: diag.ssh-host-key-verification.title
+  explanation_key: diag.ssh-host-key-verification.explanation
+  causes:
+    - diag.ssh-host-key-verification.cause1
+  fixes:
+    - id: trust-host
+      label_key: diag.ssh-host-key-verification.fix_trust_host
+      action: { kind: 'guide', value: '/settings/advanced' }
+- id: remote-not-a-repo
+  stage: [network]
+  match:
+    all_of:
+      - contains: 'does not appear to be a git repository'
+    none_of: []
+  confidence: 0.9
+  title_key: diag.remote-not-a-repo.title
+  explanation_key: diag.remote-not-a-repo.explanation
+  causes:
+    - diag.remote-not-a-repo.cause1
+  fixes:
+    - id: check-url
+      label_key: diag.remote-not-a-repo.fix_check_url
+      action: { kind: 'guide', value: '/branches' }
+- id: net-cert-expired
+  stage: [network]
+  match:
+    all_of:
+      - contains: 'certificate has expired'
+    none_of: []
+  confidence: 0.88
+  title_key: diag.net-cert-expired.title
+  explanation_key: diag.net-cert-expired.explanation
+  causes:
+    - diag.net-cert-expired.cause1
+  fixes:
+    - id: check-cert
+      label_key: diag.net-cert-expired.fix_check_cert
+      action: { kind: 'guide', value: '/settings/advanced' }

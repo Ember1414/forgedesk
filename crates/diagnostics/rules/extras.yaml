@@ -2,93 +2,93 @@
 # 文案只存 key（diag.<id>.*），中英文在 src/lib/i18n/locales/*/shell.json。
 # kind=command 的动作由前端直接执行；kind=dangerous 必须走 DangerousActionDialog。
 
-  - id: lfs-not-installed
-    stage: [read]
-    match:
-      all_of:
-        - regex: 'git-lfs.*command not found|''lfs'' is not a git command'
-      none_of: []
-    confidence: 0.9
-    title_key: diag.lfs-not-installed.title
-    explanation_key: diag.lfs-not-installed.explanation
-    causes:
-      - diag.lfs-not-installed.cause1
-    fixes:
-      - id: install-lfs
-        label_key: diag.lfs-not-installed.fix_install_lfs
-        action: { kind: "guide", value: "/settings/advanced" }
-  - id: lfs-missing-objects
-    stage: [network]
-    match:
-      all_of:
-        - regex: 'batch response|Error downloading object|LFS: '
-      none_of: []
-    confidence: 0.85
-    title_key: diag.lfs-missing-objects.title
-    explanation_key: diag.lfs-missing-objects.explanation
-    causes:
-      - diag.lfs-missing-objects.cause1
-    fixes:
-      - id: check-lfs-server
-        label_key: diag.lfs-missing-objects.fix_check_lfs_server
-        action: { kind: "guide", value: "/settings/advanced" }
-  - id: api-rate-limit
-    stage: [network]
-    match:
-      all_of:
-        - regex: 'API rate limit exceeded|rate limit exceeded'
-      none_of: []
-    confidence: 0.85
-    title_key: diag.api-rate-limit.title
-    explanation_key: diag.api-rate-limit.explanation
-    causes:
-      - diag.api-rate-limit.cause1
-    fixes:
-      - id: add-account
-        label_key: diag.api-rate-limit.fix_add_account
-        action: { kind: "guide", value: "/settings/github" }
-  - id: api-bad-credentials
-    stage: [network]
-    match:
-      all_of:
-        - contains: "Bad credentials"
-      none_of: []
-    confidence: 0.9
-    title_key: diag.api-bad-credentials.title
-    explanation_key: diag.api-bad-credentials.explanation
-    causes:
-      - diag.api-bad-credentials.cause1
-    fixes:
-      - id: relogin
-        label_key: diag.api-bad-credentials.fix_relogin
-        action: { kind: "guide", value: "/settings/github" }
-  - id: submodule-missing
-    stage: [read]
-    match:
-      all_of:
-        - regex: 'Please make sure you have the correct access rights|No submodule mapping|not initialized'
-      none_of: []
-    confidence: 0.8
-    title_key: diag.submodule-missing.title
-    explanation_key: diag.submodule-missing.explanation
-    causes:
-      - diag.submodule-missing.cause1
-    fixes:
-      - id: init-submodules
-        label_key: diag.submodule-missing.fix_init_submodules
-        action: { kind: "guide", value: "/settings/advanced" }
-  - id: wt-invalid-filename
-    stage: [write]
-    match:
-      all_of:
-        - regex: '[Ii]nvalid (path|argument)|Illegal char|contains invalid'
-      none_of: []
-    confidence: 0.75
-    title_key: diag.wt-invalid-filename.title
-    explanation_key: diag.wt-invalid-filename.explanation
-    causes:
-      - diag.wt-invalid-filename.cause1
-    fixes:
-      - id: rename-file
-        label_key: diag.wt-invalid-filename.fix_rename_file
-        action: { kind: "guide", value: "/status" }
+- id: lfs-not-installed
+  stage: [read]
+  match:
+    all_of:
+      - regex: "git-lfs.*command not found|'lfs' is not a git command"
+    none_of: []
+  confidence: 0.9
+  title_key: diag.lfs-not-installed.title
+  explanation_key: diag.lfs-not-installed.explanation
+  causes:
+    - diag.lfs-not-installed.cause1
+  fixes:
+    - id: install-lfs
+      label_key: diag.lfs-not-installed.fix_install_lfs
+      action: { kind: 'guide', value: '/settings/advanced' }
+- id: lfs-missing-objects
+  stage: [network]
+  match:
+    all_of:
+      - regex: 'batch response|Error downloading object|LFS: '
+    none_of: []
+  confidence: 0.85
+  title_key: diag.lfs-missing-objects.title
+  explanation_key: diag.lfs-missing-objects.explanation
+  causes:
+    - diag.lfs-missing-objects.cause1
+  fixes:
+    - id: check-lfs-server
+      label_key: diag.lfs-missing-objects.fix_check_lfs_server
+      action: { kind: 'guide', value: '/settings/advanced' }
+- id: api-rate-limit
+  stage: [network]
+  match:
+    all_of:
+      - regex: 'API rate limit exceeded|rate limit exceeded'
+    none_of: []
+  confidence: 0.85
+  title_key: diag.api-rate-limit.title
+  explanation_key: diag.api-rate-limit.explanation
+  causes:
+    - diag.api-rate-limit.cause1
+  fixes:
+    - id: add-account
+      label_key: diag.api-rate-limit.fix_add_account
+      action: { kind: 'guide', value: '/settings/github' }
+- id: api-bad-credentials
+  stage: [network]
+  match:
+    all_of:
+      - contains: 'Bad credentials'
+    none_of: []
+  confidence: 0.9
+  title_key: diag.api-bad-credentials.title
+  explanation_key: diag.api-bad-credentials.explanation
+  causes:
+    - diag.api-bad-credentials.cause1
+  fixes:
+    - id: relogin
+      label_key: diag.api-bad-credentials.fix_relogin
+      action: { kind: 'guide', value: '/settings/github' }
+- id: submodule-missing
+  stage: [read]
+  match:
+    all_of:
+      - regex: 'Please make sure you have the correct access rights|No submodule mapping|not initialized'
+    none_of: []
+  confidence: 0.8
+  title_key: diag.submodule-missing.title
+  explanation_key: diag.submodule-missing.explanation
+  causes:
+    - diag.submodule-missing.cause1
+  fixes:
+    - id: init-submodules
+      label_key: diag.submodule-missing.fix_init_submodules
+      action: { kind: 'guide', value: '/settings/advanced' }
+- id: wt-invalid-filename
+  stage: [write]
+  match:
+    all_of:
+      - regex: '[Ii]nvalid (path|argument)|Illegal char|contains invalid'
+    none_of: []
+  confidence: 0.75
+  title_key: diag.wt-invalid-filename.title
+  explanation_key: diag.wt-invalid-filename.explanation
+  causes:
+    - diag.wt-invalid-filename.cause1
+  fixes:
+    - id: rename-file
+      label_key: diag.wt-invalid-filename.fix_rename_file
+      action: { kind: 'guide', value: '/status' }
