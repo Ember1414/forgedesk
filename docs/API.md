@@ -77,6 +77,7 @@ interface FixAction {
 | [`job_cancel`](#job_cancel) | ReadOnly | T1.3 | 取消一个正在运行的长任务 |
 | [`debug_throw_error`](#debug_throw_error) | ReadOnly | T0.6 | 触发受控失败，用于验证错误链路（**仅开发构建注册**） |
 | [`debug_panic`](#debug_panic) | ReadOnly | T0.8 | 触发真实 panic，用于验证崩溃留档（**仅开发构建注册**） |
+| [`pty_spike_*`](#pty_spike_create--pty_spike_write--pty_spike_resize--pty_spike_close--pty_spike_throughput) | Mutating | T5.1 | PTY Spike 调试通道：会话 + IPC 吞吐量测（**仅开发构建注册**；throughput 为 ReadOnly） |
 | [`workspace_status`](#workspace_status) | ReadOnly | T1.4 | 读取工作区状态（分组、分支头、操作状态） |
 | [`workspace_stage`](#workspace_stage--workspace_unstage--workspace_discard--workspace_reveal) | Mutating | T1.4 / T1.6 | 暂存路径 / 块 / 行（成功后发布 repo:changed） |
 | [`workspace_unstage`](#workspace_stage--workspace_unstage--workspace_discard--workspace_reveal) | Mutating | T1.4 / T1.6 | 取消暂存路径 / 块 / 行 |
@@ -481,6 +482,34 @@ Toast → 动作按钮）是基础设施，它坏掉时不会有任何业务功�
 
 ---
 
+### pty_spike_create / pty_spike_write / pty_spike_resize / pty_spike_close / pty_spike_throughput
+
+PTY Spike（T5.1）的调试通道：把 `docs/PTY-SPIKE.md` 验证过的会话管线接到真实 Tauri
+事件通道上，供 `__dev__/pty-spike` 页面量测 IPC 吞吐与手工摸底 shell 行为。
+**不是正式终端 API**——T5.2 的 `term_*` 命令族落地后，本族仍保持"仅开发构建"。
+
+- **能力等级**：`Mutating`（创建进程/线程、驱动会话内进程；`throughput` 为 `ReadOnly`，
+  只创建临时夹具文件并读取既有会话）
+- **注册范围**：**仅 debug 构建**（同 `debug_throw_error`）
+- **会话模型**：见 `docs/PTY-SPIKE.md` §3.2（reader/flusher/waiter 三线程 + 16ms 合并
+  + base64 传输）。与正式终端的关键差异：`auto_reply_dsr: true`（spike 的输出区不是
+  xterm.js，应答不了 DSR）；cwd 固定临时目录（无仓库上下文）。
+
+| 命令 | 参数 | 返回 | 说明 |
+| --- | --- | --- | --- |
+| `pty_spike_create` | `cols: 2..=500`，`rows: 2..=200`（越界 `VALIDATION`） | `{ id, program }` | 启动默认 shell（候选顺序见 `shell_candidates`） |
+| `pty_spike_write` | `id`，`data`（**base64** 原始字节；非法 base64 → `VALIDATION`） | `null` | 键盘输入，与输出共用 base64 通道 |
+| `pty_spike_resize` | `id`，`cols`，`rows` | `null` | 会话已退出 → `INTERNAL` |
+| `pty_spike_close` | `id` | `null` | 杀子进程并移出会话表；exit 事件由服务线程补发 |
+| `pty_spike_throughput` | `id` | `{ lines, bytes, elapsedMs }` | 灌 10 万行（临时夹具），async 轮询至收满或 90s 超时（`NETWORK`） |
+
+- **错误**：未知 `id` → `NOT_FOUND`
+- **事件**：见 §3.3 的 `pty-spike:output` / `pty-spike:exit`
+- **前端封装**：`src/lib/ipc/ptySpike.ts`（`ptySpikeCreate` 等 + `utf8ToBase64` /
+  `createUtf8StreamDecoder`）；调用点：`src/ui/__dev__/PtySpikePanel.tsx`（仅开发构建）
+
+---
+
 ## 3. 事件登记表
 
 （已落地的事件见下表；`repo:changed`于 T1.4 引入。）
@@ -527,6 +556,8 @@ interface RepoChangedPayload {
 | `job:done` | `{ jobId, result }` | 长任务成功结束 | T1.3 / M1 | ✅ `crates/commands/src/jobs.rs` |
 | `job:failed` | `{ jobId, error: AppError }` | 长任务失败结束（错误形状同 §1.1） | T1.3 / M1 | ✅ `crates/commands/src/jobs.rs` |
 | `actions:log-chunk` | `{ jobId, text, totalLines }` | Actions 日志流式分块（`text` 是完整行的文本块；`job:done.result = { totalLines }`，取消走 `job_cancel`） | T4.9 / M4 | ✅ `crates/commands/src/actions.rs` |
+| `pty-spike:output` | `{ id, data }` | PTY Spike 输出块（base64、16ms 合并；**仅 debug 构建**，正式终端用 `term:output`） | T5.1 / M5 | ✅ `crates/commands/src/pty_spike.rs` |
+| `pty-spike:exit` | `{ id, code }` | PTY Spike 会话退出（仅 debug 构建） | T5.1 / M5 | ✅ `crates/commands/src/pty_spike.rs` |
 
 | `git:state-changed` | `{ repoId, opState }` | 仓库正处于 rebase/merge/cherry-pick 中途 | T2.x / M2 | ⬜ 未实现 |
 | `term:output` | `{ termId, bytes }` | 终端输出流 | T5.x / M5 | ⬜ 未实现 |

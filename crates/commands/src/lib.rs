@@ -44,6 +44,7 @@ pub mod issues;
 pub mod jobs;
 pub mod logs;
 pub mod merge;
+pub mod pty_spike;
 pub mod rate_limit;
 pub mod rebase;
 pub mod remote_repos;
@@ -113,6 +114,11 @@ pub use logs::{logs_open, logs_tail};
 pub use merge::{
     git_merge_continue, git_merge_execute, git_merge_prepare, MergeExecuteRequest, MergePlanDto,
     MergeRequest,
+};
+pub use pty_spike::{
+    pty_spike_close, pty_spike_create, pty_spike_resize, pty_spike_throughput, pty_spike_write,
+    SpikeCreateDto, SpikeExitPayload, SpikeOutputPayload, SpikeThroughputDto, EVENT_PTY_SPIKE_EXIT,
+    EVENT_PTY_SPIKE_OUTPUT,
 };
 pub use rate_limit::{repo_rate_limit_refresh, repo_rate_limit_state};
 pub use rebase::{

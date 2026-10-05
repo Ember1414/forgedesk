@@ -40,6 +40,7 @@ pub mod staging;
 pub mod stash;
 pub mod sync;
 pub mod templates;
+pub mod terminal;
 pub mod workspace;
 
 pub use audit::{

@@ -384,6 +384,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         forgedesk_commands::repo_rate_limit_state,
         forgedesk_commands::repo_rate_limit_refresh,
         forgedesk_commands::repo_dashboard,
+        // T5.1 PTY Spike 调试通道（仅开发构建；结论见 docs/PTY-SPIKE.md）
+        forgedesk_commands::pty_spike_create,
+        forgedesk_commands::pty_spike_write,
+        forgedesk_commands::pty_spike_resize,
+        forgedesk_commands::pty_spike_close,
+        forgedesk_commands::pty_spike_throughput,
         forgedesk_commands::debug_throw_error,
         forgedesk_commands::debug_panic,
     ]);

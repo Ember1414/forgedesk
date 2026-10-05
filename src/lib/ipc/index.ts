@@ -290,6 +290,25 @@ export type { PullsDigest, RepoDashboard, RunDigest } from './dashboard';
 export { repoRateLimitRefresh, repoRateLimitState } from './rateLimit';
 export type { RateLimitSnapshot } from './rateLimit';
 export {
+  createUtf8StreamDecoder,
+  listenPtySpikeExit,
+  listenPtySpikeOutput,
+  ptySpikeClose,
+  ptySpikeCreate,
+  ptySpikeResize,
+  ptySpikeThroughput,
+  ptySpikeWrite,
+  utf8ToBase64,
+  EVENT_PTY_SPIKE_EXIT,
+  EVENT_PTY_SPIKE_OUTPUT,
+} from './ptySpike';
+export type {
+  PtySpikeExitPayload,
+  PtySpikeInfo,
+  PtySpikeOutputPayload,
+  PtySpikeThroughput,
+} from './ptySpike';
+export {
   repoIssueAssignees,
   repoIssueAssigneesSet,
   repoIssueBody,
