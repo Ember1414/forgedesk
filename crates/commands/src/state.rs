@@ -22,6 +22,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use forgedesk_jobs::JobRunner;
+use forgedesk_plugin_host::manager::PluginManager;
 use forgedesk_services::repository::OpenRepoRegistry;
 use forgedesk_services::{
     accounts::AccountService, host_repos::HostRepoService, AuditLog, BranchService,
@@ -94,6 +95,10 @@ pub struct AppState {
     /// Arc 而不是裸值，与 `engines`/`jobs` 同一理由：它是**有状态的全进程资源**，
     /// 且未来的长任务闭包只拿得到 Arc 克隆（T2.7 的"漏接"教训）。
     pub log_pages: Arc<LogPageCache>,
+    /// 插件生命周期管理器（T6.4）：`plugin_*` 命令族的执行面。
+    pub plugins: Arc<PluginManager>,
+    /// 插件宿主服务（T6.2 trait 的真实实现；注册表查询与事件订阅在它身上）。
+    pub plugin_services: Arc<crate::plugins::AppHostServices>,
 }
 
 impl AppState {

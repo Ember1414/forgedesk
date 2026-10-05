@@ -102,6 +102,18 @@ interface FixAction {
 | [`audit_prune`](#audit_list--audit_export--audit_prune) | Mutating | T1.11 | 按保留策略清理旧记录 |
 | [`git_log_page`](#git_log_page) | ReadOnly | T2.1 | 提交历史分页 + 泳道布局 |
 
+| [`plugin_list`](#plugin_插件管理t64) | ReadOnly | T6.4 | 已安装插件列表（含状态/授权/用量） |
+| [`plugin_install_from_dir`](#plugin_插件管理t64) | Mutating | T6.4 | 开发者模式：从本地目录安装（校验清单 + SHA256） |
+| [`plugin_set_enabled`](#plugin_插件管理t64) | Mutating | T6.4 | 启用 / 禁用（幂等） |
+| [`plugin_grant`](#plugin_插件管理t64) | Mutating | T6.4 | 逐项授予权限（扩权在插件重启后生效） |
+| [`plugin_revoke`](#plugin_插件管理t64) | Mutating | T6.4 | 撤销一项权限（立即生效） |
+| [`plugin_uninstall`](#plugin_插件管理t64) | Mutating | T6.4 | 卸载；root 内删目录、外部开发者目录保留（返回值区分） |
+| [`plugin_reload`](#plugin_插件管理t64) | Mutating | T6.4 | 热重载（重读目录，刷新 SHA256） |
+| [`plugin_logs`](#plugin_插件管理t64) | ReadOnly | T6.4 | 插件日志（实例内环形缓冲，最近 N 条） |
+| [`plugin_render_panel`](#plugin_插件管理t64) | ReadOnly | T6.4 | 渲染面板（返回已校验的声明式 DSL JSON） |
+| [`plugin_invoke_command`](#plugin_插件管理t64) | Mutating | T6.4 | 执行插件命令（命令面板/面板按钮入口） |
+| [`plugin_registrations`](#plugin_插件管理t64) | ReadOnly | T6.4 | 已注册贡献点（命令/面板） |
+
 ---
 
 ### app_version
@@ -1793,6 +1805,34 @@ editor 的第一个参数追加，cp 完成替换；`GIT_EDITOR=true` 让 reword
 前端封装：`src/lib/ipc/rebase.ts`（`gitRebasePreviewOnly` / `gitRebaseRange` / `gitRebaseExecute` /
 `gitRebaseContinueEdit`）；调用点：`src/features/rebase/*`（拖拽面板），入口经
 `graphSelectionStore.rebaseRequest` 由历史页右键菜单与提交详情面板发起。
+
+---
+
+### plugin_*（插件管理，T6.4）
+
+宿主侧：`crates/commands/src/plugins.rs`（命令 + `AppHostServices` 组合根实现）；
+引擎与管理器：`crates/plugin-host`（清单/权限/沙箱见 PLUGIN-API.md）。
+
+| 命令 | 能力 | 参数 | 返回/说明 |
+| --- | --- | --- | --- |
+| `plugin_list` | ReadOnly | `{}` | `PluginSummary[]`：id/name/version/author/license/description/state（`enabled`/`disabled`/`crashed`）/declaredPermissions/grantedPermissions/permissionUsage（运行中才有） |
+| `plugin_install_from_dir` | Mutating | `{ dir }` | `InstallReport { id, name, version, sha256, insideRoot, declaredPermissions }`。清单非法返回 `VALIDATION`（detail 含原因）；重复 id 返回 `VALIDATION`；目录缺文件返回 `NOT_FOUND` |
+| `plugin_set_enabled` | Mutating | `{ id, enabled }` | `void`。启用 = 加载（生效权限 = 清单 ∩ 授权）+ 激活；激活失败插件进入 `crashed` 态并返回错误 |
+| `plugin_grant` | Mutating | `{ id, permissions: string[] }` | `void`。权限名必须是白名单成员（否则 `VALIDATION`）；插件运行中调用返回 `VALIDATION`（先禁用再扩权） |
+| `plugin_revoke` | Mutating | `{ id, permission }` | `void`。立即生效：运行中实例的下一次相关调用返回 `PERMISSION_DENIED` |
+| `plugin_uninstall` | Mutating | `{ id }` | `boolean`：是否删除了插件目录。`plugins_root` 内 → 删除；开发者模式的外部目录 → 保留（UI 须如实说明）。未安装返回 `NOT_FOUND` |
+| `plugin_reload` | Mutating | `{ id }` | `void`。重读目录（manifest + wasm）并刷新 SHA256；仅运行中的插件可重载（否则 `VALIDATION`） |
+| `plugin_logs` | ReadOnly | `{ id, limit }` | `PluginLogEntry[] { timeMs, level(0-3), message }`（实例内环形缓冲最近 N 条；未运行返回空数组） |
+| `plugin_render_panel` | ReadOnly | `{ id, panelId }` | `string`（已通过宿主校验的声明式 DSL JSON；前端再解析，失败显示兜底卡片） |
+| `plugin_invoke_command` | Mutating | `{ id, command, argJson }` | `string`（插件返回的 JSON 文本；命令执行 trap 返回 `INTERNAL` 并隔离插件） |
+| `plugin_registrations` | ReadOnly | `{}` | `RegistrationDto[] { pluginId, kind: "command"\|"panel", id, title, location? }`；变化时发 `plugin-registrations-changed` 事件 |
+
+事件：`plugin-toast`（`{ pluginId, level, message }`——`ui:toast` 权限调用触发）；
+`plugin-registrations-changed`（注册表变化）。
+
+仓库范围宿主调用的目标仓库 = **最近打开且仍打开的仓库**
+（`OpenRepoRegistry::last_opened`）；没有打开的仓库时返回 `NOT_FOUND`。
+`git_commit` 宿主调用当前未接快照管线，返回 `INTERNAL`（红线 R7：不绕过安全网）。
 
 ---
 

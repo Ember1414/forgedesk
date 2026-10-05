@@ -134,6 +134,18 @@ pub struct InstallReport {
 }
 
 /// 插件生命周期管理器。
+///
+/// 手动实现 Debug：内部持有 wasm 引擎与全部实例状态（非 Debug），
+/// 对外只暴露可诊断的字段——排查问题够用，不把实例内容打进日志（红线 R8）。
+impl std::fmt::Debug for PluginManager {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PluginManager")
+            .field("plugins_root", &self.plugins_root)
+            .field("installed", &self.plugins.read().len())
+            .finish()
+    }
+}
+
 pub struct PluginManager {
     engine: Arc<WasmiEngine>,
     plugins_root: PathBuf,

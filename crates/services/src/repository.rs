@@ -65,6 +65,9 @@ pub(crate) fn system_clock() -> i64 {
 #[derive(Debug, Default)]
 pub struct OpenRepoRegistry {
     open: Mutex<BTreeSet<i64>>,
+    /// 最近一次打开、且仍处于打开状态的仓库 id（"当前仓库"的后端事实；
+    /// T6.4 插件的仓库范围宿主调用以它为解析目标）。
+    last_opened: Mutex<Option<i64>>,
 }
 
 impl OpenRepoRegistry {
@@ -78,10 +81,23 @@ impl OpenRepoRegistry {
         if let Ok(mut open) = self.open.lock() {
             open.insert(id);
         }
+        if let Ok(mut last) = self.last_opened.lock() {
+            *last = Some(id);
+        }
     }
 
     /// 取消"已打开"标记；返回它此前是否打开着。
     pub fn close(&self, id: i64) -> bool {
+        if let Ok(mut last) = self.last_opened.lock() {
+            if *last == Some(id) {
+                // 关闭的正是"当前仓库"：退而取剩余打开集中 id 最大者
+                *last = self
+                    .open
+                    .lock()
+                    .ok()
+                    .and_then(|open| open.iter().rev().next().copied());
+            }
+        }
         self.open
             .lock()
             .map(|mut open| open.remove(&id))
@@ -109,6 +125,17 @@ impl OpenRepoRegistry {
         if let Ok(mut open) = self.open.lock() {
             open.clear();
         }
+        if let Ok(mut last) = self.last_opened.lock() {
+            *last = None;
+        }
+    }
+
+    /// 最近一次打开且仍打开的仓库（插件的"当前仓库"解析目标）。
+    ///
+    /// 应用一次只聚焦一个仓库（前端 uiStore 的镜像事实）；多开场景下
+    /// 以"最后打开"为准——与文件管理器/终端的直觉一致。
+    pub fn last_opened(&self) -> Option<i64> {
+        *self.last_opened.lock().ok()?
     }
 }
 
