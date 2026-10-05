@@ -172,6 +172,17 @@ pub trait PluginEngine: Send + Sync {
 
     /// 当前生命周期状态；句柄失效返回 [`HostError::InstanceNotFound`]。
     fn state(&self, handle: PluginHandle) -> Result<LifecycleState, HostError>;
+
+    /// 请求插件渲染面板（T6.3 方案 C：返回声明式 DSL JSON）。
+    ///
+    /// 返回的 JSON 已经过 `panel_dsl::validate_panel_dsl` 校验，前端可信任其良构。
+    /// 默认实现表示引擎不支持面板（mock/测试引擎无需实现）。
+    fn render_panel(&self, handle: PluginHandle, panel_id: &str) -> Result<String, HostError> {
+        let _ = (handle, panel_id);
+        Err(HostError::Engine(
+            "panel rendering is not supported by this engine".to_owned(),
+        ))
+    }
 }
 
 /// 实例生效的权限集：清单声明 ∩ 用户授权，deny-by-default。

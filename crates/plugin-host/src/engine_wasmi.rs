@@ -29,6 +29,7 @@
 
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 
 use crate::host::{self, SharedServices};
 use crate::manifest::ValidatedManifest;
@@ -555,6 +556,195 @@ impl PluginEngine for WasmiEngine {
             .map(|plugin| plugin.state)
             .ok_or(HostError::InstanceNotFound(handle.raw()))
     }
+
+    fn render_panel(&self, handle: PluginHandle, panel_id: &str) -> Result<String, HostError> {
+        let mut instances = self.instances.write();
+        let plugin = instances
+            .get_mut(&handle.raw())
+            .ok_or(HostError::InstanceNotFound(handle.raw()))?;
+        if !plugin.state.is_callable() {
+            return Err(Self::cached_failure_or(
+                plugin.state,
+                plugin.last_failure.as_ref(),
+            ));
+        }
+        on_executor_stack(move || -> Result<String, HostError> {
+            Self::reset_fuel(&mut plugin.store)?;
+            let memory = Self::memory_of(&plugin.instance, &plugin.store)?;
+
+            let alloc = plugin
+                .instance
+                .get_typed_func::<i32, i32>(&plugin.store, "fd_alloc")
+                .map_err(|_| HostError::Engine("plugin does not export fd_alloc".to_owned()))?;
+            let render = plugin
+                .instance
+                .get_typed_func::<(i32, i32), i64>(&plugin.store, "fd_render_panel")
+                .map_err(|_| {
+                    HostError::Engine("plugin does not export fd_render_panel".to_owned())
+                })?;
+
+            let id_bytes = panel_id.as_bytes();
+            let id_len = i32::try_from(id_bytes.len())
+                .map_err(|_| HostError::InvalidArgument("panel_id", "too large".to_owned()))?;
+            let ptr = alloc
+                .call(&mut plugin.store, id_len)
+                .map_err(|error| self.map_error(error, "command"))?;
+            if ptr < 0 {
+                return Err(HostError::InvalidArgument(
+                    "fd_alloc",
+                    format!("returned a negative pointer: {ptr}"),
+                ));
+            }
+            let ptr = ptr as usize;
+            let size = memory.data_size(&plugin.store);
+            if ptr.checked_add(id_bytes.len()).is_none_or(|end| end > size) {
+                return Err(HostError::InvalidArgument(
+                    "fd_alloc",
+                    "returned region is out of the plugin's memory bounds".to_owned(),
+                ));
+            }
+            memory
+                .write(&mut plugin.store, ptr, id_bytes)
+                .map_err(|error| HostError::Engine(format!("writing panel id failed: {error}")))?;
+
+            let call_result = render.call(&mut plugin.store, (ptr as i32, id_len));
+            let packed = match call_result {
+                Ok(packed) => packed,
+                Err(error) => {
+                    let mapped = self.map_error(error, "command");
+                    plugin.state = LifecycleState::Crashed;
+                    plugin.last_failure = Some(mapped.clone());
+                    return Err(mapped);
+                }
+            };
+
+            let packed = packed as u64;
+            let result_ptr = (packed >> 32) as u32 as usize;
+            let result_len = (packed & 0xFFFF_FFFF) as usize;
+            if result_len > host::MAX_RESULT_BYTES
+                || result_ptr
+                    .checked_add(result_len)
+                    .is_none_or(|end| end > size)
+            {
+                return Err(HostError::InvalidArgument(
+                    "fd_render_panel",
+                    "returned result region is out of the plugin's memory bounds".to_owned(),
+                ));
+            }
+            let mut buffer = vec![0u8; result_len];
+            memory
+                .read(&plugin.store, result_ptr, &mut buffer)
+                .map_err(|error| HostError::Engine(format!("reading panel DSL failed: {error}")))?;
+            // 宿主侧校验：前端永远拿到良构 DSL（兜底错误卡片仍是第二道防线）
+            crate::panel_dsl::validate_panel_dsl(&buffer)?;
+            Ok(String::from_utf8_lossy(&buffer).into_owned())
+        })
+    }
+}
+
+impl WasmiEngine {
+    /// 异步分发事件给已订阅且激活的插件（T6.3）。
+    ///
+    /// 立即返回订阅者数量；实际回调在分离线程上逐个执行，每个回调受 fuel
+    /// 预算约束（死循环回调最终被 fuel 终止），调用方**永不阻塞**——这是
+    /// T6.3 验收"事件回调超时不影响宿主流程"的落实方式。
+    pub fn dispatch_event(self: Arc<Self>, event: &'static str, payload: &str) -> usize {
+        let targets: Vec<u64> = {
+            let instances = self.instances.read();
+            instances
+                .iter()
+                .filter(|(_, plugin)| {
+                    plugin.state.is_callable()
+                        && self
+                            .services
+                            .event_interest(&plugin.store.data().plugin_id, event)
+                })
+                .map(|(raw, _)| *raw)
+                .collect()
+        };
+        if targets.is_empty() {
+            return 0;
+        }
+        let count = targets.len();
+        let engine = Arc::clone(&self);
+        let payload = payload.to_owned();
+        std::thread::spawn(move || {
+            for raw in targets {
+                let handle = PluginHandle::new(raw);
+                if let Err(error) = engine.run_event_callback(handle, event, &payload) {
+                    tracing::warn!(event, error = %error, "plugin event callback failed");
+                }
+            }
+        });
+        count
+    }
+
+    /// 在插件实例上执行一次 `fd_on_event`（payload JSON 经 fd_alloc 传入）。
+    fn run_event_callback(
+        &self,
+        handle: PluginHandle,
+        _event: &'static str,
+        payload: &str,
+    ) -> Result<(), HostError> {
+        let mut instances = self.instances.write();
+        let Some(plugin) = instances.get_mut(&handle.raw()) else {
+            return Ok(());
+        };
+        if !plugin.state.is_callable() {
+            return Ok(());
+        }
+        on_executor_stack(move || -> Result<(), HostError> {
+            Self::reset_fuel(&mut plugin.store)?;
+            let memory = Self::memory_of(&plugin.instance, &plugin.store)?;
+            let alloc = plugin
+                .instance
+                .get_typed_func::<i32, i32>(&plugin.store, "fd_alloc")
+                .map_err(|_| HostError::Engine("plugin does not export fd_alloc".to_owned()))?;
+            let callback = plugin
+                .instance
+                .get_typed_func::<(i32, i32), i32>(&plugin.store, "fd_on_event")
+                .map_err(|_| HostError::Engine("plugin does not export fd_on_event".to_owned()))?;
+
+            let bytes = payload.as_bytes();
+            let len = i32::try_from(bytes.len())
+                .map_err(|_| HostError::InvalidArgument("payload", "too large".to_owned()))?;
+            let ptr = alloc
+                .call(&mut plugin.store, len)
+                .map_err(|error| self.map_error(error, "event"))?;
+            if ptr < 0 {
+                return Err(HostError::InvalidArgument(
+                    "fd_alloc",
+                    format!("returned a negative pointer: {ptr}"),
+                ));
+            }
+            let ptr = ptr as usize;
+            let size = memory.data_size(&plugin.store);
+            if bytes.len() > host::MAX_ARG_BYTES
+                || ptr.checked_add(bytes.len()).is_none_or(|end| end > size)
+            {
+                return Err(HostError::InvalidArgument(
+                    "fd_alloc",
+                    "returned region is out of the plugin's memory bounds".to_owned(),
+                ));
+            }
+            memory
+                .write(&mut plugin.store, ptr, bytes)
+                .map_err(|error| HostError::Engine(format!("writing payload failed: {error}")))?;
+
+            callback
+                .call(&mut plugin.store, (ptr as i32, len))
+                .map(|_| ())
+                .map_err(|error| self.map_error(error, "event"))
+        })
+        .inspect_err(|error| {
+            // 回调失败（含 fuel 耗尽）：按崩溃隔离处理，宿主与其他插件不受影响
+            let mut instances = self.instances.write();
+            if let Some(plugin) = instances.get_mut(&handle.raw()) {
+                plugin.state = LifecycleState::Crashed;
+                plugin.last_failure = Some(error.clone());
+            }
+        })
+    }
 }
 
 #[cfg(test)]
@@ -565,13 +755,17 @@ mod tests {
     use crate::runtime::RuntimeLimits;
 
     fn manifest_with_permissions(perms: &[&str]) -> ValidatedManifest {
+        manifest_for("com.example.wasmi", perms)
+    }
+
+    fn manifest_for(id: &str, perms: &[&str]) -> ValidatedManifest {
         let permissions = perms
             .iter()
             .map(|p| format!(r#""{p}""#))
             .collect::<Vec<_>>()
             .join(",");
         let text = format!(
-            r#"{{"id": "com.example.wasmi", "name": "Wasmi Test", "version": "1.0.0",
+            r#"{{"id": "{id}", "name": "Wasmi Test", "version": "1.0.0",
                 "apiVersion": "0.1", "author": "test", "license": "MIT",
                 "description": "test plugin", "main": "plugin.wasm",
                 "permissions": [{permissions}]}}"#
@@ -587,6 +781,7 @@ mod tests {
     #[derive(Default)]
     struct RecordingServices {
         calls: std::sync::Mutex<Vec<String>>,
+        subscriptions: std::sync::Mutex<std::collections::BTreeMap<String, Vec<String>>>,
     }
 
     impl RecordingServices {
@@ -715,6 +910,27 @@ mod tests {
         ) -> Result<serde_json::Value, HostError> {
             self.record(format!("toast:{plugin_id}:{level}"));
             Ok(serde_json::json!({}))
+        }
+        fn subscribe_events(
+            &self,
+            plugin_id: &str,
+            events: Vec<String>,
+        ) -> Result<serde_json::Value, HostError> {
+            self.record(format!("subscribe:{plugin_id}:{events:?}"));
+            self.subscriptions
+                .lock()
+                .unwrap()
+                .entry(plugin_id.to_owned())
+                .or_default()
+                .extend(events);
+            Ok(serde_json::json!({}))
+        }
+        fn event_interest(&self, plugin_id: &str, event: &str) -> bool {
+            self.subscriptions
+                .lock()
+                .unwrap()
+                .get(plugin_id)
+                .is_some_and(|events| events.iter().any(|e| e == event))
         }
     }
 
@@ -970,6 +1186,63 @@ mod tests {
         sleb_i64(i64::from(ptr), &mut body);
         body.push(0x0b);
         body
+    }
+
+    /// 构建一个"渲染指定面板"的测试插件：fd_render_panel 忽略面板 id，
+    /// 返回数据段 1024 处的 DSL JSON（打包 ptr<<32|len）。
+    fn panel_plugin(dsl_json: &str) -> Vec<u8> {
+        let mut body = vec![0x42];
+        sleb_i64((1024i64 << 32) | dsl_json.len() as i64, &mut body);
+        body.push(0x0b);
+        build_module(
+            &[],
+            &[
+                ("fd_activate", TYPE_UNIT_I32, &ok_body()),
+                ("fd_deactivate", TYPE_UNIT_I32, &ok_body()),
+                ("fd_alloc", TYPE_LEN_PTR, &alloc_body_at(8192)),
+                ("fd_render_panel", TYPE_ARGS_I64, &body),
+            ],
+            &[(1024, dsl_json.as_bytes())],
+        )
+    }
+
+    /// 构建一个"收到事件后转发为 toast"的测试插件：
+    /// fd_on_event(payload_ptr, payload_len) → host_call(SHOW_TOAST, payload)。
+    fn event_plugin() -> Vec<u8> {
+        let mut body = vec![0x41];
+        sleb_i64(i64::from(crate::host::HostOp::ShowToast.id()), &mut body);
+        body.extend_from_slice(&[0x20, 0x00, 0x20, 0x01]); // local.get 0, local.get 1
+        body.extend_from_slice(&[0x10, 0x00]); // call 0 = fd.host_call
+        body.push(0x1a); // drop 返回码
+        body.extend_from_slice(&[0x41, 0x00]); // i32.const 0
+        body.push(0x0b);
+        build_module(
+            &[("host_call", TYPE_HOST_CALL)],
+            &[
+                ("fd_activate", TYPE_UNIT_I32, &ok_body()),
+                ("fd_deactivate", TYPE_UNIT_I32, &ok_body()),
+                ("fd_alloc", TYPE_LEN_PTR, &alloc_body_at(8192)),
+                ("fd_on_event", TYPE_HOST_RESULT, &body),
+            ],
+            &[],
+        )
+    }
+
+    /// fd_on_event 死循环的插件：验证事件分发不阻塞宿主（fuel 终止回调）。
+    fn slow_event_plugin() -> Vec<u8> {
+        let mut body = vec![0x03, 0x40, 0x0c, 0x00, 0x0b]; // loop { br 0 }
+        body.extend_from_slice(&[0x41, 0x00]); // i32.const 0（块结束清除不可达）
+        body.push(0x0b);
+        build_module(
+            &[],
+            &[
+                ("fd_activate", TYPE_UNIT_I32, &ok_body()),
+                ("fd_deactivate", TYPE_UNIT_I32, &ok_body()),
+                ("fd_alloc", TYPE_LEN_PTR, &alloc_body_at(8192)),
+                ("fd_on_event", TYPE_HOST_RESULT, &body),
+            ],
+            &[],
+        )
     }
 
     /// 构建一个"调用指定宿主操作"的测试插件。
@@ -1322,5 +1595,138 @@ mod tests {
         let mut buf = vec![0u8; len];
         memory.read(&store, ptr, &mut buf).unwrap();
         assert_eq!(String::from_utf8_lossy(&buf), "hello");
+    }
+
+    // ---------- T6.3：面板 DSL 与事件分发 ----------
+
+    const SAMPLE_DSL: &str = r#"[
+        {"type": "heading", "text": "Stats"},
+        {"type": "table", "columns": ["author", "commits"], "rows": [["a", "12"]]},
+        {"type": "button", "command": "com.example.wasmi.refresh", "label": "Refresh"}
+    ]"#;
+
+    #[test]
+    fn render_panel_returns_validated_dsl_from_the_plugin() {
+        let (_recorder, services) = test_services();
+        let engine = WasmiEngine::with_default_limits(services);
+        let module = panel_plugin(SAMPLE_DSL);
+        let manifest = manifest_with_permissions(&["ui:panel"]);
+        let handle = engine.load(&manifest, &module).unwrap();
+        engine.activate(handle).unwrap();
+
+        let dsl = engine.render_panel(handle, "stats").unwrap();
+        assert_eq!(dsl, SAMPLE_DSL, "校验不得改动 DSL 内容");
+    }
+
+    #[test]
+    fn render_panel_rejects_malformed_dsl_as_a_structured_error() {
+        let (_recorder, services) = test_services();
+        let engine = WasmiEngine::with_default_limits(services);
+        let module = panel_plugin(r#"[{"type": "iframe", "src": "https://evil"}]"#);
+        let manifest = manifest_with_permissions(&["ui:panel"]);
+        let handle = engine.load(&manifest, &module).unwrap();
+        engine.activate(handle).unwrap();
+
+        let error = engine.render_panel(handle, "stats").unwrap_err();
+        assert!(matches!(error, HostError::InvalidArgument(_, _)), "{error}");
+        assert!(error.to_string().contains("iframe"), "{error}");
+        // 插件没有 trap：DSL 校验失败是数据问题，不是崩溃
+        assert_eq!(engine.state(handle).unwrap(), LifecycleState::Active);
+    }
+
+    #[test]
+    fn render_panel_traps_quarantine_the_plugin() {
+        let (_recorder, services) = test_services();
+        let engine = WasmiEngine::with_default_limits(services);
+        let module = trap_plugin(); // fd_invoke trap，但 render_panel 缺失 → Engine 错误
+        let manifest = manifest_with_permissions(&["ui:panel"]);
+        let handle = engine.load(&manifest, &module).unwrap();
+        engine.activate(handle).unwrap();
+
+        let error = engine.render_panel(handle, "stats").unwrap_err();
+        assert!(matches!(error, HostError::Engine(_)), "{error}");
+    }
+
+    #[test]
+    fn dispatch_event_reaches_subscribed_plugins_without_blocking_the_caller() {
+        let (recorder, services) = test_services();
+        let engine = Arc::new(WasmiEngine::with_default_limits(Arc::clone(&services)));
+
+        let module = event_plugin();
+        let manifest = manifest_with_permissions(&["git:read", "ui:toast"]);
+        let handle = engine.load(&manifest, &module).unwrap();
+        engine.activate(handle).unwrap();
+        // 组合根登记订阅（此处直接驱动 mock 模拟 T6.4 的授权流程产物）
+        services
+            .subscribe_events("com.example.wasmi", vec!["repo_changed".to_owned()])
+            .unwrap();
+
+        let payload = r#"{"event":"repo_changed","level":"info","message":"from event"}"#;
+        let started = std::time::Instant::now();
+        let subscribers = Arc::clone(&engine).dispatch_event("repo_changed", payload);
+        let elapsed = started.elapsed();
+        assert_eq!(subscribers, 1);
+        assert!(
+            elapsed < std::time::Duration::from_secs(1),
+            "分发必须立即返回，实际 {elapsed:?}"
+        );
+
+        // 回调在后台执行：轮询等待 toast 到达服务层
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+        loop {
+            if recorder
+                .calls()
+                .iter()
+                .any(|call| call.starts_with("toast:com.example.wasmi:info"))
+            {
+                break;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "回调 3 秒内未执行：{:?}",
+                recorder.calls()
+            );
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+    }
+
+    #[test]
+    fn an_infinite_loop_event_callback_never_blocks_the_host() {
+        let (_recorder, services) = test_services();
+        let engine = Arc::new(WasmiEngine::with_default_limits(Arc::clone(&services)));
+
+        let slow = slow_event_plugin();
+        let slow_manifest = manifest_with_permissions(&["git:read"]);
+        let slow_handle = engine.load(&slow_manifest, &slow).unwrap();
+        engine.activate(slow_handle).unwrap();
+        services
+            .subscribe_events("com.example.wasmi", vec!["commit_created".to_owned()])
+            .unwrap();
+
+        // 正常插件作为"宿主仍可用"的对照组（不同插件 id：id 在真实安装中唯一）
+        let good = normal_plugin();
+        let good_handle = engine
+            .load(&manifest_for("com.example.good", &[]), &good)
+            .unwrap();
+        engine.activate(good_handle).unwrap();
+
+        let started = std::time::Instant::now();
+        let subscribers = Arc::clone(&engine).dispatch_event("commit_created", "{}");
+        assert_eq!(subscribers, 1);
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(1),
+            "死循环回调不得阻塞分发调用方"
+        );
+
+        // 宿主立刻可用：好插件的命令照常执行（不等待崩溃回调结束）
+        let result = engine.invoke(good_handle, "greet", "{}").unwrap();
+        assert_eq!(result, "hello world");
+    }
+
+    #[test]
+    fn dispatch_event_with_no_subscribers_is_a_no_op() {
+        let (_recorder, services) = test_services();
+        let engine = Arc::new(WasmiEngine::with_default_limits(services));
+        assert_eq!(Arc::clone(&engine).dispatch_event("repo_opened", "{}"), 0);
     }
 }

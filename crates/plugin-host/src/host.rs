@@ -81,11 +81,21 @@ pub enum HostOp {
     RegisterPanel,
     /// 弹出 toast。
     ShowToast,
+    /// 订阅宿主事件（repo_opened / repo_changed / commit_created / sync_completed）。
+    SubscribeEvents,
 }
+
+/// 可订阅的宿主事件（封闭白名单；payload 均为仓库范围的极小 JSON）。
+pub const EVENT_NAMES: [&str; 4] = [
+    "repo_opened",
+    "repo_changed",
+    "commit_created",
+    "sync_completed",
+];
 
 impl HostOp {
     /// 全部操作，按 op id 升序（表格驱动测试与文档生成共用）。
-    pub const ALL: [HostOp; 14] = [
+    pub const ALL: [HostOp; 15] = [
         HostOp::GetRepoInfo,
         HostOp::GetStatus,
         HostOp::ReadFile,
@@ -100,6 +110,7 @@ impl HostOp {
         HostOp::RegisterCommand,
         HostOp::RegisterPanel,
         HostOp::ShowToast,
+        HostOp::SubscribeEvents,
     ];
 
     /// ABI 中的稳定 op id。
@@ -119,6 +130,7 @@ impl HostOp {
             HostOp::RegisterCommand => 12,
             HostOp::RegisterPanel => 13,
             HostOp::ShowToast => 14,
+            HostOp::SubscribeEvents => 15,
         }
     }
 
@@ -144,6 +156,7 @@ impl HostOp {
             HostOp::RegisterCommand => "register_command",
             HostOp::RegisterPanel => "register_panel",
             HostOp::ShowToast => "show_toast",
+            HostOp::SubscribeEvents => "subscribe_events",
         }
     }
 
@@ -160,6 +173,9 @@ impl HostOp {
             HostOp::RegisterCommand => Permission::UiCommand,
             HostOp::RegisterPanel => Permission::UiPanel,
             HostOp::ShowToast => Permission::UiToast,
+            // 事件 payload 都是仓库范围的（opened/changed/commit/sync），
+            // 订阅它们要求具备与"读仓库"同级的权限
+            HostOp::SubscribeEvents => Permission::GitRead,
         }
     }
 }
@@ -219,6 +235,12 @@ pub trait HostServices: Send + Sync {
     ) -> Result<Value, HostError>;
     /// 弹出 toast。
     fn show_toast(&self, plugin_id: &str, level: &str, message: &str) -> Result<Value, HostError>;
+    /// 登记插件的事件订阅（调用方已校验事件名在 [`EVENT_NAMES`] 白名单内）。
+    fn subscribe_events(&self, plugin_id: &str, events: Vec<String>) -> Result<Value, HostError>;
+    /// 查询插件是否订阅了某事件；默认未订阅（组合根按需覆盖）。
+    fn event_interest(&self, _plugin_id: &str, _event: &str) -> bool {
+        false
+    }
 }
 
 /// 供组合根使用的共享句柄别名。
@@ -406,6 +428,18 @@ fn dispatch_op(
             let full_id = format!("{plugin_id}.{id}");
             services.register_panel(plugin_id, &full_id, &title, &location)
         }
+        HostOp::SubscribeEvents => {
+            let events = obj_str_array(args, "events", 1, 8)?;
+            for event in &events {
+                if !EVENT_NAMES.contains(&event.as_str()) {
+                    return Err(HostError::InvalidArgument(
+                        "events",
+                        format!("unknown event `{event}`"),
+                    ));
+                }
+            }
+            services.subscribe_events(plugin_id, events)
+        }
         HostOp::ShowToast => {
             let level = str_field(args, "level")?;
             if !matches!(level.as_str(), "info" | "success" | "warning" | "danger") {
@@ -506,6 +540,42 @@ fn u32_field(args: &Value, key: &'static str, min: u32, max: u32) -> Result<u32,
         _ => Err(HostError::InvalidArgument(
             key,
             "must be a number".to_owned(),
+        )),
+    }
+}
+
+fn obj_str_array(
+    args: &Value,
+    key: &'static str,
+    min: usize,
+    max: usize,
+) -> Result<Vec<String>, HostError> {
+    match args.get(key) {
+        Some(Value::Array(items)) => {
+            if items.len() < min || items.len() > max {
+                return Err(HostError::InvalidArgument(
+                    key,
+                    format!("must contain {min}..={max} items, got {}", items.len()),
+                ));
+            }
+            items
+                .iter()
+                .map(|item| match item {
+                    Value::String(text) if !text.is_empty() => Ok(text.clone()),
+                    Value::String(_) => Err(HostError::InvalidArgument(
+                        key,
+                        "items must not be empty".to_owned(),
+                    )),
+                    _ => Err(HostError::InvalidArgument(
+                        key,
+                        "items must be strings".to_owned(),
+                    )),
+                })
+                .collect()
+        }
+        _ => Err(HostError::InvalidArgument(
+            key,
+            "must be an array of strings".to_owned(),
         )),
     }
 }
@@ -727,6 +797,14 @@ mod tests {
             message: &str,
         ) -> Result<Value, HostError> {
             self.record(format!("toast:{plugin_id}:{level}:{message}"));
+            Ok(json!({}))
+        }
+        fn subscribe_events(
+            &self,
+            plugin_id: &str,
+            events: Vec<String>,
+        ) -> Result<Value, HostError> {
+            self.record(format!("subscribe:{plugin_id}:{events:?}"));
             Ok(json!({}))
         }
     }
@@ -1130,6 +1208,9 @@ mod tests {
             fn show_toast(&self, _: &str, _: &str, _: &str) -> Result<Value, HostError> {
                 unimplemented!()
             }
+            fn subscribe_events(&self, _: &str, _: Vec<String>) -> Result<Value, HostError> {
+                unimplemented!()
+            }
         }
 
         let mut staging = Vec::new();
@@ -1155,5 +1236,41 @@ mod tests {
             &mut staging,
         );
         assert_eq!(code, ERR_TIMEOUT);
+    }
+
+    #[test]
+    fn subscribe_events_records_interest_and_validates_event_names() {
+        let services = MockServices::new();
+        let perms = [Permission::GitRead];
+
+        let (code, _) = call(
+            &services,
+            &perms,
+            HostOp::SubscribeEvents,
+            json!({"events": ["repo_changed", "commit_created"]}),
+        );
+        assert_eq!(code, ERR_OK);
+        assert_eq!(
+            services.calls(),
+            vec![format!(
+                "subscribe:{PLUGIN}:[\"repo_changed\", \"commit_created\"]"
+            )]
+        );
+
+        // 白名单外事件、空数组、超量订阅都被拒
+        let (code, _) = call(
+            &services,
+            &perms,
+            HostOp::SubscribeEvents,
+            json!({"events": ["every_keystroke"]}),
+        );
+        assert_eq!(code, ERR_INVALID_ARGUMENT);
+        let (code, _) = call(
+            &services,
+            &perms,
+            HostOp::SubscribeEvents,
+            json!({"events": []}),
+        );
+        assert_eq!(code, ERR_INVALID_ARGUMENT);
     }
 }

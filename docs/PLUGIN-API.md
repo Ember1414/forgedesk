@@ -79,6 +79,8 @@
 | --- | --- | --- |
 | `fd_activate() -> i32` | function | 激活钩子；缺失 = 直接激活成功 |
 | `fd_deactivate() -> i32` | function | 停用钩子；此处 trap 不会上抛（停用总是成功） |
+| `fd_render_panel(id_ptr: i32, id_len: i32) -> i64` | function | 面板渲染入口（§7）；缺失 = 该插件不提供面板渲染 |
+| `fd_on_event(payload_ptr: i32, payload_len: i32) -> i32` | function | 事件回调（§6）；缺失 = 订阅无效果 |
 
 ### 3.3 宿主导入（模块名 `fd`）
 
@@ -131,6 +133,7 @@ op id 是 ABI 的一部分：**只增不改**。
 | 12 | `register_command` | `ui:command` | `{"id","title","keybinding"?}` | `{}` |
 | 13 | `register_panel` | `ui:panel` | `{"id","title","location":"sidebar"\|"bottom"\|"repo-tab"}` | `{}` |
 | 14 | `show_toast` | `ui:toast` | `{"level":"info"\|"success"\|"warning"\|"danger","message"}` | `{}` |
+| 15 | `subscribe_events` | `git:read` | `{"events":[1..8 个 §6 中的事件名]}` | `{}` |
 
 ### 4.2 关键约束
 
@@ -191,14 +194,47 @@ if n < 0 {
 - **load → activate → 事件驱动 → deactivate**；
 - `deactivate` 后实例保留，可再次激活；
 - 崩溃的实例不可复活，需重新加载（管理页"重新加载"，T6.4）；
-- 事件订阅（`repo_opened` / `repo_changed` / `commit_created` / `sync_completed`）
-  在 T6.3 落地：回调限时、异步分发、超时丢弃，绝不阻塞主流程。
+- **事件订阅**（T6.3）：可订阅事件为封闭白名单——
+  `repo_opened` / `repo_changed` / `commit_created` / `sync_completed`；
+  通过 op 15 登记，宿主以 `fd_on_event(payload_ptr, payload_len)` 回调，
+  payload 是含 `"event"` 字段的 JSON。回调在后台执行、受 fuel 预算约束，
+  **绝不阻塞主流程**；回调 trap 或超时的插件按崩溃隔离处理。
+  订阅仓库范围事件要求 `git:read` 权限。
 
-## 7. 面板渲染（T6.3 已定案）
+## 7. 面板渲染（方案 C：声明式 DSL）
 
-插件面板采用**方案 C：声明式 UI DSL**——插件返回 JSON 描述（表格/列表/
-文本/进度/按钮），宿主渲染。表达能力让位于安全与样式统一；
-HTML/iframe 渲染作为 1.0 之后的 RFC。DSL 具体 schema 随 T6.3 在本节补充。
+插件面板采用**声明式 UI DSL**（审批定案：HTML/iframe 渲染作为 1.0 之后的
+RFC）。宿主以 `fd_render_panel(id_ptr, id_len)` 请求渲染（id 为面板全名
+`<插件id>.<id>`），插件按 `fd_invoke` 同款约定返回打包指针，指向一个
+**块数组** JSON；宿主在返回前端前校验（未知块/缺字段/超上限 → 结构化错误，
+前端另有一层兜底错误卡片）。
+
+```json
+[
+  { "type": "heading", "text": "仓库统计" },
+  { "type": "text", "text": "最近 30 天", "tone": "muted" },
+  { "type": "keyValue", "entries": [["分支", "main"], ["领先", "3"]] },
+  { "type": "table", "columns": ["作者", "提交数"], "rows": [["a", "12"], ["b", "7"]] },
+  { "type": "list", "items": ["大文件: a.bin (2.1 MB)", "疑似密钥: .env"] },
+  { "type": "progress", "label": "配额", "value": 42 },
+  { "type": "button", "command": "com.example.x.refresh", "label": "刷新" }
+]
+```
+
+约束（全部在宿主侧强制）：
+
+| 块 | 字段 | 上限 |
+| --- | --- | --- |
+| `heading` | `text` | 8 KiB |
+| `text` | `text`，`tone`?（`plain\|muted\|success\|warning\|danger`） | 8 KiB |
+| `keyValue` | `entries`: `[key, value]` 数组 | 50 条 |
+| `table` | `columns`（1..=12）、`rows`（每行长度=列数，全字符串） | 200 行 |
+| `list` | `items`（字符串数组） | 200 条 |
+| `progress` | `label`、`value`（0..=100 整数） | — |
+| `button` | `label`、`command`（插件已注册的命令全名，点击经命令链路执行） | 8 KiB |
+
+整块数组 ≤ 200 块。没有自由布局/样式/脚本——这是方案 C 的交易：
+用表达能力换"永远和主题一致 + 永远不会注入"。
 
 ## 8. 打包与分发
 
