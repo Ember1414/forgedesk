@@ -381,6 +381,28 @@
         "config": "Config",
         "maintenance": "Maintenance"
       }
+    },
+    "diagnostics": {
+      "confidence": {
+        "high": "High confidence",
+        "medium": "Medium confidence",
+        "low": "Low confidence"
+      },
+      "causes": "Possible causes",
+      "alternatives": "Possibly related",
+      "backToPrimary": "Back to primary diagnosis",
+      "rawError": "Raw error",
+      "copyRaw": "Copy raw error",
+      "copyForSearch": "Copy for a web search",
+      "copied": "Copied",
+      "copiedForSearch": "Copied - open your browser and paste to search",
+      "wrongDiagnosis": "This diagnosis is wrong",
+      "fixDone": "Fix applied ({{rule}})",
+      "dangerousTitle": "Run this dangerous fix?",
+      "dangerousBody": "The suggested fix ({{rule}}) rewrites remote history: it only overwrites when the remote still points at the state you know (force-with-lease). A snapshot is created first.",
+      "dangerousImpact": "Afterwards the remote branch points at new commits; a later push by someone else will be rejected. Local state can be rolled back from snapshots.",
+      "dangerousConfirm": "Run fix",
+      "dangerousCancel": "Cancel"
     }
   },
   "diff": {
@@ -685,7 +707,11 @@
       "boundaryNote": "Capability boundary: nothing executed in the terminal is guaranteed to be recoverable. A compensation snapshot is only an after-the-fact reference point and cannot undo terminal commands; use the graphical equivalents when you need rollback guarantees.",
       "appearanceTitle": "Terminal appearance",
       "fontSize": "Font size (px)",
-      "lineHeight": "Line height"
+      "lineHeight": "Line height",
+      "historyTitle": "Diagnosis history",
+      "historyEmpty": "No diagnoses yet. Once an error matches a rule, the last 20 are listed here.",
+      "historyClear": "Clear diagnosis history",
+      "historyNoRule": "(no specific rule)"
     }
   },
   "snapshots": {

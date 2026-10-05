@@ -1,11 +1,25 @@
 import * as ToastPrimitive from '@radix-ui/react-toast';
 import { CircleCheck, CircleX, Info, TriangleAlert, X } from 'lucide-react';
+import { useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useQueryClient } from '@tanstack/react-query';
 
+import { DiagnosticsCard } from '@/features/diagnostics/DiagnosticsCard';
+import type { DiagFix } from '@/lib/ipc';
 import { ErrorToastContent } from '@/ui/components/error-toast';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogTitle,
+} from '@/ui/components/alert-dialog';
 import { IconButton } from '@/ui/components/icon-button';
 import { useAppError } from '@/lib/errors';
 import { openLogViewer } from '@/stores/logViewerStore';
+import { pushToast } from '@/stores/toastStore';
+import { useUiStore } from '@/stores/uiStore';
 import { useToastStore } from '@/stores/toastStore';
 import type { ToastAction, ToastTone } from '@/stores/toastStore';
 import { cn } from '@/lib/utils';
@@ -58,10 +72,36 @@ export interface ToasterProps {
 }
 
 export function Toaster({ closeLabel }: ToasterProps) {
-  const { t } = useTranslation('errors');
+  const { t } = useTranslation(['errors', 'shell']);
   const toasts = useToastStore((state) => state.toasts);
   const dismissToast = useToastStore((state) => state.dismissToast);
   const { runAction } = useAppError();
+  const queryClient = useQueryClient();
+  const currentRepoId = useUiStore((state) => state.currentRepoId);
+  // kind=dangerous 的诊断修复动作：转交确认对话框（计划预览 + 快照说明 + 确认）
+  const [dangerousFix, setDangerousFix] = useState<{ fix: DiagFix; title: string } | null>(null);
+
+  const diagContext = useCallback(
+    () => ({
+      repoId: Number(currentRepoId ?? 0),
+      invalidate: () => {
+        void queryClient.invalidateQueries();
+      },
+      onNavigate: (route: string) => {
+        window.location.hash = route;
+      },
+      onDone: (message: string) => {
+        pushToast({
+          tone: 'success',
+          title: t('shell:terminal.diagnostics.fixDone', { rule: message }),
+        });
+      },
+      onDangerous: (fix: DiagFix) => {
+        setDangerousFix({ fix, title: t('shell:terminal.diagnostics.dangerousTitle') });
+      },
+    }),
+    [currentRepoId, queryClient, t],
+  );
 
   async function handleAction(action: ToastAction): Promise<void> {
     if (action.onClick !== undefined) {
@@ -106,6 +146,14 @@ export function Toaster({ closeLabel }: ToasterProps) {
               'data-[state=closed]:opacity-0',
             )}
           >
+            {toast.diagnosis !== undefined && toast.tone === 'danger' ? (
+              <DiagnosticsCard
+                report={toast.diagnosis as Parameters<typeof DiagnosticsCard>[0]['report']}
+                context={diagContext()}
+                className="mb-2"
+              />
+            ) : null}
+
             <ErrorToastContent
               title={toast.title}
               {...(toast.description === undefined ? {} : { hint: toast.description })}
@@ -141,6 +189,38 @@ export function Toaster({ closeLabel }: ToasterProps) {
       })}
 
       <ToastPrimitive.Viewport className="fixed bottom-9 right-3 z-50 flex w-80 max-w-[calc(100vw-1.5rem)] flex-col gap-2" />
+
+      {dangerousFix !== null ? (
+        <AlertDialog open>
+          <AlertDialogContent
+            tone="danger"
+            impact={t('shell:terminal.diagnostics.dangerousImpact')}
+          >
+            <AlertDialogTitle>{dangerousFix.title}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t('shell:terminal.diagnostics.dangerousBody', {
+                rule: dangerousFix.fix.id,
+              })}
+            </AlertDialogDescription>
+            <AlertDialogAction
+              onClick={() => {
+                const fix = dangerousFix.fix;
+                setDangerousFix(null);
+                // 确认后的执行与 command 档一致（走 runFixAction 的白名单路径会被
+                // kind=dangerous 挡住）：这里直接调用 push 的 force-with-lease。
+                void import('@/features/diagnostics/fixActions').then(({ runDangerousFix }) =>
+                  runDangerousFix(fix, diagContext()),
+                );
+              }}
+            >
+              {t('shell:terminal.diagnostics.dangerousConfirm')}
+            </AlertDialogAction>
+            <AlertDialogCancel onClick={() => setDangerousFix(null)}>
+              {t('shell:terminal.diagnostics.dangerousCancel')}
+            </AlertDialogCancel>
+          </AlertDialogContent>
+        </AlertDialog>
+      ) : null}
     </ToastPrimitive.Provider>
   );
 }

@@ -20,7 +20,9 @@ import { useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { invokeCommand } from '@/lib/ipc';
-import { pushToast } from '@/stores/toastStore';
+import { pushToast, useToastStore } from '@/stores/toastStore';
+import { systemDiagnoseError } from '@/lib/ipc';
+import { recordDiagnosis } from '@/features/diagnostics/history';
 
 /**
  * 错误码清单，必须与 Rust 侧 `ErrorCode` 完全一致（只增不改）。
@@ -196,7 +198,7 @@ export function useAppError() {
     (raw: unknown): NormalizedError => {
       const error = normalizeError(raw);
 
-      pushToast({
+      const toastId = pushToast({
         tone: 'danger',
         title: t(errorTitleKey(error.code)),
         // 后端给了针对性建议就优先用，否则用错误码的兜底建议
@@ -218,6 +220,20 @@ export function useAppError() {
               })),
             }),
       });
+
+      // 诊断（T5.6）：detail 是已脱敏的 stderr——异步诊断后挂回同一条提示，
+      // 失败完全静默（诊断是增强，不是第二个错误源）。
+      const stderr = error.detail;
+      if (stderr !== undefined && stderr.trim() !== '') {
+        void systemDiagnoseError(stderr)
+          .then((report) => {
+            if (report.primary !== null) {
+              useToastStore.getState().attachDiagnosis(toastId, report);
+              recordDiagnosis(report, stderr);
+            }
+          })
+          .catch(() => {});
+      }
 
       return error;
     },

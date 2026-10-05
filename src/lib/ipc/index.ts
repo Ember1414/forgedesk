@@ -335,6 +335,15 @@ export type {
   TermShell,
   TermSummary,
 } from './terminal';
+
+export { systemDiagnoseError, systemDiagnoseKeys } from './diagnostics';
+export type {
+  DiagContextInput,
+  DiagFix,
+  DiagFixAction,
+  Diagnostic,
+  DiagnosticReport,
+} from './diagnostics';
 export {
   repoIssueAssignees,
   repoIssueAssigneesSet,

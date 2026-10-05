@@ -51,6 +51,11 @@ export interface ToastRecord {
   readonly occurredAt?: number;
   /** 自动消失时间（ms）；0 表示需要用户手动关闭（错误提示一律用 0）。 */
   readonly duration: number;
+  /**
+   * 异步到达的诊断报告（T5.6）：show() 先弹提示，诊断随后挂到同一条上。
+   * 类型是 DiagnosticReport（经 unknown 隔离，避免 store ↔ 组件的循环依赖）。
+   */
+  readonly diagnosis?: unknown;
 }
 
 export interface ToastInput {
@@ -79,6 +84,8 @@ export interface ToastStoreState {
   readonly toasts: readonly ToastRecord[];
   pushToast(input: ToastInput): string;
   dismissToast(toastId: string): void;
+  /** 把诊断报告挂到已存在的错误提示上（无对应提示 = 忽略）。 */
+  attachDiagnosis(toastId: string, report: unknown): void;
   clearToasts(): void;
 }
 
@@ -112,6 +119,14 @@ export const useToastStore = create<ToastStoreState>()((set) => ({
 
   dismissToast: (toastId) => {
     set((state) => ({ toasts: state.toasts.filter((toast) => toast.id !== toastId) }));
+  },
+
+  attachDiagnosis: (toastId, report) => {
+    set((state) => ({
+      toasts: state.toasts.map((toast) =>
+        toast.id === toastId ? { ...toast, diagnosis: report } : toast,
+      ),
+    }));
   },
 
   clearToasts: () => {

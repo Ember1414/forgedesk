@@ -254,5 +254,8 @@ declare global {
     __emitTermExit?: (termId: string, code: number | null) => void;
     /** 终端缓冲文本（xterm canvas 渲染器无 DOM 文本，E2E 从缓冲断言；manager.ts 挂载）。 */
     __forgedeskTermText?: (termId: string) => string;
+    /** 诊断 e2e 的 mock 记录（T5.6：system_diagnose_error 的输入与打开的 URL）。 */
+    __diagCalls?: readonly string[];
+    __openUrls?: readonly string[];
   }
 }

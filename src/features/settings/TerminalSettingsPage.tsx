@@ -1,7 +1,8 @@
-import { useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
+import { clearDiagnosisHistory, readDiagnosisHistory } from '@/features/diagnostics/history';
 import {
   DEFAULT_TERMINAL_FONT_SIZE,
   DEFAULT_TERMINAL_LINE_HEIGHT,
@@ -14,6 +15,7 @@ import {
   useSettingsStore,
 } from '@/stores/settingsStore';
 import type { TerminalSafetyLevel } from '@/stores/settingsStore';
+import { Button } from '@/ui/components/button';
 import { Checkbox } from '@/ui/components/checkbox';
 import { Input } from '@/ui/components/input';
 import { RadioGroup } from '@/ui/components/radio-group';
@@ -84,8 +86,54 @@ export function TerminalSettingsPage() {
     void useSettingsStore.getState().load({ scope: 'global', force: false });
   }, []);
 
+  const [history, setHistory] = useState(() => readDiagnosisHistory());
+  const refreshHistory = useCallback(() => setHistory(readDiagnosisHistory()), []);
+
   return (
     <div className="flex max-w-2xl flex-col gap-6">
+      <section className="flex flex-col gap-3">
+        <h2 className="text-16 font-semibold">{t('settings.terminal.historyTitle')}</h2>
+        {history.length === 0 ? (
+          <p className="text-fg-subtle text-12">{t('settings.terminal.historyEmpty')}</p>
+        ) : (
+          <>
+            <ul className="flex flex-col gap-1.5">
+              {history
+                .slice()
+                .reverse()
+                .slice(0, 20)
+                .map((record) => (
+                  <li
+                    key={`${record.at}-${record.ruleId ?? 'none'}`}
+                    className="border-line bg-surface flex flex-col rounded-md border px-3 py-2"
+                  >
+                    <span className="text-12 font-medium">
+                      {record.ruleId === null
+                        ? t('settings.terminal.historyNoRule')
+                        : t(`diag.${record.ruleId}.title`)}
+                    </span>
+                    <span className="text-fg-subtle font-mono text-11">
+                      {new Date(record.at).toLocaleString()}
+                    </span>
+                  </li>
+                ))}
+            </ul>
+            <div>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => {
+                  clearDiagnosisHistory();
+                  refreshHistory();
+                }}
+              >
+                {t('settings.terminal.historyClear')}
+              </Button>
+            </div>
+          </>
+        )}
+      </section>
+
       <section className="flex flex-col gap-3">
         <h2 className="text-16 font-semibold">{t('settings.terminal.safetyTitle')}</h2>
 

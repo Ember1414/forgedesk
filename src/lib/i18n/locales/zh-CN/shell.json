@@ -381,6 +381,28 @@
         "config": "配置",
         "maintenance": "维护"
       }
+    },
+    "diagnostics": {
+      "confidence": {
+        "high": "高置信度",
+        "medium": "中置信度",
+        "low": "低置信度"
+      },
+      "causes": "可能的原因",
+      "alternatives": "可能相关",
+      "backToPrimary": "返回主要诊断",
+      "rawError": "原始错误",
+      "copyRaw": "复制原始错误",
+      "copyForSearch": "复制这条错误到搜索",
+      "copied": "已复制",
+      "copiedForSearch": "已复制——粘贴到搜索引擎需要你手动打开浏览器",
+      "wrongDiagnosis": "这个诊断不对",
+      "fixDone": "修复动作已完成（{{rule}}）",
+      "dangerousTitle": "确认执行危险修复动作？",
+      "dangerousBody": "诊断建议的修复（{{rule}}）会改写远端历史：仅当远端仍指向你本地所知的状态时才会覆盖（force-with-lease）。执行前会自动创建快照。",
+      "dangerousImpact": "执行后远端分支将指向新的提交；若有人在你之后推送，他们的推送会被拒绝。可在快照页回滚本地状态。",
+      "dangerousConfirm": "确认执行",
+      "dangerousCancel": "取消"
     }
   },
   "diff": {
@@ -685,7 +707,11 @@
       "boundaryNote": "能力边界：终端中的任何操作都无法保证可回滚。补偿快照只是事后的对照点，不能撤销终端里执行的命令；需要可回滚保障的操作请使用图形界面的对应功能。",
       "appearanceTitle": "终端外观",
       "fontSize": "字号（px）",
-      "lineHeight": "行高"
+      "lineHeight": "行高",
+      "historyTitle": "诊断历史",
+      "historyEmpty": "还没有诊断记录。发生错误并命中诊断规则后，会在这里列出最近 20 条。",
+      "historyClear": "清空诊断历史",
+      "historyNoRule": "（未命中具体规则）"
     }
   },
   "snapshots": {

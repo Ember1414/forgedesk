@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { Toaster } from '@/ui/components/toast';
@@ -73,7 +74,11 @@ describe('Toaster', () => {
       description: 'main → origin/main',
       duration: 0,
     });
-    render(<Toaster closeLabel="关闭提示" />);
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <Toaster closeLabel="关闭提示" />
+      </QueryClientProvider>,
+    );
 
     expect(await screen.findByText('推送完成')).toBeInTheDocument();
     expect(screen.getByText('main → origin/main')).toBeInTheDocument();
@@ -82,7 +87,11 @@ describe('Toaster', () => {
 
   it('点击关闭按钮把提示移出队列', async () => {
     pushToast({ title: '获取中', duration: 0 });
-    render(<Toaster closeLabel="关闭提示" />);
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <Toaster closeLabel="关闭提示" />
+      </QueryClientProvider>,
+    );
 
     fireEvent.click(await screen.findByRole('button', { name: '关闭提示' }));
 
@@ -99,7 +108,11 @@ describe('Toaster', () => {
       duration: 0,
       actions: [{ id: 'retry', label: '重试', onClick }],
     });
-    render(<Toaster closeLabel="关闭提示" />);
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <Toaster closeLabel="关闭提示" />
+      </QueryClientProvider>,
+    );
 
     fireEvent.click(await screen.findByRole('button', { name: '重试' }));
     expect(onClick).toHaveBeenCalledTimes(1);
@@ -115,7 +128,11 @@ describe('Toaster', () => {
       duration: 0,
       actions: [{ id: 'refresh', label: '刷新状态', command: 'app_version' }],
     });
-    render(<Toaster closeLabel="关闭提示" />);
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <Toaster closeLabel="关闭提示" />
+      </QueryClientProvider>,
+    );
 
     fireEvent.click(await screen.findByRole('button', { name: '刷新状态' }));
 
@@ -127,7 +144,11 @@ describe('Toaster', () => {
   });
 
   it('无提示时不渲染任何内容', () => {
-    const { container } = render(<Toaster closeLabel="关闭提示" />);
+    const { container } = render(
+      <QueryClientProvider client={new QueryClient()}>
+        <Toaster closeLabel="关闭提示" />
+      </QueryClientProvider>,
+    );
     expect(container.querySelectorAll('[role="status"]')).toHaveLength(0);
   });
 
@@ -139,14 +160,22 @@ describe('Toaster', () => {
         duration: 0,
         occurredAt: 1_787_000_000_000,
       });
-      render(<Toaster closeLabel="关闭提示" />);
+      render(
+        <QueryClientProvider client={new QueryClient()}>
+          <Toaster closeLabel="关闭提示" />
+        </QueryClientProvider>,
+      );
 
       expect(await screen.findByRole('button', { name: '查看相关日志' })).toBeInTheDocument();
     });
 
     it('不带发生时间的提示没有该入口（避免打开一个没有锚点的日志视图）', async () => {
       pushToast({ tone: 'info', title: '正在获取更新', duration: 0 });
-      render(<Toaster closeLabel="关闭提示" />);
+      render(
+        <QueryClientProvider client={new QueryClient()}>
+          <Toaster closeLabel="关闭提示" />
+        </QueryClientProvider>,
+      );
 
       await screen.findByText('正在获取更新');
       expect(screen.queryByRole('button', { name: '查看相关日志' })).not.toBeInTheDocument();
@@ -156,7 +185,11 @@ describe('Toaster', () => {
       useLogViewerStore.setState(initialLogViewerState);
       const occurredAt = 1_787_000_000_000;
       pushToast({ tone: 'danger', title: '保存失败', duration: 0, occurredAt });
-      render(<Toaster closeLabel="关闭提示" />);
+      render(
+        <QueryClientProvider client={new QueryClient()}>
+          <Toaster closeLabel="关闭提示" />
+        </QueryClientProvider>,
+      );
 
       fireEvent.click(await screen.findByRole('button', { name: '查看相关日志' }));
 
