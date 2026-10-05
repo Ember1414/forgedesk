@@ -134,6 +134,12 @@ export interface MockCredentialCall {
 
 declare global {
   interface Window {
+    /** Tauri v2 的 IPC 入口（mock 注入；e2e 直接驱调用它来准备状态）。 */
+    __TAURI_INTERNALS__?: {
+      readonly transformCallback: (callback: unknown) => number;
+      readonly unregisterListener: () => void;
+      readonly invoke: (command: string, args?: unknown) => Promise<unknown>;
+    };
     /** M1 闭环用例的 mock 状态（见上）。 */
     __loop?: MockLoopState;
     /** mock 记录收到的暂存 / 取消暂存请求（断言"界面选的粒度与下标"是否原样传到后端）。 */
@@ -234,6 +240,15 @@ declare global {
     }[];
     __termClosed?: readonly string[];
     __createdSessions?: readonly { readonly termId: string; readonly request: unknown }[];
+    /** mock 记录的强制登记请求（T5.3：断言 term_report_command 到达后端）。 */
+    __termReports?: readonly {
+      readonly repoId: number;
+      readonly line: string;
+      readonly kind: string;
+      readonly autoSnapshot: boolean;
+    }[];
+    /** mock 的扫描级别（T5.3：可被用例切换）。 */
+    __scanLevel?: string;
     /** 手动投递一次终端输出 / 退出事件（mock 后端的 push 通道）。 */
     __emitTermOutput?: (termId: string, text: string) => void;
     __emitTermExit?: (termId: string, code: number | null) => void;

@@ -123,6 +123,8 @@ pub mod op_type {
     pub const AUDIT_EXPORT: &str = "audit_export";
     /// 清理审计（同上）。
     pub const AUDIT_PRUNE: &str = "audit_prune";
+    /// 终端里执行的已识别危险命令（T5.3：来源=终端的强制记录）。
+    pub const TERMINAL: &str = "terminal";
 }
 
 /// "危险操作"清单：会在用户仓库里**丢掉东西**的那些（T3.10）。

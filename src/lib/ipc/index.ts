@@ -317,7 +317,9 @@ export {
   termCreate,
   termList,
   termOutputTail,
+  termReportCommand,
   termResize,
+  termScanCommand,
   termShellList,
   termWrite,
   EVENT_TERM_EXIT,
@@ -326,8 +328,10 @@ export {
 export type {
   TermCreateRequest,
   TermCreated,
+  TermDanger,
   TermExitPayload,
   TermOutputPayload,
+  TermReportRequest,
   TermShell,
   TermSummary,
 } from './terminal';

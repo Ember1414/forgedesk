@@ -23,7 +23,11 @@ import type { FitAddon } from '@xterm/addon-fit';
 import type { SearchAddon } from '@xterm/addon-search';
 
 import { isTauriRuntime, listenTermExit, listenTermOutput, systemOpenUrl } from '@/lib/ipc';
+import { createRepoChangeInvalidator } from '@/lib/repoChanged';
+import type { RepoChangeInvalidator } from '@/lib/repoChanged';
+import type { QueryClient } from '@tanstack/react-query';
 import { useTerminalStore } from '@/stores/terminalStore';
+import { LineTracker } from '@/features/terminal/gitInputRefresh';
 
 /** 单会话待输出缓冲上限；超过即丢最旧（真实输出以 100k 行/s 计，1MB 约几秒的量）。 */
 const MAX_PENDING_BYTES = 1024 * 1024;
@@ -243,6 +247,53 @@ export function terminalVisibleText(termId: string): string {
 
 if (typeof window !== 'undefined') {
   window.__forgedeskTermText = terminalVisibleText;
+}
+
+// ---------------------------------------------------------------- 键入行跟踪与仓库刷新
+
+/**
+ * 行跟踪器按会话存放在模块级：视图组件是"可重挂载"的（查询重取、主题切换等
+ * 都可能重建它），而用户键入的行缓冲必须跨重挂载延续——中途丢行会让
+ * 危险命令识别与命令历史全部失真。
+ */
+const trackers = new Map<string, LineTracker>();
+
+/** 取（或建）会话的行跟踪器。 */
+export function getLineTracker(termId: string): LineTracker {
+  let tracker = trackers.get(termId);
+  if (!tracker) {
+    tracker = new LineTracker();
+    trackers.set(termId, tracker);
+  }
+  return tracker;
+}
+
+/** 会话关闭时丢弃跟踪器（标签关闭路径调用；防泄漏）。 */
+export function dropLineTracker(termId: string): void {
+  trackers.delete(termId);
+}
+
+// git 命令后的仓库状态刷新：invalidator 与定时器同样模块级——
+// 组件重挂载既不该丢掉已排定的刷新，也不该重复创建失效器。
+let sharedInvalidator: RepoChangeInvalidator | null = null;
+
+/** 注入 QueryClient（TerminalView 挂载时调用一次；幂等）。 */
+export function setQueryClientForRefresh(client: QueryClient): void {
+  if (!sharedInvalidator) {
+    sharedInvalidator = createRepoChangeInvalidator(client);
+  }
+}
+
+/**
+ * 调度一次"git 命令已执行"的仓库刷新：两级延迟（800ms 覆盖 status 类
+ * 快速命令；2.5s 兜底 clone/fetch）。
+ */
+export function scheduleGitRefresh(repoId: number): void {
+  for (const delay of [800, 2500]) {
+    setTimeout(() => {
+      sharedInvalidator?.invalidate(repoId, 'refs');
+    }, delay);
+  }
 }
 
 /** 链接点击的统一出口：http(s) 交给系统默认浏览器（后端二次校验协议）。 */

@@ -288,6 +288,9 @@
     "githubDashboard": {
       "title": "Overview",
       "description": "Multi-repo status, PRs awaiting your review, and CI failures at a glance."
+    },
+    "settingsTerminal": {
+      "title": "Terminal"
     }
   },
   "terminal": {
@@ -329,6 +332,15 @@
       "previous": "Previous match",
       "next": "Next match",
       "close": "Close search"
+    },
+    "safety": {
+      "hint": "Dangerous operation detected: {{command}}. Consider the graphical safe action (automatic snapshot) instead.",
+      "openSnapshots": "View snapshots and rollback",
+      "confirmTitle": "Run this dangerous command?",
+      "confirmBody": "About to run: {{command}}. It may discard uncommitted changes or rewrite history.",
+      "confirmImpact": "ForgeDesk cannot automatically undo what happens in the terminal (terminal commands bypass the snapshot safety layer); a compensation snapshot, if enabled, only records the state afterwards.",
+      "confirmExecute": "Run command",
+      "confirmCancel": "Cancel"
     }
   },
   "diff": {
@@ -616,6 +628,24 @@
       "cancel": "Cancel waiting",
       "loginSuccess": "Signed in as {{login}}",
       "removeImpact": "After removal, the token for this account on {{host}} is deleted from this machine's credential store, and the app will no longer access it as {{login}}."
+    },
+    "terminal": {
+      "safetyTitle": "Terminal safety net",
+      "safetyEnabled": "Warn about dangerous commands",
+      "safetyLevel": "Interception level",
+      "level": {
+        "hint": "Hint (recommended)",
+        "confirm": "Confirm before running"
+      },
+      "levelHint": {
+        "hint": "A non-blocking banner appears when a dangerous command is detected and the command still runs; every recognized command is written to the operation history.",
+        "confirm": "High-risk commands require confirmation before they reach the terminal; cancelling sends Ctrl+C to abort the line."
+      },
+      "autoSnapshot": "Create a compensation snapshot after dangerous commands",
+      "boundaryNote": "Capability boundary: nothing executed in the terminal is guaranteed to be recoverable. A compensation snapshot is only an after-the-fact reference point and cannot undo terminal commands; use the graphical equivalents when you need rollback guarantees.",
+      "appearanceTitle": "Terminal appearance",
+      "fontSize": "Font size (px)",
+      "lineHeight": "Line height"
     }
   },
   "snapshots": {

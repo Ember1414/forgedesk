@@ -27,7 +27,13 @@ import { applyThemeToAll, ensureTerminalListeners } from '@/features/terminal/ma
 import { TerminalView } from '@/features/terminal/TerminalView';
 import { termClose, termCreate, termShellList } from '@/lib/ipc';
 import type { TermShell } from '@/lib/ipc';
-import { useSettingsStore } from '@/stores/settingsStore';
+import {
+  DEFAULT_TERMINAL_FONT_SIZE,
+  DEFAULT_TERMINAL_LINE_HEIGHT,
+  TERMINAL_FONT_SIZE_KEY,
+  TERMINAL_LINE_HEIGHT_KEY,
+  useSettingsStore,
+} from '@/stores/settingsStore';
 import { useTerminalStore } from '@/stores/terminalStore';
 import { Button } from '@/ui/components/button';
 import {
@@ -39,12 +45,6 @@ import {
   DropdownMenuTrigger,
 } from '@/ui/components/dropdown-menu';
 import { Input } from '@/ui/components/input';
-
-/** 终端字体设置键（设置页 T5.3 提供 UI；这里先接通读取与即时生效）。 */
-export const TERMINAL_FONT_SIZE_KEY = 'terminal.fontSize';
-export const TERMINAL_LINE_HEIGHT_KEY = 'terminal.lineHeight';
-export const DEFAULT_TERMINAL_FONT_SIZE = 13;
-export const DEFAULT_TERMINAL_LINE_HEIGHT = 1.35;
 
 /** shell 选项的 i18n key（id → `terminal.shells.<id>`；未知 id 原样展示）。 */
 function shellLabelKey(id: string): string {

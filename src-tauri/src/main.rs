@@ -395,6 +395,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         forgedesk_commands::term_list,
         forgedesk_commands::term_output_tail,
         forgedesk_commands::term_shell_list,
+        // T5.3 终端安全衔接（全构建注册）
+        forgedesk_commands::term_scan_command,
+        forgedesk_commands::term_report_command,
         // T5.1 PTY Spike 调试通道（仅开发构建；结论见 docs/PTY-SPIKE.md）
         forgedesk_commands::pty_spike_create,
         forgedesk_commands::pty_spike_write,
@@ -555,6 +558,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         forgedesk_commands::term_list,
         forgedesk_commands::term_output_tail,
         forgedesk_commands::term_shell_list,
+        // T5.3 终端安全衔接（全构建注册）
+        forgedesk_commands::term_scan_command,
+        forgedesk_commands::term_report_command,
     ]);
 
     let app = builder.build(tauri::generate_context!())?;

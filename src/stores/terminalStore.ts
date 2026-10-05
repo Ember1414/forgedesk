@@ -11,6 +11,14 @@
  */
 import { create } from 'zustand';
 
+/** 等待用户确认的危险命令（T5.3）。提升到 store：视图重挂载不丢挂起状态。 */
+export interface PendingDanger {
+  readonly termId: string;
+  readonly kind: string;
+  readonly level: 'dangerous' | 'caution';
+  readonly canonical: string;
+}
+
 /** 一个终端标签的投影。 */
 export interface TerminalTab {
   /** 后端会话 id（`term-<n>`）。 */
@@ -32,11 +40,14 @@ export interface TerminalTab {
 export interface TerminalStoreState {
   readonly tabs: readonly TerminalTab[];
   readonly activeTermId: string | null;
+  /** 确认级（T5.3）挂起的危险命令；null = 无挂起。 */
+  readonly pendingConfirm: PendingDanger | null;
 
   addTab(tab: TerminalTab): void;
   /** 关闭标签（不调用后端——后端 `term_close` 由调用方负责）。 */
   removeTab(termId: string): void;
   setActive(termId: string): void;
+  setPendingConfirm(danger: PendingDanger | null): void;
   renameTab(termId: string, title: string): void;
   /** OSC 标题到达时的自动更新（用户重命名过的标签不被覆盖）。 */
   setTitleAuto(termId: string, title: string): void;
@@ -49,6 +60,7 @@ export interface TerminalStoreState {
 export const initialTerminalState = {
   tabs: [] as readonly TerminalTab[],
   activeTermId: null as string | null,
+  pendingConfirm: null as PendingDanger | null,
 };
 
 export const useTerminalStore = create<TerminalStoreState>()((set) => ({
@@ -80,6 +92,10 @@ export const useTerminalStore = create<TerminalStoreState>()((set) => ({
 
   setActive: (termId) => {
     set({ activeTermId: termId });
+  },
+
+  setPendingConfirm: (danger) => {
+    set({ pendingConfirm: danger });
   },
 
   renameTab: (termId, title) => {

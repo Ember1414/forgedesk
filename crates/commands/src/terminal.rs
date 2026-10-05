@@ -292,3 +292,132 @@ pub fn term_shell_list() -> AppResult<Vec<TermShellDto>> {
         })
         .collect())
 }
+
+// ---------------------------------------------------------------- T5.3 安全衔接
+
+/// `term_scan_command` 的命中结果（`None` = 安全或无法解析，一律放行）。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TermDangerDto {
+    /// 稳定种类标识（前端按它取 i18n 文案）。
+    pub kind: String,
+    /// `dangerous`（高危）或 `caution`（注意）。
+    pub level: String,
+    /// 规范化展示（如 `git reset --hard`）。
+    pub canonical: String,
+}
+
+/// 识别一行键入命令是否危险。
+///
+/// 能力等级：`ReadOnly`（纯函数，不碰任何资源）。
+///
+/// 识别失败 / 安全命令返回 `null`——**宁可漏报不可误伤**；
+/// 识别器规则与 15+15 正负例测试见 `forgedesk_services::terminal::danger`。
+#[tauri::command]
+pub fn term_scan_command(line: String) -> AppResult<Option<TermDangerDto>> {
+    let _ = &line;
+    Ok(
+        forgedesk_services::terminal::scan_terminal_command(&line).map(|m| TermDangerDto {
+            kind: m.kind.to_string(),
+            level: match m.level {
+                forgedesk_services::terminal::DangerLevel::Dangerous => "dangerous".into(),
+                forgedesk_services::terminal::DangerLevel::Caution => "caution".into(),
+            },
+            canonical: m.canonical,
+        }),
+    )
+}
+
+/// `term_report_command` 的参数。
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TermReportRequest {
+    /// 归属仓库。
+    pub repo_id: i64,
+    /// 完整命令行（进入审计前由审计层脱敏）。
+    pub line: String,
+    /// `term_scan_command` 给出的种类标识。
+    pub kind: String,
+    /// `true` 时命令执行后延迟创建一次补偿快照（设置项控制）。
+    pub auto_snapshot: bool,
+}
+
+/// 终端危险命令的**强制**登记（T5.3 的"始终记录级"）。
+///
+/// 能力等级：`Mutating`（写审计记录；`auto_snapshot` 时还会创建快照）。
+///
+/// 与其它写操作不同，这里**没有拦截**：命令已经进入 PTY，后端做的是
+/// 事后留痕——写一条 `op_type=terminal` 的审计记录，然后（可选）延迟
+/// 3 秒创建一次补偿快照（给 git 命令留出执行时间；快照失败只记日志，
+/// 绝不影响终端本身）。能力边界：终端里的操作**无法保证可回滚**，
+/// 补偿快照只是"事后留个对照点"，不是撤销手段。
+#[tauri::command]
+pub fn term_report_command(
+    state: State<'_, AppState>,
+    request: TermReportRequest,
+) -> AppResult<()> {
+    if request.line.trim().is_empty() || request.line.len() > 2000 {
+        return Err(AppError::new(
+            ErrorCode::Validation,
+            "the reported command line is empty or too long",
+        ));
+    }
+
+    // 审计立即落库：begin + finish（结果未知 → 记为"已执行"，
+    // 命令行原文进 args 摘要，由审计层统一脱敏）
+    let audit = state.audit_service();
+    let entry = forgedesk_services::AuditEntry::new(
+        request.repo_id,
+        forgedesk_services::audit::op_type::TERMINAL,
+    )
+    .with_args(
+        forgedesk_services::AuditArgs::new()
+            .text("command", &request.line)
+            .text("kind", request.kind.as_str()),
+    );
+    let operation = audit.begin(&entry);
+    if let Some(operation) = operation {
+        operation.finish(&Ok::<(), AppError>(()), None);
+    }
+
+    if !request.auto_snapshot {
+        return Ok(());
+    }
+
+    // 补偿快照：解析工作目录必须现在做（State 借用不能进线程）；
+    // 失败只记日志——快照是尽力而为的安全网，不能反过来阻断终端。
+    let snapshots = Arc::clone(&state.snapshots);
+    let workdir = match state.workspace_service().resolve_workdir(request.repo_id) {
+        Ok(path) => path,
+        Err(error) => {
+            tracing::warn!(%error, "terminal compensation snapshot: repo not resolvable");
+            return Ok(());
+        }
+    };
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_secs(3));
+        let result = snapshots.create(&forgedesk_snapshot::SnapshotRequest {
+            repo_id: request.repo_id,
+            workdir: &workdir,
+            label: "terminal-compensation",
+            kind: forgedesk_snapshot::SnapshotKind::Manual,
+        });
+        match result {
+            Ok(outcome) => {
+                tracing::info!(
+                    snapshot = outcome.id,
+                    "terminal compensation snapshot created"
+                );
+            }
+            Err(error) => {
+                tracing::warn!(
+                    code = error.code().as_str(),
+                    message = %error.message(),
+                    "terminal compensation snapshot failed"
+                );
+            }
+        }
+    });
+
+    Ok(())
+}

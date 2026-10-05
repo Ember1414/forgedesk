@@ -17,7 +17,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { useQueryClient } from '@tanstack/react-query';
-import { CaseSensitive, ChevronDown, ChevronUp, Regex, X } from 'lucide-react';
+import { CaseSensitive, ChevronDown, ChevronUp, Regex, TriangleAlert, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import { FitAddon } from '@xterm/addon-fit';
@@ -28,17 +28,37 @@ import { Terminal } from '@xterm/xterm';
 
 import {
   applyFontToAll,
+  dropLineTracker,
   findTerminalInstance,
   getLastCommand,
+  getLineTracker,
   openExternalUrl,
   recordCommand,
   registerTerminal,
+  scheduleGitRefresh,
+  setQueryClientForRefresh,
   unregisterTerminal,
 } from '@/features/terminal/manager';
-import { LineTracker, isGitCommand } from '@/features/terminal/gitInputRefresh';
-import { createRepoChangeInvalidator } from '@/lib/repoChanged';
-import { termResize, termWrite } from '@/lib/ipc';
+import { isGitCommand } from '@/features/terminal/gitInputRefresh';
+import { termReportCommand, termResize, termScanCommand, termWrite } from '@/lib/ipc';
+import type { TermDanger } from '@/lib/ipc';
+import {
+  TERMINAL_SAFETY_AUTO_SNAPSHOT_KEY,
+  TERMINAL_SAFETY_ENABLED_KEY,
+  TERMINAL_SAFETY_LEVEL_KEY,
+  useSettingsStore,
+} from '@/stores/settingsStore';
+import type { TerminalSafetyLevel } from '@/stores/settingsStore';
+import { useTerminalStore } from '@/stores/terminalStore';
 import type { TerminalTab } from '@/stores/terminalStore';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogTitle,
+} from '@/ui/components/alert-dialog';
 import {
   ContextMenu,
   ContextMenuContent,
@@ -76,8 +96,28 @@ export function TerminalView({
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [showSearch, setShowSearch] = useState(false);
   const [searchState, setSearchState] = useState({ query: '', regex: false, caseSensitive: false });
+  const [hint, setHint] = useState<TermDanger | null>(null);
+  const pendingConfirm = useTerminalStore((state) =>
+    state.pendingConfirm?.termId === tab.termId ? state.pendingConfirm : null,
+  );
+  const setStorePendingConfirm = useTerminalStore((state) => state.setPendingConfirm);
   const queryClient = useQueryClient();
+  const hintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // 终端安全设置（T5.3）：mount effect 的闭包通过 ref 读取最新值
+  const safetyEnabled = useSettingsStore((state) =>
+    state.getJson<boolean>(TERMINAL_SAFETY_ENABLED_KEY, true),
+  );
+  const safetyLevel = useSettingsStore((state) =>
+    state.getJson<TerminalSafetyLevel>(TERMINAL_SAFETY_LEVEL_KEY, 'hint'),
+  );
+  const autoSnapshot = useSettingsStore((state) =>
+    state.getJson<boolean>(TERMINAL_SAFETY_AUTO_SNAPSHOT_KEY, true),
+  );
+  const safetyRef = useRef({ safetyEnabled, safetyLevel, autoSnapshot });
+  useEffect(() => {
+    safetyRef.current = { safetyEnabled, safetyLevel, autoSnapshot };
+  }, [autoSnapshot, safetyEnabled, safetyLevel]);
   // 搜索框打开时聚焦输入框
   useEffect(() => {
     if (showSearch) {
@@ -142,36 +182,86 @@ export function TerminalView({
     observer.observe(container);
     doFit();
 
-    // git 命令后的状态刷新：命令结果需要几百毫秒到几十秒，
-    // 两级延迟（800ms 覆盖 status 类快速命令；2.5s 兜底 clone/fetch）
-    const invalidator = createRepoChangeInvalidator(queryClient);
-    const scheduledRefreshes = new Set<ReturnType<typeof setTimeout>>();
-    const scheduleRefresh = () => {
-      for (const delay of [800, 2500]) {
-        const timer = setTimeout(() => {
-          scheduledRefreshes.delete(timer);
-          invalidator.invalidate(tab.repoId, 'refs');
-        }, delay);
-        scheduledRefreshes.add(timer);
-      }
-    };
+    setQueryClientForRefresh(queryClient);
 
-    // 键入：写后端 + 行跟踪（命令历史 / git 命令刷新）
-    const tracker = new LineTracker();
+    // 键入：写后端 + 行跟踪（命令历史 / git 命令刷新 / T5.3 安全流）。
+    //
+    // Enter 是唯一被"扣下"的键：行内容先交给识别器（异步），按结果决定
+    // 直接放行（安全/识别失败/提示级）还是挂起等确认（确认级 + 高危）。
+    // 其余字节永远原样、立即转发——拦截不修改用户输入。
+    // 行跟踪器在 manager（模块级）：视图重挂载不丢行缓冲。
+    const tracker = getLineTracker(tab.termId);
+    const ENTER = new Uint8Array([13]);
+    const sendEnter = () => {
+      void termWrite(tab.termId, ENTER).catch(() => {});
+    };
     const dataSubscription = term.onData((data) => {
-      void termWrite(tab.termId, new TextEncoder().encode(data));
-      for (const line of tracker.feed(data)) {
+      const completed = tracker.feed(data);
+      const withoutEnter = data.replace(/\r/g, '');
+      if (withoutEnter !== '') {
+        void termWrite(tab.termId, new TextEncoder().encode(withoutEnter));
+      }
+      for (const line of completed) {
         if (line.trim() !== '') {
           recordCommand(tab.repoId, line);
         }
         if (isGitCommand(line)) {
-          scheduleRefresh();
+          scheduleGitRefresh(tab.repoId);
         }
       }
+      if (!data.includes('\r')) {
+        return;
+      }
+      const safety = safetyRef.current;
+      const last = [...completed].reverse().find((line) => line.trim() !== '');
+      if (!safety.safetyEnabled || !last) {
+        sendEnter();
+        return;
+      }
+      void termScanCommand(last)
+        .then((danger) => {
+          if (!danger) {
+            sendEnter();
+            return;
+          }
+          // 始终记录级（强制）：无论级别，登记 + 可选补偿快照（后端）
+          void termReportCommand({
+            repoId: tab.repoId,
+            line: last,
+            kind: danger.kind,
+            autoSnapshot: safety.autoSnapshot,
+          }).catch(() => {
+            // 留痕失败不阻断终端
+          });
+          if (danger.level === 'caution' || safety.safetyLevel === 'hint') {
+            // 提示级：非阻塞条，2.5s 自动消失；命令照常执行
+            if (hintTimerRef.current !== null) {
+              clearTimeout(hintTimerRef.current);
+            }
+            setHint(danger);
+            hintTimerRef.current = setTimeout(() => setHint(null), 2500);
+            sendEnter();
+          } else {
+            setStorePendingConfirm({
+              termId: tab.termId,
+              kind: danger.kind,
+              level: danger.level,
+              canonical: danger.canonical,
+            });
+          }
+        })
+        .catch(() => {
+          // 识别服务不可用：放行（宁可漏报不可误伤）
+          sendEnter();
+        });
     });
 
     // 键盘约定：见文件头
     term.attachCustomKeyEventHandler((event) => {
+      // 确认对话框打开期间冻结全部输入（防止挂起的行被继续改写）
+      if (useTerminalStore.getState().pendingConfirm !== null) {
+        return false;
+      }
       if (event.type !== 'keydown') {
         return true;
       }
@@ -202,13 +292,13 @@ export function TerminalView({
     }
 
     return () => {
-      for (const timer of scheduledRefreshes) {
-        clearTimeout(timer);
+      if (hintTimerRef.current !== null) {
+        clearTimeout(hintTimerRef.current);
       }
-      invalidator.dispose();
       observer.disconnect();
       dataSubscription.dispose();
       unregisterTerminal(tab.termId);
+      dropLineTracker(tab.termId);
       term.dispose();
     };
     // 建立一次；fontSize/active 的变化走下面的 options 更新路径，
@@ -233,6 +323,14 @@ export function TerminalView({
     });
     return () => cancelAnimationFrame(frame);
   }, [active, tab.termId]);
+
+  // 确认对话框关闭后焦点必须回到终端：Radix 的焦点还原落在 body 上，
+  // 不补焦的下一轮键入会全部丢失（T5.3 E2E 实测）。
+  useEffect(() => {
+    if (pendingConfirm === null && active) {
+      findTerminalInstance(tab.termId)?.term.focus();
+    }
+  }, [pendingConfirm, active, tab.termId]);
 
   const runSearch = useCallback(
     (direction: 'next' | 'prev') => {
@@ -281,6 +379,20 @@ export function TerminalView({
     }
   }, [tab.repoId, tab.termId]);
 
+  /** 确认执行：把挂起的 Enter 发出去，shell 侧的行原样落地（不改写输入）。 */
+  const confirmDanger = useCallback(() => {
+    setStorePendingConfirm(null);
+    void termWrite(tab.termId, new Uint8Array([13])).catch(() => {});
+    scheduleGitRefresh(tab.repoId);
+  }, [setStorePendingConfirm, tab.repoId, tab.termId]);
+
+  /** 取消执行：发 Ctrl+C 取消 shell 侧的行（PSReadLine 行取消 / bash SIGINT）。 */
+  const cancelDanger = useCallback(() => {
+    setStorePendingConfirm(null);
+    void termWrite(tab.termId, new Uint8Array([3])).catch(() => {});
+    scheduleGitRefresh(tab.repoId);
+  }, [setStorePendingConfirm, tab.repoId, tab.termId]);
+
   return (
     <div
       className={active ? 'relative min-h-0 min-w-0 flex-1' : 'hidden'}
@@ -311,6 +423,53 @@ export function TerminalView({
           </ContextMenuItem>
         </ContextMenuContent>
       </ContextMenu>
+
+      {hint ? (
+        <div
+          role="status"
+          className="border-warning bg-surface-raised text-fg absolute inset-x-3 top-3 z-30 flex items-center gap-2 rounded-md border px-3 py-2 shadow-lg"
+        >
+          <TriangleAlert aria-hidden="true" className="text-warning size-4 shrink-0" />
+          <p className="text-12 leading-snug">
+            {t('terminal.safety.hint', { command: hint.canonical })}
+            {hint.level === 'dangerous' ? (
+              <>
+                {' '}
+                <button
+                  type="button"
+                  className="text-brand hover:underline"
+                  onClick={() => {
+                    // 图形安全入口：快照页（可回滚点的唯一清单）
+                    window.location.hash = `/repo/${tab.repoId}/snapshots`;
+                  }}
+                >
+                  {t('terminal.safety.openSnapshots')}
+                </button>
+              </>
+            ) : null}
+          </p>
+        </div>
+      ) : null}
+
+      {pendingConfirm ? (
+        <AlertDialog open>
+          <AlertDialogContent
+            tone="danger"
+            impact={t('terminal.safety.confirmImpact', { command: pendingConfirm.canonical })}
+          >
+            <AlertDialogTitle>{t('terminal.safety.confirmTitle')}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t('terminal.safety.confirmBody', { command: pendingConfirm.canonical })}
+            </AlertDialogDescription>
+            <AlertDialogAction onClick={confirmDanger}>
+              {t('terminal.safety.confirmExecute')}
+            </AlertDialogAction>
+            <AlertDialogCancel onClick={cancelDanger}>
+              {t('terminal.safety.confirmCancel')}
+            </AlertDialogCancel>
+          </AlertDialogContent>
+        </AlertDialog>
+      ) : null}
 
       {tab.exited ? (
         <div className="bg-scrim absolute inset-0 z-10 flex items-center justify-center">

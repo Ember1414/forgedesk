@@ -288,6 +288,9 @@
     "githubDashboard": {
       "title": "概览",
       "description": "多仓库状态、待我审查的 PR 与 CI 失败，一屏可见。"
+    },
+    "settingsTerminal": {
+      "title": "终端"
     }
   },
   "terminal": {
@@ -329,6 +332,15 @@
       "previous": "上一个匹配",
       "next": "下一个匹配",
       "close": "关闭搜索"
+    },
+    "safety": {
+      "hint": "检测到危险操作 {{command}}，建议使用图形界面的安全操作（自动快照）。",
+      "openSnapshots": "查看快照与回滚",
+      "confirmTitle": "确认执行危险命令？",
+      "confirmBody": "即将执行：{{command}}。这个命令可能丢弃未提交的修改或改写提交历史。",
+      "confirmImpact": "执行后无法由 ForgeDesk 自动撤销（终端操作不经过安全快照层）；补偿快照（若已开启）只会记录执行后的状态。",
+      "confirmExecute": "确认执行",
+      "confirmCancel": "取消"
     }
   },
   "diff": {
@@ -616,6 +628,24 @@
       "cancel": "取消等待",
       "loginSuccess": "已登录：{{login}}",
       "removeImpact": "移除后，该账号在 {{host}} 的令牌将从本机凭据库删除，应用将不再以 {{login}} 的身份访问它。"
+    },
+    "terminal": {
+      "safetyTitle": "终端安全衔接",
+      "safetyEnabled": "启用危险命令提示",
+      "safetyLevel": "拦截级别",
+      "level": {
+        "hint": "提示（推荐）",
+        "confirm": "执行前确认"
+      },
+      "levelHint": {
+        "hint": "检测到危险命令时显示非阻塞提示条，命令照常执行；所有识别到的命令都会写入操作历史。",
+        "confirm": "高危命令在写入终端前需要确认；取消时会向终端发送 Ctrl+C 取消该行。"
+      },
+      "autoSnapshot": "危险命令执行后自动创建补偿快照",
+      "boundaryNote": "能力边界：终端中的任何操作都无法保证可回滚。补偿快照只是事后的对照点，不能撤销终端里执行的命令；需要可回滚保障的操作请使用图形界面的对应功能。",
+      "appearanceTitle": "终端外观",
+      "fontSize": "字号（px）",
+      "lineHeight": "行高"
     }
   },
   "snapshots": {

@@ -113,3 +113,41 @@ export function listenTermExit(handler: (payload: TermExitPayload) => void): Pro
 export function systemOpenUrl(url: string): Promise<void> {
   return invokeCommand<void>('system_open_url', { url });
 }
+
+// ---------------------------------------------------------------- T5.3 安全衔接
+
+/** `term_scan_command` 的命中结果（null = 安全或无法解析）。 */
+export interface TermDanger {
+  readonly kind: string;
+  /** `dangerous`（高危）或 `caution`（注意）。 */
+  readonly level: 'dangerous' | 'caution';
+  /** 规范化展示（如 `git reset --hard`）。 */
+  readonly canonical: string;
+}
+
+/**
+ * 识别一行键入命令是否危险。
+ *
+ * 后端返回 null（安全/无法解析）时必须原样放行——识别器的设计原则是
+ * 宁可漏报不可误伤，前端不得对 null 做任何拦截。
+ */
+export function termScanCommand(line: string): Promise<TermDanger | null> {
+  return invokeCommand<TermDanger | null>('term_scan_command', { line });
+}
+
+/** `term_report_command` 的请求。 */
+export interface TermReportRequest {
+  readonly repoId: number;
+  readonly line: string;
+  readonly kind: string;
+  readonly autoSnapshot: boolean;
+}
+
+/**
+ * 强制登记一条终端危险命令（始终记录级；后端附带可选的补偿快照）。
+ *
+ * 这是 fire-and-forget：审计失败只影响留痕，不阻断终端。
+ */
+export function termReportCommand(request: TermReportRequest): Promise<void> {
+  return invokeCommand<void>('term_report_command', { request });
+}

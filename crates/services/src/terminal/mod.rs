@@ -41,10 +41,12 @@ use portable_pty::{native_pty_system, CommandBuilder, MasterPty, PtySize};
 
 use forgedesk_domain::{AppError, ErrorCode};
 
+pub mod danger;
 pub mod registry;
 pub mod scrollback;
 pub mod shell;
 
+pub use danger::{scan_terminal_command, DangerLevel, DangerMatch};
 pub use registry::{TerminalHandle, TerminalRegistry, TerminalSpawnSpec, TerminalSummary};
 pub use scrollback::{Scrollback, SCROLLBACK_MAX_LINES};
 pub use shell::{available_shells, probe_in_path, resolve_shell, ShellCommand, ShellOption};

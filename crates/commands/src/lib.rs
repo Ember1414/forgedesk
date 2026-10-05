@@ -159,8 +159,9 @@ pub use sync::{
 };
 pub use system::{app_version, log_frontend_error, system_open_url, AppVersion};
 pub use terminal::{
-    term_close, term_create, term_list, term_output_tail, term_resize, term_shell_list, term_write,
-    TermCreateRequest, TermCreatedDto, TermExitPayload, TermOutputPayload, TermShellDto,
+    term_close, term_create, term_list, term_output_tail, term_report_command, term_resize,
+    term_scan_command, term_shell_list, term_write, TermCreateRequest, TermCreatedDto,
+    TermDangerDto, TermExitPayload, TermOutputPayload, TermReportRequest, TermShellDto,
     EVENT_TERM_EXIT, EVENT_TERM_OUTPUT,
 };
 pub use watch::{emit_watch_event, WatchSettings, WatcherRegistry, AUTO_REFRESH_KEY, DEBOUNCE_KEY};

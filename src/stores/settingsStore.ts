@@ -61,6 +61,24 @@ export const AUDIT_RETENTION_MAX_KEY = 'audit.retentionMax';
 export const AUDIT_RETENTION_DEFAULT_DAYS = 90;
 export const AUDIT_RETENTION_DEFAULT_ROWS = 10_000;
 
+/** 终端安全提示的总开关（T5.3；关闭后仍保留"始终记录级"的后端登记）。 */
+export const TERMINAL_SAFETY_ENABLED_KEY = 'terminal.safety.enabled';
+/** 终端安全提示的级别：hint = 非阻塞提示条（默认）；confirm = 执行前需要确认。 */
+export const TERMINAL_SAFETY_LEVEL_KEY = 'terminal.safety.level';
+/** 危险命令执行后自动创建补偿快照（默认开启；快照失败不影响终端）。 */
+export const TERMINAL_SAFETY_AUTO_SNAPSHOT_KEY = 'terminal.safety.autoSnapshot';
+/** 终端安全级别取值。 */
+export const TERMINAL_SAFETY_LEVELS = ['hint', 'confirm'] as const;
+export type TerminalSafetyLevel = (typeof TERMINAL_SAFETY_LEVELS)[number];
+/** 终端字号（px，默认 13）。 */
+export const TERMINAL_FONT_SIZE_KEY = 'terminal.fontSize';
+/** 终端行高（默认 1.35）。 */
+export const TERMINAL_LINE_HEIGHT_KEY = 'terminal.lineHeight';
+/** 终端字号的缺省值（任务书：默认 13px）。 */
+export const DEFAULT_TERMINAL_FONT_SIZE = 13;
+/** 终端行高的缺省值（任务书：默认 1.35）。 */
+export const DEFAULT_TERMINAL_LINE_HEIGHT = 1.35;
+
 const DEFAULT_DENSITY: Density = 'comfortable';
 
 /**
