@@ -63,6 +63,9 @@ schemars = "1"
 # wasmi 仅 +0.74MB（release/lto/opt-level=s 实测）；UI 胶水类插件对解释器
 # 性能足够，日后可经 PluginEngine trait 无痛切换引擎。审批结论 2026-10-05。
 wasmi = "2"
+# sha2：插件 wasm 文件的 SHA256（T6.4 管理页展示供用户核对；0.10 已在
+# 依赖树中——octocrab → jsonwebtoken 带入，直接复用零新增 crate）。
+sha2 = "0.10"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "time", "json"] }
 # tracing-appender 提供**非阻塞写入**（WorkerGuard 保证退出前 flush）。

@@ -8,6 +8,7 @@
 
 pub mod engine_wasmi;
 pub mod host;
+pub mod manager;
 pub mod manifest;
 pub mod panel_dsl;
 pub mod permission;

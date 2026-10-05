@@ -27,9 +27,11 @@
 //! trap 后实例标记 [`LifecycleState::Crashed`] 并缓存失败原因，后续调用直接返回
 //! 缓存错误。实例各自的 `Store` 完全独立，一个实例 trap 不触碰其它实例的状态。
 
-use std::collections::BTreeMap;
+use parking_lot::Mutex;
+use std::collections::{BTreeMap, VecDeque};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::host::{self, SharedServices};
 use crate::manifest::ValidatedManifest;
@@ -88,6 +90,20 @@ impl std::fmt::Display for EngineStop {
 
 impl wasmi::errors::HostError for EngineStop {}
 
+/// 单条插件日志（`fd.log` 写入；T6.4 日志页消费）。
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct PluginLogEntry {
+    /// Unix 毫秒时间戳（前端用 Intl 格式化）。
+    pub time_ms: i64,
+    /// 0=debug 1=info 2=warn 3=error（fd.log 的 level 原值）。
+    pub level: u8,
+    /// 插件给出的文本（≤ 8 KiB，进日志前由脱敏层兜底）。
+    pub message: String,
+}
+
+/// 每实例日志环形缓冲上限。
+const PLUGIN_LOG_CAP: usize = 500;
+
 /// 每个 Store 挂的资源上限、fuel 预算与宿主调用上下文
 /// （limiter 闭包与 `fd.*` 导入都要从 data 取）。
 struct PluginData {
@@ -98,6 +114,10 @@ struct PluginData {
     services: SharedServices,
     /// `fd.host_call` 的结果/错误详情 staging，`fd.host_result` 取回。
     staging: Vec<u8>,
+    /// `fd.log` 的环形缓冲（T6.4 日志页）。
+    logs: Mutex<VecDeque<PluginLogEntry>>,
+    /// 成功的宿主调用计数（按所需权限聚合；T6.4 权限面板的"使用次数"）。
+    usage: Mutex<BTreeMap<crate::permission::Permission, u64>>,
 }
 
 struct PluginInstance {
@@ -241,6 +261,20 @@ impl WasmiEngine {
                         0 => tracing::debug!(target: "plugin", plugin_id, "{text}"),
                         _ => tracing::info!(target: "plugin", plugin_id, "{text}"),
                     }
+                    // 环形缓冲：T6.4 日志页的数据源（实例内，随卸载消失）
+                    let time_ms = SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .map(|d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX))
+                        .unwrap_or_default();
+                    let mut logs = caller.data().logs.lock();
+                    if logs.len() >= PLUGIN_LOG_CAP {
+                        logs.pop_front();
+                    }
+                    logs.push_back(PluginLogEntry {
+                        time_ms,
+                        level: level.clamp(0, 3) as u8,
+                        message: text,
+                    });
                 },
             )
             .map_err(|error| HostError::Engine(format!("could not register fd.log: {error}")))?;
@@ -271,14 +305,26 @@ impl WasmiEngine {
                     let plugin_id = data.plugin_id.clone();
                     let granted = data.granted.clone();
                     let services = std::sync::Arc::clone(&data.services);
-                    host::dispatch_host_call(
+                    let code = host::dispatch_host_call(
                         &plugin_id,
                         &granted,
                         services.as_ref(),
                         op,
                         &args,
                         &mut caller.data_mut().staging,
-                    )
+                    );
+                    // "该权限被使用的次数"（T6.4 权限面板）：只计成功调用
+                    if code == host::ERR_OK {
+                        if let Some(host_op) = crate::host::HostOp::from_id(op) {
+                            *caller
+                                .data_mut()
+                                .usage
+                                .lock()
+                                .entry(host_op.permission())
+                                .or_default() += 1;
+                        }
+                    }
+                    code
                 },
             )
             .map_err(|error| {
@@ -363,6 +409,8 @@ impl PluginEngine for WasmiEngine {
                     granted: PermissionSet::from_declared(manifest.permissions.iter().copied()),
                     services: std::sync::Arc::clone(&services),
                     staging: Vec::new(),
+                    logs: Mutex::new(VecDeque::new()),
+                    usage: Mutex::new(BTreeMap::new()),
                 },
             );
             store.limiter(|data: &mut PluginData| &mut data.limits);
@@ -643,6 +691,66 @@ impl PluginEngine for WasmiEngine {
 }
 
 impl WasmiEngine {
+    /// 读取插件的日志（最近的 `limit` 条，时间升序）。
+    pub fn plugin_logs(
+        &self,
+        handle: PluginHandle,
+        limit: usize,
+    ) -> Result<Vec<PluginLogEntry>, HostError> {
+        let instances = self.instances.read();
+        let plugin = instances
+            .get(&handle.raw())
+            .ok_or(HostError::InstanceNotFound(handle.raw()))?;
+        let logs = plugin.store.data().logs.lock();
+        let start = logs.len().saturating_sub(limit);
+        Ok(logs.iter().skip(start).cloned().collect())
+    }
+
+    /// 读取插件的权限使用计数（成功调用次数，按权限聚合）。
+    pub fn permission_usage(
+        &self,
+        handle: PluginHandle,
+    ) -> Result<Vec<(crate::permission::Permission, u64)>, HostError> {
+        let instances = self.instances.read();
+        let plugin = instances
+            .get(&handle.raw())
+            .ok_or(HostError::InstanceNotFound(handle.raw()))?;
+        let usage = plugin.store.data().usage.lock();
+        Ok(usage
+            .iter()
+            .map(|(permission, count)| (*permission, *count))
+            .collect())
+    }
+
+    /// 设置实例的生效权限集（加载后、激活前由管理器调用一次；
+    /// 运行中的收缩走 [`Self::revoke_permission`]，这里不做扩权）。
+    pub fn set_effective_permissions(
+        &self,
+        handle: PluginHandle,
+        permissions: std::collections::BTreeSet<crate::permission::Permission>,
+    ) -> Result<(), HostError> {
+        let mut instances = self.instances.write();
+        let plugin = instances
+            .get_mut(&handle.raw())
+            .ok_or(HostError::InstanceNotFound(handle.raw()))?;
+        plugin.store.data_mut().granted = PermissionSet::from_declared(permissions);
+        Ok(())
+    }
+
+    /// 运行时撤销一项权限（T6.4：撤销后插件下一次调用即失败）。
+    pub fn revoke_permission(
+        &self,
+        handle: PluginHandle,
+        permission: crate::permission::Permission,
+    ) -> Result<(), HostError> {
+        let mut instances = self.instances.write();
+        let plugin = instances
+            .get_mut(&handle.raw())
+            .ok_or(HostError::InstanceNotFound(handle.raw()))?;
+        plugin.store.data_mut().granted.revoke(permission);
+        Ok(())
+    }
+
     /// 异步分发事件给已订阅且激活的插件（T6.3）。
     ///
     /// 立即返回订阅者数量；实际回调在分离线程上逐个执行，每个回调受 fuel
@@ -949,350 +1057,7 @@ mod tests {
     // 编码最小模块。类型区固定五条：t0=()->i32、t1=(i32,i32)->i64、t2=(i32)->i32、
     // t3=(i32,i32,i32)->i32（fd.host_call）、t4=(i32,i32)->i32（fd.host_result）。
 
-    const TYPE_UNIT_I32: u32 = 0;
-    const TYPE_ARGS_I64: u32 = 1;
-    const TYPE_LEN_PTR: u32 = 2;
-    const TYPE_HOST_CALL: u32 = 3;
-    const TYPE_HOST_RESULT: u32 = 4;
-    const TYPE_LOG: u32 = 5;
-
-    fn leb_u64(mut value: u64, out: &mut Vec<u8>) {
-        loop {
-            let mut byte = (value & 0x7f) as u8;
-            value >>= 7;
-            if value != 0 {
-                byte |= 0x80;
-            }
-            out.push(byte);
-            if value == 0 {
-                break;
-            }
-        }
-    }
-
-    fn sleb_i64(mut value: i64, out: &mut Vec<u8>) {
-        loop {
-            let byte = (value as u8) & 0x7f;
-            value >>= 7;
-            let sign_bit_set = byte & 0x40 != 0;
-            if (value == 0 && !sign_bit_set) || (value == -1 && sign_bit_set) {
-                out.push(byte);
-                break;
-            }
-            out.push(byte | 0x80);
-        }
-    }
-
-    fn section(id: u8, payload: &[u8], out: &mut Vec<u8>) {
-        out.push(id);
-        leb_u64(payload.len() as u64, out);
-        out.extend_from_slice(payload);
-    }
-
-    /// 构建一个测试插件模块。
-    ///
-    /// `imports` 为 `fd` 模块下的导入（按序占据函数索引 0..n）；
-    /// `exports` 为本地定义的导出（索引 = imports.len() + 序号）；
-    /// `data` 为 (偏移, 字节) 数据段列表。
-    fn build_module(
-        imports: &[(&'static str, u32)],
-        exports: &[(&'static str, u32, &[u8])],
-        data: &[(u32, &[u8])],
-    ) -> Vec<u8> {
-        let mut module = vec![0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00];
-
-        // type section：六条固定类型（wasm 段顺序固定：type 必须在 import 之前）
-        let mut types = vec![0x06];
-        types.extend_from_slice(&[
-            0x60, 0x00, 0x01, 0x7f, // t0: () -> i32
-            0x60, 0x02, 0x7f, 0x7f, 0x01, 0x7e, // t1: (i32,i32) -> i64
-            0x60, 0x01, 0x7f, 0x01, 0x7f, // t2: (i32) -> i32
-            0x60, 0x03, 0x7f, 0x7f, 0x7f, 0x01, 0x7f, // t3: (i32,i32,i32) -> i32
-            0x60, 0x02, 0x7f, 0x7f, 0x01, 0x7f, // t4: (i32,i32) -> i32
-            0x60, 0x03, 0x7f, 0x7f, 0x7f, 0x00, // t5: (i32,i32,i32) -> ()
-        ]);
-        section(0x01, &types, &mut module);
-
-        // import section：全部来自 "fd" 模块
-        if !imports.is_empty() {
-            let mut import_section = vec![imports.len() as u8];
-            for (name, type_idx) in imports {
-                leb_u64(2, &mut import_section); // "fd".len()
-                import_section.extend_from_slice(b"fd");
-                leb_u64(name.len() as u64, &mut import_section);
-                import_section.extend_from_slice(name.as_bytes());
-                import_section.push(0x00); // func
-                leb_u64(u64::from(*type_idx), &mut import_section);
-            }
-            section(0x02, &import_section, &mut module);
-        }
-
-        // function section：导出顺序即函数索引
-        let mut funcs = vec![exports.len() as u8];
-        for (_, type_idx, _) in exports {
-            leb_u64(u64::from(*type_idx), &mut funcs);
-        }
-        section(0x03, &funcs, &mut module);
-
-        // memory section：1 页，无上限（上限由宿主 limiter 管）
-        section(0x05, &[0x01, 0x00, 0x01], &mut module);
-
-        // export section：函数（索引要加上导入数）+ memory
-        let mut export_section = vec![exports.len() as u8 + 1];
-        for (index, (name, _, _)) in exports.iter().enumerate() {
-            leb_u64(name.len() as u64, &mut export_section);
-            export_section.extend_from_slice(name.as_bytes());
-            export_section.push(0x00);
-            leb_u64((imports.len() + index) as u64, &mut export_section);
-        }
-        export_section.extend_from_slice(b"\x06memory\x02\x00");
-        section(0x07, &export_section, &mut module);
-
-        // code section：每个函数体 = local 计数 0x00 + body（body 自带 end）
-        let mut code = vec![exports.len() as u8];
-        for (_, _, body) in exports {
-            let mut entry = vec![0x00];
-            entry.extend_from_slice(body);
-            leb_u64(entry.len() as u64, &mut code);
-            code.extend_from_slice(&entry);
-        }
-        section(0x0a, &code, &mut module);
-
-        // data section：每个段 = memidx 0 + offset(i32.const) + 字节
-        if !data.is_empty() {
-            let mut payload = vec![data.len() as u8];
-            for (offset, bytes) in data {
-                payload.push(0x00);
-                payload.push(0x41); // i32.const
-                sleb_i64(i64::from(*offset), &mut payload);
-                payload.push(0x0b);
-                leb_u64(bytes.len() as u64, &mut payload);
-                payload.extend_from_slice(bytes);
-            }
-            section(0x0b, &payload, &mut module);
-        }
-        module
-    }
-
-    fn ok_body() -> Vec<u8> {
-        vec![0x41, 0x00, 0x0b] // i32.const 0
-    }
-
-    fn alloc_body() -> Vec<u8> {
-        // i32.const 2048（fd_alloc 永远返回同一块区域——测试夹具够用）
-        vec![0x41, 0x80, 0x10, 0x0b]
-    }
-
-    fn invoke_body_returning_hello() -> Vec<u8> {
-        // 返回 (ptr<<32)|len，ptr=1024、len=11（数据段内容 "hello world"）
-        let mut body = vec![0x42];
-        sleb_i64((1024i64 << 32) | 11, &mut body);
-        body.push(0x0b);
-        body
-    }
-
-    /// 纯自旋死循环：loop { br 0 } —— fuel 耗尽才会停。
-    /// 注意：块结束会清除"不可达"标记（标准校验语义），()->i32 函数必须在
-    /// 循环后补一个 i32 值才能通过校验（运行时永远到不了那里）。
-    fn infinite_loop_body() -> Vec<u8> {
-        vec![0x03, 0x40, 0x0c, 0x00, 0x0b, 0x41, 0x00, 0x0b]
-    }
-
-    /// 内存炸弹体：尝试一次性把线性内存 grow 65536 页（4GB）；store 上限会让
-    /// grow 失败并按规范返回 -1，插件据此主动 unreachable——验证上限生效。
-    fn grow_bomb_body() -> Vec<u8> {
-        vec![
-            0x41, 0x80, 0x80, 0x04, // i32.const 65536（LEB128）
-            0x40, 0x00, // memory.grow (memidx 0)
-            0x41, 0x7f, // i32.const -1
-            0x46, // i32.eq
-            0x04, 0x40, // if (empty)
-            0x00, //   unreachable
-            0x0b, // end if
-            0x41, 0x00, // i32.const 0
-            0x0b, // end func
-        ]
-    }
-
-    fn trap_body() -> Vec<u8> {
-        vec![0x00, 0x0b] // unreachable
-    }
-
-    fn normal_plugin() -> Vec<u8> {
-        build_module(
-            &[],
-            &[
-                ("fd_activate", TYPE_UNIT_I32, &ok_body()),
-                ("fd_deactivate", TYPE_UNIT_I32, &ok_body()),
-                ("fd_alloc", TYPE_LEN_PTR, &alloc_body()),
-                ("fd_invoke", TYPE_ARGS_I64, &invoke_body_returning_hello()),
-            ],
-            &[(1024, b"hello world")],
-        )
-    }
-
-    /// 调用一次 `fd.host_call` 并把 staging 结果带回 fd_invoke 返回区的插件体。
-    ///
-    /// 约定内存布局：参数 JSON 位于 1024，输出缓冲位于 2048（容量 1024）。
-    fn host_call_body(op: i32, arg_len: i32) -> Vec<u8> {
-        const ARG_PTR: i32 = 1024;
-        const OUT_PTR: i32 = 2048;
-        const OUT_CAP: i32 = 1024;
-        let mut body = vec![];
-        for value in [op, ARG_PTR, arg_len] {
-            body.push(0x41);
-            sleb_i64(i64::from(value), &mut body);
-        }
-        body.extend_from_slice(&[0x10, 0x00]); // call 0 = fd.host_call
-        body.push(0x1a); // drop 返回码（结果看 staging）
-        for value in [OUT_PTR, OUT_CAP] {
-            body.push(0x41);
-            sleb_i64(i64::from(value), &mut body);
-        }
-        body.extend_from_slice(&[0x10, 0x01]); // call 1 = fd.host_result
-        body.push(0x1a); // drop 写入字节数
-        body.push(0x42); // i64.const (OUT_PTR << 32) | OUT_CAP
-        sleb_i64(((OUT_PTR as i64) << 32) | i64::from(OUT_CAP), &mut body);
-        body.push(0x0b);
-        body
-    }
-
-    /// 只调 `fd.log` 的最小插件：二分定位导入崩溃点（纯内存读路径）。
-    /// fd_invoke 返回数据段内容，便于断言。
-    fn log_plugin() -> Vec<u8> {
-        let mut body = vec![];
-        for value in [0i32, 1024, 5] {
-            body.push(0x41);
-            sleb_i64(i64::from(value), &mut body);
-        }
-        body.extend_from_slice(&[0x10, 0x00]); // call 0 = fd.log
-        body.push(0x42); // i64.const (1024 << 32) | 5
-        sleb_i64((1024i64 << 32) | 5, &mut body);
-        body.push(0x0b);
-        build_module(
-            &[("log", TYPE_LOG)],
-            &[
-                ("fd_activate", TYPE_UNIT_I32, &ok_body()),
-                ("fd_deactivate", TYPE_UNIT_I32, &ok_body()),
-                ("fd_alloc", TYPE_LEN_PTR, &alloc_body_at(8192)),
-                ("fd_invoke", TYPE_ARGS_I64, &body),
-            ],
-            &[(1024, b"hello")],
-        )
-    }
-
-    fn alloc_body_at(ptr: i32) -> Vec<u8> {
-        let mut body = vec![0x41];
-        sleb_i64(i64::from(ptr), &mut body);
-        body.push(0x0b);
-        body
-    }
-
-    /// 构建一个"渲染指定面板"的测试插件：fd_render_panel 忽略面板 id，
-    /// 返回数据段 1024 处的 DSL JSON（打包 ptr<<32|len）。
-    fn panel_plugin(dsl_json: &str) -> Vec<u8> {
-        let mut body = vec![0x42];
-        sleb_i64((1024i64 << 32) | dsl_json.len() as i64, &mut body);
-        body.push(0x0b);
-        build_module(
-            &[],
-            &[
-                ("fd_activate", TYPE_UNIT_I32, &ok_body()),
-                ("fd_deactivate", TYPE_UNIT_I32, &ok_body()),
-                ("fd_alloc", TYPE_LEN_PTR, &alloc_body_at(8192)),
-                ("fd_render_panel", TYPE_ARGS_I64, &body),
-            ],
-            &[(1024, dsl_json.as_bytes())],
-        )
-    }
-
-    /// 构建一个"收到事件后转发为 toast"的测试插件：
-    /// fd_on_event(payload_ptr, payload_len) → host_call(SHOW_TOAST, payload)。
-    fn event_plugin() -> Vec<u8> {
-        let mut body = vec![0x41];
-        sleb_i64(i64::from(crate::host::HostOp::ShowToast.id()), &mut body);
-        body.extend_from_slice(&[0x20, 0x00, 0x20, 0x01]); // local.get 0, local.get 1
-        body.extend_from_slice(&[0x10, 0x00]); // call 0 = fd.host_call
-        body.push(0x1a); // drop 返回码
-        body.extend_from_slice(&[0x41, 0x00]); // i32.const 0
-        body.push(0x0b);
-        build_module(
-            &[("host_call", TYPE_HOST_CALL)],
-            &[
-                ("fd_activate", TYPE_UNIT_I32, &ok_body()),
-                ("fd_deactivate", TYPE_UNIT_I32, &ok_body()),
-                ("fd_alloc", TYPE_LEN_PTR, &alloc_body_at(8192)),
-                ("fd_on_event", TYPE_HOST_RESULT, &body),
-            ],
-            &[],
-        )
-    }
-
-    /// fd_on_event 死循环的插件：验证事件分发不阻塞宿主（fuel 终止回调）。
-    fn slow_event_plugin() -> Vec<u8> {
-        let mut body = vec![0x03, 0x40, 0x0c, 0x00, 0x0b]; // loop { br 0 }
-        body.extend_from_slice(&[0x41, 0x00]); // i32.const 0（块结束清除不可达）
-        body.push(0x0b);
-        build_module(
-            &[],
-            &[
-                ("fd_activate", TYPE_UNIT_I32, &ok_body()),
-                ("fd_deactivate", TYPE_UNIT_I32, &ok_body()),
-                ("fd_alloc", TYPE_LEN_PTR, &alloc_body_at(8192)),
-                ("fd_on_event", TYPE_HOST_RESULT, &body),
-            ],
-            &[],
-        )
-    }
-
-    /// 构建一个"调用指定宿主操作"的测试插件。
-    ///
-    /// 内存布局：1024 = 宿主操作参数 JSON（数据段）；2048 = staging 输出缓冲；
-    /// 8192 = fd_alloc 的 invoke 参数区（引擎 invoke 会把命令参数写到这里，
-    /// 本夹具不读它）。三者互不重叠。
-    fn host_call_plugin(op: crate::host::HostOp, arg_json: &str) -> Vec<u8> {
-        build_module(
-            &[
-                ("host_call", TYPE_HOST_CALL),
-                ("host_result", TYPE_HOST_RESULT),
-            ],
-            &[
-                ("fd_activate", TYPE_UNIT_I32, &ok_body()),
-                ("fd_deactivate", TYPE_UNIT_I32, &ok_body()),
-                ("fd_alloc", TYPE_LEN_PTR, &alloc_body_at(8192)),
-                (
-                    "fd_invoke",
-                    TYPE_ARGS_I64,
-                    &host_call_body(op.id(), arg_json.len() as i32),
-                ),
-            ],
-            &[(1024, arg_json.as_bytes())],
-        )
-    }
-
-    fn bomb_plugin() -> Vec<u8> {
-        build_module(
-            &[],
-            &[
-                ("fd_activate", TYPE_UNIT_I32, &infinite_loop_body()),
-                ("fd_deactivate", TYPE_UNIT_I32, &ok_body()),
-            ],
-            &[],
-        )
-    }
-
-    fn trap_plugin() -> Vec<u8> {
-        build_module(
-            &[],
-            &[
-                ("fd_activate", TYPE_UNIT_I32, &ok_body()),
-                ("fd_deactivate", TYPE_UNIT_I32, &ok_body()),
-                ("fd_alloc", TYPE_LEN_PTR, &alloc_body()),
-                ("fd_invoke", TYPE_ARGS_I64, &trap_body()),
-            ],
-            &[],
-        )
-    }
+    use super::fixture::*;
 
     // ---------- 用例 ----------
 
@@ -1552,6 +1317,8 @@ mod tests {
                 granted: PermissionSet::from_declared(manifest.permissions.iter().copied()),
                 services,
                 staging: Vec::new(),
+                logs: Mutex::new(VecDeque::new()),
+                usage: Mutex::new(BTreeMap::new()),
             },
         );
         store.limiter(|data: &mut PluginData| &mut data.limits);
@@ -1728,5 +1495,411 @@ mod tests {
         let (_recorder, services) = test_services();
         let engine = Arc::new(WasmiEngine::with_default_limits(services));
         assert_eq!(Arc::clone(&engine).dispatch_event("repo_opened", "{}"), 0);
+    }
+
+    // ---------- T6.4：插件日志、权限用量、运行时撤权 ----------
+
+    #[test]
+    fn plugin_logs_capture_fd_log_output_in_order() {
+        let (_recorder, services) = test_services();
+        let engine = WasmiEngine::with_default_limits(services);
+        let module = log_plugin(); // fd_invoke 期间调用 fd.log("hello", level=0)
+        let manifest = manifest_with_permissions(&[]);
+        let handle = engine.load(&manifest, &module).unwrap();
+        engine.activate(handle).unwrap();
+        engine.invoke(handle, "log", "{}").unwrap();
+
+        let logs = engine.plugin_logs(handle, 100).unwrap();
+        assert_eq!(logs.len(), 1);
+        assert_eq!(logs[0].message, "hello");
+        assert_eq!(logs[0].level, 0);
+        assert!(logs[0].time_ms > 0);
+        // 卸载后实例消失，日志不可取
+        engine.unload(handle).unwrap();
+        assert!(engine.plugin_logs(handle, 100).is_err());
+    }
+
+    #[test]
+    fn permission_usage_counts_successful_host_calls_per_permission() {
+        let (_recorder, services) = test_services();
+        let engine = WasmiEngine::with_default_limits(services);
+        let module = host_call_plugin(crate::host::HostOp::GetRepoInfo, "{}");
+        let manifest = manifest_with_permissions(&["git:read"]);
+        let handle = engine.load(&manifest, &module).unwrap();
+        engine.activate(handle).unwrap();
+
+        engine.invoke(handle, "repo", "{}").unwrap();
+        engine.invoke(handle, "repo", "{}").unwrap();
+
+        let usage = engine.permission_usage(handle).unwrap();
+        assert_eq!(usage, vec![(crate::permission::Permission::GitRead, 2)]);
+    }
+
+    #[test]
+    fn revoking_a_permission_denies_the_next_host_call_on_a_running_instance() {
+        let (_recorder, services) = test_services();
+        let engine = WasmiEngine::with_default_limits(services);
+        let module = host_call_plugin(crate::host::HostOp::GetRepoInfo, "{}");
+        let manifest = manifest_with_permissions(&["git:read"]);
+        let handle = engine.load(&manifest, &module).unwrap();
+        engine.activate(handle).unwrap();
+        assert!(engine.invoke(handle, "repo", "{}").is_ok());
+
+        // T6.4：撤销后下一次调用立即失败，实例不崩（权限拒绝是数据不是故障）
+        engine
+            .revoke_permission(handle, crate::permission::Permission::GitRead)
+            .unwrap();
+        let denied = engine.invoke(handle, "repo", "{}").unwrap();
+        assert!(denied.contains("-2"), "应携带 PERMISSION_DENIED: {denied}");
+        assert_eq!(engine.state(handle).unwrap(), LifecycleState::Active);
+    }
+}
+
+/// 手编 wasm 测试夹具（engine 与 manager 的测试共用；CI 无需 wasm32 目标）。
+#[cfg(test)]
+pub(crate) mod fixture {
+    pub(crate) const TYPE_UNIT_I32: u32 = 0;
+    pub(crate) const TYPE_ARGS_I64: u32 = 1;
+    pub(crate) const TYPE_LEN_PTR: u32 = 2;
+    pub(crate) const TYPE_HOST_CALL: u32 = 3;
+    pub(crate) const TYPE_HOST_RESULT: u32 = 4;
+    pub(crate) const TYPE_LOG: u32 = 5;
+
+    pub(crate) fn leb_u64(mut value: u64, out: &mut Vec<u8>) {
+        loop {
+            let mut byte = (value & 0x7f) as u8;
+            value >>= 7;
+            if value != 0 {
+                byte |= 0x80;
+            }
+            out.push(byte);
+            if value == 0 {
+                break;
+            }
+        }
+    }
+
+    pub(crate) fn sleb_i64(mut value: i64, out: &mut Vec<u8>) {
+        loop {
+            let byte = (value as u8) & 0x7f;
+            value >>= 7;
+            let sign_bit_set = byte & 0x40 != 0;
+            if (value == 0 && !sign_bit_set) || (value == -1 && sign_bit_set) {
+                out.push(byte);
+                break;
+            }
+            out.push(byte | 0x80);
+        }
+    }
+
+    pub(crate) fn section(id: u8, payload: &[u8], out: &mut Vec<u8>) {
+        out.push(id);
+        leb_u64(payload.len() as u64, out);
+        out.extend_from_slice(payload);
+    }
+
+    /// 构建一个测试插件模块。
+    ///
+    /// `imports` 为 `fd` 模块下的导入（按序占据函数索引 0..n）；
+    /// `exports` 为本地定义的导出（索引 = imports.len() + 序号）；
+    /// `data` 为 (偏移, 字节) 数据段列表。
+    pub(crate) fn build_module(
+        imports: &[(&'static str, u32)],
+        exports: &[(&'static str, u32, &[u8])],
+        data: &[(u32, &[u8])],
+    ) -> Vec<u8> {
+        let mut module = vec![0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00];
+
+        // type section：六条固定类型（wasm 段顺序固定：type 必须在 import 之前）
+        let mut types = vec![0x06];
+        types.extend_from_slice(&[
+            0x60, 0x00, 0x01, 0x7f, // t0: () -> i32
+            0x60, 0x02, 0x7f, 0x7f, 0x01, 0x7e, // t1: (i32,i32) -> i64
+            0x60, 0x01, 0x7f, 0x01, 0x7f, // t2: (i32) -> i32
+            0x60, 0x03, 0x7f, 0x7f, 0x7f, 0x01, 0x7f, // t3: (i32,i32,i32) -> i32
+            0x60, 0x02, 0x7f, 0x7f, 0x01, 0x7f, // t4: (i32,i32) -> i32
+            0x60, 0x03, 0x7f, 0x7f, 0x7f, 0x00, // t5: (i32,i32,i32) -> ()
+        ]);
+        section(0x01, &types, &mut module);
+
+        // import section：全部来自 "fd" 模块
+        if !imports.is_empty() {
+            let mut import_section = vec![imports.len() as u8];
+            for (name, type_idx) in imports {
+                leb_u64(2, &mut import_section); // "fd".len()
+                import_section.extend_from_slice(b"fd");
+                leb_u64(name.len() as u64, &mut import_section);
+                import_section.extend_from_slice(name.as_bytes());
+                import_section.push(0x00); // func
+                leb_u64(u64::from(*type_idx), &mut import_section);
+            }
+            section(0x02, &import_section, &mut module);
+        }
+
+        // function section：导出顺序即函数索引
+        let mut funcs = vec![exports.len() as u8];
+        for (_, type_idx, _) in exports {
+            leb_u64(u64::from(*type_idx), &mut funcs);
+        }
+        section(0x03, &funcs, &mut module);
+
+        // memory section：1 页，无上限（上限由宿主 limiter 管）
+        section(0x05, &[0x01, 0x00, 0x01], &mut module);
+
+        // export section：函数（索引要加上导入数）+ memory
+        let mut export_section = vec![exports.len() as u8 + 1];
+        for (index, (name, _, _)) in exports.iter().enumerate() {
+            leb_u64(name.len() as u64, &mut export_section);
+            export_section.extend_from_slice(name.as_bytes());
+            export_section.push(0x00);
+            leb_u64((imports.len() + index) as u64, &mut export_section);
+        }
+        export_section.extend_from_slice(b"\x06memory\x02\x00");
+        section(0x07, &export_section, &mut module);
+
+        // code section：每个函数体 = local 计数 0x00 + body（body 自带 end）
+        let mut code = vec![exports.len() as u8];
+        for (_, _, body) in exports {
+            let mut entry = vec![0x00];
+            entry.extend_from_slice(body);
+            leb_u64(entry.len() as u64, &mut code);
+            code.extend_from_slice(&entry);
+        }
+        section(0x0a, &code, &mut module);
+
+        // data section：每个段 = memidx 0 + offset(i32.const) + 字节
+        if !data.is_empty() {
+            let mut payload = vec![data.len() as u8];
+            for (offset, bytes) in data {
+                payload.push(0x00);
+                payload.push(0x41); // i32.const
+                sleb_i64(i64::from(*offset), &mut payload);
+                payload.push(0x0b);
+                leb_u64(bytes.len() as u64, &mut payload);
+                payload.extend_from_slice(bytes);
+            }
+            section(0x0b, &payload, &mut module);
+        }
+        module
+    }
+
+    pub(crate) fn ok_body() -> Vec<u8> {
+        vec![0x41, 0x00, 0x0b] // i32.const 0
+    }
+
+    pub(crate) fn alloc_body() -> Vec<u8> {
+        // i32.const 2048（fd_alloc 永远返回同一块区域——测试夹具够用）
+        vec![0x41, 0x80, 0x10, 0x0b]
+    }
+
+    pub(crate) fn invoke_body_returning_hello() -> Vec<u8> {
+        // 返回 (ptr<<32)|len，ptr=1024、len=11（数据段内容 "hello world"）
+        let mut body = vec![0x42];
+        sleb_i64((1024i64 << 32) | 11, &mut body);
+        body.push(0x0b);
+        body
+    }
+
+    /// 纯自旋死循环：loop { br 0 } —— fuel 耗尽才会停。
+    /// 注意：块结束会清除"不可达"标记（标准校验语义），()->i32 函数必须在
+    /// 循环后补一个 i32 值才能通过校验（运行时永远到不了那里）。
+    pub(crate) fn infinite_loop_body() -> Vec<u8> {
+        vec![0x03, 0x40, 0x0c, 0x00, 0x0b, 0x41, 0x00, 0x0b]
+    }
+
+    /// 内存炸弹体：尝试一次性把线性内存 grow 65536 页（4GB）；store 上限会让
+    /// grow 失败并按规范返回 -1，插件据此主动 unreachable——验证上限生效。
+    pub(crate) fn grow_bomb_body() -> Vec<u8> {
+        vec![
+            0x41, 0x80, 0x80, 0x04, // i32.const 65536（LEB128）
+            0x40, 0x00, // memory.grow (memidx 0)
+            0x41, 0x7f, // i32.const -1
+            0x46, // i32.eq
+            0x04, 0x40, // if (empty)
+            0x00, //   unreachable
+            0x0b, // end if
+            0x41, 0x00, // i32.const 0
+            0x0b, // end func
+        ]
+    }
+
+    pub(crate) fn trap_body() -> Vec<u8> {
+        vec![0x00, 0x0b] // unreachable
+    }
+
+    pub(crate) fn normal_plugin() -> Vec<u8> {
+        build_module(
+            &[],
+            &[
+                ("fd_activate", TYPE_UNIT_I32, &ok_body()),
+                ("fd_deactivate", TYPE_UNIT_I32, &ok_body()),
+                ("fd_alloc", TYPE_LEN_PTR, &alloc_body()),
+                ("fd_invoke", TYPE_ARGS_I64, &invoke_body_returning_hello()),
+            ],
+            &[(1024, b"hello world")],
+        )
+    }
+
+    /// 调用一次 `fd.host_call` 并把 staging 结果带回 fd_invoke 返回区的插件体。
+    ///
+    /// 约定内存布局：参数 JSON 位于 1024，输出缓冲位于 2048（容量 1024）。
+    pub(crate) fn host_call_body(op: i32, arg_len: i32) -> Vec<u8> {
+        const ARG_PTR: i32 = 1024;
+        const OUT_PTR: i32 = 2048;
+        const OUT_CAP: i32 = 1024;
+        let mut body = vec![];
+        for value in [op, ARG_PTR, arg_len] {
+            body.push(0x41);
+            sleb_i64(i64::from(value), &mut body);
+        }
+        body.extend_from_slice(&[0x10, 0x00]); // call 0 = fd.host_call
+        body.push(0x1a); // drop 返回码（结果看 staging）
+        for value in [OUT_PTR, OUT_CAP] {
+            body.push(0x41);
+            sleb_i64(i64::from(value), &mut body);
+        }
+        body.extend_from_slice(&[0x10, 0x01]); // call 1 = fd.host_result
+        body.push(0x1a); // drop 写入字节数
+        body.push(0x42); // i64.const (OUT_PTR << 32) | OUT_CAP
+        sleb_i64(((OUT_PTR as i64) << 32) | i64::from(OUT_CAP), &mut body);
+        body.push(0x0b);
+        body
+    }
+
+    /// 只调 `fd.log` 的最小插件：二分定位导入崩溃点（纯内存读路径）。
+    /// fd_invoke 返回数据段内容，便于断言。
+    pub(crate) fn log_plugin() -> Vec<u8> {
+        let mut body = vec![];
+        for value in [0i32, 1024, 5] {
+            body.push(0x41);
+            sleb_i64(i64::from(value), &mut body);
+        }
+        body.extend_from_slice(&[0x10, 0x00]); // call 0 = fd.log
+        body.push(0x42); // i64.const (1024 << 32) | 5
+        sleb_i64((1024i64 << 32) | 5, &mut body);
+        body.push(0x0b);
+        build_module(
+            &[("log", TYPE_LOG)],
+            &[
+                ("fd_activate", TYPE_UNIT_I32, &ok_body()),
+                ("fd_deactivate", TYPE_UNIT_I32, &ok_body()),
+                ("fd_alloc", TYPE_LEN_PTR, &alloc_body_at(8192)),
+                ("fd_invoke", TYPE_ARGS_I64, &body),
+            ],
+            &[(1024, b"hello")],
+        )
+    }
+
+    pub(crate) fn alloc_body_at(ptr: i32) -> Vec<u8> {
+        let mut body = vec![0x41];
+        sleb_i64(i64::from(ptr), &mut body);
+        body.push(0x0b);
+        body
+    }
+
+    /// 构建一个"渲染指定面板"的测试插件：fd_render_panel 忽略面板 id，
+    /// 返回数据段 1024 处的 DSL JSON（打包 ptr<<32|len）。
+    pub(crate) fn panel_plugin(dsl_json: &str) -> Vec<u8> {
+        let mut body = vec![0x42];
+        sleb_i64((1024i64 << 32) | dsl_json.len() as i64, &mut body);
+        body.push(0x0b);
+        build_module(
+            &[],
+            &[
+                ("fd_activate", TYPE_UNIT_I32, &ok_body()),
+                ("fd_deactivate", TYPE_UNIT_I32, &ok_body()),
+                ("fd_alloc", TYPE_LEN_PTR, &alloc_body_at(8192)),
+                ("fd_render_panel", TYPE_ARGS_I64, &body),
+            ],
+            &[(1024, dsl_json.as_bytes())],
+        )
+    }
+
+    /// 构建一个"收到事件后转发为 toast"的测试插件：
+    /// fd_on_event(payload_ptr, payload_len) → host_call(SHOW_TOAST, payload)。
+    pub(crate) fn event_plugin() -> Vec<u8> {
+        let mut body = vec![0x41];
+        sleb_i64(i64::from(crate::host::HostOp::ShowToast.id()), &mut body);
+        body.extend_from_slice(&[0x20, 0x00, 0x20, 0x01]); // local.get 0, local.get 1
+        body.extend_from_slice(&[0x10, 0x00]); // call 0 = fd.host_call
+        body.push(0x1a); // drop 返回码
+        body.extend_from_slice(&[0x41, 0x00]); // i32.const 0
+        body.push(0x0b);
+        build_module(
+            &[("host_call", TYPE_HOST_CALL)],
+            &[
+                ("fd_activate", TYPE_UNIT_I32, &ok_body()),
+                ("fd_deactivate", TYPE_UNIT_I32, &ok_body()),
+                ("fd_alloc", TYPE_LEN_PTR, &alloc_body_at(8192)),
+                ("fd_on_event", TYPE_HOST_RESULT, &body),
+            ],
+            &[],
+        )
+    }
+
+    /// fd_on_event 死循环的插件：验证事件分发不阻塞宿主（fuel 终止回调）。
+    pub(crate) fn slow_event_plugin() -> Vec<u8> {
+        let mut body = vec![0x03, 0x40, 0x0c, 0x00, 0x0b]; // loop { br 0 }
+        body.extend_from_slice(&[0x41, 0x00]); // i32.const 0（块结束清除不可达）
+        body.push(0x0b);
+        build_module(
+            &[],
+            &[
+                ("fd_activate", TYPE_UNIT_I32, &ok_body()),
+                ("fd_deactivate", TYPE_UNIT_I32, &ok_body()),
+                ("fd_alloc", TYPE_LEN_PTR, &alloc_body_at(8192)),
+                ("fd_on_event", TYPE_HOST_RESULT, &body),
+            ],
+            &[],
+        )
+    }
+
+    /// 构建一个"调用指定宿主操作"的测试插件。
+    ///
+    /// 内存布局：1024 = 宿主操作参数 JSON（数据段）；2048 = staging 输出缓冲；
+    /// 8192 = fd_alloc 的 invoke 参数区（引擎 invoke 会把命令参数写到这里，
+    /// 本夹具不读它）。三者互不重叠。
+    pub(crate) fn host_call_plugin(op: crate::host::HostOp, arg_json: &str) -> Vec<u8> {
+        build_module(
+            &[
+                ("host_call", TYPE_HOST_CALL),
+                ("host_result", TYPE_HOST_RESULT),
+            ],
+            &[
+                ("fd_activate", TYPE_UNIT_I32, &ok_body()),
+                ("fd_deactivate", TYPE_UNIT_I32, &ok_body()),
+                ("fd_alloc", TYPE_LEN_PTR, &alloc_body_at(8192)),
+                (
+                    "fd_invoke",
+                    TYPE_ARGS_I64,
+                    &host_call_body(op.id(), arg_json.len() as i32),
+                ),
+            ],
+            &[(1024, arg_json.as_bytes())],
+        )
+    }
+
+    pub(crate) fn bomb_plugin() -> Vec<u8> {
+        build_module(
+            &[],
+            &[
+                ("fd_activate", TYPE_UNIT_I32, &infinite_loop_body()),
+                ("fd_deactivate", TYPE_UNIT_I32, &ok_body()),
+            ],
+            &[],
+        )
+    }
+
+    pub(crate) fn trap_plugin() -> Vec<u8> {
+        build_module(
+            &[],
+            &[
+                ("fd_activate", TYPE_UNIT_I32, &ok_body()),
+                ("fd_deactivate", TYPE_UNIT_I32, &ok_body()),
+                ("fd_alloc", TYPE_LEN_PTR, &alloc_body()),
+                ("fd_invoke", TYPE_ARGS_I64, &trap_body()),
+            ],
+            &[],
+        )
     }
 }

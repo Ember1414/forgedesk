@@ -13,6 +13,7 @@ authors.workspace = true
 [dependencies]
 forgedesk-domain.workspace = true
 parking_lot.workspace = true
+sha2.workspace = true
 schemars.workspace = true
 serde.workspace = true
 serde_json.workspace = true
