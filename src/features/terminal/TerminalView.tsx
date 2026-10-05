@@ -39,6 +39,9 @@ import {
   setQueryClientForRefresh,
   unregisterTerminal,
 } from '@/features/terminal/manager';
+import { explainGitCommand } from '@/features/terminal/explainer';
+import type { GitExplain } from '@/features/terminal/explainer';
+import { ExplainCard } from '@/features/terminal/ExplainCard';
 import { isGitCommand } from '@/features/terminal/gitInputRefresh';
 import { termReportCommand, termResize, termScanCommand, termWrite } from '@/lib/ipc';
 import type { TermDanger } from '@/lib/ipc';
@@ -97,6 +100,7 @@ export function TerminalView({
   const [showSearch, setShowSearch] = useState(false);
   const [searchState, setSearchState] = useState({ query: '', regex: false, caseSensitive: false });
   const [hint, setHint] = useState<TermDanger | null>(null);
+  const [explain, setExplain] = useState<GitExplain | null>(null);
   const pendingConfirm = useTerminalStore((state) =>
     state.pendingConfirm?.termId === tab.termId ? state.pendingConfirm : null,
   );
@@ -221,6 +225,13 @@ export function TerminalView({
       void termScanCommand(last)
         .then((danger) => {
           if (!danger) {
+            // 解释卡片：命中知识库且风险 ≠ safe 时随 Enter 自动展示；
+            // 安全命令不自动弹（Ctrl+/ 可随时显式解释）
+            const explained = explainGitCommand(last);
+            const risk = explained?.sub?.risk ?? explained?.command.risk;
+            if (explained && risk !== undefined && risk !== 'safe') {
+              setExplain(explained);
+            }
             sendEnter();
             return;
           }
@@ -280,6 +291,13 @@ export function TerminalView({
       }
       if (mod && event.key === 'f') {
         setShowSearch(true);
+        return false;
+      }
+      if (mod && event.key === '/') {
+        // "解释这条命令"：解释当前行（未提交的部分）
+        const line = getLineTracker(tab.termId).current();
+        const result = line.trim() === '' ? null : explainGitCommand(line);
+        setExplain(result);
         return false;
       }
       return true;
@@ -379,6 +397,16 @@ export function TerminalView({
     }
   }, [tab.repoId, tab.termId]);
 
+  const insertExample = useCallback(
+    (example: string) => {
+      const managed = findTerminalInstance(tab.termId);
+      if (managed) {
+        managed.term.paste(example);
+      }
+    },
+    [tab.termId],
+  );
+
   /** 确认执行：把挂起的 Enter 发出去，shell 侧的行原样落地（不改写输入）。 */
   const confirmDanger = useCallback(() => {
     setStorePendingConfirm(null);
@@ -423,6 +451,15 @@ export function TerminalView({
           </ContextMenuItem>
         </ContextMenuContent>
       </ContextMenu>
+
+      {explain ? (
+        <ExplainCard
+          explain={explain}
+          repoId={tab.repoId}
+          onInsert={insertExample}
+          onClose={() => setExplain(null)}
+        />
+      ) : null}
 
       {hint ? (
         <div

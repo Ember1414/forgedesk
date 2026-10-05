@@ -49,7 +49,8 @@
     "github": "代码托管",
     "plugins": "插件",
     "settings": "设置",
-    "repoSettings": "仓库设置"
+    "repoSettings": "仓库设置",
+    "commands": "命令字典"
   },
   "statusBar": {
     "ariaLabel": "状态栏",
@@ -291,6 +292,10 @@
     },
     "settingsTerminal": {
       "title": "终端"
+    },
+    "commands": {
+      "title": "命令字典",
+      "description": "常用 git 命令与参数的本地速查手册（内容离线打包，可能滞后于最新 git 版本）。"
     }
   },
   "terminal": {
@@ -341,6 +346,41 @@
       "confirmImpact": "执行后无法由 ForgeDesk 自动撤销（终端操作不经过安全快照层）；补偿快照（若已开启）只会记录执行后的状态。",
       "confirmExecute": "确认执行",
       "confirmCancel": "取消"
+    },
+    "explain": {
+      "title": "命令解释",
+      "close": "关闭解释",
+      "risk": {
+        "safe": "安全",
+        "caution": "注意",
+        "dangerous": "危险"
+      },
+      "docs": "官方文档",
+      "openEquivalent": "转到图形安全操作",
+      "insertExample": "插入到当前行",
+      "snapshotNote": "解释来自本地知识库快照，可能滞后于最新 git 版本。",
+      "feedback": "反馈/纠正"
+    },
+    "dictionary": {
+      "search": "搜索命令或解释…",
+      "riskFilter": "按风险筛选",
+      "categoryFilter": "按分类筛选",
+      "all": "全部",
+      "allCategories": "全部分类",
+      "count": "{count} 条",
+      "empty": "没有匹配的条目。",
+      "category": {
+        "repo": "仓库",
+        "staging": "暂存与工作区",
+        "commit": "提交",
+        "branch": "分支",
+        "merge": "合并与变基",
+        "history": "历史",
+        "stash": "储藏",
+        "remote": "远端",
+        "config": "配置",
+        "maintenance": "维护"
+      }
     }
   },
   "diff": {

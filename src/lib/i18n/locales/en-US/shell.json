@@ -49,7 +49,8 @@
     "github": "Code hosting",
     "plugins": "Plugins",
     "settings": "Settings",
-    "repoSettings": "Repository settings"
+    "repoSettings": "Repository settings",
+    "commands": "Commands"
   },
   "statusBar": {
     "ariaLabel": "Status bar",
@@ -291,6 +292,10 @@
     },
     "settingsTerminal": {
       "title": "Terminal"
+    },
+    "commands": {
+      "title": "Command dictionary",
+      "description": "An offline quick reference for common git commands and flags (bundled locally; may lag behind the latest git release)."
     }
   },
   "terminal": {
@@ -341,6 +346,41 @@
       "confirmImpact": "ForgeDesk cannot automatically undo what happens in the terminal (terminal commands bypass the snapshot safety layer); a compensation snapshot, if enabled, only records the state afterwards.",
       "confirmExecute": "Run command",
       "confirmCancel": "Cancel"
+    },
+    "explain": {
+      "title": "Command explainer",
+      "close": "Close explainer",
+      "risk": {
+        "safe": "Safe",
+        "caution": "Caution",
+        "dangerous": "Dangerous"
+      },
+      "docs": "Official docs",
+      "openEquivalent": "Open the graphical safe action",
+      "insertExample": "Insert into current line",
+      "snapshotNote": "Explanations come from a bundled snapshot and may lag behind the latest git release.",
+      "feedback": "Feedback / corrections"
+    },
+    "dictionary": {
+      "search": "Search commands or explanations…",
+      "riskFilter": "Filter by risk",
+      "categoryFilter": "Filter by category",
+      "all": "All",
+      "allCategories": "All categories",
+      "count": "{count} entries",
+      "empty": "No matching entries.",
+      "category": {
+        "repo": "Repository",
+        "staging": "Staging & worktree",
+        "commit": "Commit",
+        "branch": "Branches",
+        "merge": "Merge & rebase",
+        "history": "History",
+        "stash": "Stash",
+        "remote": "Remote",
+        "config": "Config",
+        "maintenance": "Maintenance"
+      }
     }
   },
   "diff": {

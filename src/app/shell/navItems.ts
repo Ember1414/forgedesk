@@ -11,6 +11,7 @@
  *   避免与第三方标识产生视觉联想。
  */
 import {
+  BookOpen,
   Cloud,
   History,
   LayoutDashboard,
@@ -126,6 +127,13 @@ export const NAV_SECTIONS: readonly NavSection[] = [
     id: 'application',
     titleKey: 'nav.sections.application',
     items: [
+      {
+        id: 'commands',
+        labelKey: 'items.commands',
+        icon: BookOpen,
+        segment: 'commands',
+        repoScoped: false,
+      },
       {
         id: 'settings',
         labelKey: 'items.settings',

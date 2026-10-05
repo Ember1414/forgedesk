@@ -1,0 +1,512 @@
+# =============================================================================
+# ForgeDesk 命令解释知识库（T5.4）
+# -----------------------------------------------------------------------------
+# 纯本地规则数据：终端解释卡片与命令字典页的唯一数据源。
+# 红线 R1：这里永远不会有任何 AI / 推理服务条目；解释在构建期打包，运行期零网络。
+#
+# 结构说明：
+#   command      git 子命令名（匹配用户输入的第一个非全局选项 token）
+#   category     分类（dictionary 页筛选用）：repo / staging / commit / branch /
+#                merge / history / remote / stash / config / maintenance
+#   risk         safe（安全）/ caution（注意）/ dangerous（危险）
+#   summary      人话解释（中文；T6.7 全量 i18n 时补 en-US 词条）
+#   docs_url     官方文档链接（点击经系统浏览器打开）
+#   example      典型用法（"插入到当前行"按钮写入终端的内容）
+#   equivalent_ui_route  等价图形入口（仓库内路由段；缺省 = 没有对应图形入口）
+#   subcommands  子命令 / 关键参数的补充条目（name 按出现顺序匹配）
+#
+# 内容基线：git 2.4x。本文件是"本地知识库快照"，可能滞后于最新 git 版本
+# （界面会如实提示；纠正入口见 dictionary 页脚）。
+# =============================================================================
+version: 1
+language: zh-CN
+commands:
+  # ------------------------------------------------------------- 仓库（repo）
+  - command: init
+    category: repo
+    risk: safe
+    summary: 在当前目录创建一个空的 Git 仓库（或重新初始化已有的仓库）。不会覆盖已有历史。
+    docs_url: https://git-scm.com/docs/git-init
+    example: git init
+    equivalent_ui_route: /status
+  - command: clone
+    category: repo
+    risk: safe
+    summary: 把远端仓库完整复制到本地，包括全部历史与分支，并自动配置好 origin 远端。
+    docs_url: https://git-scm.com/docs/git-clone
+    example: git clone https://example.com/repo.git
+    subcommands:
+      - name: --depth
+        risk: safe
+        summary: 浅克隆：只取最近的 N 次提交，节省流量与时间；之后历史不完整，某些操作受限。
+        example: git clone --depth 1 https://example.com/repo.git
+
+  # ------------------------------------------------------------- 查看（status）
+  - command: status
+    category: staging
+    risk: safe
+    summary: 显示工作区与暂存区的当前状态：哪些文件修改、暂存、未跟踪，以及当前分支。
+    docs_url: https://git-scm.com/docs/git-status
+    example: git status
+    equivalent_ui_route: /status
+
+  # ------------------------------------------------------------- 暂存（staging）
+  - command: add
+    category: staging
+    risk: safe
+    summary: 把文件的当前内容记入暂存区（下次提交的快照）。只影响暂存，不改工作区。
+    docs_url: https://git-scm.com/docs/git-add
+    example: git add src/main.rs
+    equivalent_ui_route: /status
+    subcommands:
+      - name: -A
+        risk: caution
+        summary: 暂存全部变化（含新文件与删除）。范围大，建议先 git status 确认没有不想提交的内容。
+        example: git add -A
+  - command: restore
+    category: staging
+    risk: safe
+    summary: 从指定来源恢复工作区文件，默认丢弃未暂存的修改（不可恢复）。
+    docs_url: https://git-scm.com/docs/git-restore
+    example: git restore src/main.rs
+    equivalent_ui_route: /status
+    subcommands:
+      - name: --staged
+        risk: caution
+        summary: 把暂存区的修改撤回到工作区（取消暂存），文件内容不丢。
+        example: git restore --staged src/main.rs
+      - name: --source
+        risk: caution
+        summary: 从指定提交恢复文件；不带 --staged 时会直接覆盖工作区内容。
+        example: git restore --source HEAD~1 src/main.rs
+  - command: rm
+    category: staging
+    risk: caution
+    summary: 从工作区与索引中删除文件。加 --cached 只从索引移除，保留磁盘文件。
+    docs_url: https://git-scm.com/docs/git-rm
+    example: git rm old.txt
+    subcommands:
+      - name: --cached
+        risk: safe
+        summary: 只取消跟踪（从索引删除），磁盘文件保留——常用于停止跟踪本地产物。
+        example: git rm --cached build.log
+
+  # ------------------------------------------------------------- 提交（commit）
+  - command: commit
+    category: commit
+    risk: safe
+    summary: 把暂存区的内容记录为一次提交。只影响本地仓库，推送前别人看不到。
+    docs_url: https://git-scm.com/docs/git-commit
+    example: git commit -m "提交说明"
+    equivalent_ui_route: /commit
+    subcommands:
+      - name: --amend
+        risk: caution
+        summary: 修补上一次提交（改信息或追加内容）——生成一个新提交替换它。已推送的提交被改写后需要强推，慎用。
+        docs_url: https://git-scm.com/docs/git-commit#Documentation/git-commit.txt---amend
+        example: git commit --amend -m "新说明"
+      - name: --no-verify
+        risk: caution
+        summary: 跳过 pre-commit / commit-msg 钩子检查。绕过团队校验，仅在明确知道后果时使用。
+        example: git commit --no-verify -m "说明"
+
+  # ------------------------------------------------------------- 分支（branch）
+  - command: branch
+    category: branch
+    risk: safe
+    summary: 列出、创建或删除分支。默认不带参数 = 列出本地分支。
+    docs_url: https://git-scm.com/docs/git-branch
+    example: git branch feature/login
+    equivalent_ui_route: /branches
+    subcommands:
+      - name: -d
+        risk: safe
+        summary: 删除一个已合并的分支。Git 会拒绝删除还没合并的分支，是安全出口。
+        example: git branch -d feature/login
+      - name: -D
+        risk: dangerous
+        summary: 强制删除分支，即使它还有未合并的提交——这些提交将不可达，可能永久丢失。
+        docs_url: https://git-scm.com/docs/git-branch#Documentation/git-branch.txt---D
+        example: git branch -D feature/login
+        equivalent_ui_route: /snapshots
+
+  - command: checkout
+    category: branch
+    risk: caution
+    summary: 切换分支或恢复文件（旧式多用途命令，分支操作建议用 switch / restore）。
+    docs_url: https://git-scm.com/docs/git-checkout
+    example: git checkout main
+    equivalent_ui_route: /branches
+    subcommands:
+      - name: -f
+        risk: dangerous
+        summary: 强制切换，丢弃当前工作区与暂存区里所有未提交的修改——本地改动会直接丢失。
+        docs_url: https://git-scm.com/docs/git-checkout#Documentation/git-checkout.txt---f
+        example: git checkout -f main
+        equivalent_ui_route: /snapshots
+      - name: -b
+        risk: safe
+        summary: 创建新分支并立即切换过去。
+        example: git checkout -b feature/new
+      - name: --
+        risk: caution
+        summary: 用指定来源的内容覆盖工作区文件（缺省 = HEAD），未提交的修改会被覆盖丢失。
+        example: git checkout -- src/main.rs
+        equivalent_ui_route: /snapshots
+  - command: switch
+    category: branch
+    risk: safe
+    summary: 切换分支（checkout 的现代替代，只做分支切换，语义更安全）。
+    docs_url: https://git-scm.com/docs/git-switch
+    example: git switch main
+    equivalent_ui_route: /branches
+    subcommands:
+      - name: -c
+        risk: safe
+        summary: 创建新分支并切换过去。
+        example: git switch -c feature/new
+      - name: --detach
+        risk: caution
+        summary: 进入"分离 HEAD"状态：直接检出一个提交而不是分支，此时的新提交不属于任何分支，切走后容易找不到。
+        example: git switch --detach v1.2.0
+
+  # ------------------------------------------------------------- 合并与变基
+  - command: merge
+    category: merge
+    risk: caution
+    summary: 把指定分支的修改合并进当前分支；产生冲突时停下等你解决。
+    docs_url: https://git-scm.com/docs/git-merge
+    example: git merge feature/login
+    equivalent_ui_route: /branches
+    subcommands:
+      - name: --abort
+        risk: safe
+        summary: 放弃这次合并，仓库回到合并开始前的状态。
+        example: git merge --abort
+      - name: --squash
+        risk: caution
+        summary: 把目标分支的全部修改压缩成一组暂存改动（不生成合并提交），由你再手动提交一次。
+        example: git merge --squash feature/login
+  - command: rebase
+    category: merge
+    risk: caution
+    summary: 把当前分支的提交"搬到"目标分支之上重放，得到线性历史；重放可能产生冲突。
+    docs_url: https://git-scm.com/docs/git-rebase
+    example: git rebase main
+    equivalent_ui_route: /conflict
+    subcommands:
+      - name: --abort
+        risk: safe
+        summary: 放弃这次变基，仓库回到变基开始前的状态。
+        example: git rebase --abort
+      - name: --continue
+        risk: caution
+        summary: 解决完冲突后继续变基。别忘了先 git add 标记已解决的文件。
+        example: git rebase --continue
+      - name: -i
+        risk: caution
+        summary: 交互式变基：逐个整理提交（改写、合并、删除）。会打开编辑器，且会改写历史。
+        example: git rebase -i main
+
+  - command: cherry-pick
+    category: merge
+    risk: caution
+    summary: 把别的分支上的某一次提交"复制"到当前分支（生成新提交）。冲突时停下。
+    docs_url: https://git-scm.com/docs/git-cherry-pick
+    example: git cherry-pick abc1234
+    equivalent_ui_route: /operations
+    subcommands:
+      - name: --abort
+        risk: safe
+        summary: 放弃这次拣选，回到操作前状态。
+        example: git cherry-pick --abort
+
+  - command: revert
+    category: history
+    risk: safe
+    summary: 生成一个"反向提交"来抵消指定提交的内容——不改写历史，是已推送提交的后悔药。
+    docs_url: https://git-scm.com/docs/git-revert
+    example: git revert abc1234
+    equivalent_ui_route: /operations
+
+  # ------------------------------------------------------------- 重置与历史
+  - command: reset
+    category: history
+    risk: caution
+    summary: 把当前分支与（可选）暂存区、工作区移动到指定提交。移动方式由模式决定。
+    docs_url: https://git-scm.com/docs/git-reset
+    example: git reset --soft HEAD~1
+    equivalent_ui_route: /operations
+    subcommands:
+      - name: --hard
+        risk: dangerous
+        summary: 分支、暂存区、工作区全部重置到目标提交——未提交的修改与暂存会被永久丢弃。
+        docs_url: https://git-scm.com/docs/git-reset#Documentation/git-reset.txt---hard
+        example: git reset --hard HEAD
+        equivalent_ui_route: /snapshots
+      - name: --soft
+        risk: caution
+        summary: 只移动分支指针，暂存区与工作区保持原样——已提交的内容回到"已暂存"状态。
+        example: git reset --soft HEAD~1
+      - name: --mixed
+        risk: caution
+        summary: 移动分支并清空暂存区，工作区文件保持原样（这是默认模式）。
+        example: git reset --mixed HEAD~1
+  - command: reflog
+    category: history
+    risk: safe
+    summary: 查看本地 HEAD 与分支的移动记录——即使提交"丢了"，也能从这里找到它的哈希。
+    docs_url: https://git-scm.com/docs/git-reflog
+    example: git reflog
+    equivalent_ui_route: /operations
+    subcommands:
+      - name: expire
+        risk: dangerous
+        summary: 清理过期的 reflog 记录。记录没了，"找回丢失提交"的最后一道线索也没了。
+        docs_url: https://git-scm.com/docs/git-reflog
+        example: git reflog expire --expire=now --all
+        equivalent_ui_route: /snapshots
+
+  # ------------------------------------------------------------- 储藏（stash）
+  - command: stash
+    category: stash
+    risk: safe
+    summary: 把未提交的修改临时收起来，让工作区变干净；之后可以随时恢复。
+    docs_url: https://git-scm.com/docs/git-stash
+    example: git stash push -m "进行中的修改"
+    equivalent_ui_route: /operations
+    subcommands:
+      - name: pop
+        risk: caution
+        summary: 恢复最近一次储藏并删除该条记录；恢复时有冲突会导致条目保留，需手动处理。
+        example: git stash pop
+      - name: apply
+        risk: safe
+        summary: 恢复储藏内容但保留该条记录（和 pop 的区别：失败也不丢）。
+        example: git stash apply stash@{1}
+      - name: drop
+        risk: dangerous
+        summary: 删除指定储藏条目——里面的修改将无法通过常规手段找回。
+        docs_url: https://git-scm.com/docs/git-stash#Documentation/git-stash.txt-drop
+        example: git stash drop stash@{0}
+        equivalent_ui_route: /snapshots
+      - name: clear
+        risk: dangerous
+        summary: 清空全部储藏条目——所有收起来的修改一次性丢掉，且没有确认步骤。
+        example: git stash clear
+        equivalent_ui_route: /snapshots
+
+  # ------------------------------------------------------------- 远端（remote）
+  - command: fetch
+    category: remote
+    risk: safe
+    summary: 从远端下载最新的提交与分支信息，但**不**改动你的本地分支——只更新远端跟踪引用。
+    docs_url: https://git-scm.com/docs/git-fetch
+    example: git fetch origin
+    subcommands:
+      - name: --prune
+        risk: caution
+        summary: 同时删掉本地那些"远端已经不存在"的远端跟踪分支。
+        example: git fetch --prune
+  - command: pull
+    category: remote
+    risk: caution
+    summary: 等于 fetch + merge（或 rebase）：下载远端更新并立即合入当前分支，可能产生冲突。
+    docs_url: https://git-scm.com/docs/git-pull
+    example: git pull origin main
+    subcommands:
+      - name: --rebase
+        risk: caution
+        summary: 下载后用变基而不是合并来接入远端更新，历史保持线性。
+        example: git pull --rebase origin main
+  - command: push
+    category: remote
+    risk: caution
+    summary: 把本地提交上传到远端分支。这是本地工作对外可见的一步。
+    docs_url: https://git-scm.com/docs/git-push
+    example: git push origin main
+    subcommands:
+      - name: --force
+        risk: dangerous
+        summary: 用本地历史覆盖远端——远端上别人的提交会被直接抹掉。团队协作中几乎总是错的，请用 --force-with-lease。
+        docs_url: https://git-scm.com/docs/git-push#Documentation/git-push.txt---force
+        example: git push --force origin main
+      - name: --force-with-lease
+        risk: caution
+        summary: 更安全的强推：仅当远端仍是本地所知的状态时才覆盖，别人推过新提交就会拒绝。
+        example: git push --force-with-lease origin main
+      - name: --delete
+        risk: caution
+        summary: 删除远端分支。远端上的分支与其引用被移除（本地仓库不受影响）。
+        example: git push origin --delete feature/login
+  - command: remote
+    category: remote
+    risk: safe
+    summary: 管理远端仓库：列出（默认）、添加、改名、删除远端配置。
+    docs_url: https://git-scm.com/docs/git-remote
+    example: git remote -v
+    subcommands:
+      - name: add
+        risk: safe
+        summary: 添加一个远端（起个名字，绑定 URL）。
+        example: git remote add upstream https://example.com/repo.git
+      - name: remove
+        risk: safe
+        summary: 移除一个远端配置（只删配置，不删本地数据）。
+        example: git remote remove upstream
+
+  # ------------------------------------------------------------- 历史查看
+  - command: log
+    category: history
+    risk: safe
+    summary: 浏览提交历史。默认从当前 HEAD 向前列出。
+    docs_url: https://git-scm.com/docs/git-log
+    example: git log --oneline -10
+    equivalent_ui_route: /history
+    subcommands:
+      - name: --oneline
+        risk: safe
+        summary: 每个提交一行（短哈希 + 标题），快速浏览。
+        example: git log --oneline
+      - name: --graph
+        risk: safe
+        summary: 用 ASCII 图形画出分支与合并的结构。
+        example: git log --graph --oneline
+  - command: diff
+    category: history
+    risk: safe
+    summary: 比较两个状态的差异：工作区 vs 暂存区、暂存区 vs 某个提交……
+    docs_url: https://git-scm.com/docs/git-diff
+    example: git diff
+    equivalent_ui_route: /status
+    subcommands:
+      - name: --staged
+        risk: safe
+        summary: 查看暂存区与 HEAD 的差异（"将要提交什么"）。
+        example: git diff --staged
+  - command: show
+    category: history
+    risk: safe
+    summary: 显示某个对象（提交、标签、文件内容）的详细信息，默认显示 HEAD。
+    docs_url: https://git-scm.com/docs/git-show
+    example: git show abc1234
+    equivalent_ui_route: /history
+  - command: blame
+    category: history
+    risk: safe
+    summary: 逐行标注每个文件每一行最后一次被哪个提交、谁、何时修改。
+    docs_url: https://git-scm.com/docs/git-blame
+    example: git blame src/main.rs
+    equivalent_ui_route: /history
+  - command: bisect
+    category: history
+    risk: safe
+    summary: 二分法定位"引入 bug 的那一次提交"：你标记好/坏，Git 自动切换中间提交。
+    docs_url: https://git-scm.com/docs/git-bisect
+    example: git bisect start HEAD v1.0.0
+    subcommands:
+      - name: reset
+        risk: safe
+        summary: 结束二分查找，回到原来的分支。
+        example: git bisect reset
+
+  # ------------------------------------------------------------- 标签
+  - command: tag
+    category: history
+    risk: safe
+    summary: 创建、列出或删除标签（指向某个提交的命名标记，常用于版本号）。
+    docs_url: https://git-scm.com/docs/git-tag
+    example: git tag v1.2.0
+    equivalent_ui_route: /branches
+    subcommands:
+      - name: -d
+        risk: caution
+        summary: 删除一个本地标签。已推送到远端的标签不受影响（需另行推送删除）。
+        example: git tag -d v1.2.0
+
+  # ------------------------------------------------------------- 配置与维护
+  - command: config
+    category: config
+    risk: caution
+    summary: 读写 Git 配置。作用域从局部到全局：--local（默认）< --global < --system。
+    docs_url: https://git-scm.com/docs/git-config
+    example: git config user.name "名字"
+    subcommands:
+      - name: --global
+        risk: caution
+        summary: 写入**当前用户**的全局配置（~/.gitconfig），影响这台机器上的所有仓库。
+        example: git config --global user.email "you@example.com"
+  - command: gc
+    category: maintenance
+    risk: caution
+    summary: 垃圾回收：压缩松散对象、清理不可达对象。通常自动触发，手动跑一般没必要。
+    docs_url: https://git-scm.com/docs/git-gc
+    example: git gc
+    subcommands:
+      - name: --prune=now
+        risk: dangerous
+        summary: 立即清理所有不可达对象，不做宽限期——误删后还没恢复的提交此刻起真正消失。
+        docs_url: https://git-scm.com/docs/git-gc#Documentation/git-gc.txt---pruneltdategt
+        example: git gc --prune=now
+        equivalent_ui_route: /snapshots
+  - command: fsck
+    category: maintenance
+    risk: safe
+    summary: 检查仓库对象库的完整性与连通性；也可用来找回"丢失"的悬空提交。
+    docs_url: https://git-scm.com/docs/git-fsck
+    example: git fsck --lost-found
+  - command: filter-branch
+    category: maintenance
+    risk: dangerous
+    summary: 批量改写全部历史（每个提交都重写一遍）。慢、易错、官方已建议改用 git filter-repo。
+    docs_url: https://git-scm.com/docs/git-filter-branch
+    example: git filter-branch --tree-filter 'rm file' HEAD
+    equivalent_ui_route: /snapshots
+  - command: update-ref
+    category: maintenance
+    risk: caution
+    summary: 直接读写一个引用（分支/标签指针）——绕过常规命令的安全检查，慎用。
+    docs_url: https://git-scm.com/docs/git-update-ref
+    example: git update-ref refs/heads/main abc1234
+    subcommands:
+      - name: -d
+        risk: dangerous
+        summary: 直接删除一个引用（分支/标签指针），不走 branch -d 的合并检查。
+        example: git update-ref -d refs/heads/experiment
+
+  # ------------------------------------------------------------- 工作树与子模块
+  - command: worktree
+    category: repo
+    risk: safe
+    summary: 同时把多个分支检出到不同目录（多工作树），互不干扰，适合并行处理两件事。
+    docs_url: https://git-scm.com/docs/git-worktree
+    example: git worktree add ../hotfix hotfix-branch
+    subcommands:
+      - name: remove
+        risk: caution
+        summary: 移除一个已注册的工作树目录；里面有未提交改动时会被拒绝。
+        example: git worktree remove ../hotfix
+  - command: submodule
+    category: repo
+    risk: caution
+    summary: 管理"仓库里的仓库"——子模块是嵌套的独立仓库引用，克隆与更新都比普通目录繁琐。
+    docs_url: https://git-scm.com/docs/git-submodule
+    example: git submodule update --init --recursive
+  - command: lfs
+    category: repo
+    risk: caution
+    summary: Git LFS 大文件扩展：把大文件存到独立存储，仓库里只留指针。需要安装 git-lfs。
+    docs_url: https://git-scm.com/docs/git-lfs
+    example: git lfs track "*.psd"
+  - command: clean
+    category: staging
+    risk: dangerous
+    summary: 删除工作区里**未跟踪**的文件。不带 -f 不会真删（或只显示）；-f 之后删除不可恢复。
+    docs_url: https://git-scm.com/docs/git-clean
+    example: git clean -fd
+    equivalent_ui_route: /snapshots
+    subcommands:
+      - name: -n
+        risk: safe
+        summary: 演练模式（dry-run）：只列出将被删除的文件，不真删。
+        example: git clean -nd

@@ -17,6 +17,11 @@
 export class LineTracker {
   private line = '';
 
+  /** 当前行（未提交的部分）——"解释这条命令"（Ctrl+/）取它。 */
+  current(): string {
+    return this.line;
+  }
+
   /** 消费一段键入，返回其中完整提交的行（按提交顺序）。 */
   feed(data: string): string[] {
     const completed: string[] = [];

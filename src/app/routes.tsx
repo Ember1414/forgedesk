@@ -30,6 +30,7 @@ import { GitHubLayout } from '@/features/github/GitHubLayout';
 import { GitHubPullRequestsPage } from '@/features/github/GitHubPullRequestsPage';
 import { GitHubReposPage } from '@/features/github/GitHubReposPage';
 import { PluginsPage } from '@/features/plugins/PluginsPage';
+import { CommandDictionaryPage } from '@/features/terminal/CommandDictionaryPage';
 import { RepoBranchesPage } from '@/features/repo/RepoBranchesPage';
 import { RepoConflictPage } from '@/features/repo/RepoConflictPage';
 import { RepoHistoryPage } from '@/features/repo/RepoHistoryPage';
@@ -110,6 +111,9 @@ export const appRoutes: RouteObject[] = [
       },
 
       { path: 'plugins', element: <PluginsPage /> },
+
+      // T5.4 命令字典（全局，不依赖仓库）
+      { path: 'commands', element: <CommandDictionaryPage /> },
 
       ...devRoutes,
 

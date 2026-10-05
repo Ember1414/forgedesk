@@ -36,6 +36,7 @@ const ROUTE_CASES: readonly (readonly [path: string, heading: string])[] = [
   ['/settings/github', '代码托管账号'],
   ['/settings/advanced', '高级'],
   ['/plugins', '插件'],
+  ['/commands', '命令字典'],
   // 未知路径必须给出明确出口，而不是白屏
   ['/no-such-page', '页面不存在'],
 ];
