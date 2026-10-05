@@ -6,6 +6,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod engine_wasmi;
 pub mod manifest;
 pub mod permission;
 pub mod runtime;

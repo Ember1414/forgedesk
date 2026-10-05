@@ -28,7 +28,25 @@ pub struct RuntimeLimits {
     pub host_call_timeout: Duration,
     /// 单次插件命令执行（激活 / 命令 / 事件回调）超时。
     pub command_timeout: Duration,
+    /// 单次命令执行的 fuel 预算（约等于可执行的最简指令数）。
+    ///
+    /// # 为什么默认值按构建 profile 区分
+    ///
+    /// wasmi 解释器的原生栈占用在 debug 构建下与"已消耗的 fuel"成正比
+    /// （实测约 128B/fuel；release 下 LLVM 优化后完全平坦，2MB 栈即可跑满 1G）。
+    /// debug 构建只用于测试（夹具都很小），给安全的小预算；release 服务真实
+    /// 插件，给足 1G fuel（≈ 规格的 30s 命令上限）。执行线程另有大栈兜底，
+    /// 见 `engine_wasmi::EXECUTOR_STACK_BYTES`。
+    pub fuel_budget: u64,
 }
+
+/// debug 构建下的 fuel 预算（受执行线程栈容量约束，见上）。
+#[cfg(debug_assertions)]
+pub const DEFAULT_FUEL_BUDGET: u64 = 400_000;
+
+/// release 构建下的 fuel 预算（≈ 1G 条最简指令，对应 30s 命令超时）。
+#[cfg(not(debug_assertions))]
+pub const DEFAULT_FUEL_BUDGET: u64 = 1_000_000_000;
 
 impl Default for RuntimeLimits {
     fn default() -> Self {
@@ -38,6 +56,7 @@ impl Default for RuntimeLimits {
             max_plugin_memory_bytes: 64 * MIB,
             host_call_timeout: Duration::from_secs(5),
             command_timeout: Duration::from_secs(30),
+            fuel_budget: DEFAULT_FUEL_BUDGET,
         }
     }
 }
@@ -303,6 +322,12 @@ mod tests {
         assert_eq!(limits.max_plugin_memory_bytes, 64 * 1024 * 1024);
         assert_eq!(limits.host_call_timeout, Duration::from_secs(5));
         assert_eq!(limits.command_timeout, Duration::from_secs(30));
+        // fuel 预算按构建 profile 区分（debug 小预算保 CI，release 大预算服务插件）
+        if cfg!(debug_assertions) {
+            assert_eq!(limits.fuel_budget, 400_000);
+        } else {
+            assert_eq!(limits.fuel_budget, 1_000_000_000);
+        }
     }
 
     #[test]
