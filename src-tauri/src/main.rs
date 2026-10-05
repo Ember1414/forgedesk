@@ -401,6 +401,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // T5.5 诊断引擎（全构建注册）
         forgedesk_commands::system_diagnose_error,
         forgedesk_commands::system_diagnose_keys,
+        // T5.7 工作区文件系统（全构建注册）
+        forgedesk_commands::fs_tree,
+        forgedesk_commands::fs_read,
+        forgedesk_commands::fs_write,
+        forgedesk_commands::fs_create,
+        forgedesk_commands::fs_rename,
+        forgedesk_commands::fs_delete,
         // T5.1 PTY Spike 调试通道（仅开发构建；结论见 docs/PTY-SPIKE.md）
         forgedesk_commands::pty_spike_create,
         forgedesk_commands::pty_spike_write,
@@ -567,6 +574,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // T5.5 诊断引擎（全构建注册）
         forgedesk_commands::system_diagnose_error,
         forgedesk_commands::system_diagnose_keys,
+        // T5.7 工作区文件系统（全构建注册）
+        forgedesk_commands::fs_tree,
+        forgedesk_commands::fs_read,
+        forgedesk_commands::fs_write,
+        forgedesk_commands::fs_create,
+        forgedesk_commands::fs_rename,
+        forgedesk_commands::fs_delete,
     ]);
 
     let app = builder.build(tauri::generate_context!())?;

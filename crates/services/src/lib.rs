@@ -42,6 +42,7 @@ pub mod sync;
 pub mod templates;
 pub mod terminal;
 pub mod workspace;
+pub mod workspace_fs;
 
 pub use audit::{
     sanitize_summary, AuditArgs, AuditEntry, AuditExport, AuditExportFormat, AuditExportRequest,
@@ -77,6 +78,10 @@ pub use stash::{StashDiscardOutcome, StashSaveOutcome, StashService, StashShowOu
 pub use sync::SyncService;
 pub use templates::{sanitize_holder, GitignoreTemplate, LicenseTemplate};
 pub use workspace::WorkspaceService;
+pub use workspace_fs::{
+    fs_create, fs_delete, fs_read, fs_rename, fs_tree, fs_write, resolve_within, FsEol,
+    FsFileContent, FsKind, FsNode, FS_READ_LIMIT,
+};
 
 /// crate 名称，用于日志与诊断中标识来源。
 pub const CRATE_NAME: &str = env!("CARGO_PKG_NAME");

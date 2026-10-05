@@ -88,6 +88,12 @@ interface FixAction {
 | [`system_open_url`](#system_open_url) | Network | T5.2 | 用系统默认浏览器打开 http(s) 链接 |
 | [`system_diagnose_error`](#system_diagnose_error--system_diagnose_keys) | ReadOnly | T5.5 | 诊断一段 stderr（规则引擎，本地） |
 | [`system_diagnose_keys`](#system_diagnose_error--system_diagnose_keys) | ReadOnly | T5.5 | 诊断命中的规则 id 清单（诊断历史用） |
+| [`fs_tree`](#fs_tree--fs_read--fs_write--fs_create--fs_rename--fs_delete) | ReadOnly | T5.7 | 列出仓库目录一层节点（懒加载；check-ignore 过滤） |
+| [`fs_read`](#fs_tree--fs_read--fs_write--fs_create--fs_rename--fs_delete) | ReadOnly | T5.7 | 读取文件（≤5MB；二进制只给元信息；EOL/BOM 上报） |
+| [`fs_write`](#fs_tree--fs_read--fs_write--fs_create--fs_rename--fs_delete) | Mutating | T5.7 | 写入文件（按调用方声明恢复 EOL/BOM） |
+| [`fs_create`](#fs_tree--fs_read--fs_write--fs_create--fs_rename--fs_delete) | Mutating | T5.7 | 创建文件 / 目录 |
+| [`fs_rename`](#fs_tree--fs_read--fs_write--fs_create--fs_rename--fs_delete) | Mutating | T5.7 | 重命名 / 移动 |
+| [`fs_delete`](#fs_tree--fs_read--fs_write--fs_create--fs_rename--fs_delete) | Mutating | T5.7 | 删除（移入回收站，非永久删除） |
 | [`workspace_status`](#workspace_status) | ReadOnly | T1.4 | 读取工作区状态（分组、分支头、操作状态） |
 | [`workspace_stage`](#workspace_stage--workspace_unstage--workspace_discard--workspace_reveal) | Mutating | T1.4 / T1.6 | 暂存路径 / 块 / 行（成功后发布 repo:changed） |
 | [`workspace_unstage`](#workspace_stage--workspace_unstage--workspace_discard--workspace_reveal) | Mutating | T1.4 / T1.6 | 取消暂存路径 / 块 / 行 |
@@ -494,6 +500,31 @@ cwd 绑定仓库根（后端做逃逸校验）。
 
 - **前端封装**：`src/lib/ipc/diagnostics.ts`（T5.6 落地）
 - **测试**：`crates/diagnostics/tests/rules.rs`（51 规则 × fixture 表驱动）
+
+---
+
+### fs_tree / fs_read / fs_write / fs_create / fs_rename / fs_delete
+
+工作区文件系统操作（T5.7）。业务与安全核心在
+`crates/services/src/workspace_fs.rs`：所有路径经 `resolve_within`——
+拒绝绝对路径 / `..` / NUL，已存在目标 canonicalize 后必须仍在仓库根内
+（**符号链接逃逸在这里被拦下**），新目标按"最深已存在祖先 + 普通分量"拼装。
+测试覆盖路径逃逸、EOL/BOM 往返、二进制判定、超限拒绝与回收站删除。
+
+- **能力等级**：tree / read = `ReadOnly`；write / create / rename / delete = `Mutating`
+- **注册范围**：全构建
+
+| 命令 | 参数 | 返回 | 说明 / 错误 |
+| --- | --- | --- | --- |
+| `fs_tree` | `{ repoId, path?, showHidden?, showIgnored? }`（path 空串 = 根） | `FsNode[]`：`{ name, relPath, kind, size }`；目录在前 | 懒加载一层；`showIgnored=false` 时经 `git check-ignore -z --stdin` 过滤（git 失败 = 不过滤）；`path` 非目录 → `VALIDATION` |
+| `fs_read` | `{ repoId, path }` | `{ content, eol: lf\|crlf\|cr\|mixed, hasBom, size, isBinary, truncated }` | ≤ 5MB（超出 `VALIDATION` 并提示外部编辑器）；二进制 `content=null`；路径不存在 → `NOT_FOUND` |
+| `fs_write` | `{ repoId, path, content, eol?, hasBom? }` | `{ writtenBytes }` | EOL 规范化到声明形态（**不静默改变换行符**）；超 5MB → `VALIDATION` |
+| `fs_create` | `{ repoId, path, isDir }` | `null` | 已存在 → `VALIDATION` |
+| `fs_rename` | `{ repoId, path, newPath }` | `null` | 源不存在 → `NOT_FOUND`；目标已存在 → `VALIDATION` |
+| `fs_delete` | `{ repoId, path }` | `null` | 移入回收站（`trash` crate），不是永久删除 |
+
+- **前端封装**：`src/lib/ipc/fs.ts`（T5.7 前端部分落地）
+- **测试**：`crates/services/src/workspace_fs.rs`（路径安全 / EOL / BOM / 树过滤）
 
 ---
 
