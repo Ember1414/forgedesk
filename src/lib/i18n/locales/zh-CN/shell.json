@@ -52,7 +52,8 @@
     "repoSettings": "仓库设置",
     "commands": "命令字典",
     "editor": "编辑器",
-    "pluginPanels": "插件面板"
+    "pluginPanels": "插件面板",
+    "network": "网络与密钥"
   },
   "statusBar": {
     "ariaLabel": "状态栏",
@@ -316,6 +317,10 @@
     "pluginPanels": {
       "title": "插件面板",
       "description": "由已启用插件提供的面板。"
+    },
+    "settingsNetwork": {
+      "title": "网络与密钥",
+      "description": "代理设置、连通性测试与签名密钥管理。"
     }
   },
   "terminal": {
@@ -2221,5 +2226,30 @@
     "panelsEmptyHint": "在 设置 → 插件 里以开发者模式安装示例插件并启用后，面板会出现在这里。",
     "panelRetry": "重试",
     "commandDone": "插件命令已执行"
+  },
+  "network": {
+    "proxyTitle": "代理",
+    "modeNone": "直连",
+    "modeSystem": "跟随系统",
+    "modeManual": "手动",
+    "proxyUrlLabel": "代理 URL（http/https/socks5）",
+    "noProxyLabel": "不走代理的主机（逗号分隔）",
+    "applyProxy": "应用代理设置",
+    "savedToast": "网络设置已保存并即时生效",
+    "testApi": "GitHub API（api.github.com）",
+    "testRaw": "GitHub 内容（raw.githubusercontent.com）",
+    "testGit": "git 网络操作（ls-remote）",
+    "testSsh": "SSH 连接（git@github.com）",
+    "testAction": "测试",
+    "testing": "测试中…",
+    "testOk": "通",
+    "testFail": "不通",
+    "msUnit": " ms",
+    "sshTitle": "SSH",
+    "sshHint": "测试用 BatchMode + 5 秒超时，不会自动跳过主机指纹确认；首次连接请先在终端完成指纹信任。",
+    "gpgTitle": "GPG 签名密钥",
+    "gpgSelfTest": "签名自检",
+    "gpgEmpty": "未找到 GPG 私钥。安装 gpg 并导入密钥后重试。",
+    "gpgHint": "自检对固定文本做 clearsign 并立即验证；提交时用哪个密钥由 git 配置（user.signingkey）决定。"
   }
 }

@@ -47,6 +47,7 @@ pub mod issues;
 pub mod jobs;
 pub mod logs;
 pub mod merge;
+pub mod network;
 pub mod plugins;
 pub mod pty_spike;
 pub mod rate_limit;
@@ -129,6 +130,10 @@ pub use logs::{logs_open, logs_tail};
 pub use merge::{
     git_merge_continue, git_merge_execute, git_merge_prepare, MergeExecuteRequest, MergePlanDto,
     MergeRequest,
+};
+pub use network::{
+    gpg_list_secret_keys, gpg_test_sign, network_git_test, network_proxy_test, ssh_test_connection,
+    ConnectivityResult, GpgKey, ProxyMode,
 };
 pub use plugins::{
     plugin_grant, plugin_install_from_dir, plugin_invoke_command, plugin_list, plugin_logs,

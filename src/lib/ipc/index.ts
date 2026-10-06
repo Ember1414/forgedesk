@@ -625,3 +625,46 @@ export function pluginInvokeCommand(id: string, command: string, argJson: string
 export function pluginRegistrations(): Promise<PluginRegistration[]> {
   return invokeCommand<PluginRegistration[]>('plugin_registrations', {});
 }
+
+/** 代理模式（`network.proxyMode`）。 */
+export type ProxyMode = 'none' | 'system' | 'manual';
+
+/** 连通性测试结果（`network_proxy_test` / `network_git_test` / `ssh_test_connection` / `gpg_test_sign`）。 */
+export interface ConnectivityResult {
+  readonly target: string;
+  readonly ok: boolean;
+  readonly latencyMs: number;
+  readonly detail: string;
+}
+
+/** GPG 私钥（`gpg_list_secret_keys`）。 */
+export interface GpgKey {
+  readonly keyId: string;
+  readonly uid: string;
+  readonly expires?: number;
+}
+
+/** 连通性测试：GitHub API / raw.githubusercontent.com。 */
+export function networkProxyTest(target: 'api' | 'raw'): Promise<ConnectivityResult> {
+  return invokeCommand<ConnectivityResult>('network_proxy_test', { target });
+}
+
+/** 连通性测试：git ls-remote 一个公共仓库。 */
+export function networkGitTest(): Promise<ConnectivityResult> {
+  return invokeCommand<ConnectivityResult>('network_git_test', {});
+}
+
+/** SSH 连接测试（GitHub 语义：退出码 1 且认证文案 = 成功）。 */
+export function sshTestConnection(host: string): Promise<ConnectivityResult> {
+  return invokeCommand<ConnectivityResult>('ssh_test_connection', { host });
+}
+
+/** 列出本机 GPG 私钥。 */
+export function gpgListSecretKeys(): Promise<GpgKey[]> {
+  return invokeCommand<GpgKey[]>('gpg_list_secret_keys', {});
+}
+
+/** GPG 签名自检（clearsign 往返）。 */
+export function gpgTestSign(keyId?: string): Promise<ConnectivityResult> {
+  return invokeCommand<ConnectivityResult>('gpg_test_sign', { keyId });
+}

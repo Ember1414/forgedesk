@@ -1394,6 +1394,7 @@ dependencies = [
  "forgedesk-diagnostics",
  "forgedesk-domain",
  "git2",
+ "parking_lot",
  "serde",
  "thiserror 2.0.20",
  "tokio",

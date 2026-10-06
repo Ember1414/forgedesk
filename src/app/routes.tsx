@@ -48,6 +48,7 @@ import { AppearanceSettingsPage } from '@/features/settings/AppearanceSettingsPa
 import { GeneralSettingsPage } from '@/features/settings/GeneralSettingsPage';
 import { GitSettingsPage } from '@/features/settings/GitSettingsPage';
 import { GitHubSettingsPage } from '@/features/settings/GitHubSettingsPage';
+import { NetworkSettingsPage } from '@/features/settings/NetworkSettingsPage';
 import { PluginSettingsPage } from '@/features/settings/PluginSettingsPage';
 import { SettingsLayout } from '@/features/settings/SettingsLayout';
 import { LayoutSettingsPage } from '@/features/settings/LayoutSettingsPage';
@@ -122,6 +123,7 @@ export const appRoutes: RouteObject[] = [
           { path: 'general', element: <GeneralSettingsPage /> },
           { path: 'appearance', element: <AppearanceSettingsPage /> },
           { path: 'plugins', element: <PluginSettingsPage /> },
+          { path: 'network', element: <NetworkSettingsPage /> },
           { path: 'git', element: <GitSettingsPage /> },
           { path: 'github', element: <GitHubSettingsPage /> },
           { path: 'terminal', element: <TerminalSettingsPage /> },

@@ -11,6 +11,7 @@ repository.workspace = true
 authors.workspace = true
 
 [dependencies]
+parking_lot.workspace = true
 forgedesk-domain.workspace = true
 # 日志脱敏（红线 R8）：git 的参数与输出都可能带凭据（HTTPS URL 里的 user:token@），
 # 因此本 crate 在写日志前必须过一遍 sanitize_log，而不是自己实现一套规则

@@ -52,7 +52,8 @@
     "repoSettings": "Repository settings",
     "commands": "Commands",
     "editor": "Editor",
-    "pluginPanels": "Plugin panels"
+    "pluginPanels": "Plugin panels",
+    "network": "Network & keys"
   },
   "statusBar": {
     "ariaLabel": "Status bar",
@@ -316,6 +317,10 @@
     "pluginPanels": {
       "title": "Plugin panels",
       "description": "Panels provided by enabled plugins."
+    },
+    "settingsNetwork": {
+      "title": "Network & keys",
+      "description": "Proxy settings, connectivity tests and signing key management."
     }
   },
   "terminal": {
@@ -2221,5 +2226,30 @@
     "panelsEmptyHint": "Install the example plugins via Settings → Plugins (developer mode), enable them, and their panels appear here.",
     "panelRetry": "Retry",
     "commandDone": "Plugin command executed"
+  },
+  "network": {
+    "proxyTitle": "Proxy",
+    "modeNone": "Direct",
+    "modeSystem": "System",
+    "modeManual": "Manual",
+    "proxyUrlLabel": "Proxy URL (http/https/socks5)",
+    "noProxyLabel": "Hosts bypassing the proxy (comma-separated)",
+    "applyProxy": "Apply proxy settings",
+    "savedToast": "Network settings saved and applied",
+    "testApi": "GitHub API (api.github.com)",
+    "testRaw": "GitHub content (raw.githubusercontent.com)",
+    "testGit": "git network operation (ls-remote)",
+    "testSsh": "SSH connection (git@github.com)",
+    "testAction": "Test",
+    "testing": "Testing…",
+    "testOk": "OK",
+    "testFail": "Failed",
+    "msUnit": " ms",
+    "sshTitle": "SSH",
+    "sshHint": "The test uses BatchMode with a 5s timeout and never skips host key verification; confirm the fingerprint for first-time connections in your terminal.",
+    "gpgTitle": "GPG signing keys",
+    "gpgSelfTest": "Signing self-test",
+    "gpgEmpty": "No GPG secret keys found. Install gpg and import a key, then retry.",
+    "gpgHint": "The self-test clearsigns a fixed text and verifies it; which key signs commits is decided by git config (user.signingkey)."
   }
 }

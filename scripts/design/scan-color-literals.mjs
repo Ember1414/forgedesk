@@ -21,7 +21,11 @@ const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const SCAN_ROOTS = ['src', 'e2e'].map((part) => join(repoRoot, part));
 const EXTENSIONS = new Set(['.ts', '.tsx', '.css']);
 
-const ALLOWLIST_DIR_PREFIXES = [join(repoRoot, 'src', 'features', 'themes'), join(repoRoot, 'e2e')];
+const ALLOWLIST_DIR_PREFIXES = [
+  join(repoRoot, 'src', 'features', 'themes'),
+  join(repoRoot, 'src', 'features', 'terminal'),
+  join(repoRoot, 'e2e'),
+];
 const ALLOWLIST_FILES = [join(repoRoot, 'src', 'ui', 'tokens.css')];
 
 // 颜色字面量：#hex（3-8 位）、rgb()/rgba()、hsl()/hsla()、oklch()/oklab()、

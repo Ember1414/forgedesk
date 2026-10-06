@@ -261,6 +261,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let builder = builder.invoke_handler(tauri::generate_handler![
         forgedesk_commands::app_version,
         forgedesk_commands::set_window_title,
+        forgedesk_commands::network_proxy_test,
+        forgedesk_commands::network_git_test,
+        forgedesk_commands::ssh_test_connection,
+        forgedesk_commands::gpg_list_secret_keys,
+        forgedesk_commands::gpg_test_sign,
         forgedesk_commands::settings_get,
         forgedesk_commands::settings_set,
         forgedesk_commands::settings_all,
@@ -451,6 +456,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let builder = builder.invoke_handler(tauri::generate_handler![
         forgedesk_commands::app_version,
         forgedesk_commands::set_window_title,
+        forgedesk_commands::network_proxy_test,
+        forgedesk_commands::network_git_test,
+        forgedesk_commands::ssh_test_connection,
+        forgedesk_commands::gpg_list_secret_keys,
+        forgedesk_commands::gpg_test_sign,
         forgedesk_commands::settings_get,
         forgedesk_commands::settings_set,
         forgedesk_commands::settings_all,

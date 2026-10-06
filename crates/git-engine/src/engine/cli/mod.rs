@@ -79,6 +79,8 @@ impl RunKind {
 /// 系统 git 命令行实现。
 pub struct CliGitEngine {
     process: GitProcess,
+    /// 每次 CLI 调用前置的 `-c key=value`（T6.8 代理注入；空 = 默认）。
+    extra_config: parking_lot::RwLock<Vec<(String, String)>>,
     bridge: super::BlockingBridge,
 }
 
@@ -106,12 +108,23 @@ impl CliGitEngine {
         Ok(Self {
             process,
             bridge: super::BlockingBridge::new()?,
+            extra_config: parking_lot::RwLock::new(Vec::new()),
         })
     }
 
     /// 底层进程执行器（诊断与测试用）。
     pub fn process(&self) -> &GitProcess {
         &self.process
+    }
+
+    /// 设置**每次 CLI 调用**都注入的 `-c key=value` 全局配置（T6.8）。
+    ///
+    /// 用途：代理设置（`http.proxy`）等需要作用于所有网络类命令、
+    /// 但又**不允许写进用户配置文件**（AGENTS §7 与 T6.8 规格都要求 `-c`
+    /// 传参）。空列表 = 恢复默认。线程安全：运行中的调用拿不到此锁的写
+    /// 授权（parking_lot 写锁会等待在途调用结束），设置变更天然串行。
+    pub fn set_extra_config(&self, config: Vec<(String, String)>) {
+        *self.extra_config.write() = config;
     }
 
     /// 系统 git 的版本（`git --version`）。
@@ -407,8 +420,16 @@ impl CliGitEngine {
             opts = opts.with_stderr_line_handler(progress.handler());
         }
 
-        self.bridge
-            .block_on(self.process.run(&invocation.args, opts))?
+        // T6.8：全局 `-c` 配置（如 http.proxy）前置到参数数组最前——
+        // `git -c k=v <子命令>` 与配置文件等价，但不落盘、不污染用户配置。
+        let extra = self.extra_config.read().clone();
+        let mut args: Vec<String> = extra
+            .iter()
+            .flat_map(|(key, value)| ["-c".to_owned(), format!("{key}={value}")])
+            .collect();
+        args.extend(invocation.args.iter().cloned());
+
+        self.bridge.block_on(self.process.run(&args, opts))?
     }
 }
 
