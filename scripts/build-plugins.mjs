@@ -32,7 +32,9 @@ function run(command, args, options = {}) {
 // rustup 目标检查：给出明确的安装指引而不是让 cargo 的报错满天飞
 const rustup = spawnSync('rustup', ['target', 'list', '--installed'], { encoding: 'utf8' });
 if (!String(rustup.stdout).includes('wasm32-wasip1')) {
-  console.error('[build-plugins] 缺少 wasm32-wasip1 目标，请先执行：rustup target add wasm32-wasip1');
+  console.error(
+    '[build-plugins] 缺少 wasm32-wasip1 目标，请先执行：rustup target add wasm32-wasip1',
+  );
   process.exit(1);
 }
 

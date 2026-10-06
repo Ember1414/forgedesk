@@ -49,7 +49,8 @@
     "github": "代码托管",
     "plugins": "插件",
     "settings": "设置",
-    "repoSettings": "仓库设置"
+    "repoSettings": "仓库设置",
+    "pluginPanels": "插件面板"
   },
   "statusBar": {
     "ariaLabel": "状态栏",
@@ -292,6 +293,10 @@
     "settingsPlugins": {
       "title": "插件",
       "description": "安装、授权与管理扩展 ForgeDesk 的插件。"
+    },
+    "pluginPanels": {
+      "title": "插件面板",
+      "description": "由已启用插件提供的面板。"
     }
   },
   "diff": {
@@ -1607,6 +1612,11 @@
     "installOk": "已安装（SHA256 {{sha}}…）",
     "homepageLink": "主页",
     "logsEmpty": "运行中没有日志。",
-    "crashedHint": "插件异常停止。查看日志排查原因；修复后可重新启用。"
+    "crashedHint": "插件异常停止。查看日志排查原因；修复后可重新启用。",
+    "panelsLoading": "正在加载…",
+    "panelsEmpty": "还没有已启用插件提供面板。",
+    "panelsEmptyHint": "在 设置 → 插件 里以开发者模式安装示例插件并启用后，面板会出现在这里。",
+    "panelRetry": "重试",
+    "commandDone": "插件命令已执行"
   }
 }

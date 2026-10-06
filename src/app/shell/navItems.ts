@@ -100,6 +100,13 @@ export const NAV_SECTIONS: readonly NavSection[] = [
         segment: 'terminal',
         repoScoped: true,
       },
+      {
+        id: 'pluginPanels',
+        labelKey: 'items.pluginPanels',
+        icon: Puzzle,
+        segment: 'plugin-panels',
+        repoScoped: true,
+      },
     ],
   },
   {

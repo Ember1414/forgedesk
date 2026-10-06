@@ -49,7 +49,8 @@
     "github": "Code hosting",
     "plugins": "Plugins",
     "settings": "Settings",
-    "repoSettings": "Repository settings"
+    "repoSettings": "Repository settings",
+    "pluginPanels": "Plugin panels"
   },
   "statusBar": {
     "ariaLabel": "Status bar",
@@ -292,6 +293,10 @@
     "settingsPlugins": {
       "title": "Plugins",
       "description": "Install, authorize and manage plugins that extend ForgeDesk."
+    },
+    "pluginPanels": {
+      "title": "Plugin panels",
+      "description": "Panels provided by enabled plugins."
     }
   },
   "diff": {
@@ -1607,6 +1612,11 @@
     "installOk": "Installed (SHA256 {{sha}}…)",
     "homepageLink": "Homepage",
     "logsEmpty": "No logs while running.",
-    "crashedHint": "The plugin stopped unexpectedly. Check its logs; re-enable after fixing."
+    "crashedHint": "The plugin stopped unexpectedly. Check its logs; re-enable after fixing.",
+    "panelsLoading": "Loading…",
+    "panelsEmpty": "No enabled plugin provides a panel yet.",
+    "panelsEmptyHint": "Install the example plugins via Settings → Plugins (developer mode), enable them, and their panels appear here.",
+    "panelRetry": "Retry",
+    "commandDone": "Plugin command executed"
   }
 }

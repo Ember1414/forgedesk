@@ -36,6 +36,7 @@ import { RepoHistoryPage } from '@/features/repo/RepoHistoryPage';
 import { RepoLayout } from '@/features/repo/RepoLayout';
 import { RepoStatusPage } from '@/features/repo/RepoStatusPage';
 import { RepoTerminalPage } from '@/features/repo/RepoTerminalPage';
+import { PluginPanelsPage } from '@/features/plugins/PluginPanelsPage';
 import { AdvancedSettingsPage } from '@/features/settings/AdvancedSettingsPage';
 import { AppearanceSettingsPage } from '@/features/settings/AppearanceSettingsPage';
 import { GeneralSettingsPage } from '@/features/settings/GeneralSettingsPage';
@@ -76,6 +77,7 @@ export const appRoutes: RouteObject[] = [
           { path: 'branches', element: <RepoBranchesPage /> },
           { path: 'conflict', element: <RepoConflictPage /> },
           { path: 'terminal', element: <RepoTerminalPage /> },
+          { path: 'plugin-panels', element: <PluginPanelsPage /> },
           { path: 'settings', element: <RepoSettingsPage /> },
         ],
       },
