@@ -176,7 +176,7 @@ pub use sync::{
     git_fetch, git_pull, git_push, git_remote_add, git_remote_list, git_remote_remove,
     git_remote_rename, git_remote_set_url,
 };
-pub use system::{app_version, log_frontend_error, system_open_url, AppVersion};
+pub use system::{app_version, log_frontend_error, set_window_title, system_open_url, AppVersion};
 pub use terminal::{
     term_close, term_create, term_list, term_output_tail, term_report_command, term_resize,
     term_scan_command, term_shell_list, term_write, TermCreateRequest, TermCreatedDto,

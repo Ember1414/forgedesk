@@ -1,6 +1,9 @@
-import { useTranslation } from 'react-i18next';
+import { useEffect } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 
+import { setWindowTitle } from '@/lib/ipc';
+import { NAV_SECTIONS } from '@/app/shell/navItems';
 import { SideNav } from '@/app/shell/SideNav';
 import { StatusBar } from '@/app/shell/StatusBar';
 import { TitleBar } from '@/app/shell/TitleBar';
@@ -27,10 +30,33 @@ import { useUiStore } from '@/stores/uiStore';
  */
 export function AppShell() {
   const location = useLocation();
-  const { t } = useTranslation('shell');
+  const { t, i18n } = useTranslation('shell');
   const collapsedByUser = useUiStore((state) => state.sidebarCollapsed);
   const autoCollapsed = useIsNarrowViewport();
   const collapsed = collapsedByUser || autoCollapsed;
+
+  // 窗口标题跟随语言与页面（T6.7）。结构 = "ForgeDesk — 页面名"；
+  // 应用名不翻译（R4：产品名固定）。失败静默（标题不更新不影响使用）。
+  const pageLabel = (() => {
+    for (const section of NAV_SECTIONS) {
+      for (const item of section.items) {
+        const path = item.repoScoped ? `/repo/:repoId/${item.segment}` : `/${item.segment}`;
+        // 列表项与当前路径的前缀匹配（仓库级路由的真实 id 会替换 :repoId）
+        const pattern = new RegExp(`^${path.replace(':repoId', '[0-9]+')}(/|$)`);
+        if (item.segment.length > 0 && pattern.test(location.pathname)) {
+          return t(item.labelKey);
+        }
+        if (item.segment.length === 0 && location.pathname === '/') {
+          return t(item.labelKey);
+        }
+      }
+    }
+    return null;
+  })();
+  useEffect(() => {
+    const title = pageLabel === null ? 'ForgeDesk' : `ForgeDesk — ${pageLabel}`;
+    setWindowTitle(title).catch(() => undefined);
+  }, [pageLabel, i18n.resolvedLanguage]);
 
   return (
     <div className="flex h-full flex-col bg-canvas text-fg">

@@ -14,6 +14,7 @@ import { gitCommitDetail } from '@/lib/ipc';
 import { Button } from '@/ui/components/button';
 import { Dialog, DialogContent, DialogTitle } from '@/ui/components/dialog';
 import { cn } from '@/lib/utils';
+import { formatDateTime } from '@/lib/i18n/intl';
 
 export interface FileHistoryPanelProps {
   readonly repoId: number;
@@ -61,7 +62,7 @@ export function CommitDetailDialog({
             <p className="font-medium">{detail.data.meta?.subject ?? ''}</p>
             <p className="text-fg-muted font-mono text-12">
               {detail.data.meta?.author?.name ?? ''} ·{' '}
-              {new Date(detail.data.meta?.author?.time ?? 0).toLocaleString()}
+              {formatDateTime((detail.data.meta?.author?.time ?? 0) * 1000)}
             </p>
             <p className="text-fg-subtle text-12">
               {t('editor.history.filesChanged', {

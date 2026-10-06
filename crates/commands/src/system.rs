@@ -10,6 +10,25 @@
 use forgedesk_domain::AppResult;
 use serde::{Deserialize, Serialize};
 
+/// 更新主窗口标题（T6.7：语言切换后标题跟随语言）。
+///
+/// 标题由前端拼好传入；这里只做长度校验，防止把任意文本写进窗口属性。
+#[tauri::command]
+pub fn set_window_title(app: tauri::AppHandle, title: String) -> AppResult<()> {
+    const MAX_TITLE: usize = 120;
+    if title.trim().is_empty() || title.len() > MAX_TITLE {
+        return Err(forgedesk_domain::AppError::new(
+            forgedesk_domain::ErrorCode::Validation,
+            "title must be 1..120 characters",
+        ));
+    }
+    use tauri::Manager;
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.set_title(&title);
+    }
+    Ok(())
+}
+
 /// 应用版本与构建信息。
 ///
 /// 序列化为 camelCase，与前端 TypeScript DTO 一一对应

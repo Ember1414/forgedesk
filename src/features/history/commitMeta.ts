@@ -20,6 +20,7 @@
  */
 import type { Commit, GraphRow } from '@/lib/ipc/history';
 import type { RefLabel } from '@/features/history/graphGeometry';
+import { formatDateTime } from '@/lib/i18n/intl';
 
 /** 短 oid 的默认长度（7 位；与 `git log --oneline` 的习惯一致）。 */
 export const SHORT_OID_LENGTH = 7;
@@ -107,7 +108,7 @@ export function absoluteTime(seconds: number | null): string | null {
   if (seconds === null || !Number.isFinite(seconds)) {
     return null;
   }
-  return new Date(seconds * 1000).toLocaleString();
+  return formatDateTime(seconds * 1000);
 }
 
 /** `%D` 里 `tag:` 前缀（Git 的固定输出格式，不是本地化文案）。 */

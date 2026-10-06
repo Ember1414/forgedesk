@@ -120,6 +120,11 @@ export function resolveActiveLanguage(current: string | undefined): AppLanguage 
 export async function changeLanguage(language: AppLanguage): Promise<void> {
   writeStoredLanguage(language);
   await i18n.changeLanguage(language);
+  // 语言切换后窗口标题跟随（T6.7）。标题结构 = 应用名（不翻译）+ 当前页面名；
+  // 页面名由标题监听器（TitleBar 挂载的 i18n 订阅）负责，这里只触发一次全局重算。
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('forgedesk:language-changed'));
+  }
 }
 
 export default i18n;

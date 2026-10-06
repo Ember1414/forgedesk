@@ -398,6 +398,15 @@ export function appVersion(): Promise<AppVersion> {
 }
 
 /**
+ * 更新主窗口标题（T6.7：语言切换后标题跟随）。
+ *
+ * 标题由调用方拼好（应用名 + 当前页面名）；后端只做长度校验。
+ */
+export function setWindowTitle(title: string): Promise<void> {
+  return invokeCommand<void>('set_window_title', { title });
+}
+
+/**
  * 上报一条前端未捕获错误（生产环境用；开发与 E2E 收进 `window.__errs`）。
  *
  * 只在没有其他选择时调用：被 React / TanStack Query 接住的错误属于"已处理"，

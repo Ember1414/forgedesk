@@ -20,6 +20,7 @@ import { Checkbox } from '@/ui/components/checkbox';
 import { Input } from '@/ui/components/input';
 import { RadioGroup } from '@/ui/components/radio-group';
 import { ToggleGroup } from '@/ui/components/toggle-group';
+import { formatDateTime } from '@/lib/i18n/intl';
 
 /** 数值输入的公共约束：非法输入不改存储，恢复当前值。 */
 function NumberSetting({
@@ -113,7 +114,7 @@ export function TerminalSettingsPage() {
                         : t(`diag.${record.ruleId}.title`)}
                     </span>
                     <span className="text-fg-subtle font-mono text-11">
-                      {new Date(record.at).toLocaleString()}
+                      {formatDateTime(record.at)}
                     </span>
                   </li>
                 ))}

@@ -23,6 +23,7 @@
     "preview": "vite preview",
     "lint": "eslint .",
     "i18n:lint": "node scripts/i18n/lint-i18n.mjs",
+    "i18n:check": "node scripts/i18n/check-i18n-keys.mjs",
     "lint:fix": "eslint . --fix",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --passWithNoTests",

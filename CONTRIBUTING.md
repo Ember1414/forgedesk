@@ -133,7 +133,14 @@ reports a problem: the window is closed and the evidence is gone.
   - 中英（以及任何新语言）的 **key 必须完全一致且没有空值**，由 `src/lib/i18n/i18n.test.ts` 断言；
   - 组件里的用户可见文案必须走 `t('key')`，硬编码会被 `pnpm i18n:lint` 拦住；
   - 例外的写法与理由见 `docs/CODING_STYLE.md` §3.4（`// i18n-ignore`）。
-- 自检：`pnpm i18n:lint && pnpm test`。
+- 自检：`pnpm i18n:lint && pnpm i18n:check && pnpm test`。
+- **术语表**：`docs/I18N-GLOSSARY.md` 是中英对照的术语决定表——新文案先查表；
+  同一概念两种译法比翻译错误更糟。要新增术语，改表并在 PR 里说明。
+- **占位符**：`{{count}}` 会触发 i18next 的复数机制（要求 `_one`/`_other` 后缀键）；
+  除非真的要做复数，插值参数请避开 `count`（如用 `{{n}}`）。
+- **日期/数字**：一律用 `src/lib/i18n/intl.ts` 的 `formatDateTime` / `formatDate` /
+  `formatRelative`（按当前语言走 Intl），禁止散落的 `toLocaleString()`。
+- 英文文案必须**地道**（不是中文直译）；抽查基准与反例见术语表"语气与风格"一节。
 
 ### 5.2 诊断规则（M5 起）
 

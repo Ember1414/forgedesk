@@ -73,6 +73,7 @@ import { ErrorState } from '@/ui/components/error-state';
 import { Skeleton } from '@/ui/components/skeleton';
 
 import { RestoreReportPanel } from './RestoreReportPanel';
+import { formatDateTime } from '@/lib/i18n/intl';
 
 /** kind 短名 → i18n key（只增不改的清单，见 SnapshotKind::key）。 */
 const KIND_LABEL_KEYS: Readonly<Record<string, string>> = {
@@ -86,7 +87,7 @@ const KIND_LABEL_KEYS: Readonly<Record<string, string>> = {
 
 /** 时间列的显示格式（本地时区；表格里不需要秒以下的精度）。 */
 function formatTime(ms: number): string {
-  return new Date(ms).toLocaleString();
+  return formatDateTime(ms) ?? '—';
 }
 
 /** 字节数的可读格式（配额与体积用；一位小数足够看出量级）。 */
