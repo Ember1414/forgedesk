@@ -91,6 +91,10 @@ pub struct AppHostServices {
     registrations: Mutex<Vec<RegistrationDto>>,
     /// 插件 id → 订阅的事件名。
     subscriptions: Mutex<BTreeMap<String, Vec<String>>>,
+    /// 提交钩子注册表：键 `phase:name`，值插件 id（T6.3 扩展点）。
+    commit_hooks: Mutex<BTreeMap<String, String>>,
+    /// 引擎引用（钩子执行用；构造后回填，避免构造循环）。
+    engine_ref: std::sync::OnceLock<Arc<WasmiEngine>>,
 }
 
 impl AppHostServices {
@@ -110,6 +114,8 @@ impl AppHostServices {
             http,
             registrations: Mutex::new(Vec::new()),
             subscriptions: Mutex::new(BTreeMap::new()),
+            commit_hooks: Mutex::new(BTreeMap::new()),
+            engine_ref: std::sync::OnceLock::new(),
         })
     }
 
@@ -162,6 +168,77 @@ impl AppHostServices {
     /// 已注册的贡献点（命令面板 / 面板挂载查询）。
     pub fn registrations(&self) -> Vec<RegistrationDto> {
         self.registrations.lock().clone()
+    }
+
+    /// 提交前调用：依次执行 pre 钩子（T6.3）。
+    ///
+    /// 本期宿主**不授予任何插件阻断能力**（can_block 恒为 false）：
+    /// 钩子返回的信息修改直接套用，失败/超时的钩子只记日志并继续——
+    /// 提交流程永远不被插件卡住。返回（可能被修改过的）提交信息。
+    pub fn run_pre_commit_hooks(&self, message: String) -> String {
+        let hooks: Vec<(String, String)> = self
+            .commit_hooks
+            .lock()
+            .iter()
+            .filter(|(key, _)| key.starts_with("pre:"))
+            .map(|(key, plugin)| (key.clone(), plugin.clone()))
+            .collect();
+        let mut current = message;
+        let Some(engine) = self.engine_ref.get() else {
+            // 引擎尚未回填（不应发生）：退化为"无钩子"而不是 panic
+            tracing::warn!("pre-commit hooks skipped: engine not wired");
+            return current;
+        };
+        for (key, plugin_id) in hooks {
+            let name = key.trim_start_matches("pre:").to_owned();
+            let full = format!("{plugin_id}.{name}");
+            // pre 钩子 = 普通命令调用：插件按 fd_invoke 的 payload.command 分发，
+            // 返回 {"subject": "..."} 表示修改提交信息首行
+            match engine.invoke_for_plugin(&plugin_id, &full, &current) {
+                Ok(output) => {
+                    if let Ok(payload) = serde_json::from_str::<Value>(&output) {
+                        if let Some(subject) = payload.get("subject").and_then(Value::as_str) {
+                            if !subject.trim().is_empty() {
+                                current = subject.to_owned();
+                            }
+                        }
+                    }
+                }
+                Err(error) => {
+                    tracing::warn!(plugin_id, hook = %full, error = %error, "pre-commit hook failed; continuing");
+                }
+            }
+        }
+        current
+    }
+
+    /// 提交成功后调用：通知 post 钩子插件（异步，不阻塞命令返回）。
+    pub fn notify_post_commit(&self, oid: &str, subject: &str) {
+        let hooks: Vec<String> = self
+            .commit_hooks
+            .lock()
+            .iter()
+            .filter(|(key, _)| key.starts_with("post:"))
+            .map(|(_, plugin)| plugin.clone())
+            .collect();
+        if hooks.is_empty() {
+            return;
+        }
+        let payload = format!(
+            "{{\"oid\":{},\"subject\":{}}}",
+            serde_json::to_string(oid).unwrap_or_default(),
+            serde_json::to_string(subject).unwrap_or_default()
+        );
+        let Some(engine) = self.engine_ref.get().map(Arc::clone) else {
+            tracing::warn!("post-commit hooks skipped: engine not wired");
+            return;
+        };
+        std::thread::spawn(move || {
+            for plugin_id in hooks {
+                // post 通知失败只记日志：通知不回流主流程
+                let _ = engine.invoke_for_plugin(&plugin_id, "on-commit-created", &payload);
+            }
+        });
     }
 }
 
@@ -617,7 +694,9 @@ pub fn build_plugin_host(
         services,
     ));
     let store = SettingsRegistryStore::new(database);
-    let manager = PluginManager::new(engine, plugins_root, Arc::new(store))
+    let manager = PluginManager::new(Arc::clone(&engine), plugins_root, Arc::new(store))
         .map_err(|error| AppError::new(forgedesk_domain::ErrorCode::Internal, error.to_string()))?;
+    // 构造循环的解法：服务在构造期没有引擎，这里回填（OnceLock，只写一次）
+    let _ = services_impl.engine_ref.set(Arc::clone(&engine));
     Ok((manager, services_impl))
 }

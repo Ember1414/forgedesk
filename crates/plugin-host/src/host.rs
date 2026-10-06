@@ -83,6 +83,25 @@ pub enum HostOp {
     ShowToast,
     /// 订阅宿主事件（repo_opened / repo_changed / commit_created / sync_completed）。
     SubscribeEvents,
+    /// 注册提交钩子（pre-commit：可修改提交信息；post-commit：事后通知）。
+    RegisterCommitHook,
+    /// 注销提交钩子。
+    UnregisterCommitHook,
+}
+
+/// 提交钩子（T6.3 扩展点）。
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CommitHook {
+    /// 注册插件 id。
+    pub plugin_id: String,
+    /// 钩子阶段：`pre`（执行前，可改提交信息）或 `post`（提交成功后通知）。
+    pub phase: &'static str,
+    /// 插件内标识（宿主拼全名 `plugin.<id>.<hook>`）。
+    pub name: String,
+    /// 是否允许阻断提交（本期宿主**从不**授予阻断能力：默认 false 且无入口
+    /// 扩大——阻断授权 UI 属 T6.4 后续，落地前 can_block 恒为 false）。
+    pub can_block: bool,
 }
 
 /// 可订阅的宿主事件（封闭白名单；payload 均为仓库范围的极小 JSON）。
@@ -95,7 +114,7 @@ pub const EVENT_NAMES: [&str; 4] = [
 
 impl HostOp {
     /// 全部操作，按 op id 升序（表格驱动测试与文档生成共用）。
-    pub const ALL: [HostOp; 15] = [
+    pub const ALL: [HostOp; 17] = [
         HostOp::GetRepoInfo,
         HostOp::GetStatus,
         HostOp::ReadFile,
@@ -111,6 +130,8 @@ impl HostOp {
         HostOp::RegisterPanel,
         HostOp::ShowToast,
         HostOp::SubscribeEvents,
+        HostOp::RegisterCommitHook,
+        HostOp::UnregisterCommitHook,
     ];
 
     /// ABI 中的稳定 op id。
@@ -131,6 +152,8 @@ impl HostOp {
             HostOp::RegisterPanel => 13,
             HostOp::ShowToast => 14,
             HostOp::SubscribeEvents => 15,
+            HostOp::RegisterCommitHook => 16,
+            HostOp::UnregisterCommitHook => 17,
         }
     }
 
@@ -157,6 +180,8 @@ impl HostOp {
             HostOp::RegisterPanel => "register_panel",
             HostOp::ShowToast => "show_toast",
             HostOp::SubscribeEvents => "subscribe_events",
+            HostOp::RegisterCommitHook => "register_commit_hook",
+            HostOp::UnregisterCommitHook => "unregister_commit_hook",
         }
     }
 
@@ -176,6 +201,9 @@ impl HostOp {
             // 事件 payload 都是仓库范围的（opened/changed/commit/sync），
             // 订阅它们要求具备与"读仓库"同级的权限
             HostOp::SubscribeEvents => Permission::GitRead,
+            // 钩子是提交流程的旁观者（本期不能阻断，pre 只能改信息）：
+            // 与"读仓库状态"同级即可
+            HostOp::RegisterCommitHook | HostOp::UnregisterCommitHook => Permission::GitRead,
         }
     }
 }
@@ -240,6 +268,26 @@ pub trait HostServices: Send + Sync {
     /// 查询插件是否订阅了某事件；默认未订阅（组合根按需覆盖）。
     fn event_interest(&self, _plugin_id: &str, _event: &str) -> bool {
         false
+    }
+    /// 注册提交钩子（phase: "pre"|"post"）。实现负责去重（同插件同名覆盖）。
+    fn register_commit_hook(
+        &self,
+        plugin_id: &str,
+        phase: &str,
+        name: &str,
+    ) -> Result<Value, HostError> {
+        let _ = (plugin_id, phase, name);
+        Err(HostError::Engine("commit hooks not supported".to_owned()))
+    }
+    /// 注销提交钩子；不存在时静默成功。
+    fn unregister_commit_hook(
+        &self,
+        plugin_id: &str,
+        phase: &str,
+        name: &str,
+    ) -> Result<Value, HostError> {
+        let _ = (plugin_id, phase, name);
+        Ok(serde_json::json!({}))
     }
 }
 
@@ -427,6 +475,22 @@ fn dispatch_op(
             }
             let full_id = format!("{plugin_id}.{id}");
             services.register_panel(plugin_id, &full_id, &title, &location)
+        }
+        HostOp::RegisterCommitHook => {
+            let phase = str_field(args, "phase")?;
+            if !matches!(phase.as_str(), "pre" | "post") {
+                return Err(HostError::InvalidArgument(
+                    "phase",
+                    format!("unknown hook phase `{phase}`"),
+                ));
+            }
+            let name = str_field(args, "name")?;
+            services.register_commit_hook(plugin_id, &phase, &name)
+        }
+        HostOp::UnregisterCommitHook => {
+            let phase = str_field(args, "phase")?;
+            let name = str_field(args, "name")?;
+            services.unregister_commit_hook(plugin_id, &phase, &name)
         }
         HostOp::SubscribeEvents => {
             let events = obj_str_array(args, "events", 1, 8)?;

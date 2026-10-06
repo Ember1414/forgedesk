@@ -700,6 +700,26 @@ impl PluginEngine for WasmiEngine {
 }
 
 impl WasmiEngine {
+    /// 按插件 id 找运行中实例并执行一次命令（提交钩子用）。
+    pub fn invoke_for_plugin(
+        &self,
+        plugin_id: &str,
+        command: &str,
+        arg_json: &str,
+    ) -> Result<String, HostError> {
+        let handle = {
+            let instances = self.instances.read();
+            instances
+                .iter()
+                .find(|(_, plugin)| plugin.store.data().plugin_id == plugin_id)
+                .map(|(raw, _)| PluginHandle::new(*raw))
+                .ok_or_else(|| {
+                    HostError::NotFound(format!("plugin `{plugin_id}` is not running"))
+                })?
+        };
+        self.invoke(handle, command, arg_json)
+    }
+
     /// 读取插件的日志（最近的 `limit` 条，时间升序）。
     pub fn plugin_logs(
         &self,
