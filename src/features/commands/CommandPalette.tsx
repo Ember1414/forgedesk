@@ -58,10 +58,11 @@ export function CommandPalette({ overrides, contextTags }: CommandPaletteProps) 
 
   const results = useMemo(() => {
     const needle = query.trim().toLowerCase();
-    const matched = flat.filter(({ command }) =>
-      needle === '' ||
-      t(command.titleKey).toLowerCase().includes(needle) ||
-      command.id.toLowerCase().includes(needle),
+    const matched = flat.filter(
+      ({ command }) =>
+        needle === '' ||
+        t(command.titleKey).toLowerCase().includes(needle) ||
+        command.id.toLowerCase().includes(needle),
     );
     // 排序：可用在前 → 最近使用优先 → title 字母序
     const recentSet = new Set(readRecentCommands());
@@ -70,15 +71,13 @@ export function CommandPalette({ overrides, contextTags }: CommandPaletteProps) 
       if (availDiff !== 0) {
         return availDiff;
       }
-      const recentDiff =
-        Number(recentSet.has(b.command.id)) - Number(recentSet.has(a.command.id));
+      const recentDiff = Number(recentSet.has(b.command.id)) - Number(recentSet.has(a.command.id));
       if (recentDiff !== 0) {
         return recentDiff;
       }
       return t(a.command.titleKey).localeCompare(t(b.command.titleKey));
     });
   }, [flat, query, t]);
-
 
   useEffect(() => {
     const active = results[activeIndex];

@@ -48,6 +48,7 @@ import { GeneralSettingsPage } from '@/features/settings/GeneralSettingsPage';
 import { GitSettingsPage } from '@/features/settings/GitSettingsPage';
 import { GitHubSettingsPage } from '@/features/settings/GitHubSettingsPage';
 import { SettingsLayout } from '@/features/settings/SettingsLayout';
+import { LayoutSettingsPage } from '@/features/settings/LayoutSettingsPage';
 import { ShortcutsSettingsPage } from '@/features/settings/ShortcutsSettingsPage';
 import { TerminalSettingsPage } from '@/features/settings/TerminalSettingsPage';
 import { ComponentsPage } from '@/ui/__dev__/ComponentsPage';
@@ -120,6 +121,7 @@ export const appRoutes: RouteObject[] = [
           { path: 'git', element: <GitSettingsPage /> },
           { path: 'github', element: <GitHubSettingsPage /> },
           { path: 'terminal', element: <TerminalSettingsPage /> },
+          { path: 'layout', element: <LayoutSettingsPage /> },
           { path: 'shortcuts', element: <ShortcutsSettingsPage /> },
           { path: 'advanced', element: <AdvancedSettingsPage /> },
         ],

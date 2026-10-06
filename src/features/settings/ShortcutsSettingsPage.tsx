@@ -11,10 +11,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 
 import { detectConflicts, displayShortcut } from '@/lib/shortcutKeys';
-import {
-  SHORTCUT_OVERRIDE_PREFIX,
-  useCommandRegistry,
-} from '@/features/commands/commandRegistry';
+import { SHORTCUT_OVERRIDE_PREFIX, useCommandRegistry } from '@/features/commands/commandRegistry';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { Button } from '@/ui/components/button';
 import { Input } from '@/ui/components/input';
@@ -55,11 +52,14 @@ export function ShortcutsSettingsPage() {
   );
 
   const conflicts = useMemo(
-    () => detectConflicts(effective.map(({ command, normalized }) => ({
-      id: command.id,
-      normalizedKey: normalized,
-      when: command.when,
-    }))),
+    () =>
+      detectConflicts(
+        effective.map(({ command, normalized }) => ({
+          id: command.id,
+          normalizedKey: normalized,
+          when: command.when,
+        })),
+      ),
     [effective],
   );
   const conflictIds = new Set(conflicts.flatMap((c) => [c.firstId, c.secondId]));
@@ -73,7 +73,8 @@ export function ShortcutsSettingsPage() {
       return true;
     }
     return (
-      t(command.titleKey).toLowerCase().includes(needle) || command.id.toLowerCase().includes(needle)
+      t(command.titleKey).toLowerCase().includes(needle) ||
+      command.id.toLowerCase().includes(needle)
     );
   });
 
@@ -109,7 +110,9 @@ export function ShortcutsSettingsPage() {
         })),
       ).filter((conflict) => conflict.firstId === id || conflict.secondId === id);
       if (candidateConflicts.length > 0) {
-        setBlocked(t('settings.shortcuts.conflictBlocked', { other: candidateConflicts[0]?.secondId ?? '' }));
+        setBlocked(
+          t('settings.shortcuts.conflictBlocked', { other: candidateConflicts[0]?.secondId ?? '' }),
+        );
         return;
       }
       void setJson(`${SHORTCUT_OVERRIDE_PREFIX}${id}`, candidate).then(() => {
@@ -124,15 +127,21 @@ export function ShortcutsSettingsPage() {
   };
 
   const exportMarkdown = () => {
-    const lines = [`| ${t('settings.shortcuts.keyColumn')} | ${t('settings.shortcuts.actionColumn')} |`, '| --- | --- |'];
+    const lines = [
+      `| ${t('settings.shortcuts.keyColumn')} | ${t('settings.shortcuts.actionColumn')} |`,
+      '| --- | --- |',
+    ];
     for (const { command, normalized } of effective) {
-      lines.push(`| ${normalized === null ? '—' : displayShortcut(normalized)} | ${t(command.titleKey)} |`);
+      lines.push(
+        `| ${normalized === null ? '—' : displayShortcut(normalized)} | ${t(command.titleKey)} |`,
+      );
     }
     void navigator.clipboard.writeText(lines.join('\n')).then(() => {});
   };
 
   return (
     <div className="flex max-w-2xl flex-col gap-4">
+      <h1 className="text-20 font-semibold tracking-tight">{t('pages.settingsShortcuts.title')}</h1>
       <div className="flex items-center gap-2">
         <Input
           srLabel={t('settings.shortcuts.search')}
@@ -147,7 +156,10 @@ export function ShortcutsSettingsPage() {
           onValueChange={setCategory}
           options={CATEGORIES.map((name) => ({
             value: name,
-            label: name === 'all' ? t('settings.shortcuts.allCategories') : t(`settings.shortcuts.category.${name}`),
+            label:
+              name === 'all'
+                ? t('settings.shortcuts.allCategories')
+                : t(`settings.shortcuts.category.${name}`),
           }))}
           className="w-40"
         />

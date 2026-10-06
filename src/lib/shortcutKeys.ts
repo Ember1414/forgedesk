@@ -60,11 +60,7 @@ export function normalizeShortcut(raw: string): string {
       rest.push(part.length === 1 ? part.toUpperCase() : part);
     }
   }
-  const ordered = [
-    ...(mod !== null ? [mod] : []),
-    ...modifiers,
-    ...rest,
-  ];
+  const ordered = [...(mod !== null ? [mod] : []), ...modifiers, ...rest];
   return ordered.join('+');
 }
 
@@ -74,13 +70,16 @@ export function hasPlatformMod(normalized: string): boolean {
 }
 
 /** 键盘事件是否命中规范化键。 */
-export function matchesEvent(normalized: string, event: {
-  readonly key: string;
-  readonly ctrlKey: boolean;
-  readonly metaKey: boolean;
-  readonly shiftKey: boolean;
-  readonly altKey: boolean;
-}): boolean {
+export function matchesEvent(
+  normalized: string,
+  event: {
+    readonly key: string;
+    readonly ctrlKey: boolean;
+    readonly metaKey: boolean;
+    readonly shiftKey: boolean;
+    readonly altKey: boolean;
+  },
+): boolean {
   const parts = normalized.split('+');
   const wantMod = parts.includes('Mod');
   const wantCtrl = parts.includes('Ctrl');
@@ -179,7 +178,9 @@ export function shortcutsToMarkdown(
 ): string {
   const lines = [`| ${header.keyColumn} | ${header.actionColumn} |`, '| --- | --- |'];
   for (const row of rows) {
-    lines.push(`| ${row.normalized === null ? '—' : displayShortcut(row.normalized)} | ${row.title} |`);
+    lines.push(
+      `| ${row.normalized === null ? '—' : displayShortcut(row.normalized)} | ${row.title} |`,
+    );
   }
   return lines.join('\n');
 }

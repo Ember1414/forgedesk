@@ -249,6 +249,8 @@ declare global {
     };
     /** 编辑器 e2e：git_blame 调用计数（T5.8）。 */
     __blameCalls?: number;
+    /** 布局 e2e：mock 的 settings 表（T5.10）。 */
+    __layoutSettings?: Record<string, string>;
     /** 编辑器 e2e：mock 记录的 fs_write 请求（T5.7）。 */
     __fsWrites?: readonly {
       readonly path: string;

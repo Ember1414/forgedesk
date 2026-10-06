@@ -304,6 +304,9 @@
     },
     "settingsShortcuts": {
       "title": "快捷键"
+    },
+    "settingsLayout": {
+      "title": "布局"
     }
   },
   "terminal": {
@@ -740,6 +743,28 @@
       "recording": "按下新的快捷键组合（Esc 取消）…",
       "clickToRecord": "点击录制新快捷键",
       "reset": "恢复默认"
+    },
+    "layout": {
+      "presetTitle": "布局预设",
+      "preset": {
+        "default": "默认",
+        "review": "审查",
+        "editor": "编辑器"
+      },
+      "presetHint": {
+        "default": "平衡布局：文件树 + 详情面板靠右。",
+        "review": "详情面板置底，给 diff 更多横向空间（审查模式）。",
+        "editor": "编辑器模式：文件树收窄，适合专注编辑。"
+      },
+      "treeWidthTitle": "文件树宽度",
+      "export": "导出布局（复制 JSON）",
+      "exported": "已复制布局 JSON",
+      "import": "从剪贴板导入布局",
+      "imported": "布局已导入",
+      "importInvalid": "剪贴板内容不是有效的布局 JSON，未应用。",
+      "corruptedToast": "保存的布局已损坏，已恢复默认布局。",
+      "corruptedInline": "保存的布局数据无效，已回退默认（可在下方重新调整并保存）。",
+      "reset": "恢复默认布局"
     }
   },
   "snapshots": {

@@ -60,10 +60,7 @@ export function useCommandDefinitions(): readonly RegisteredCommand[] {
   const toggleSidebar = useUiStore((state) => state.toggleSidebar);
   const setDetailPanel = useUiStore((state) => state.setDetailPanel);
 
-  const repoScope = useCallback(
-    () => useUiStore.getState().currentRepoId,
-    [],
-  );
+  const repoScope = useCallback(() => useUiStore.getState().currentRepoId, []);
 
   const refreshStatus = useCallback(async () => {
     const repoId = repoScope();
@@ -81,16 +78,56 @@ export function useCommandDefinitions(): readonly RegisteredCommand[] {
       nav('nav.status', 'commands.nav.status', 'navigate', '/status', navigate, null, true),
       nav('nav.commit', 'commands.nav.commit', 'navigate', '/commit', navigate, 'Mod+1', true),
       nav('nav.history', 'commands.nav.history', 'navigate', '/history', navigate, 'Mod+2', true),
-      nav('nav.branches', 'commands.nav.branches', 'navigate', '/branches', navigate, 'Mod+3', true),
-      nav('nav.snapshots', 'commands.nav.snapshots', 'navigate', '/snapshots', navigate, null, true),
-      nav('nav.operations', 'commands.nav.operations', 'navigate', '/operations', navigate, null, true),
+      nav(
+        'nav.branches',
+        'commands.nav.branches',
+        'navigate',
+        '/branches',
+        navigate,
+        'Mod+3',
+        true,
+      ),
+      nav(
+        'nav.snapshots',
+        'commands.nav.snapshots',
+        'navigate',
+        '/snapshots',
+        navigate,
+        null,
+        true,
+      ),
+      nav(
+        'nav.operations',
+        'commands.nav.operations',
+        'navigate',
+        '/operations',
+        navigate,
+        null,
+        true,
+      ),
       nav('nav.conflict', 'commands.nav.conflict', 'navigate', '/conflict', navigate, null, true),
-      nav('nav.terminal', 'commands.nav.terminal', 'navigate', '/terminal', navigate, 'Mod+`', true),
+      nav(
+        'nav.terminal',
+        'commands.nav.terminal',
+        'navigate',
+        '/terminal',
+        navigate,
+        'Mod+`',
+        true,
+      ),
       nav('nav.editor', 'commands.nav.editor', 'navigate', '/editor', navigate, 'Mod+4', true),
       // ---------------- 导航（全局）----------------
       nav('app.settings', 'commands.app.settings', 'app', '/settings', navigate, 'Mod+,', false),
       nav('app.plugins', 'commands.app.plugins', 'app', '/plugins', navigate, null, false),
-      nav('app.commandsDictionary', 'commands.app.commandsDictionary', 'app', '/commands', navigate, null, false),
+      nav(
+        'app.commandsDictionary',
+        'commands.app.commandsDictionary',
+        'app',
+        '/commands',
+        navigate,
+        null,
+        false,
+      ),
       {
         id: 'app.commandPalette',
         titleKey: 'commands.app.commandPalette',
@@ -308,5 +345,14 @@ export function useCommandDefinitions(): readonly RegisteredCommand[] {
     // 占位引用（t 在工厂里未直接使用时避免 lint 噪音——titleKey 由渲染端翻译）
     void t;
     return commands;
-  }, [navigate, queryClient, refreshStatus, repoScope, setDetailPanel, setThemeMode, t, toggleSidebar]);
+  }, [
+    navigate,
+    queryClient,
+    refreshStatus,
+    repoScope,
+    setDetailPanel,
+    setThemeMode,
+    t,
+    toggleSidebar,
+  ]);
 }

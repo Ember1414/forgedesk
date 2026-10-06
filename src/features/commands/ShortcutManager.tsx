@@ -71,7 +71,11 @@ export function ShortcutManagerWithPalette({ editorActive }: ShortcutManagerProp
         const fallback = command.defaultKey;
         effective.set(
           command.id,
-          raw !== undefined ? normalizeShortcut(raw) : fallback === null ? '' : normalizeShortcut(fallback),
+          raw !== undefined
+            ? normalizeShortcut(raw)
+            : fallback === null
+              ? ''
+              : normalizeShortcut(fallback),
         );
       }
       for (const [id, normalizedKey] of effective) {
@@ -102,5 +106,7 @@ export function ShortcutManagerWithPalette({ editorActive }: ShortcutManagerProp
     return null;
   }
 
-  return <CommandPalette overrides={overrides} contextTags={useCommandRegistry.getState().contextTags} />;
+  return (
+    <CommandPalette overrides={overrides} contextTags={useCommandRegistry.getState().contextTags} />
+  );
 }

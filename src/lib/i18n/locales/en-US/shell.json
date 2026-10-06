@@ -304,6 +304,9 @@
     },
     "settingsShortcuts": {
       "title": "Shortcuts"
+    },
+    "settingsLayout": {
+      "title": "Layout"
     }
   },
   "terminal": {
@@ -740,6 +743,28 @@
       "recording": "Press the new key combination (Esc to cancel)…",
       "clickToRecord": "Click to record a new shortcut",
       "reset": "Reset"
+    },
+    "layout": {
+      "presetTitle": "Layout preset",
+      "preset": {
+        "default": "Default",
+        "review": "Review",
+        "editor": "Editor"
+      },
+      "presetHint": {
+        "default": "Balanced: file tree plus the detail panel on the right.",
+        "review": "Detail panel docked to the bottom for more horizontal diff space.",
+        "editor": "Editor mode: narrower file tree for focused editing."
+      },
+      "treeWidthTitle": "File tree width",
+      "export": "Export layout (copy JSON)",
+      "exported": "Layout JSON copied",
+      "import": "Import layout from clipboard",
+      "imported": "Layout imported",
+      "importInvalid": "Clipboard does not contain valid layout JSON; nothing applied.",
+      "corruptedToast": "The saved layout was corrupted and has been reset to default.",
+      "corruptedInline": "The saved layout was invalid and fell back to default (adjust and save again below).",
+      "reset": "Reset to default layout"
     }
   },
   "snapshots": {

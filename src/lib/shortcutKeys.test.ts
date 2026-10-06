@@ -34,7 +34,7 @@ describe('matchesEvent（事件命中）', () => {
   };
 
   it('Mod+Shift+P 在平台修饰键 + Shift 按下时命中', () => {
-    const event = { ...base, key: 'P', shiftKey: true, ...( { } as object), ...({ } as object) };
+    const event = { ...base, key: 'P', shiftKey: true, ...({} as object), ...({} as object) };
     const withMod = { ...event, ctrlKey: true, metaKey: true };
     // Windows（Ctrl 平台）下 ctrlKey=true；macOS 下 metaKey=true——测试里两个都给
     expect(matchesEvent('Mod+Shift+P', withMod)).toBe(true);

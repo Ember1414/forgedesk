@@ -77,7 +77,9 @@ export function recordRecentCommand(id: string): void {
   try {
     const raw = localStorage.getItem(RECENT_KEY);
     const parsed: unknown = raw === null ? [] : JSON.parse(raw);
-    const list = Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === 'string') : [];
+    const list = Array.isArray(parsed)
+      ? parsed.filter((v): v is string => typeof v === 'string')
+      : [];
     const next = [id, ...list.filter((entry) => entry !== id)].slice(0, RECENT_LIMIT);
     localStorage.setItem(RECENT_KEY, JSON.stringify(next));
   } catch {
