@@ -14,6 +14,7 @@ import { EditorPanel } from '@/features/editor/EditorPanel';
 import { FileTreePanel } from '@/features/editor/FileTreePanel';
 import { openEditorFile } from '@/features/editor/editorSupport';
 import { useEditorStore } from '@/stores/editorStore';
+import { useLayoutStore } from '@/stores/layoutStore';
 import { useAppError } from '@/lib/errors';
 import { Button } from '@/ui/components/button';
 
@@ -22,6 +23,7 @@ export function RepoEditorPage() {
   const params = useParams();
   const repoId = Number(params.repoId);
   const openTab = useEditorStore((state) => state.openTab);
+  const treeWidth = useLayoutStore((state) => state.layout.treeWidth);
   const { show } = useAppError();
   const [treeOpen, setTreeOpen] = useState(true);
 
@@ -53,7 +55,7 @@ export function RepoEditorPage() {
       </div>
       <div className="flex min-h-0 flex-1 gap-2">
         {treeOpen ? (
-          <div className="w-64 shrink-0">
+          <div className="shrink-0" style={{ width: treeWidth }}>
             <FileTreePanel repoId={repoId} onOpenFile={openFile} />
           </div>
         ) : null}
