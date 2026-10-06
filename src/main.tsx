@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 
 import { App } from '@/app/App';
 import { applyThemeMode, readThemeMode } from '@/app/theme';
+import { applyCachedCustomTheme } from '@/features/themes/activeCustomTheme';
 import { installFrontendErrorHooks } from '@/lib/frontendErrors';
 // 副作用导入：初始化 i18n（必须在首次渲染前完成，否则会先渲染出 key 原文）
 import '@/lib/i18n';
@@ -11,6 +12,9 @@ import '@/styles/index.css';
 
 // 在挂载 React 之前把主题写到 <html>：暗色用户不会看到一帧白屏（闪白）
 applyThemeMode(readThemeMode());
+// 自定义主题（T6.6）同样要在首帧前上色：读 localStorage 直写缓存（同步），
+// SQLite 加载后由设置侧对账纠正
+applyCachedCustomTheme();
 
 /**
  * 未捕获错误的钩子（PLAN §10 的 DoD 必过项）。

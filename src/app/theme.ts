@@ -63,6 +63,9 @@ export function writeThemeMode(mode: ThemeMode): void {
 /**
  * 把模式应用到 <html>，并同步 `color-scheme`
  * （后者决定原生控件与滚动条的配色，漏掉会在暗色下出现白色滚动条）。
+ *
+ * 解析结果变化后通知订阅者（T6.6：自定义主题的颜色归属某个外观，
+ * resolved 值变化时必须重新套用/卸载自定义变量）。
  */
 export function applyThemeMode(mode: ThemeMode): ResolvedTheme {
   const resolved = resolveTheme(mode);
@@ -71,7 +74,32 @@ export function applyThemeMode(mode: ThemeMode): ResolvedTheme {
     root.setAttribute('data-theme', resolved);
     root.style.colorScheme = resolved;
   }
+  for (const listener of resolvedListeners) {
+    listener(resolved);
+  }
   return resolved;
+}
+
+type ResolvedListener = (resolved: ResolvedTheme) => void;
+const resolvedListeners: ResolvedListener[] = [];
+
+/** 订阅解析结果变化（light/dark 切换，含 system 模式下的自动切换）。返回退订函数。 */
+export function onResolvedThemeChange(listener: ResolvedListener): () => void {
+  resolvedListeners.push(listener);
+  return () => {
+    const index = resolvedListeners.indexOf(listener);
+    if (index >= 0) {
+      resolvedListeners.splice(index, 1);
+    }
+  };
+}
+
+/** 当前解析后的外观（读 <html data-theme>；尚未初始化时按亮色处理）。 */
+export function currentResolvedTheme(): ResolvedTheme {
+  if (typeof document === 'undefined') {
+    return 'light';
+  }
+  return document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
 }
 
 /**

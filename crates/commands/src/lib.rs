@@ -47,6 +47,7 @@ pub mod issues;
 pub mod jobs;
 pub mod logs;
 pub mod merge;
+pub mod plugins;
 pub mod pty_spike;
 pub mod rate_limit;
 pub mod rebase;
@@ -128,6 +129,11 @@ pub use logs::{logs_open, logs_tail};
 pub use merge::{
     git_merge_continue, git_merge_execute, git_merge_prepare, MergeExecuteRequest, MergePlanDto,
     MergeRequest,
+};
+pub use plugins::{
+    plugin_grant, plugin_install_from_dir, plugin_invoke_command, plugin_list, plugin_logs,
+    plugin_registrations, plugin_reload, plugin_render_panel, plugin_revoke, plugin_set_enabled,
+    plugin_uninstall, RegistrationDto, EVENT_PLUGIN_REGISTRATIONS, EVENT_PLUGIN_TOAST,
 };
 pub use pty_spike::{
     pty_spike_close, pty_spike_create, pty_spike_resize, pty_spike_throughput, pty_spike_write,

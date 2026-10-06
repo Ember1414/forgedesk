@@ -1,0 +1,19 @@
+[workspace]
+resolver = "2"
+members = ["sdk", "commit-template", "repo-stats", "repo-audit"]
+
+# 独立于主 workspace 的插件 workspace（T6.5）：
+# 这些 crate 以 wasm32-wasip1 为目标编译（cdylib），不进主 workspace 的
+# clippy/test 门禁；冒烟测试在主 workspace 的 plugin-host 集成测试里
+# 直接加载入库的 plugin.wasm 产物。
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+
+[profile.release]
+opt-level = "s"
+lto = true
+strip = true
+panic = "abort"

@@ -515,3 +515,104 @@ export function debugThrowError(code: string): Promise<void> {
 export function debugPanic(): Promise<void> {
   return invokeCommand<void>('debug_panic');
 }
+
+/** 插件管理态（`plugin_list`，T6.4）。 */
+export type PluginManagedState = 'enabled' | 'disabled' | 'crashed';
+
+/** 已安装插件摘要（`plugin_list`）。 */
+export interface PluginSummary {
+  readonly id: string;
+  readonly name: string;
+  readonly version: string;
+  readonly author: string;
+  readonly license: string;
+  readonly description: string;
+  readonly homepage?: string;
+  readonly state: PluginManagedState;
+  readonly declaredPermissions: readonly string[];
+  readonly grantedPermissions: readonly string[];
+  /** 成功的宿主调用计数（按权限聚合）；仅运行中的插件有值。 */
+  readonly permissionUsage: readonly (readonly [string, number])[];
+}
+
+/** 安装结果（`plugin_install_from_dir`）。 */
+export interface PluginInstallReport {
+  readonly id: string;
+  readonly name: string;
+  readonly version: string;
+  readonly sha256: string;
+  /** 插件目录在 plugins_root 内（卸载会删目录）；false = 外部开发者目录（保留）。 */
+  readonly insideRoot: boolean;
+  readonly declaredPermissions: readonly string[];
+}
+
+/** 已注册贡献点（`plugin_registrations`）。 */
+export interface PluginRegistration {
+  readonly pluginId: string;
+  readonly kind: 'command' | 'panel';
+  readonly id: string;
+  readonly title: string;
+  readonly location?: string;
+}
+
+/** 插件日志条目（`plugin_logs`）。 */
+export interface PluginLogEntry {
+  readonly timeMs: number;
+  readonly level: number;
+  readonly message: string;
+}
+
+/** 已安装插件列表。 */
+export function pluginList(): Promise<PluginSummary[]> {
+  return invokeCommand<PluginSummary[]>('plugin_list', {});
+}
+
+/** 开发者模式：从本地目录安装插件。 */
+export function pluginInstallFromDir(dir: string): Promise<PluginInstallReport> {
+  return invokeCommand<PluginInstallReport>('plugin_install_from_dir', { dir });
+}
+
+/** 启用 / 禁用插件。 */
+export function pluginSetEnabled(id: string, enabled: boolean): Promise<void> {
+  return invokeCommand<void>('plugin_set_enabled', { id, enabled });
+}
+
+/** 逐项授予权限（扩权在插件重启后生效）。 */
+export function pluginGrant(id: string, permissions: readonly string[]): Promise<void> {
+  return invokeCommand<void>('plugin_grant', { id, permissions });
+}
+
+/** 撤销一项权限（立即生效）。 */
+export function pluginRevoke(id: string, permission: string): Promise<void> {
+  return invokeCommand<void>('plugin_revoke', { id, permission });
+}
+
+/** 卸载插件；返回是否删除了目录（false = 外部开发者目录保留）。 */
+export function pluginUninstall(id: string): Promise<boolean> {
+  return invokeCommand<boolean>('plugin_uninstall', { id });
+}
+
+/** 热重载（开发者模式）。 */
+export function pluginReload(id: string): Promise<void> {
+  return invokeCommand<void>('plugin_reload', { id });
+}
+
+/** 插件日志（运行中的实例）。 */
+export function pluginLogs(id: string, limit: number): Promise<PluginLogEntry[]> {
+  return invokeCommand<PluginLogEntry[]>('plugin_logs', { id, limit });
+}
+
+/** 渲染插件面板（返回已校验的 DSL JSON）。 */
+export function pluginRenderPanel(id: string, panelId: string): Promise<string> {
+  return invokeCommand<string>('plugin_render_panel', { id, panelId });
+}
+
+/** 执行插件命令。 */
+export function pluginInvokeCommand(id: string, command: string, argJson: string): Promise<string> {
+  return invokeCommand<string>('plugin_invoke_command', { id, command, argJson });
+}
+
+/** 已注册贡献点（命令面板 / 面板挂载）。 */
+export function pluginRegistrations(): Promise<PluginRegistration[]> {
+  return invokeCommand<PluginRegistration[]>('plugin_registrations', {});
+}

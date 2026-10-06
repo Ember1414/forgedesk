@@ -204,12 +204,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             // 这一点由 `snapshot_usage` 与回滚报告如实说明，不会静默。
             let snapshot_backup_root = app.path().app_cache_dir()?.join("snapshots");
 
+            // 插件宿主（T6.4）：组合根服务（真实 HostServices）→ 引擎 → 管理器。
+            // 依赖方向：引擎在插件执行线程里回调服务；服务只拿 Arc 克隆。
+            let open_repos = Arc::new(OpenRepoRegistry::new());
+            let (plugin_manager, plugin_services) = forgedesk_commands::plugins::build_plugin_host(
+                Arc::clone(&database),
+                Arc::clone(&engines),
+                Arc::clone(&open_repos),
+                app.path().app_data_dir()?.join("plugins"),
+                app.handle().clone(),
+            )?;
+
             app.manage(AppState {
                 database: Arc::clone(&database),
                 log_dir,
                 engines: Arc::clone(&engines),
                 jobs: Arc::new(JobRunner::new()),
-                open_repos: Arc::new(OpenRepoRegistry::new()),
+                open_repos,
                 // T1.9：真实的 ref 锚点快照。提交链路"执行前打点"的位置在 T1.7
                 // 就已接好，这里只是把"如实回答没有快照"的占位换成实现。
                 snapshots: Arc::new(
@@ -227,6 +238,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 watchers,
                 // T5.2：终端会话注册表。退出时的清理见 RunEvent::Exit。
                 terminals: Arc::new(TerminalRegistry::new()),
+                plugins: Arc::new(plugin_manager),
+                plugin_services,
             });
 
             // 审计的保留策略在**启动时**执行一次（T1.11）：查历史不该顺带删记录，
@@ -258,6 +271,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         forgedesk_commands::workspace_stage,
         forgedesk_commands::workspace_unstage,
         forgedesk_commands::workspace_discard,
+        forgedesk_commands::plugin_list,
+        forgedesk_commands::plugin_install_from_dir,
+        forgedesk_commands::plugin_set_enabled,
+        forgedesk_commands::plugin_grant,
+        forgedesk_commands::plugin_revoke,
+        forgedesk_commands::plugin_uninstall,
+        forgedesk_commands::plugin_reload,
+        forgedesk_commands::plugin_logs,
+        forgedesk_commands::plugin_render_panel,
+        forgedesk_commands::plugin_invoke_command,
+        forgedesk_commands::plugin_registrations,
         forgedesk_commands::commit_prepare,
         forgedesk_commands::commit_execute,
         forgedesk_commands::commit_message_hint,
@@ -434,6 +458,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         forgedesk_commands::workspace_stage,
         forgedesk_commands::workspace_unstage,
         forgedesk_commands::workspace_discard,
+        forgedesk_commands::plugin_list,
+        forgedesk_commands::plugin_install_from_dir,
+        forgedesk_commands::plugin_set_enabled,
+        forgedesk_commands::plugin_grant,
+        forgedesk_commands::plugin_revoke,
+        forgedesk_commands::plugin_uninstall,
+        forgedesk_commands::plugin_reload,
+        forgedesk_commands::plugin_logs,
+        forgedesk_commands::plugin_render_panel,
+        forgedesk_commands::plugin_invoke_command,
+        forgedesk_commands::plugin_registrations,
         forgedesk_commands::commit_prepare,
         forgedesk_commands::commit_execute,
         forgedesk_commands::commit_message_hint,

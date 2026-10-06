@@ -17,6 +17,7 @@ const SETTINGS_SECTIONS = [
   { segment: 'terminal', labelKey: 'pages.settingsTerminal.title' },
   { segment: 'shortcuts', labelKey: 'pages.settingsShortcuts.title' },
   { segment: 'layout', labelKey: 'pages.settingsLayout.title' },
+  { segment: 'plugins', labelKey: 'pages.settingsPlugins.title' },
   { segment: 'advanced', labelKey: 'pages.settingsAdvanced.title' },
 ] as const;
 

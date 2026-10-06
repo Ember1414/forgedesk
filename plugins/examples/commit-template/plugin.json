@@ -1,0 +1,19 @@
+{
+  "id": "com.example.commit-template",
+  "name": "Commit Template",
+  "version": "0.1.0",
+  "apiVersion": "0.1",
+  "author": "ForgeDesk contributors",
+  "license": "Apache-2.0",
+  "description": "Generate commit message skeletons (feat/fix/chore) from branch and changed files. Pure string rules, no AI.",
+  "homepage": "https://github.com/Ember1414/forgedesk",
+  "main": "plugin.wasm",
+  "permissions": ["git:read", "ui:command", "ui:toast"],
+  "contributes": {
+    "commands": [
+      { "id": "fill-feat", "title": "提交信息模板：feat" },
+      { "id": "fill-fix", "title": "提交信息模板：fix" },
+      { "id": "fill-chore", "title": "提交信息模板：chore" }
+    ]
+  }
+}

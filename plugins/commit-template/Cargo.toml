@@ -1,0 +1,11 @@
+[package]
+name = "plugin-commit-template"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+forgedesk-plugin-sdk = { path = "../sdk" }
+
+[lib]
+crate-type = ["cdylib"]

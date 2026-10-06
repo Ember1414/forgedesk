@@ -396,10 +396,18 @@ pub fn commit_prepare(
     }
 
     let request = spec.into_domain()?;
-    state
-        .commit_service()
-        .prepare(repo_id, &request)
-        .map(|plan| CommitPlanDto::from_domain(&plan))
+    let plan = state.commit_service().prepare(repo_id, &request)?;
+    // T6.3 提交钩子（pre）：插件可修改提交信息；不能阻断（can_block 未授予任何
+    // 插件）。钩子失败只记日志，提交照常。修改后把计划放回注册表。
+    let mut plan = plan;
+    let hooked = state
+        .plugin_services
+        .run_pre_commit_hooks(plan.message.clone());
+    if hooked != plan.message {
+        plan.message = hooked;
+        state.commit_plans.replace(plan.clone());
+    }
+    Ok(CommitPlanDto::from_domain(&plan))
 }
 
 /// 执行提交计划。能力等级：`Mutating`；成功后发布 `repo:changed`。
@@ -418,6 +426,11 @@ pub fn commit_execute(
     }
 
     let outcome = state.commit_service().execute(plan_id)?;
+
+    // T6.3 提交钩子（post）：异步通知订阅插件，不阻塞命令返回。
+    state
+        .plugin_services
+        .notify_post_commit(&outcome.oid, &outcome.subject);
 
     // 数据变化是事实：投递失败只影响本次自动刷新（面板仍可手动刷新）。
     // 提交移动的是 HEAD 与分支，因此按"引用变化"上报：历史、分支与状态

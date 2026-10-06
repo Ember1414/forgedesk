@@ -32,6 +32,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "check:contrast": "node scripts/design/check-contrast.mjs",
+    "check:colors": "node scripts/design/scan-color-literals.mjs",
     "check:workflows": "node scripts/ci/validate-workflows.mjs",
     "check:repo": "node scripts/ci/validate-repo.mjs",
     "check:docs": "node scripts/ci/check-docs-links.mjs",

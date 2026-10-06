@@ -22,6 +22,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use forgedesk_jobs::JobRunner;
+use forgedesk_plugin_host::manager::PluginManager;
 use forgedesk_services::repository::OpenRepoRegistry;
 use forgedesk_services::terminal::TerminalRegistry;
 use forgedesk_services::{
@@ -97,6 +98,10 @@ pub struct AppState {
     pub log_pages: Arc<LogPageCache>,
     /// 终端会话注册表（T5.2）：`term_*` 命令与 `repo_close` 的安全网共用。
     pub terminals: Arc<TerminalRegistry>,
+    /// 插件生命周期管理器（T6.4）：`plugin_*` 命令族的执行面。
+    pub plugins: Arc<PluginManager>,
+    /// 插件宿主服务（T6.2 trait 的真实实现；注册表查询与事件订阅在它身上）。
+    pub plugin_services: Arc<crate::plugins::AppHostServices>,
 }
 
 impl AppState {

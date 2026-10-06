@@ -79,3 +79,6 @@ desktop.ini
 /tmp/
 /temp/
 /.cache/
+
+# 插件 workspace 的构建产物（examples/*/plugin.wasm 是入库的产物，目录不是）
+plugins/target/

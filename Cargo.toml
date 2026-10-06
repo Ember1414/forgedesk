@@ -56,6 +56,16 @@ thiserror = "2"
 anyhow = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# schemars：由 serde 结构体生成 JSON Schema。plugin-host 用它从 plugin.json
+# 清单结构生成正式 schema，供文档与第三方校验工具使用（T6.1）。
+schemars = "1"
+# wasmi：插件 wasm 引擎（T6.1）。选型对比：wasmtime 裁剪+WASI +5.59MB、
+# wasmi 仅 +0.74MB（release/lto/opt-level=s 实测）；UI 胶水类插件对解释器
+# 性能足够，日后可经 PluginEngine trait 无痛切换引擎。审批结论 2026-10-05。
+wasmi = "2"
+# sha2：插件 wasm 文件的 SHA256（T6.4 管理页展示供用户核对；0.10 已在
+# 依赖树中——octocrab → jsonwebtoken 带入，直接复用零新增 crate）。
+sha2 = "0.10"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "time", "json"] }
 # tracing-appender 提供**非阻塞写入**（WorkerGuard 保证退出前 flush）。
@@ -72,6 +82,12 @@ parking_lot = "0.12"
 # （Windows ReadDirectoryChangesW、macOS FSEvents、Linux inotify），
 # 我们只做"过滤 + 去抖动"，不自己轮询。
 notify = "8"
+# winreg：仅 Windows 读写注册表，用于开机自启（T6.9，HKCU Run 键）。
+# 平台 crate 保持 forbid(unsafe_code)：unsafe 都在 winreg 内部。
+# Windows-only 由 platform crate 的 [target.'cfg(windows)'.dependencies] 门控。
+winreg = "0.55"
+# unicode-normalization：macOS 文件系统用 NFD 保存路径，比较前必须统一到 NFC（T6.9）。
+unicode-normalization = "0.1"
 
 # ---- 本地存储 ----
 # bundled：把 SQLite 源码一起编译进产物。为什么不用系统库：
@@ -112,6 +128,15 @@ incremental = true
 
 [profile.dev.package."*"]
 opt-level = 2
+
+# wasmi 在 dev profile 以 opt-level>=2 编译时，fuel+宿主函数路径存在原生内存
+# 错误（STATUS_ACCESS_VIOLATION；探针 E:/Projects/fd-wasm-probe 复现并锁定：
+# O0/O1 均正常，O2/O3 崩，与 debug-assertions / codegen-units 无关；wasmi
+# 自家 CI 只覆盖 O0-debug 与 O3-release，恰好漏掉 dev 依赖提速这个组合）。
+# dev 下 wasmi 用 O1：避开 bug 且解释器性能可用；release（O3+LTO）实测正常。
+# 升级 wasmi 补丁版本后应重测并移除此覆盖。
+[profile.dev.package.wasmi]
+opt-level = 1
 
 [profile.release]
 codegen-units = 1

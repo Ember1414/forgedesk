@@ -156,6 +156,14 @@ impl CommitPlanRegistry {
         lock(&self.plans).remove(plan_id)
     }
 
+    /// 覆盖登记一份计划（键是它自己的 `plan_id`）。
+    ///
+    /// 用途：T6.3 的 pre 提交钩子可能修改提交信息——prepare 已登记计划后，
+    /// 命令层套用钩子结果并以同 id 放回，`execute` 才能看到修改后的信息。
+    pub fn replace(&self, plan: CommitPlan) {
+        lock(&self.plans).insert(plan.plan_id.clone(), plan);
+    }
+
     /// 清理已过期的计划。
     ///
     /// 用户反复"改一下信息、重新预览"会留下多份计划；虽然它们都会过期，

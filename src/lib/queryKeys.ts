@@ -189,3 +189,8 @@ export const SYNC_STATUS_QUERY_KEY = 'syncStatus';
 export function syncStatusKey(repoId: number): readonly [string, number] {
   return [SYNC_STATUS_QUERY_KEY, repoId];
 }
+
+/** 已安装插件列表（`plugin_list`，T6.4）。 */
+export const PLUGINS_QUERY_KEY = 'plugins';
+/** 已注册贡献点（`plugin_registrations`，命令面板与面板挂载）。 */
+export const PLUGIN_REGISTRATIONS_QUERY_KEY = 'pluginRegistrations';

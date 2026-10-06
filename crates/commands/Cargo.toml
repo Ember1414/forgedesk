@@ -18,6 +18,8 @@ forgedesk-diagnostics.workspace = true
 forgedesk-git-engine.workspace = true
 forgedesk-jobs.workspace = true
 forgedesk-platform.workspace = true
+forgedesk-plugin-host.workspace = true
+parking_lot.workspace = true
 forgedesk-services.workspace = true
 # 命令层的共享状态要持有 `Arc<dyn SnapshotManager>`（提交链路在"执行前打点"的位置
 # 调用它）。依赖的是 trait 而不是实现：M3/T1.9 换成真实实现时这里一行都不用改。
