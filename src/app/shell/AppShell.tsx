@@ -1,10 +1,11 @@
 import { useTranslation } from 'react-i18next';
-import { Outlet } from 'react-router-dom';
+import { Outlet, useLocation } from 'react-router-dom';
 
 import { SideNav } from '@/app/shell/SideNav';
 import { StatusBar } from '@/app/shell/StatusBar';
 import { TitleBar } from '@/app/shell/TitleBar';
 import { useIsNarrowViewport } from '@/app/shell/useIsNarrowViewport';
+import { ShortcutManagerWithPalette } from '@/features/commands/ShortcutManager';
 import { useUiStore } from '@/stores/uiStore';
 
 /**
@@ -25,6 +26,7 @@ import { useUiStore } from '@/stores/uiStore';
  *   - 主内容区带 tabIndex={-1}，跳转后焦点能落到这里。
  */
 export function AppShell() {
+  const location = useLocation();
   const { t } = useTranslation('shell');
   const collapsedByUser = useUiStore((state) => state.sidebarCollapsed);
   const autoCollapsed = useIsNarrowViewport();
@@ -53,6 +55,8 @@ export function AppShell() {
         </main>
       </div>
 
+      {/* T5.9：命令面板 + 快捷键分发（渲染 null；编辑器页时 editorActive 生效） */}
+      <ShortcutManagerWithPalette editorActive={location.pathname.includes('/editor')} />
       <StatusBar />
     </div>
   );

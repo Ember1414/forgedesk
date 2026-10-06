@@ -301,6 +301,9 @@
     "editor": {
       "title": "Editor",
       "description": "View and edit repository files (Monaco, bundled locally)."
+    },
+    "settingsShortcuts": {
+      "title": "Shortcuts"
     }
   },
   "terminal": {
@@ -717,6 +720,26 @@
       "historyEmpty": "No diagnoses yet. Once an error matches a rule, the last 20 are listed here.",
       "historyClear": "Clear diagnosis history",
       "historyNoRule": "(no specific rule)"
+    },
+    "shortcuts": {
+      "search": "Search shortcuts…",
+      "categoryFilter": "Filter by category",
+      "allCategories": "All categories",
+      "category": {
+        "navigate": "Navigation",
+        "git": "Git",
+        "editor": "Editor",
+        "view": "View",
+        "app": "App"
+      },
+      "exportMarkdown": "Export Markdown",
+      "keyColumn": "Shortcut",
+      "actionColumn": "Action",
+      "conflictBlocked": "Shortcut conflict: duplicates {other}; not saved.",
+      "conflictMark": "Conflict",
+      "recording": "Press the new key combination (Esc to cancel)…",
+      "clickToRecord": "Click to record a new shortcut",
+      "reset": "Reset"
     }
   },
   "snapshots": {
@@ -1995,6 +2018,78 @@
       "renameAria": "Rename {name}",
       "deleteAria": "Delete {name}",
       "changedMark": "●"
+    },
+    "blame": {
+      "toggle": "Blame"
+    },
+    "history": {
+      "toggle": "File history",
+      "close": "Close history",
+      "commitDetail": "Commit detail",
+      "detailError": "Failed to load the commit detail.",
+      "filesChanged": "{count} files changed",
+      "changeKind": "Change type: {kind}",
+      "compare": "Compare",
+      "compareAria": "Compare with this revision",
+      "loadMore": "Load more"
+    }
+  },
+  "commands": {
+    "nav": {
+      "dashboard": "Open dashboard",
+      "status": "Open workspace",
+      "commit": "Open commit panel",
+      "history": "Open history",
+      "branches": "Open branches",
+      "snapshots": "Open snapshots",
+      "operations": "Open operations",
+      "conflict": "Open conflict wizard",
+      "terminal": "Open terminal",
+      "editor": "Open editor"
+    },
+    "app": {
+      "settings": "Open settings",
+      "plugins": "Open plugins",
+      "commandsDictionary": "Open command dictionary",
+      "commandPalette": "Open command palette"
+    },
+    "git": {
+      "refresh": "Refresh repository status",
+      "fetch": "Fetch from remote",
+      "stageAll": "Stage all changes",
+      "commit": "Open commit page",
+      "push": "Push to remote",
+      "pull": "Pull from remote",
+      "stash": "Stash changes",
+      "branchCreate": "Create branch",
+      "viewSnapshot": "View snapshots"
+    },
+    "view": {
+      "toggleSidebar": "Toggle sidebar",
+      "toggleTheme": "Toggle light/dark theme",
+      "themeLight": "Switch to light theme",
+      "themeDark": "Switch to dark theme",
+      "themeSystem": "Follow system theme",
+      "detailRight": "Detail panel to the right",
+      "detailBottom": "Detail panel to the bottom",
+      "detailHidden": "Hide detail panel",
+      "openLogs": "Open log viewer"
+    },
+    "editor": {
+      "open": "Open in editor",
+      "toggleTree": "Toggle file tree",
+      "save": "Save current file",
+      "closeTab": "Close current tab"
+    },
+    "palette": {
+      "title": "Command palette",
+      "placeholder": "Search commands…",
+      "empty": "No matching commands.",
+      "close": "Close command palette"
+    },
+    "when": {
+      "repoOpen": "requires an open repository",
+      "editorActive": "requires the editor page"
     }
   }
 }

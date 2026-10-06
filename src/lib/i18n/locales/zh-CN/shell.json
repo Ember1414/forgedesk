@@ -301,6 +301,9 @@
     "editor": {
       "title": "编辑器",
       "description": "查看与编辑仓库文件（Monaco 内置，本地打包）。"
+    },
+    "settingsShortcuts": {
+      "title": "快捷键"
     }
   },
   "terminal": {
@@ -717,6 +720,26 @@
       "historyEmpty": "还没有诊断记录。发生错误并命中诊断规则后，会在这里列出最近 20 条。",
       "historyClear": "清空诊断历史",
       "historyNoRule": "（未命中具体规则）"
+    },
+    "shortcuts": {
+      "search": "搜索快捷键…",
+      "categoryFilter": "按分类筛选",
+      "allCategories": "全部分类",
+      "category": {
+        "navigate": "导航",
+        "git": "Git 操作",
+        "editor": "编辑器",
+        "view": "视图",
+        "app": "应用"
+      },
+      "exportMarkdown": "导出 Markdown",
+      "keyColumn": "快捷键",
+      "actionColumn": "功能",
+      "conflictBlocked": "快捷键冲突：与 {other} 重复，未保存。",
+      "conflictMark": "冲突",
+      "recording": "按下新的快捷键组合（Esc 取消）…",
+      "clickToRecord": "点击录制新快捷键",
+      "reset": "恢复默认"
     }
   },
   "snapshots": {
@@ -1995,6 +2018,78 @@
       "renameAria": "重命名 {name}",
       "deleteAria": "删除 {name}",
       "changedMark": "●"
+    },
+    "blame": {
+      "toggle": "Blame"
+    },
+    "history": {
+      "toggle": "文件历史",
+      "close": "关闭历史",
+      "commitDetail": "提交详情",
+      "detailError": "提交详情加载失败。",
+      "filesChanged": "{count} 个文件变更",
+      "changeKind": "变更类型：{kind}",
+      "compare": "对比",
+      "compareAria": "与该历史版本对比",
+      "loadMore": "加载更多"
+    }
+  },
+  "commands": {
+    "nav": {
+      "dashboard": "打开仪表盘",
+      "status": "打开工作区",
+      "commit": "打开提交面板",
+      "history": "打开提交历史",
+      "branches": "打开分支",
+      "snapshots": "打开快照",
+      "operations": "打开操作历史",
+      "conflict": "打开冲突向导",
+      "terminal": "打开终端",
+      "editor": "打开编辑器"
+    },
+    "app": {
+      "settings": "打开设置",
+      "plugins": "打开插件",
+      "commandsDictionary": "打开命令字典",
+      "commandPalette": "打开命令面板"
+    },
+    "git": {
+      "refresh": "刷新仓库状态",
+      "fetch": "抓取远端",
+      "stageAll": "暂存全部改动",
+      "commit": "打开提交页",
+      "push": "推送到远端",
+      "pull": "拉取远端",
+      "stash": "储藏改动",
+      "branchCreate": "新建分支",
+      "viewSnapshot": "查看快照"
+    },
+    "view": {
+      "toggleSidebar": "折叠/展开侧栏",
+      "toggleTheme": "切换明暗主题",
+      "themeLight": "切换到浅色主题",
+      "themeDark": "切换到深色主题",
+      "themeSystem": "跟随系统主题",
+      "detailRight": "详情面板靠右",
+      "detailBottom": "详情面板置底",
+      "detailHidden": "隐藏详情面板",
+      "openLogs": "打开日志查看器"
+    },
+    "editor": {
+      "open": "在编辑器打开",
+      "toggleTree": "切换文件树",
+      "save": "保存当前文件",
+      "closeTab": "关闭当前文件标签"
+    },
+    "palette": {
+      "title": "命令面板",
+      "placeholder": "搜索命令…",
+      "empty": "没有匹配的命令。",
+      "close": "关闭命令面板"
+    },
+    "when": {
+      "repoOpen": "需要已打开仓库",
+      "editorActive": "需要在编辑器页"
     }
   }
 }
