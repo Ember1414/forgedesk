@@ -83,10 +83,13 @@ export function TerminalPage() {
   // 离开页面后事件仍被缓冲，回来时排干——见 manager.ts）
   useEffect(() => {
     ensureTerminalListeners();
+    // 同时监听 data-theme 与 style：自定义主题（T6.6）不走 data-theme，
+    // 而是把 --fd-* 写成 <html> 的内联样式——只盯属性会漏掉"激活同外观的
+    // 自定义主题"（终端颜色不跟变的现场就在这）
     const observer = new MutationObserver(applyThemeToAll);
     observer.observe(document.documentElement, {
       attributes: true,
-      attributeFilter: ['data-theme'],
+      attributeFilter: ['data-theme', 'style'],
     });
     return () => observer.disconnect();
   }, []);

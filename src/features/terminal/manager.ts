@@ -142,14 +142,18 @@ export function unregisterTerminal(termId: string): void {
   instances.delete(termId);
 }
 
-/** 主题切换后刷新所有实例的颜色（含未挂载的没有实例，无需处理）。 */
+/** 主题切换后刷新所有实例的颜色与字体（未挂载的没有实例，无需处理）。 */
 export function applyThemeToAll(): void {
   // 延迟 require 避免循环依赖？——不，theme 派生是纯函数，直接 import。
   // 这里动态 import 只是为了让 jest/jsdom 环境不必解析 xterm 主包。
-  void import('./xtermTheme').then(({ deriveXtermTheme }) => {
+  void import('./xtermTheme').then(({ deriveXtermTheme, resolveTerminalFontFamily }) => {
     const theme = deriveXtermTheme();
+    // 自定义主题可携带 fonts.mono（写进 --fd-font-mono）：换主题时一并跟上，
+    // 否则"终端主题跟随"只对颜色成立、对字体失效
+    const fontFamily = resolveTerminalFontFamily();
     for (const managed of instances.values()) {
       managed.term.options.theme = theme;
+      managed.term.options.fontFamily = fontFamily;
     }
   });
 }

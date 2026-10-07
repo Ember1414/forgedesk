@@ -9,6 +9,10 @@ import { installFrontendErrorHooks } from '@/lib/frontendErrors';
 import '@/lib/i18n';
 
 import '@/styles/index.css';
+// xterm 的布局样式必须显式导入：缺了它，承接键盘输入的隐藏 textarea 会变成
+// 可见表单控件（"终端下面多出一个输入框"）、viewport/行层不再绝对定位叠放，
+// 整个终端布局是坏的——xterm 6 不会自我注入样式。
+import '@xterm/xterm/css/xterm.css';
 
 // 在挂载 React 之前把主题写到 <html>：暗色用户不会看到一帧白屏（闪白）
 applyThemeMode(readThemeMode());

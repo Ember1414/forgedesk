@@ -12,7 +12,15 @@
  */
 import type { ITheme } from '@xterm/xterm';
 
-/** 明色 ANSI 调色板（背景为浅色时的 16 色）。 */
+/**
+ * 明色 ANSI 调色板（背景为浅色时的 16 色）。全部 16 色对白色背景 ≥ 4.5:1（WCAG AA）。
+ *
+ * 两个刻意的反直觉取值：
+ * - white 是中灰而不是浅灰（浅灰在白底上不可读）；
+ * - brightWhite 是深炭色：cmd.exe 的默认前景就是 brightWhite，浅色主题下若按
+ *   "最亮"取值，整个 cmd 会话的输出都会几乎不可见——浅色主题把 brightWhite
+ *   映射为深色是 One Half Light 等主流浅色终端主题的通行做法。
+ */
 const ANSI_LIGHT: readonly string[] = [
   '#3d434f', // black
   '#b3261e', // red
@@ -21,15 +29,15 @@ const ANSI_LIGHT: readonly string[] = [
   '#1d65c1', // blue
   '#7d42cf', // magenta
   '#0d6b78', // cyan
-  '#8b9099', // white
+  '#6b7280', // white
   '#565d6b', // brightBlack
   '#d43f37', // brightRed
-  '#1a8f5c', // brightGreen
-  '#b57d13', // brightYellow
-  '#3b82d9', // brightBlue
-  '#9a6ad9', // brightMagenta
-  '#1a97ab', // brightCyan
-  '#c8cdd6', // brightWhite
+  '#178556', // brightGreen
+  '#9a6f10', // brightYellow
+  '#2b74c9', // brightBlue
+  '#8a54d1', // brightMagenta
+  '#0f7f90', // brightCyan
+  '#2f3540', // brightWhite
 ];
 
 /** 暗色 ANSI 调色板（背景为深色时的 16 色）。 */
@@ -51,6 +59,30 @@ const ANSI_DARK: readonly string[] = [
   '#67c8d6', // brightCyan
   '#dfe3ea', // brightWhite
 ];
+
+/** `--fd-font-mono` 读不到或为空时使用的具体字体栈（不含 canvas 无法解析的值）。 */
+const FALLBACK_MONO_FONT = "'Cascadia Code', 'JetBrains Mono', Consolas, 'Courier New', monospace";
+
+/**
+ * 解析出 canvas 可用的等宽字体栈。
+ *
+ * 为什么不能把 `var(--fd-font-mono, …)` 直接交给 xterm：xterm 会把 fontFamily
+ * 拼进 canvas 2D 的 `ctx.font`，而 `var()` 在那里不是合法值——整条声明被静默
+ * 忽略，字形回退到 `10px sans-serif`，但格子尺寸却按 DOM 度量的 13px 排布，
+ * 结果就是"字符特别小且不是等宽字体"。`ui-monospace` 这类 CSS 系统关键字在
+ * canvas 字体简写里同样不可靠，一并剔除。
+ */
+export function resolveTerminalFontFamily(): string {
+  const raw = getComputedStyle(document.documentElement).getPropertyValue('--fd-font-mono').trim();
+  if (raw === '') {
+    return FALLBACK_MONO_FONT;
+  }
+  const families = raw
+    .split(',')
+    .map((family) => family.trim())
+    .filter((family) => family !== '' && !/^ui-mono(?:space)?$/i.test(family));
+  return families.length > 0 ? families.join(', ') : FALLBACK_MONO_FONT;
+}
 
 /** 读取当前主题下的 xterm 颜色（每次调用实时取值，含明暗切换后的新值）。 */
 export function deriveXtermTheme(): ITheme {

@@ -72,7 +72,7 @@ import {
 import { IconButton } from '@/ui/components/icon-button';
 import { Input } from '@/ui/components/input';
 
-import { deriveXtermTheme } from './xtermTheme';
+import { deriveXtermTheme, resolveTerminalFontFamily } from './xtermTheme';
 
 export interface TerminalViewProps {
   readonly tab: TerminalTab;
@@ -138,7 +138,9 @@ export function TerminalView({
     }
 
     const term = new Terminal({
-      fontFamily: 'var(--fd-font-mono, Consolas, monospace)',
+      // fontFamily 必须是解析后的具体字体栈：canvas 的 ctx.font 不认 var()，
+      // 直接写 CSS 变量会让字形回退到 10px sans-serif（见 resolveTerminalFontFamily）
+      fontFamily: resolveTerminalFontFamily(),
       fontSize,
       lineHeight,
       cursorBlink: true,
@@ -324,11 +326,34 @@ export function TerminalView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab.termId, tab.repoId, queryClient]);
 
-  // 字号 / 行高变化：原地应用 + 触发重排
+  /**
+   * 主动重排（字号变化 / 标签激活后调用）：fit 出新的行列数并同步给 PTY。
+   *
+   * 为什么不走 `dispatchEvent(new Event('resize'))`：ResizeObserver 只响应
+   * 真实的布局尺寸变化，合成事件它根本收不到——旧写法是个静默无效调用，
+   * 改字号后要手动拉一下窗口大小才恢复。隐藏容器（0 尺寸）下 fit 会抛：
+   * 静默吞掉这一次，等容器可见时 ResizeObserver 会补一次。
+   */
+  const refitTerminal = useCallback(() => {
+    const managed = findTerminalInstance(tab.termId);
+    if (!managed) {
+      return;
+    }
+    try {
+      managed.fit.fit();
+      void termResize(tab.termId, managed.term.cols, managed.term.rows).catch(() => {
+        // 会话刚好退出：resize 失败无害
+      });
+    } catch {
+      // 0 尺寸 / 极端尺寸：等下一次尺寸变化重试
+    }
+  }, [tab.termId]);
+
+  // 字号 / 行高变化：原地应用 + 主动重排
   useEffect(() => {
     applyFontToAll(fontSize, lineHeight);
-    containerRef.current?.dispatchEvent(new Event('resize'));
-  }, [fontSize, lineHeight]);
+    refitTerminal();
+  }, [fontSize, lineHeight, refitTerminal]);
 
   // 激活状态变化：可见时重排并聚焦
   useEffect(() => {
@@ -336,11 +361,11 @@ export function TerminalView({
       return;
     }
     const frame = requestAnimationFrame(() => {
-      containerRef.current?.dispatchEvent(new Event('resize'));
+      refitTerminal();
       findTerminalInstance(tab.termId)?.term.focus();
     });
     return () => cancelAnimationFrame(frame);
-  }, [active, tab.termId]);
+  }, [active, refitTerminal, tab.termId]);
 
   // 确认对话框关闭后焦点必须回到终端：Radix 的焦点还原落在 body 上，
   // 不补焦的下一轮键入会全部丢失（T5.3 E2E 实测）。
