@@ -534,13 +534,13 @@ mod tests {
     #[test]
     fn rejects_dotdot_absolute_and_nul() {
         let (_dir, root) = fixture();
-        for bad in [
-            "../outside.txt",
-            "a/../../b.txt",
-            "C:/Windows/x",
-            "\0bad",
-            "//abs",
-        ] {
+        // "C:/Windows/x" 的绝对路径语义只在 Windows 成立：Linux 里 "C:" 是
+        // 合法文件名，解析器接受它（目标仍在仓库内）是正确行为而非漏洞
+        let mut bad: Vec<&str> = vec!["../outside.txt", "a/../../b.txt", "\0bad", "//abs"];
+        if cfg!(windows) {
+            bad.push("C:/Windows/x");
+        }
+        for bad in bad {
             let error = resolve_within(&root, bad).expect_err(bad);
             assert!(
                 matches!(
