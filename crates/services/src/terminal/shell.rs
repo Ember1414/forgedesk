@@ -11,7 +11,9 @@
 //!   把 setup 放进启动参数（`-NoExit -Command` / `/K`）而不是启动后注入命令，
 //!   用户的历史记录里就不会多出一条莫名其妙的环境命令。
 
-use std::path::{Path, PathBuf};
+// Path 只在 cfg(windows) 的 locate_git_bash 里使用：全平台导入会在
+// Linux 上触发 unused import（CI 的 clippy -D warnings 首次抓到）
+use std::path::PathBuf;
 
 /// 一个 shell 候选：程序名 + 启动参数。
 ///
@@ -75,7 +77,7 @@ pub fn probe_in_path(program: &str) -> Option<PathBuf> {
 fn locate_git_bash() -> Option<PathBuf> {
     if let Some(git) = probe_in_path("git") {
         // <root>\cmd\git.exe → <root>
-        if let Some(root) = git.parent().and_then(Path::parent) {
+        if let Some(root) = git.parent().and_then(std::path::Path::parent) {
             for candidate in [
                 root.join("bin").join("bash.exe"),
                 root.join("usr").join("bin").join("bash.exe"),
