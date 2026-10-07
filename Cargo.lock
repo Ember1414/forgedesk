@@ -1343,7 +1343,7 @@ checksum = "aa9a19cbb55df58761df49b23516a86d432839add4af60fc256da840f66ed35b"
 
 [[package]]
 name = "forgedesk"
-version = "0.7.0"
+version = "1.0.0"
 dependencies = [
  "forgedesk-commands",
  "forgedesk-credentials",
@@ -1367,7 +1367,7 @@ dependencies = [
 
 [[package]]
 name = "forgedesk-commands"
-version = "0.7.0"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -1397,7 +1397,7 @@ dependencies = [
 
 [[package]]
 name = "forgedesk-credentials"
-version = "0.7.0"
+version = "1.0.0"
 dependencies = [
  "aes-gcm",
  "argon2",
@@ -1414,7 +1414,7 @@ dependencies = [
 
 [[package]]
 name = "forgedesk-diagnostics"
-version = "0.7.0"
+version = "1.0.0"
 dependencies = [
  "forgedesk-domain",
  "regex",
@@ -1429,7 +1429,7 @@ dependencies = [
 
 [[package]]
 name = "forgedesk-domain"
-version = "0.7.0"
+version = "1.0.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -1441,7 +1441,7 @@ dependencies = [
 
 [[package]]
 name = "forgedesk-git-engine"
-version = "0.7.0"
+version = "1.0.0"
 dependencies = [
  "forgedesk-diagnostics",
  "forgedesk-domain",
@@ -1456,7 +1456,7 @@ dependencies = [
 
 [[package]]
 name = "forgedesk-jobs"
-version = "0.7.0"
+version = "1.0.0"
 dependencies = [
  "forgedesk-domain",
  "serde",
@@ -1470,7 +1470,7 @@ dependencies = [
 
 [[package]]
 name = "forgedesk-platform"
-version = "0.7.0"
+version = "1.0.0"
 dependencies = [
  "forgedesk-diagnostics",
  "forgedesk-domain",
@@ -1489,7 +1489,7 @@ dependencies = [
 
 [[package]]
 name = "forgedesk-plugin-host"
-version = "0.7.0"
+version = "1.0.0"
 dependencies = [
  "forgedesk-domain",
  "parking_lot",
@@ -1504,7 +1504,7 @@ dependencies = [
 
 [[package]]
 name = "forgedesk-provider"
-version = "0.7.0"
+version = "1.0.0"
 dependencies = [
  "async-trait",
  "forgedesk-domain",
@@ -1525,7 +1525,7 @@ dependencies = [
 
 [[package]]
 name = "forgedesk-services"
-version = "0.7.0"
+version = "1.0.0"
 dependencies = [
  "ammonia",
  "forgedesk-credentials",
@@ -1556,7 +1556,7 @@ dependencies = [
 
 [[package]]
 name = "forgedesk-snapshot"
-version = "0.7.0"
+version = "1.0.0"
 dependencies = [
  "forgedesk-domain",
  "forgedesk-git-engine",
@@ -1569,7 +1569,7 @@ dependencies = [
 
 [[package]]
 name = "forgedesk-storage"
-version = "0.7.0"
+version = "1.0.0"
 dependencies = [
  "forgedesk-domain",
  "rusqlite",

@@ -1,4 +1,4 @@
-﻿# 更新日志
+# 更新日志
 
 本项目的版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)；
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
@@ -6,9 +6,9 @@
 > 说明：M0–M6 在开发期未逐一打 tag，下方日期对应各里程碑的**验收日期**
 > （见 `docs/acceptance/`）。正式对外分发从 M7（v1.0）开始。
 
-## [0.7.0] - 未发布（M7 进行中）
+## [1.0.0] - 2026-10-07
 
-M7 里程碑：自动更新 / CI / 多平台打包 / 文档 / 首个正式发布。
+**首个对外正式版**。M7 里程碑：自动更新 / CI / 多平台打包 / 文档 / 首个正式发布。
 范围决策：**Windows 优先**；macOS 与 Linux 用户少、真机验证成本高，暂缓（保留代码与 CI 骨架）。
 详细计划见 `docs/M7-PLAN.md`，逐条验收结论见 `docs/acceptance/M7.md`。
 
@@ -41,9 +41,11 @@ M7 里程碑：自动更新 / CI / 多平台打包 / 文档 / 首个正式发布
 - 新增：`docs/install/windows.md`、用户手册 `docs/manual/`（五篇）、`docs/FAQ.md`（24 条）、`docs/TROUBLESHOOTING.md`（21 条）、`docs/PRIVACY.md`、`docs/RELEASE.md`、`docs/SIGNING.md`、`docs/M7-PLAN.md`、`docs/acceptance/M7.md`
 - 社区文件：`CONTRIBUTING.md`、`CODE_OF_CONDUCT.md`、`SECURITY.md`、`GOVERNANCE.md`、Issue 表单九件、PR 模板、讨论区模板四件
 
-### 待办（M7 出口）
+### 已知待办（v1.0.0 之后）
 
-- 发布凭据（更新签名密钥 + 更新清单托管）与 `release.yml` 流水线；随后做发布演练（含回滚）与 Windows 安装包实机验证
+- 发布演练与回滚演练：用已发布版本实测「检测新版本 → 下载 → 签名校验 → 重启为最新版」，以及「篡改包被拒」（见 `docs/acceptance/M7.md` §4·G）
+- Windows 安装包在干净环境的实机验证：安装 → 打开仓库 → 提交 → push，以及便携版 zip 解压可启动
+- macOS / Linux 的安装与更新真机验证（ADR-005，推迟到 M8）
 
 ## [0.6.0] - 2026-10-06
 
@@ -164,7 +166,7 @@ M0 里程碑：工程地基与首个可打包的空壳应用。此版本仅供�
 - 令牌 / 密码 / 私钥写入日志前统一脱敏（写入层强制，含 JSON 字段与 panic 报告）
 - 固定已知的传递依赖漏洞：ansi-regex@<5.0.1 升至 5.0.1（GHSA-93q8-gq69-wqmw）
 
-[0.7.0]: https://github.com/Ember1414/forgedesk/compare/v0.6.0...HEAD
+[1.0.0]: https://github.com/Ember1414/forgedesk/releases/tag/v1.0.0
 [0.6.0]: https://github.com/Ember1414/forgedesk/releases/tag/v0.6.0
 [0.5.0]: https://github.com/Ember1414/forgedesk/releases/tag/v0.5.0
 [0.4.0]: https://github.com/Ember1414/forgedesk/releases/tag/v0.4.0
