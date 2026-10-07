@@ -4,7 +4,10 @@
 > 关键风险：**把仓库改为 public 时，全部 git 历史会一起公开，且不可撤销**（只能靠重写历史或重建仓库补救）。
 > 因此本清单必须在改动 visibility **之前**逐项完成。
 >
-> 状态：**未开始**（M0 阶段建立，转公开前执行）
+> 状态：**进行中**——A-1 ~ A-6、B-1 / B-2 / B-4（声明与证据链部分）/ B-5 / B-6 / B-7 / B-8 / B-9、C-1 ~ C-4 均已通过（见 §4）；
+> 尚未完成的全部是**人工或外部**项：**B-3 / B-4 的 3 人盲测**（ADR-005 延后至首次对外预发布前；证据链与记录表见 `docs/BRAND.md` §4.1–4.2）、
+> **B-10**（干净环境照 CONTRIBUTING 复现）、§1.3 的托管凭据项、§1.4 C-3 的 Rust 侧补跑（`cargo audit`，本机不可用）。
+> **A 组有一处需人类决策的残留**：历史中曾回显个人邮箱（HEAD 已脱敏），见 §4 与 §1.1 的说明。
 > 负责人：人类（涉及账号与法律判断的部分）+ 编码代理（可自动化的部分）
 
 ---
@@ -15,11 +18,11 @@
 
 | # | 事项 | 决策（2026-09-23） | 状态 |
 | --- | --- | --- | --- |
-| P-1 | git 提交者邮箱 | 改用 GitHub 隐私邮箱 `237394828+Ember1414@users.noreply.github.com` | ⏳ **待人类执行 `git config`**（本人按 Git 安全约定不擅自修改） |
-| P-2 | git 提交者姓名 | 改用 `EMBER` | ⏳ 同上 |
+| P-1 | git 提交者邮箱 | 改用 GitHub 隐私邮箱 `237394828+Ember1414@users.noreply.github.com` | ✅ 已满足（2026-10-07 只读核对：`git config user.email` 已是隐私邮箱；**全部提交**的作者/提交者邮箱唯一且为该地址） |
+| P-2 | git 提交者姓名 | 改用 `EMBER` | ✅ 已满足（同上，`user.name` = EMBER） |
 | P-3 | 是否提交 `docs/PLAN.md` / `docs/AGENT-PROMPTS.md` | **全部提交**（透明化，接受商业化讨论与技术方法公开） | ✅ 已决定 |
 | P-4 | 是否提交 `docs/DEV-ENV.md` | **提交脱敏版**：已移除本机绝对路径与 IDE 内部组件路径，改用 `%USERPROFILE%` / `<repo-root>` 占位符 | ✅ 已完成 |
-| P-5 | 首次提交前的敏感信息扫描 | 首次提交前执行第 1 节 A-1 ~ A-6 | ⏳ 待执行 |
+| P-5 | 首次提交前的敏感信息扫描 | 首次提交前执行第 1 节 A-1 ~ A-6 | ✅ 已执行（2026-10-07，见 §4；**发现 1 处需人类决策的残留**：`docs/adr/ADR-004` 曾在历史中回显个人邮箱，HEAD 已脱敏） |
 
 > 决策记录：仓库归属、提交身份与应用标识符的完整理由见 `docs/adr/ADR-004-repository-identity-and-identifier.md`。
 
@@ -63,7 +66,7 @@
 | --- | --- | --- | --- |
 | E-1 | 静态站与更新清单的托管决策已定稿 | `docs/adr/ADR-003-cloudflare-instead-of-github-pages.md` | 已定（Cloudflare Pages） |
 | E-2 | Cloudflare 项目与凭据已配置 | Cloudflare Pages 项目 + API Token 存入 GitHub Secrets（`CLOUDFLARE_API_TOKEN`、`CLOUDFLARE_ACCOUNT_ID`） | 存在且权限最小（仅 Pages: Edit） |
-| E-3 | 更新清单地址已写入应用配置 | `src-tauri/tauri.conf.json` 的 updater `endpoints` | 指向 `<project>.pages.dev`，且与发布工作流写入路径一致 |
+| E-3 | 更新清单地址已确定，并在**发布构建**时写入应用 | `scripts/ci/make-build-config.mjs` 注入 `endpoints`（`https://forgedesk.pages.dev/updates/<渠道>/{{target}}.json`） | 与发布工作流写入路径**逐字一致**；**刻意不写进仓库**——理由见 `docs/RELEASE.md` §4.1：写进去会让开发构建的 `update_check` 从"静默无更新源"变成"每次检查都网络失败" |
 | E-4 | 隐私政策已说明对外请求 | `docs/PRIVACY.md` 列出全部对外域名（GitHub API、`*.pages.dev`） | 与实际网络行为一致 |
 
 > 说明：本项因 ADR-003 而**解除**了 ADR-002 中"Pages 相关任务必须后移到转公开之后"的约束——
@@ -121,7 +124,19 @@
 | 日期 | 执行人 | 门禁结果 | 备注 |
 | --- | --- | --- | --- |
 | 2026-09-23 | 编码代理 | §0 决策完成（P-1/P-2 待人类执行 git config） | M0 阶段；B/C 组门禁待 T0.12 与 M7 完成后执行 |
-| — | — | §1 全部门禁 | 转公开前执行 |
+| 2026-10-07 | 编码代理 | B-1/B-2/B-5/B-6/B-7 通过（compliance 全绿）；B-4 见 BRAND 记录 | M7 文档阶段：README 重写、PRIVACY.md 产出并断言免责声明；B-8（隐私政策）✅、B-9（社区文件：CoC/SECURITY/模板）✅ |
+| 2026-10-07 | 编码代理 | B-8 完整闭合 | 应用内「设置 → 隐私」页落地（内容与 `docs/PRIVACY.md` 一致），B-8 的"与应用内页面一致"要求满足 |
+| 2026-10-07 | 人类（确认"按建议"） | 决策记录 | **不引入遥测**（保持零遥测承诺；PLAN 的 PF-11 属 V1.1）；**暂不引入 `deny.toml`**（`pnpm compliance` 为唯一许可门禁，避免两套 allow 列表漂移）；**接受**传递依赖 `r-efi` 的 LGPL（仅 UEFI target，不进入产品链接）。C-1 的 action 固定 SHA 仍待发布流水线阶段执行 |
+| 2026-10-07 | 编码代理 | **C-1 通过**（`pnpm check:workflows` 0 警告，此前 33） | `node scripts/ci/pin-actions.mjs` 固定 32 处 action 引用（保留 `# v7` 标签注释）；给 `compliance.yml` 补 `concurrency`。运维提示：本机存在 TLS 检查代理时需 `node --use-system-ca scripts/ci/pin-actions.mjs`，否则 fetch 报 `UNABLE_TO_VERIFY_LEAF_SIGNATURE` |
+| 2026-10-07 | 编码代理 | **M7 逐条验收自检完成** | 见 `docs/acceptance/M7.md`：10 条验收标准 5 通过 / 2 部分通过 / 3 未执行；未执行项全部卡在发布凭据（更新签名密钥 + 更新清单托管 + `release.yml`）。B-9（社区文件）、B-8（隐私政策）已闭合 |
+| 2026-10-07 | 编码代理 | **P-1 / P-2 实为已完成**（文档状态过期） | 只读核对：`git config user.name` = `EMBER`、`git config user.email` = `237394828+Ember1414@users.noreply.github.com`；`git log --all --format='%ae'` 去重 = **1**（222 个提交全部使用隐私身份）。未改动任何 git 配置 |
+| 2026-10-07 | 编码代理 | **A-2 / A-3 / A-5 / A-6 通过；A-1 以特征式替代完成** | **A-3**：作者与提交者身份唯一且为隐私地址（见上）。**A-5**：`git ls-files` 对 `/.env` / `*.key` / `*.pem` / `*.pfx` / `*.p12` / `id_rsa` / `id_ed25519` / `.npmrc` **0 命中**。**A-6**：全部 4566 个 git 对象中**无 >1MB 的 blob**（最大者远低于阈值）。**A-2**：全历史 2924 行路径命中**全部为占位**（`/home/u`、`/home/octocat`、`/home/runner/work`，以及 `C:\Users\…\` 带省略号的示例）；真实标记 `E:\Projects` **0 命中**、`Users\TD` **0 命中**、中国大陆手机号 0 命中。**A-1**（gitleaks / trufflehog 均未安装，改用高信号特征式全历史检索）：唯一凭据串共 **8 个，全部为显式假夹具**（`ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789`、`AKIAIOSFODNN7EXAMPLE`（AWS 官方文档示例键）、`ghp_AAAA…/BBBB…`、`glpat-Zx9Yy8Ww7Vv6Uu5Tt4Ss`、`github_pat_11ABCDEFG0…`），且它们是**脱敏器自身的测试夹具**（`crates/diagnostics/src/sanitize.rs` 等）；工作区已跟踪文件与 34 个未跟踪文件同样 0 真凭据。**建议在能安装 `gitleaks` 的环境补跑一次本项**（本机无该工具，且网络受限） |
+| 2026-10-07 | 编码代理 | **A 组发现 1 处真实个人信息（需人类决策）** | `docs/adr/ADR-004-…md:88` 曾**回显个人 QQ 邮箱**——正是该段文字警告不要暴露的东西。**HEAD 已就地脱敏**（改为"个人邮箱"描述，并记录本次处置）。**历史侧**：`git log --all -S` 显示该串仅由 **1 个提交**引入（`08be90e` M0 引导提交），因此清洗历史的成本很低（只需重写一个提交的 diff）。**待人类在「新建仓库并只推送清洗后的历史」与「接受该地址公开」之间决定**——处置路径见 §1.1 的说明 |
+| 2026-10-07 | 编码代理 | **C-2 / C-4 通过** | **C-2**：`Cargo.lock` 与 `pnpm-lock.yaml` 均被跟踪；CI 用 `pnpm install --frozen-lockfile`（3 处），本轮又给 cargo 的构建/测试步骤补上 `--locked`（`ci.yml` 的 clippy / tests / safety / example-plugins 与 `nightly.yml` 的 probe；加参数前先本地跑 `cargo check --workspace --all-targets --locked` 确认锁文件与工作区一致）。**C-4**：5 个工作流均有顶层 `permissions`，`pnpm check:workflows` 0 警告 |
+| 2026-10-07 | 编码代理 | **C-3 通过：2 处 high 已修，扫描归零** | 本机默认 registry（`registry.npmmirror.com`）不实现 audit 端点 → 改用 `pnpm audit --registry=https://registry.npmjs.org/`。修复前 2 处：`sharp` <0.35.5（CVE-2026-96889，librsvg）与 `source-map-js` <1.2.2（GHSA-68fv-2mgg-jv7q，事件循环 DoS）——**两者都在 dev 链路、不进产物**。处置：`sharp` 提到 `^0.35.5`；`source-map-js` 用 `pnpm-workspace.yaml` 的 `overrides` 钉到 `1.2.2`（**pnpm 11 不读 `package.json#pnpm`**，该字段会告警并被忽略——本项目配置本就以 `pnpm-workspace.yaml` 为准，与既有 `ansi-regex` 条目同一处）。复核：`pnpm audit` → **No known vulnerabilities found**；前端 891 测试、`compliance`（含依赖许可）、`check:workflows`、`typecheck`、`lint`、`format:check`、`i18n:check` 全绿。**Rust 侧 `cargo audit` 未跑**（本机无该工具且需联网拉 RustSec 库）→ 建议在可安装的环境补跑 |
+| 2026-10-07 | 编码代理 | **B-3 / B-4 的证据链就位；人工盲测仍待执行（ADR-005）** | **真源自检**：`docs/brand/icon-source.svg` 全部图元为基础几何（`rect`×5 + `path`×3 + 渐变×2），无 `<image>`、无外部引用、注释外无品牌词。**产物可复现**：重跑 `node scripts/brand/render-icon.mjs` 后 `icon-1024.png` 的 SHA256 **完全不变**（`def8097a509dc22a…`，且在升级后的 `sharp` 0.35.5 下复现）——证明图标确由真源渲染。**产物台账**（真源 + 1024 PNG + 17 个平台图标）写入 `docs/BRAND.md` §4.1。自动化侧：`pnpm compliance` 的「图标检查（R2）」通过。**未过项**：`known-logos.json` 的 `knownSha256` 为空（有意为之，避免虚假安全感），故"与官方 Logo 无相似"仍须**人工并排目视**确认；3 人盲测按 ADR-005 延后，方法 + 记录表见 `docs/BRAND.md` §4.2（不得由代理代填） |
+| 2026-10-07 | 编码代理 | **发布链路代码侧就位（承接 E-1 ~ E-4）** | `release.yml`（preflight / build-windows / publish）+ 4 个脚本落地，`pnpm check:workflows` 6 个工作流 0 警告。**E-3 的口径已明确**：endpoints 由发布构建注入而非写进仓库（见上表注），与工作流写出的 `<渠道>/<target>.json` 路径逐字一致。E-2 / E-4 仍待人类配置凭据后复核（`docs/RELEASE.md` §4.1 的凭据表） |
+| — | — | §1 其余门禁（B-3 / B-4 盲测、B-10、C-3 的 Rust 侧）与 §1.3 托管凭据（E-2 / E-4） | 转公开前执行 |
 
 ---
 

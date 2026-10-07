@@ -1,0 +1,9 @@
+title: '[公告] '
+body:
+  - type: markdown
+    attributes:
+      value: |
+        > 此分类仅供**维护者**发布版本、路线图与重要变更公告。
+        > 具体问题请到「问答」或 issue 提交。
+
+        请包含：发布/变更摘要、影响范围、需要的动作（如升级或迁移）、相关链接（Release / CHANGELOG）。

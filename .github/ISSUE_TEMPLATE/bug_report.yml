@@ -17,8 +17,8 @@ body:
     id: version
     attributes:
       label: ForgeDesk 版本
-      description: 在"设置 → 高级"或关于页可以看到（例如 0.0.1）。
-      placeholder: '0.0.1'
+      description: 在"设置 → 高级"或关于页可以看到（例如 0.7.0）。
+      placeholder: '0.7.0'
     validations:
       required: true
   - type: dropdown

@@ -1,6 +1,6 @@
 # ForgeDesk 品牌与视觉规范
 
-> 里程碑：M0 / T0.3 ｜ 最后更新：2026-09-23
+> 里程碑：M0 / T0.3 ｜ 最后更新：2026-10-07
 > 本文件是品牌资产的**唯一说明来源**。修改图标必须先改本文件与 `docs/brand/icon-source.svg`。
 
 ---
@@ -97,6 +97,85 @@
 5. 未使用任何第三方设计素材（无素材库下载、无 AI 生成图），全部由基础几何图形手工构成。
 
 `docs/brand/icon-source.svg` 是唯一设计真源，其内部注释同样记录了上述声明。
+
+### 4.1 证据链与校验记录（2026-10-07）
+
+> 本节把"图标原创"从一句声明变成**可复核的事实**：每一项都能用仓库内的文件或一条命令验证。
+
+**① 真源自检**（`docs/brand/icon-source.svg`，2058 字符）
+
+| 检查 | 结果 |
+| --- | --- |
+| 图元构成 | 全部为基础几何：`rect`×5（底板 / 砧面 / 腰身 / 底座 / 顶部高光）+ `path`×3（三枚菱形火花）+ `linearGradient`×2 |
+| 内嵌位图（`<image>`） | **无** |
+| 外部引用（`href` / `url(http…)`） | **无** |
+| 注释之外的品牌词（`octocat` / `github` / `tauri`） | **无**（注释里出现这些词，是声明本身） |
+| 与本节五条声明逐条对应 | 一致（同一套声明也写在 SVG 注释里） |
+
+**② 产物可复现**：按 §5.2 第 2 步重跑 `node scripts/brand/render-icon.mjs`，`docs/brand/icon-1024.png` 的 SHA256 **前后完全一致**
+（`def8097a509dc22a…`）——即图标确实由这张矢量图渲染而来，且与依赖版本无关（本次在升级后的 `sharp` 0.35.5 下复现成功）。
+
+**③ 产物台账**（SHA256 前 16 位十六进制；复算命令见本节末）
+
+| 文件 | SHA256 |
+| --- | --- |
+| `docs/brand/icon-source.svg`（真源） | `e8799b01658040f5` |
+| `docs/brand/icon-1024.png` | `def8097a509dc22a` |
+| `src-tauri/icons/icon.ico` | `885778fc59ac21e4` |
+| `src-tauri/icons/icon.icns` | `702fa91cf735daf1` |
+| `src-tauri/icons/icon.png` | `b90538569894f34c` |
+| `src-tauri/icons/32x32.png` | `31835f939000b52e` |
+| `src-tauri/icons/64x64.png` | `43d3a579fd7e0829` |
+| `src-tauri/icons/128x128.png` | `13d2bee0a07e9fc2` |
+| `src-tauri/icons/128x128@2x.png` | `f47e01d67005e99f` |
+| `src-tauri/icons/Square30x30Logo.png` | `62f0a0c80890ef08` |
+| `src-tauri/icons/Square44x44Logo.png` | `13ca6965970de1a2` |
+| `src-tauri/icons/Square71x71Logo.png` | `322b3a95555aba0c` |
+| `src-tauri/icons/Square89x89Logo.png` | `56023b8fc38fed2f` |
+| `src-tauri/icons/Square107x107Logo.png` | `82f0a278fe021394` |
+| `src-tauri/icons/Square142x142Logo.png` | `b842d8f842f11ad9` |
+| `src-tauri/icons/Square150x150Logo.png` | `8fed4d69dcb3e417` |
+| `src-tauri/icons/Square284x284Logo.png` | `b93437568d01ac2d` |
+| `src-tauri/icons/Square310x310Logo.png` | `4d92d674136f60e4` |
+| `src-tauri/icons/StoreLogo.png` | `28ce7cbd78707440` |
+
+台账的用途：**任何**图标改动都会改变其中一行，"这次动的是哪个文件、有没有漏改"因此一眼可见（漏跑 `tauri icon` 会导致台账与 §2 的几何描述不一致）。
+
+**④ 自动化门禁**：`pnpm compliance` 的「图标检查（R2）」通过——纯矢量源、无受限品牌词文件名、无已知官方 Logo 哈希命中、
+`tauri.conf.json` 的 `bundle.icon` 引用全部存在、无过小或损坏的文件。
+
+**⑤ 诚实说明——为什么人工确认不能省**：`scripts/compliance/known-logos.json` 的 `knownSha256` **目前是空的**，
+这是在能离线核实官方 Logo 文件来源之前**故意**保持的状态（填进非官方渠道来的哈希只会制造虚假的安全感）。
+因此"与官方 Logo 无相似"这句话最终仍须由人并排目视确认（§4.2）。
+
+复算命令（跨平台，Node）：
+
+```bash
+node -e "const{createHash}=require('crypto'),fs=require('fs'),p=require('path');const d='src-tauri/icons';for(const f of ['docs/brand/icon-source.svg','docs/brand/icon-1024.png'].concat(fs.readdirSync(d).sort().map(n=>p.join(d,n))))console.log(createHash('sha256').update(fs.readFileSync(f)).digest('hex').slice(0,16)+'  '+f)"
+```
+
+### 4.2 视觉区分度盲测（B-3 / B-4 的人工部分）
+
+**现状**：按 `docs/adr/ADR-005-defer-cross-platform-verification.md` 的决策，3 人盲测**延后到首次对外预发布之前**执行
+（`docs/acceptance/M0.md` 已记录该延后，自动化部分已通过）。界面侧的同类评审（红线 R3，1 人）已记录在
+`.github/COMPETITOR-REVIEW.md`；本节管的是**图标侧**（红线 R2）。
+
+**方法（两轮，参与者各自独立完成、不互相讨论）**：
+
+1. **图标轮**：把本图标与 Git、GitHub（含 Octocat）、Tauri 的官方 Logo 并排（等尺寸、打乱顺序、不加文字标签），
+   请参与者指出"哪些出自同一产品 / 同一项目"。
+2. **界面轮**：把本产品主界面的真实截图与四个竞品的公开宣传截图并排
+   （GitHub Desktop / GitKraken / Sourcetree / Fork），请参与者做两两配对。
+
+**判定**：≥ 2/3 人在两轮中均正确 → 通过。出现误判时记录**误判部位**（是"配色像"还是"结构像"），
+然后回到设计修改——**不允许**放宽判定来让它通过。
+
+**记录表（待人类填写；编码代理不得代填）**：
+
+| 日期 | 参与者编号 | 轮次 | 结果 | 误判部位 / 说明 |
+| --- | --- | --- | --- | --- |
+| — | 1 / 2 / 3 | 图标 | 待执行 | — |
+| — | 1 / 2 / 3 | 界面 | 待执行 | — |
 
 ---
 

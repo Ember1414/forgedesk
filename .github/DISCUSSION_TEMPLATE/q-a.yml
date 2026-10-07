@@ -1,0 +1,9 @@
+title: '[提问] '
+body:
+  - type: markdown
+    attributes:
+      value: |
+        提问前请先看 [`docs/FAQ.md`](../docs/FAQ.md) 与 [`docs/TROUBLESHOOTING.md`](../docs/TROUBLESHOOTING.md)。
+
+        请包含：你**想做什么**、已经试过什么、看到的报错（**已脱敏**的日志片段）、
+        平台与版本。若已能稳定复现的缺陷，请改用 Bug 报告 issue。

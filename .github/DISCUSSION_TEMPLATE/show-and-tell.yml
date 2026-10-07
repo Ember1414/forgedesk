@@ -1,0 +1,9 @@
+title: '[展示] '
+body:
+  - type: markdown
+    attributes:
+      value: |
+        分享你用 ForgeDesk 做的事：工作流、主题、语言包或插件。
+
+        若分享**插件**，请附上仓库地址、`plugin.json` 的权限清单与构建方式，
+        便于他人审阅权限是否最小。注意不要粘贴任何令牌、密码或私钥。

@@ -1,0 +1,75 @@
+name: 插件问题
+description: 报告某个插件的安装、权限、运行或面板显示问题
+title: '[plugin] '
+labels: ['plugin']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈！请先到**插件管理页**确认该插件的状态与日志（崩溃/超时会被隔离并记录）。
+
+        ⚠️ 不要把令牌、密码、私钥粘贴进 issue。若涉及敏感内容请改用私密渠道（见 SECURITY.md）。
+  - type: input
+    id: plugin-id
+    attributes:
+      label: 插件 id / 名称与版本
+      placeholder: 'com.example.my-plugin 1.0.0'
+    validations:
+      required: true
+  - type: dropdown
+    id: install-source
+    attributes:
+      label: 安装来源
+      options:
+        - 开发者模式（本地目录加载）
+        - 目录导入（已安装到插件目录）
+        - 内置示例插件
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: ForgeDesk 版本
+      description: 在“设置 → 高级”或关于页可以看到（例如 0.7.0）。
+      placeholder: '0.7.0'
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: 平台
+      placeholder: 'Windows 11'
+    validations:
+      required: true
+  - type: textarea
+    id: permissions
+    attributes:
+      label: 插件声明的权限（plugin.json 的 permissions）
+      render: json
+      placeholder: '["fs:read", "git:read"]'
+    validations:
+      required: false
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      placeholder: |
+        1. 安装并授予权限 …
+        2. 打开插件面板 / 运行命令 …
+        3. 看到 …
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际行为与日志
+      description: 插件管理页的日志区可复制；请说明插件是被隔离（crashed/超时）还是功能不符预期。
+    validations:
+      required: true
+  - type: textarea
+    id: extra
+    attributes:
+      label: 其它信息（可选）
+      description: 插件源码/仓库地址、wasm 构建方式等。
+    validations:
+      required: false
