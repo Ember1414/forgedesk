@@ -9,6 +9,16 @@
       content="ForgeDesk — an open-source, cross-platform desktop workbench for Git and GitHub workflows. 下载、校验与安装说明。"
     />
     <title>ForgeDesk — A Git client for everyone</title>
+    <!-- 分享卡片与规范地址：落地页是公开入口，粘贴到聊天/社交平台时必须有像样的预览 -->
+    <link rel="canonical" href="https://forgedesk.pages.dev/" />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://forgedesk.pages.dev/" />
+    <meta property="og:title" content="ForgeDesk — A Git client for everyone" />
+    <meta
+      property="og:description"
+      content="开源、跨平台的 Git 与 GitHub 桌面工作台：把易错的 Git 操作变成可视化界面、向导与可交互图表；破坏性操作自动打快照。无 AI、无遥测。"
+    />
+    <meta name="twitter:card" content="summary" />
     <link rel="icon" href="/favicon.png" />
     <style>
       /*
@@ -233,6 +243,10 @@
       </p>
       <!-- 已发布时由脚本填充分区下方内容（保持"未发布就什么都不假装"的默认态） -->
       <div class="downloads" id="downloads" hidden></div>
+      <p class="note">
+        <strong>系统要求</strong>：Windows 10 1809 或更高（需 WebView2，Windows 11 已内置）；
+        应用本身不含 AI 功能、不含遥测，本地 Git 操作完全离线可用。
+      </p>
       <p class="note" id="windows-note" hidden>
         Windows 首次运行可能被 SmartScreen 拦截（本项目未购买代码签名证书）： 选择「更多信息 →
         仍要运行」，或改用免安装的便携版 zip。 完整说明见仓库 <code>docs/install/windows.md</code>。
@@ -267,6 +281,15 @@
         <p>
           本页显示的版本来自发布清单（与应用内自动更新使用同一份数据）。尚无发布时本页如实显示"无可用版本"，
           不提供任何虚假下载入口。
+        </p>
+        <p>
+          <a href="https://github.com/Ember1414/forgedesk">源码仓库</a> ·
+          <a href="https://github.com/Ember1414/forgedesk/blob/main/docs/manual/README.md"
+            >用户手册</a
+          >
+          · <a href="https://github.com/Ember1414/forgedesk/blob/main/docs/FAQ.md">常见问题</a> ·
+          <a href="https://github.com/Ember1414/forgedesk/issues">问题反馈</a> ·
+          <a href="https://github.com/Ember1414/forgedesk/blob/main/SECURITY.md">安全策略</a>
         </p>
         <p>
           ForgeDesk is an independent project. It is not affiliated with, endorsed by, or sponsored
