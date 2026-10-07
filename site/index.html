@@ -149,6 +149,14 @@
       ol li + li {
         margin-top: 6px;
       }
+      details {
+        margin-top: 12px;
+        font-size: 13px;
+      }
+      details summary {
+        cursor: pointer;
+        color: var(--fg-muted);
+      }
       pre {
         margin: 8px 0 0;
         padding: 10px 12px;
@@ -240,6 +248,15 @@
       </ol>
       <pre><code id="hash-command">Get-FileHash .\ForgeDesk_&lt;版本&gt;_windows_x64.exe -Algorithm SHA256</code></pre>
       <button type="button" id="copy-hash-command">复制命令</button>
+      <!-- 校验和数值在发货时随站点一起发布（同源），因此页面可以直接显示；
+           没有发布（或清单取不到）时这块保持隐藏，静态的校验步骤仍然可用 -->
+      <details id="checksums" hidden>
+        <summary>查看当前版本的校验和（SHA256）</summary>
+        <p class="note">
+          以下数值来自同一次发布生成的 <code>SHA256SUMS</code>，与 Release 附件内容一致。
+        </p>
+        <pre><code id="checksum-lines"></code></pre>
+      </details>
       <ol start="3">
         <li>与 <code>SHA256SUMS</code> 里同名的行逐字比对（大小写不敏感）。</li>
         <li>
@@ -274,14 +291,45 @@
        * （…_portable.zip）。清单里带的是安装包的完整下载地址，因此从它取出
        * 基础地址后，其余两个产物名可以按同一约定拼出，无需第二次请求。
        * 命名约定若变更，本段与 docs/RELEASE.md 必须同步改。
+       *
+       * 关于"校验和为什么能显示"：发布流水线会把 SHA256SUMS 也放到本站同源路径下
+       * （updates/<渠道>/SHA256SUMS）。GitHub 的 Release 附件不返回 CORS 头，跨域取不到，
+       * 因此"同源再放一份"是让页面直显数值的唯一零依赖做法。
        */
       (function () {
-        var MANIFEST = '/updates/stable/windows-x86_64.json';
+        var CHANNEL_DIR = '/updates/stable';
+        var MANIFEST = CHANNEL_DIR + '/windows-x86_64.json';
         var ARCH_BY_TARGET = { 'windows-x86_64': 'x64', 'windows-aarch64': 'arm64' };
         var status = document.getElementById('status');
         var lead = document.getElementById('download-lead');
         var downloads = document.getElementById('downloads');
         var windowsNote = document.getElementById('windows-note');
+
+        /** 把同源发布的 SHA256SUMS 渲染进 <details>；取不到就保持隐藏。 */
+        function loadChecksums() {
+          fetch(CHANNEL_DIR + '/SHA256SUMS', { cache: 'no-store' })
+            .then(function (response) {
+              if (!response.ok) {
+                throw new Error('no checksums');
+              }
+              return response.text();
+            })
+            .then(function (text) {
+              // 只接受标准 sha256sum 行：格式不符时宁可什么都不显示，
+              // 也不要让用户在页面上读到一份看起来像校验和、其实不是的东西
+              var lines = text.split('\n').filter(function (line) {
+                return /^[0-9a-f]{64} {2}\S+$/.test(line.trim());
+              });
+              if (lines.length === 0) {
+                return;
+              }
+              document.getElementById('checksum-lines').textContent = lines.join('\n');
+              document.getElementById('checksums').hidden = false;
+            })
+            .catch(function () {
+              // 没有校验和文件（例如手工部署的站点）：静态校验步骤仍然可用
+            });
+        }
 
         function renderRelease(manifest) {
           var target = Object.keys(manifest.platforms || {})[0];
@@ -324,6 +372,9 @@
           more.href = base;
           more.textContent = '在 Releases 查看全部产物与校验文件';
           lead.appendChild(more);
+
+          // 只在确实有发布时才去问校验和：没发布时连一次多余的请求都不发
+          loadChecksums();
           return true;
         }
 

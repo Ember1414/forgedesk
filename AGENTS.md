@@ -54,6 +54,7 @@ pnpm check:contrast       # 设计 token 的 WCAG AA 对比度
 pnpm check:workflows      # .github/workflows/*.yml
 pnpm check:repo           # 仓库一致性：workspace 成员存在且已被 git 跟踪
 pnpm check:docs           # 文档内部链接与锚点有效
+pnpm check:site           # 官网落地页自检（下载入口与校验和的渲染）
 pnpm compliance           # 合规红线：名称/免责声明/图标/依赖许可/AI 依赖
 cargo fmt --all -- --check
 cargo clippy --all-targets --all-features -- -D warnings

@@ -114,7 +114,7 @@ pnpm version:sync 1.0.0
 
 # 3) 本地跑一遍门禁（与 CI 同组）
 pnpm lint && pnpm i18n:lint && pnpm typecheck && pnpm test
-pnpm format:check && pnpm check:contrast && pnpm check:workflows && pnpm check:repo && pnpm check:docs
+pnpm format:check && pnpm check:contrast && pnpm check:workflows && pnpm check:repo && pnpm check:docs && pnpm check:site
 pnpm compliance
 cargo fmt --all -- --check && cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
@@ -151,7 +151,12 @@ CI **不**自动向第三方仓库（winget/homebrew/flathub…）推送，只�
 | --- | --- | --- |
 | `preflight` | ubuntu-22.04 | 三处版本号一致 + **tag ↔ 版本号一致**（打错 tag 是本流程唯一无法自愈的错误）；探测发布凭据 |
 | `build-windows` | windows-latest | 注入更新源/公钥 → `tauri build`（msi + nsis + `.sig`）→ 归一化命名 → 便携版 zip → 合并 `SHA256SUMS` → GPG 签名（可选）→ Release Notes → updater 清单 |
-| `publish` | ubuntu-22.04 | 创建 Release（`--verify-tag`；`needs` 保证先全部构建成功再发布）→ 组装 `site/` + `updates/` 后部署到 Pages |
+| `publish` | ubuntu-22.04 | 创建 Release（`--verify-tag`；`needs` 保证先全部构建成功再发布）→ 组装 `site/` + `updates/`（含 `SHA256SUMS`）后部署到 Pages |
+
+> 站点与清单同宿主（ADR-003 的 Direct Upload）：Pages 发布是目录**快照**，因此发布作业把
+> `site/`、`updates/<渠道>/windows-x86_64.json` 与 `updates/<渠道>/SHA256SUMS`（有签名时含 `.asc`）
+> 组装到同一个目录再上传，并**拉回另一渠道已有的文件**（否则 stable 发布会把 beta 用户断更）。
+> 校验和放到同源，是为了让下载页能直接显示数值 —— GitHub 的 Release 附件不返回 CORS 头。
 
 **需要配置的凭据**（仓库 Settings → Secrets and variables）
 
@@ -177,6 +182,8 @@ beta 走 `workflow_dispatch` 且版本号需自带预发布后缀（如 `1.0.0-b
 
 1. `.sig` 的落点：流水线优先取 `*-setup.exe.sig`（NSIS 安装器的签名），取不到才回退到任意 `.sig`。
    首次发布后请确认 `latest.json` 里 `url` 指向的包正是被签名的那一个；
+   （注意：`rename-bundles.mjs` 会把 `…-setup.exe` 归一化成 `…_windows_x64.exe`，
+   因此清单里的 `url` 与 Release 附件名都是归一化后的名字——`pnpm release:rehearse` 已把这条形状钉住）
 2. 更新清单的 URL 能匿名访问（`curl -fsS https://forgedesk.pages.dev/updates/stable/windows-x86_64.json`），
    并核对里面的 `version` 与 `signature` 与 Release 附件一致。
 
@@ -211,6 +218,8 @@ pnpm release:rehearse
   页面若仍显示"尚无可用版本"，说明清单没上传成功或路径不符；
 - 页面上列出的四个下载入口都能点开（NSIS / MSI / 便携版 zip / `SHA256SUMS`）——
   它们由命名约定拼出，改名时 `pnpm check:site` 会先红；
+- 页面的「查看当前版本的校验和」能展开，且三个哈希与 Release 里的 `SHA256SUMS` 一致
+  （它读的是同源的 `updates/<渠道>/SHA256SUMS`）；
 - `gpg --verify SHA256SUMS.asc SHA256SUMS` 在新环境可通过；
 - 便携版 zip 解压后可启动（见 `docs/install/windows.md`）。
 

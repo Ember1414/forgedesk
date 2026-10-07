@@ -372,17 +372,31 @@ jobs:
           cp -r site/. "${staging}/"
           cp -r updates "${staging}/"
 
-          # 另一个渠道的清单要**保留**：快照式发布会把没带上的文件删掉，
+          # 校验和也放到**同宿主**：GitHub 的 Release 附件不返回 CORS 头，页面无法跨域取；
+          # 放到 Pages（同源）之后，下载页就能把 SHA256 数值直接渲染出来，用户不必先下载
+          # 附件再自己比对（.asc 可选：没有 GPG 签名时它不存在）
+          mkdir -p "${staging}/updates/${CHANNEL}"
+          cp releases/SHA256SUMS "${staging}/updates/${CHANNEL}/SHA256SUMS"
+          if [[ -f releases/SHA256SUMS.asc ]]; then
+            cp releases/SHA256SUMS.asc "${staging}/updates/${CHANNEL}/SHA256SUMS.asc"
+          fi
+
+          # 另一个渠道的文件要**保留**：快照式发布会把没带上的文件删掉，
           # 而 stable 发布不该让 beta 用户失去更新通道（反之亦然）
           for other in stable beta; do
             if [[ "${other}" == "${CHANNEL}" ]]; then continue; fi
-            url="https://forgedesk.pages.dev/updates/${other}/windows-x86_64.json"
             mkdir -p "${staging}/updates/${other}"
-            if curl -fsS "${url}" -o "${staging}/updates/${other}/windows-x86_64.json"; then
-              echo "保留已有清单：${url}"
-            else
-              echo "（${url} 尚不存在，跳过）"
-            fi
+            for file in windows-x86_64.json SHA256SUMS SHA256SUMS.asc; do
+              url="https://forgedesk.pages.dev/updates/${other}/${file}"
+              if curl -fsS "${url}" -o "${staging}/updates/${other}/${file}"; then
+                echo "保留已有文件：${url}"
+              else
+                # curl -f 失败时不会给出正文，但 -o 可能留下一个空文件：必须清掉，
+                # 否则页面会读到一个 0 字节的 SHA256SUMS 而不是"不存在"
+                rm -f "${staging}/updates/${other}/${file}"
+                echo "（${url} 尚不存在，跳过）"
+              fi
+            done
           done
 
           npx --yes wrangler@4 pages deploy "${staging}" --project-name=forgedesk --branch=main
