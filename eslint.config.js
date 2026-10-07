@@ -51,6 +51,13 @@ export default tseslint.config(
 
   { files: ['**/*.{js,mjs,cjs}'], languageOptions: { globals: { ...globals.node } } },
 
+  {
+    // 官网（site/）是直接跑在浏览器里的零构建脚本：全局对象与 Node 脚本不同。
+    // 它不参与应用构建（无 tsconfig 覆盖），因此必须在 JS 层单独声明环境。
+    files: ['site/**/*.js'],
+    languageOptions: { globals: { ...globals.browser } },
+  },
+
   js.configs.recommended,
   ...tseslint.configs.recommended,
 

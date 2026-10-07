@@ -358,6 +358,10 @@ jobs:
       # 清单与官网**同宿主**（ADR-003 的 Direct Upload）：Pages 的发布是目录**快照**，
       # 因此必须把 site/ 与 updates/ 组装到同一个目录再上传——只传 updates/ 会把
       # 官网覆盖掉，只传 site/ 会把清单抹掉。
+      - name: Build generated site pages (docs / privacy / license)
+        if: needs.preflight.outputs.pages == 'true'
+        run: node scripts/ci/build-site.mjs
+
       - name: Deploy site + update manifests to Cloudflare Pages
         if: needs.preflight.outputs.pages == 'true'
         shell: bash

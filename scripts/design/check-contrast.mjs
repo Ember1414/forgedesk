@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * 校验 **应用语义 token（src/ui/tokens.css）** 与 **官网配色（site/index.html）**
+ * 校验 **应用语义 token（src/ui/tokens.css）** 与 **官网配色（site/assets.css）**
  * 的 WCAG 对比度。
  *
  * 为什么要有这个脚本：设计 token 的"可读性"很容易在后续调色时被无声破坏。
@@ -18,7 +18,7 @@ import { fileURLToPath } from 'node:url';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const TOKENS_PATH = join(repoRoot, 'src', 'ui', 'tokens.css');
-const SITE_PATH = join(repoRoot, 'site', 'index.html');
+const SITE_PATH = join(repoRoot, 'site', 'assets.css');
 
 // ---------- 解析 token ----------
 
@@ -49,10 +49,10 @@ function parseTokenBlock(css, selector) {
  * 少一个块就报错——官网的深色主题是"用户系统设置为深色时看到的样子"，
  * 它不能被悄悄删掉而不被发现。
  */
-function parseSiteThemes(html) {
+function parseSiteThemes(css) {
   const bodies = [];
   const re = /:root\s*\{([^}]*)\}/g;
-  for (const match of html.matchAll(re)) {
+  for (const match of css.matchAll(re)) {
     const vars = {};
     for (const varMatch of match[1].matchAll(/--([a-z0-9-]+)\s*:\s*(#[0-9a-fA-F]{6})\s*;/g)) {
       vars[varMatch[1]] = varMatch[2].toLowerCase();
@@ -61,7 +61,7 @@ function parseSiteThemes(html) {
   }
   if (bodies.length !== 2) {
     throw new Error(
-      `site/index.html 里应当有且只有两个 :root 色值块（亮色 + 暗色），实际 ${bodies.length} 个。`,
+      `site/assets.css 里应当有且只有两个 :root 色值块（亮色 + 暗色），实际 ${bodies.length} 个。`,
     );
   }
   return [
@@ -172,7 +172,7 @@ for (const { theme, vars } of parseSiteThemes(readFileSync(SITE_PATH, 'utf8'))) 
   for (const [fg, bg, label] of SITE_TEXT_PAIRS) {
     for (const name of [fg, bg]) {
       if (vars[name] === undefined) {
-        throw new Error(`官网主题「${theme}」缺少变量 --${name}（site/index.html）`);
+        throw new Error(`官网主题「${theme}」缺少变量 --${name}（site/assets.css）`);
       }
     }
     rows.push({ theme, label, ratio: contrastRatio(vars[fg], vars[bg]), min: TEXT_MIN });
@@ -191,7 +191,7 @@ for (const row of rows) {
 console.log('');
 if (failures > 0) {
   console.error(
-    `对比度校验失败：${failures} 项低于阈值。请调整 src/ui/tokens.css 或 site/index.html 中的色值。`,
+    `对比度校验失败：${failures} 项低于阈值。请调整 src/ui/tokens.css 或 site/assets.css 中的色值。`,
   );
   process.exit(1);
 }

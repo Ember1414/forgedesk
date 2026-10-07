@@ -84,3 +84,8 @@ desktop.ini
 
 # 插件 workspace 的构建产物（examples/*/plugin.wasm 是入库的产物，目录不是）
 plugins/target/
+
+# 官网生成页（scripts/ci/build-site.mjs 从 docs/ 构建时产出，真相源在 docs/）
+site/docs/
+site/privacy.html
+site/license.html

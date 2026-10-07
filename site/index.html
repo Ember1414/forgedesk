@@ -6,10 +6,9 @@
     <meta name="color-scheme" content="light dark" />
     <meta
       name="description"
-      content="ForgeDesk — an open-source, cross-platform desktop workbench for Git and GitHub workflows. 下载、校验与安装说明。"
+      content="ForgeDesk — 开源、跨平台的 Git 与 GitHub 桌面工作台：可视化界面、向导与可交互图表；破坏性操作自动快照。无 AI、无遥测。免费下载。"
     />
     <title>ForgeDesk — A Git client for everyone</title>
-    <!-- 分享卡片与规范地址：落地页是公开入口，粘贴到聊天/社交平台时必须有像样的预览 -->
     <link rel="canonical" href="https://forgedesk.pages.dev/" />
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://forgedesk.pages.dev/" />
@@ -18,427 +17,200 @@
       property="og:description"
       content="开源、跨平台的 Git 与 GitHub 桌面工作台：把易错的 Git 操作变成可视化界面、向导与可交互图表；破坏性操作自动打快照。无 AI、无遥测。"
     />
-    <meta name="twitter:card" content="summary" />
+    <meta property="og:image" content="https://forgedesk.pages.dev/og.png" />
+    <meta name="twitter:card" content="summary_large_image" />
     <link rel="icon" href="/favicon.png" />
-    <style>
-      /*
-       * 站点刻意保持**零依赖单文件**：没有构建步骤、没有第三方脚本、没有外部字体。
-       *
-       * 为什么不做 VitePress / Astro 站点（M0 时的原计划）：本页要回答的问题只有
-       * "最新版是什么、去哪儿下、怎么校验"——而答案的唯一真相源是**发布清单**
-       * （与应用内自动更新同一份数据）。为此引入一套静态站生成器，只会多一条
-       * 需要维护、且可能与清单漂移的链路（红线 R5 的精神：能不加就不加）。
-       */
-      /* 两个 :root 块（第二个在深色媒体查询里）由 scripts/design/check-contrast.mjs
-         一并校验 WCAG AA：官网是用户最先看到的东西，配色不能只在应用里守住。
-         因此链接色也收敛成变量（而不是在深色块里再写一次字面量）。 */
-      :root {
-        --brand: #4f46e5;
-        --brand-2: #7c3aed;
-        --link: #4f46e5;
-        --fg: #14161a;
-        --fg-muted: #565d6b;
-        --canvas: #f7f8fa;
-        --surface: #ffffff;
-        --line: #e3e6eb;
-        --surface-sunken: #f2f3f6;
-      }
-      @media (prefers-color-scheme: dark) {
-        :root {
-          --link: #8b93f8;
-          --fg: #eceef2;
-          --fg-muted: #a6adba;
-          --canvas: #0f1115;
-          --surface: #171a20;
-          --line: #2a2f38;
-          --surface-sunken: #1e222a;
-        }
-      }
-      * {
-        box-sizing: border-box;
-      }
-      body {
-        margin: 0;
-        min-height: 100vh;
-        display: grid;
-        place-items: center;
-        padding: 32px 20px;
-        font-family:
-          ui-sans-serif,
-          system-ui,
-          -apple-system,
-          'Segoe UI',
-          'Microsoft YaHei',
-          'PingFang SC',
-          'Noto Sans SC',
-          sans-serif;
-        background: var(--canvas);
-        color: var(--fg);
-        line-height: 1.6;
-      }
-      main {
-        max-width: 640px;
-        width: 100%;
-        background: var(--surface);
-        border: 1px solid var(--line);
-        border-radius: 16px;
-        padding: 40px 32px;
-      }
-      .icon {
-        width: 72px;
-        height: 72px;
-        border-radius: 18px;
-        background: linear-gradient(135deg, var(--brand) 0%, var(--brand-2) 100%);
-        display: grid;
-        place-items: center;
-      }
-      h1 {
-        margin: 24px 0 4px;
-        font-size: 32px;
-        line-height: 1.25;
-        letter-spacing: -0.02em;
-      }
-      h2 {
-        margin: 32px 0 8px;
-        font-size: 17px;
-        letter-spacing: -0.01em;
-      }
-      .tagline {
-        margin: 0;
-        color: var(--fg-muted);
-        font-size: 16px;
-      }
-      .status {
-        display: inline-block;
-        margin-top: 20px;
-        padding: 4px 10px;
-        border: 1px solid var(--line);
-        border-radius: 6px;
-        font-size: 12px;
-        color: var(--fg-muted);
-      }
-      ul {
-        margin: 24px 0 0;
-        padding-left: 20px;
-        color: var(--fg-muted);
-        font-size: 14px;
-      }
-      li + li {
-        margin-top: 6px;
-      }
-      .downloads {
-        display: grid;
-        gap: 8px;
-        margin-top: 12px;
-      }
-      .downloads a {
-        display: flex;
-        align-items: baseline;
-        justify-content: space-between;
-        gap: 12px;
-        padding: 10px 14px;
-        border: 1px solid var(--line);
-        border-radius: 10px;
-        text-decoration: none;
-        font-size: 14px;
-      }
-      .downloads a:hover {
-        border-color: var(--brand);
-      }
-      .downloads .hint {
-        color: var(--fg-muted);
-        font-size: 12px;
-        text-align: right;
-      }
-      .note {
-        margin: 12px 0 0;
-        color: var(--fg-muted);
-        font-size: 13px;
-      }
-      ol {
-        margin: 8px 0 0;
-        padding-left: 20px;
-        color: var(--fg-muted);
-        font-size: 13px;
-      }
-      ol li + li {
-        margin-top: 6px;
-      }
-      details {
-        margin-top: 12px;
-        font-size: 13px;
-      }
-      details summary {
-        cursor: pointer;
-        color: var(--fg-muted);
-      }
-      pre {
-        margin: 8px 0 0;
-        padding: 10px 12px;
-        overflow-x: auto;
-        background: var(--surface-sunken);
-        border: 1px solid var(--line);
-        border-radius: 8px;
-        font-size: 12px;
-      }
-      code {
-        font-family: ui-monospace, SFMono-Regular, Consolas, 'Liberation Mono', monospace;
-      }
-      button {
-        margin-top: 8px;
-        padding: 5px 12px;
-        font: inherit;
-        font-size: 12px;
-        color: var(--link);
-        background: transparent;
-        border: 1px solid var(--line);
-        border-radius: 6px;
-        cursor: pointer;
-      }
-      footer {
-        margin-top: 28px;
-        padding-top: 20px;
-        border-top: 1px solid var(--line);
-        font-size: 12px;
-        color: var(--fg-muted);
-      }
-      a {
-        color: var(--link);
-      }
-    </style>
+    <link rel="stylesheet" href="/assets.css" />
   </head>
-  <body>
-    <main>
-      <div class="icon" aria-hidden="true">
-        <!-- 与 docs/brand/icon-source.svg 同源的简化标志（砧台 + 火花），仅用于本站 -->
-        <svg width="44" height="44" viewBox="0 0 1024 1024" fill="#ffffff">
-          <path d="M512 198 L560 262 L512 326 L464 262 Z" />
-          <path d="M400 306 L424 340 L400 374 L376 340 Z" />
-          <path d="M624 306 L648 340 L624 374 L600 340 Z" />
-          <rect x="256" y="512" width="512" height="104" rx="30" />
-          <rect x="432" y="616" width="160" height="120" rx="16" />
-          <rect x="320" y="736" width="384" height="88" rx="26" />
+  <body data-page="home">
+    <header class="site-nav">
+      <a class="brand" href="index.html">
+        <span class="mark" aria-hidden="true">
+          <!-- 与 docs/brand/icon-source.svg 同源的简化标志（砧台 + 火花），仅用于本站 -->
+          <svg width="17" height="17" viewBox="0 0 1024 1024" fill="#ffffff">
+            <path d="M512 198 L560 262 L512 326 L464 262 Z" />
+            <path d="M400 306 L424 340 L400 374 L376 340 Z" />
+            <path d="M624 306 L648 340 L624 374 L600 340 Z" />
+            <rect x="256" y="512" width="512" height="104" rx="30" />
+            <rect x="432" y="616" width="160" height="120" rx="16" />
+            <rect x="320" y="736" width="384" height="88" rx="26" />
+          </svg>
+        </span>
+        ForgeDesk
+      </a>
+      <a class="item" data-nav="download" href="download.html">下载</a>
+      <a class="item" data-nav="changelog" href="changelog.html">更新日志</a>
+      <a class="item" data-nav="docs" href="docs/index.html">文档</a>
+      <a class="item" data-nav="about" href="about.html">关于</a>
+      <a
+        class="star"
+        href="https://github.com/Ember1414/forgedesk"
+        title="在 GitHub 上给 ForgeDesk 点星"
+      >
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+          <path
+            d="M12 2l2.9 6.3 6.9.8-5.1 4.7 1.4 6.8L12 17.2 5.9 20.6l1.4-6.8L2.2 9.1l6.9-.8L12 2z"
+          />
         </svg>
-      </div>
+        Star
+      </a>
+    </header>
 
-      <h1>ForgeDesk</h1>
-      <p class="tagline">A Git client for everyone · 看得见的 Git，不只是命令行。</p>
-      <!-- 默认文案面向**无 JS** 与**尚未发布**两种情形；有 JS 且已发布时会被替换成版本号 -->
-      <span class="status" id="status">状态：尚无可用版本</span>
+    <main class="page">
+      <section class="hero">
+        <div class="icon" aria-hidden="true">
+          <svg width="52" height="52" viewBox="0 0 1024 1024" fill="#ffffff">
+            <path d="M512 198 L560 262 L512 326 L464 262 Z" />
+            <path d="M400 306 L424 340 L400 374 L376 340 Z" />
+            <path d="M624 306 L648 340 L624 374 L600 340 Z" />
+            <rect x="256" y="512" width="512" height="104" rx="30" />
+            <rect x="432" y="616" width="160" height="120" rx="16" />
+            <rect x="320" y="736" width="384" height="88" rx="26" />
+          </svg>
+        </div>
+        <div>
+          <h1>ForgeDesk</h1>
+          <p class="tagline">A Git client for everyone · 看得见的 Git，不只是命令行。</p>
+          <span class="status" id="status">状态：尚无可用版本</span>
+          <div class="actions">
+            <div id="download-cta" style="display: contents"></div>
+          </div>
+          <div class="actions" aria-label="手动选择操作系统（自动识别的手动兜底）">
+            <span class="visually-hidden">你的系统没有被正确识别？手动选择：</span>
+            <div class="os-switch" id="os-switch" role="group" aria-label="选择操作系统">
+              <button type="button" data-os="windows">Windows</button>
+              <button type="button" data-os="macos">macOS</button>
+              <button type="button" data-os="linux">Linux</button>
+            </div>
+          </div>
+        </div>
+      </section>
 
-      <ul>
-        <li>开源、跨平台（Windows / macOS / Linux）的 Git 与 GitHub 桌面工作台</li>
-        <li>把终端里易错的 Git 操作变成可视化界面、向导与可交互图表</li>
-        <li>破坏性操作自动打快照，随时一键回滚</li>
-        <li>不含任何 AI 功能；无遥测；本地 Git 操作完全离线可用</li>
+      <!-- 四点核心能力（T7.9）：配原创 SVG 插图——几何图形为本项目自绘，不使用任何竞品素材 -->
+      <h2>它能做什么</h2>
+      <ul class="capabilities">
+        <li>
+          <div class="cap-icon" aria-hidden="true">
+            <!-- 可视化：泳道提交图 -->
+            <svg
+              width="30"
+              height="30"
+              viewBox="0 0 48 48"
+              fill="none"
+              stroke="var(--brand)"
+              stroke-width="3"
+              stroke-linecap="round"
+            >
+              <circle cx="10" cy="10" r="4" />
+              <circle cx="10" cy="26" r="4" />
+              <circle cx="26" cy="18" r="4" />
+              <circle cx="38" cy="38" r="4" />
+              <path d="M10 14v8M12.5 12.5 22 16.5M28 21.5 36 35" />
+            </svg>
+          </div>
+          <b>看得见的历史</b>
+          <span>提交历史是可交互的泳道图：点选即看详情，分支与合并一目了然。</span>
+        </li>
+        <li>
+          <div class="cap-icon" aria-hidden="true">
+            <!-- 向导：分步路径 -->
+            <svg
+              width="30"
+              height="30"
+              viewBox="0 0 48 48"
+              fill="none"
+              stroke="var(--brand)"
+              stroke-width="3"
+              stroke-linecap="round"
+            >
+              <rect x="6" y="8" width="14" height="12" rx="3" />
+              <rect x="28" y="28" width="14" height="12" rx="3" />
+              <path d="M13 20v10a6 6 0 0 0 6 6h9" />
+              <path d="m24 32 4 4-4 4" />
+            </svg>
+          </div>
+          <b>向导代替命令</b>
+          <span>合并、变基、解决冲突都走"预览计划 → 确认 → 执行"，每一步先看清楚再动手。</span>
+        </li>
+        <li>
+          <div class="cap-icon" aria-hidden="true">
+            <!-- 快照/回滚：盾与时针 -->
+            <svg
+              width="30"
+              height="30"
+              viewBox="0 0 48 48"
+              fill="none"
+              stroke="var(--brand)"
+              stroke-width="3"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path d="M24 5l15 6v11c0 9-6.5 16.5-15 21-8.5-4.5-15-12-15-21V11l15-6z" />
+              <path d="M24 16v8l6 4" />
+            </svg>
+          </div>
+          <b>敢做的安全网</b>
+          <span>破坏性操作自动打快照，push 只允许 force-with-lease，随时一键回滚。</span>
+        </li>
+        <li>
+          <div class="cap-icon" aria-hidden="true">
+            <!-- 隐私：本地优先 -->
+            <svg
+              width="30"
+              height="30"
+              viewBox="0 0 48 48"
+              fill="none"
+              stroke="var(--brand)"
+              stroke-width="3"
+              stroke-linecap="round"
+            >
+              <rect x="9" y="21" width="30" height="20" rx="4" />
+              <path d="M16 21v-5a8 8 0 0 1 16 0v5" />
+              <circle cx="24" cy="31" r="2.5" fill="var(--brand)" stroke="none" />
+            </svg>
+          </div>
+          <b>本地与私密</b>
+          <span>不含任何 AI 功能、没有遥测；凭据只存系统钥匙串，离线完全可用。</span>
+        </li>
       </ul>
 
-      <h2>下载</h2>
-      <p class="note" id="download-lead">
-        尚未发布任何正式版本。
-        <a id="releases-link" href="https://github.com/Ember1414/forgedesk/releases"
-          >前往 Releases</a
-        >
-        查看是否已有可用构建；源码构建方式见仓库的 README。
+      <h2>为谁而做</h2>
+      <p class="lede">
+        如果 <code>rebase --onto</code>、<code>cherry-pick</code>
+        这些词让你紧张，ForgeDesk 把它们变成看得见的计划与可回滚的操作；
+        如果你本就是命令行熟手，它也能当成本地 GitHub 工作台与可视化速查工具。
       </p>
-      <!-- 已发布时由脚本填充分区下方内容（保持"未发布就什么都不假装"的默认态） -->
-      <div class="downloads" id="downloads" hidden></div>
+
+      <h2>技术说明</h2>
       <p class="note">
-        <strong>系统要求</strong>：Windows 10 1809 或更高（需 WebView2，Windows 11 已内置）；
-        应用本身不含 AI 功能、不含遥测，本地 Git 操作完全离线可用。
+        基于 Tauri 2 + Rust：Git 读操作走 libgit2、写操作走系统 git CLI， 界面用系统自带的 WebView
+        渲染——没有 Electron、不捆绑浏览器内核， 安装包保持在小体积量级。开源许可见
+        <a href="license.html">许可证页</a>，数据与网络行为见 <a href="privacy.html">隐私说明</a>。
       </p>
-      <p class="note" id="windows-note" hidden>
-        Windows 首次运行可能被 SmartScreen 拦截（本项目未购买代码签名证书）： 选择「更多信息 →
-        仍要运行」，或改用免安装的便携版 zip。 完整说明见仓库 <code>docs/install/windows.md</code>。
-      </p>
+    </main>
 
-      <h2>校验下载</h2>
-      <ol>
-        <li>把安装包与同一次发布里的 <code>SHA256SUMS</code> 下载到同一目录。</li>
-        <li>在 PowerShell 里计算安装包的哈希（把文件名换成你下载的那个）：</li>
-      </ol>
-      <pre><code id="hash-command">Get-FileHash .\ForgeDesk_&lt;版本&gt;_windows_x64.exe -Algorithm SHA256</code></pre>
-      <button type="button" id="copy-hash-command">复制命令</button>
-      <!-- 校验和数值在发货时随站点一起发布（同源），因此页面可以直接显示；
-           没有发布（或清单取不到）时这块保持隐藏，静态的校验步骤仍然可用 -->
-      <details id="checksums" hidden>
-        <summary>查看当前版本的校验和（SHA256）</summary>
-        <p class="note">
-          以下数值来自同一次发布生成的 <code>SHA256SUMS</code>，与 Release 附件内容一致。
-        </p>
-        <pre><code id="checksum-lines"></code></pre>
-      </details>
-      <ol start="3">
-        <li>与 <code>SHA256SUMS</code> 里同名的行逐字比对（大小写不敏感）。</li>
-        <li>
-          若该次发布附带 <code>SHA256SUMS.asc</code>，可用
-          <code>gpg --verify SHA256SUMS.asc SHA256SUMS</code> 再验一层签名（公钥发布方式见仓库
-          <code>docs/RELEASE.md</code>）。
-        </li>
-      </ol>
-
-      <footer>
+    <footer class="site-footer">
+      <div class="inner">
         <p>
-          本页显示的版本来自发布清单（与应用内自动更新使用同一份数据）。尚无发布时本页如实显示"无可用版本"，
+          本站的版本信息来自发布清单（与应用内自动更新同一份数据）。尚无发布时如实显示"无可用版本"，
           不提供任何虚假下载入口。
         </p>
         <p>
-          <a href="https://github.com/Ember1414/forgedesk">源码仓库</a> ·
-          <a href="https://github.com/Ember1414/forgedesk/blob/main/docs/manual/README.md"
-            >用户手册</a
-          >
-          · <a href="https://github.com/Ember1414/forgedesk/blob/main/docs/FAQ.md">常见问题</a> ·
+          <a href="download.html">下载</a> · <a href="changelog.html">更新日志</a> ·
+          <a href="docs/index.html">用户手册</a> ·
+          <a href="https://github.com/Ember1414/forgedesk/blob/main/docs/FAQ.md">常见问题</a> ·
           <a href="https://github.com/Ember1414/forgedesk/issues">问题反馈</a> ·
-          <a href="https://github.com/Ember1414/forgedesk/blob/main/SECURITY.md">安全策略</a>
+          <a href="https://github.com/Ember1414/forgedesk/blob/main/SECURITY.md">安全策略</a> ·
+          <a href="privacy.html">隐私</a> · <a href="license.html">许可证</a> ·
+          <a href="about.html">关于</a>
         </p>
         <p>
           ForgeDesk is an independent project. It is not affiliated with, endorsed by, or sponsored
           by the Git project, the Software Freedom Conservancy, GitHub, Inc., or the Tauri project.
         </p>
-      </footer>
-    </main>
+      </div>
+    </footer>
 
-    <script>
-      /*
-       * 从发布清单读取最新版本并渲染下载入口。
-       *
-       * 关于"为什么不用 GitHub Releases API"：那需要额外的网络请求、受匿名速率限制、
-       * 且与自动更新用的清单是**两份数据**（迟早不一致）。清单本身就是发布流程写出的
-       * 单一真相源，同源读取即可——顺带让"清单是否可匿名访问"这件事在页面上直接可见。
-       *
-       * 关于"为什么资产名是拼出来的"：发布流程用 rename-bundles.mjs 固定了产物命名
-       * （ForgeDesk_<版本>_windows_<架构><扩展名>），便携版 zip 由 make-portable.mjs 生成
-       * （…_portable.zip）。清单里带的是安装包的完整下载地址，因此从它取出
-       * 基础地址后，其余两个产物名可以按同一约定拼出，无需第二次请求。
-       * 命名约定若变更，本段与 docs/RELEASE.md 必须同步改。
-       *
-       * 关于"校验和为什么能显示"：发布流水线会把 SHA256SUMS 也放到本站同源路径下
-       * （updates/<渠道>/SHA256SUMS）。GitHub 的 Release 附件不返回 CORS 头，跨域取不到，
-       * 因此"同源再放一份"是让页面直显数值的唯一零依赖做法。
-       */
-      (function () {
-        var CHANNEL_DIR = '/updates/stable';
-        var MANIFEST = CHANNEL_DIR + '/windows-x86_64.json';
-        var ARCH_BY_TARGET = { 'windows-x86_64': 'x64', 'windows-aarch64': 'arm64' };
-        var status = document.getElementById('status');
-        var lead = document.getElementById('download-lead');
-        var downloads = document.getElementById('downloads');
-        var windowsNote = document.getElementById('windows-note');
-
-        /** 把同源发布的 SHA256SUMS 渲染进 <details>；取不到就保持隐藏。 */
-        function loadChecksums() {
-          fetch(CHANNEL_DIR + '/SHA256SUMS', { cache: 'no-store' })
-            .then(function (response) {
-              if (!response.ok) {
-                throw new Error('no checksums');
-              }
-              return response.text();
-            })
-            .then(function (text) {
-              // 只接受标准 sha256sum 行：格式不符时宁可什么都不显示，
-              // 也不要让用户在页面上读到一份看起来像校验和、其实不是的东西
-              var lines = text.split('\n').filter(function (line) {
-                return /^[0-9a-f]{64} {2}\S+$/.test(line.trim());
-              });
-              if (lines.length === 0) {
-                return;
-              }
-              document.getElementById('checksum-lines').textContent = lines.join('\n');
-              document.getElementById('checksums').hidden = false;
-            })
-            .catch(function () {
-              // 没有校验和文件（例如手工部署的站点）：静态校验步骤仍然可用
-            });
-        }
-
-        function renderRelease(manifest) {
-          var target = Object.keys(manifest.platforms || {})[0];
-          if (!target || !manifest.platforms[target].url) {
-            return false;
-          }
-          var arch = ARCH_BY_TARGET[target] || 'x64';
-          var version = manifest.version;
-          var base = manifest.platforms[target].url.replace(/\/[^/]+$/, '');
-          var prefix = 'ForgeDesk_' + version + '_windows_' + arch;
-
-          var assets = [
-            { name: 'NSIS 安装器（.exe）', hint: '推荐 · 双击安装', file: prefix + '.exe' },
-            { name: 'MSI 安装包（.msi）', hint: '适合静默安装', file: prefix + '.msi' },
-            { name: '便携版（.zip）', hint: '免安装 · 解压即用', file: prefix + '_portable.zip' },
-            { name: 'SHA256SUMS', hint: '校验和', file: 'SHA256SUMS' },
-          ];
-
-          downloads.textContent = '';
-          assets.forEach(function (asset) {
-            var link = document.createElement('a');
-            link.href = base + '/' + asset.file;
-            var label = document.createElement('span');
-            label.textContent = asset.name;
-            var hint = document.createElement('span');
-            hint.className = 'hint';
-            hint.textContent = asset.hint;
-            link.appendChild(label);
-            link.appendChild(hint);
-            downloads.appendChild(link);
-          });
-          downloads.hidden = false;
-          windowsNote.hidden = false;
-
-          var released = manifest.pub_date ? manifest.pub_date.slice(0, 10) : '';
-          status.textContent = '最新版本 v' + version + (released ? ' · ' + released : '');
-          lead.textContent = '当前版本 v' + version + '（Windows x64）。';
-          // 下载按钮都指向 release 附件，因此把"去 Releases 看全部产物"作为一句补充
-          var more = document.createElement('a');
-          more.href = base;
-          more.textContent = '在 Releases 查看全部产物与校验文件';
-          lead.appendChild(more);
-
-          // 只在确实有发布时才去问校验和：没发布时连一次多余的请求都不发
-          loadChecksums();
-          return true;
-        }
-
-        fetch(MANIFEST, { cache: 'no-store' })
-          .then(function (response) {
-            // 未发布时这里是 404，也可能被托管方返回一个 HTML 兜底页——两种都按"没有清单"处理
-            if (!response.ok) {
-              throw new Error('no manifest');
-            }
-            return response.json();
-          })
-          .then(function (manifest) {
-            if (!renderRelease(manifest)) {
-              throw new Error('manifest has no usable platform entry');
-            }
-          })
-          .catch(function () {
-            // 如实保持"尚无可用版本"：宁可什么都不显示，也不要给一个必然 404 的下载按钮
-          });
-
-        var copyButton = document.getElementById('copy-hash-command');
-        copyButton.addEventListener('click', function () {
-          var command = document.getElementById('hash-command').textContent;
-          var done = function (text) {
-            copyButton.textContent = text;
-            setTimeout(function () {
-              copyButton.textContent = '复制命令';
-            }, 2000);
-          };
-          // 无剪贴板权限（非安全上下文等）时不能装作已复制
-          if (navigator.clipboard && navigator.clipboard.writeText) {
-            navigator.clipboard.writeText(command).then(
-              function () {
-                done('已复制');
-              },
-              function () {
-                done('复制失败，请手动选择');
-              },
-            );
-          } else {
-            done('复制失败，请手动选择');
-          }
-        });
-      })();
-    </script>
+    <script defer src="/app.js"></script>
   </body>
 </html>

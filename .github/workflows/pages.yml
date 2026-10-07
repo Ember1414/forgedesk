@@ -73,6 +73,11 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
+      # 生成的文档/隐私/许可证页与部署用同一份生成器（真相源在 docs/，产物不入库）
+      - name: Build generated pages (docs / privacy / license)
+        if: steps.creds.outputs.available == 'true'
+        run: node scripts/ci/build-site.mjs
+
       # 使用 npx 而非 pnpm dlx：pnpm 遇到需要构建的依赖（esbuild/workerd）时会弹出
       # 交互式选择框，且 dlx 的隔离环境不读取项目配置，在 CI 中会卡住。
       - name: Deploy
