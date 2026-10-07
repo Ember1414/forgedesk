@@ -10,8 +10,12 @@ import { applyThemeMode, watchSystemTheme } from '@/app/theme';
 import { LogViewerDialog } from '@/features/logs/LogViewerDialog';
 import { Toaster } from '@/ui/components/toast';
 import { TooltipProvider } from '@/ui/components/tooltip';
+import { LAYOUT_KEY, useLayoutStore } from '@/stores/layoutStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useUiStore } from '@/stores/uiStore';
+import { settingsGet } from '@/lib/ipc';
+
+const hydrateLayout = useLayoutStore.getState().hydrate;
 
 /**
  * 应用根组件。
@@ -46,6 +50,11 @@ export function App() {
     // 启动时拉一次设置：界面密度这类"用起来就该已经生效"的项必须在首屏就应用，
     // 而不是等用户进设置页才生效。失败会被 store 记录，由设置页负责展示。
     void useSettingsStore.getState().load();
+    // 布局同理：拖出来的面板尺寸必须启动即恢复。曾经只在布局设置页挂载时
+    // hydrate——不进那页就永远是默认值，拖了等于白拖
+    void settingsGet('global', LAYOUT_KEY).then((raw) => {
+      hydrateLayout(raw ?? undefined);
+    });
   }, []);
 
   return (

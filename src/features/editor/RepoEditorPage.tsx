@@ -17,6 +17,7 @@ import { useEditorStore } from '@/stores/editorStore';
 import { useLayoutStore } from '@/stores/layoutStore';
 import { useAppError } from '@/lib/errors';
 import { Button } from '@/ui/components/button';
+import { Resizable } from '@/ui/components/resizable';
 
 export function RepoEditorPage() {
   const { t } = useTranslation('shell');
@@ -24,6 +25,7 @@ export function RepoEditorPage() {
   const repoId = Number(params.repoId);
   const openTab = useEditorStore((state) => state.openTab);
   const treeWidth = useLayoutStore((state) => state.layout.treeWidth);
+  const setTreeWidth = useLayoutStore((state) => state.setTreeWidth);
   const { show } = useAppError();
   const [treeOpen, setTreeOpen] = useState(true);
 
@@ -55,9 +57,20 @@ export function RepoEditorPage() {
       </div>
       <div className="flex min-h-0 flex-1 gap-2">
         {treeOpen ? (
-          <div className="shrink-0" style={{ width: treeWidth }}>
+          // 树宽可直接拖拽（edge="end"：把手在树右缘，拖右变宽），也仍可在
+          // 布局设置页用滑杆调——两者写同一个 layoutStore，天然保持一致
+          <Resizable
+            edge="end"
+            orientation="horizontal"
+            size={treeWidth}
+            minSize={200}
+            maxSize={480}
+            onSizeChange={setTreeWidth}
+            handleLabel={t('editor.resizeTree')}
+            className="shrink-0"
+          >
             <FileTreePanel repoId={repoId} onOpenFile={openFile} />
-          </div>
+          </Resizable>
         ) : null}
         <EditorPanel repoId={repoId} />
       </div>

@@ -3,11 +3,18 @@ import { NavLink, Outlet, useParams } from 'react-router-dom';
 
 import { DETAIL_PANEL_POSITIONS, useUiStore } from '@/stores/uiStore';
 import type { DetailPanelPosition } from '@/stores/uiStore';
+import {
+  DETAIL_DEFAULT_HEIGHT,
+  DETAIL_DEFAULT_WIDTH,
+  DETAIL_SIZE_LIMITS,
+  useLayoutStore,
+} from '@/stores/layoutStore';
 import { useRepoById } from '@/features/repo/recentRepos';
 import { BranchSwitcher } from '@/features/branches/BranchSwitcher';
 import { SyncBar } from '@/features/sync/SyncBar';
 import { MergeBanner } from '@/features/branches/MergeBanner';
 import { CommitDetailPanel } from '@/features/history/CommitDetailPanel';
+import { Resizable } from '@/ui/components/resizable';
 import { ToggleGroup } from '@/ui/components/toggle-group';
 import { cn } from '@/lib/utils';
 
@@ -40,9 +47,16 @@ export function RepoLayout() {
   const { repoId } = useParams();
   const detailPanel = useUiStore((state) => state.detailPanel);
   const setDetailPanel = useUiStore((state) => state.setDetailPanel);
+  // 拖拽尺寸（T5.10 布局持久化的延续）：null = 用户没拖过，用位置各自的默认
+  const detailSize = useLayoutStore((state) => state.layout.detailSize);
+  const setDetailSize = useLayoutStore((state) => state.setDetailSize);
 
   // 名称与路径来自本地记录（与顶栏切换器同一份缓存）；查不到就退回路由段本身
   const repo = useRepoById(repoId);
+
+  const isBottom = detailPanel === 'bottom';
+  const limits = isBottom ? DETAIL_SIZE_LIMITS.vertical : DETAIL_SIZE_LIMITS.horizontal;
+  const panelSize = detailSize ?? (isBottom ? DETAIL_DEFAULT_HEIGHT : DETAIL_DEFAULT_WIDTH);
 
   return (
     <section className="flex h-full flex-col gap-3">
@@ -97,39 +111,49 @@ export function RepoLayout() {
       <MergeBanner />
       <SyncBar />
 
-      <div
-        className={cn(
-          'flex min-h-0 flex-1',
-          detailPanel === 'bottom' ? 'flex-col gap-3' : 'flex-row gap-3',
-        )}
-      >
+      <div className={cn('flex min-h-0 flex-1', isBottom ? 'flex-col gap-3' : 'flex-row gap-3')}>
         <div className="min-h-0 min-w-0 flex-1 overflow-auto">
           <Outlet />
         </div>
 
         {detailPanel !== 'hidden' ? (
-          <aside
-            aria-label={t('panel.title')}
-            className={cn(
-              'shrink-0 rounded-lg border border-line bg-surface p-3',
-              detailPanel === 'right' ? 'w-72' : 'h-28',
-            )}
+          /*
+            详情面板可拖拽调宽/调高（edge="start"：把手在面板的左/上边——
+            拖离主内容方向 = 变大，与所有主流应用的分栏一致）；
+            尺寸经 layoutStore 持久化，重启后保持。
+          */
+          <Resizable
+            edge="start"
+            orientation={isBottom ? 'vertical' : 'horizontal'}
+            size={panelSize}
+            minSize={limits.min}
+            maxSize={limits.max}
+            onSizeChange={(next) => {
+              setDetailSize(next, isBottom ? 'vertical' : 'horizontal');
+            }}
+            handleLabel={isBottom ? t('panel.resizeHeight') : t('panel.resizeWidth')}
+            className="shrink-0"
           >
-            {/*
-              详情位由提交详情面板接管（T2.2）：选中历史页的某个提交即在此展示元数据。
-              没有选中提交时退回原来的占位说明——面板挂在所有仓库子页共享的外壳上，
-              因此必须对"当前不在历史页 / 没选提交"这两种情况给出合理默认。
-            */}
-            <CommitDetailPanel
-              repoId={Number(repoId)}
-              fallback={
-                <>
-                  <h2 className="text-13 font-medium">{t('panel.title')}</h2>
-                  <p className="mt-1 text-12 text-fg-subtle">{t('panel.placeholder')}</p>
-                </>
-              }
-            />
-          </aside>
+            <aside
+              aria-label={t('panel.title')}
+              className="h-full w-full rounded-lg border border-line bg-surface p-3"
+            >
+              {/*
+                详情位由提交详情面板接管（T2.2）：选中历史页的某个提交即在此展示元数据。
+                没有选中提交时退回原来的占位说明——面板挂在所有仓库子页共享的外壳上，
+                因此必须对"当前不在历史页 / 没选提交"这两种情况给出合理默认。
+              */}
+              <CommitDetailPanel
+                repoId={Number(repoId)}
+                fallback={
+                  <>
+                    <h2 className="text-13 font-medium">{t('panel.title')}</h2>
+                    <p className="mt-1 text-12 text-fg-subtle">{t('panel.placeholder')}</p>
+                  </>
+                }
+              />
+            </aside>
+          </Resizable>
         ) : null}
       </div>
     </section>

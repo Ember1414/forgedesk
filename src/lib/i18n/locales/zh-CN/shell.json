@@ -72,7 +72,9 @@
     "right": "右侧",
     "bottom": "底部",
     "hidden": "隐藏",
-    "placeholder": "选中内容后，详细信息会显示在这里。"
+    "placeholder": "选中内容后，详细信息会显示在这里。",
+    "resizeWidth": "调整详情面板宽度",
+    "resizeHeight": "调整详情面板高度"
   },
   "placeholder": {
     "planned": "计划任务",

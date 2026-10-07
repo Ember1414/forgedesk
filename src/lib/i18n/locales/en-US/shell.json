@@ -72,7 +72,9 @@
     "right": "Right",
     "bottom": "Bottom",
     "hidden": "Hidden",
-    "placeholder": "Select something and its details will appear here."
+    "placeholder": "Select something and its details will appear here.",
+    "resizeWidth": "Resize the details panel width",
+    "resizeHeight": "Resize the details panel height"
   },
   "placeholder": {
     "planned": "Planned in",

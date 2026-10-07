@@ -14,6 +14,8 @@
  */
 import { create } from 'zustand';
 
+import { isTauriRuntime, settingsSet } from '@/lib/ipc';
+
 /** 布局预设名。 */
 export const LAYOUT_PRESETS = ['default', 'review', 'editor'] as const;
 export type LayoutPreset = (typeof LAYOUT_PRESETS)[number];
@@ -25,13 +27,42 @@ export interface LayoutState {
   readonly treeWidth: number;
   /** 详情面板位置（复用 uiStore 的语义，持久化在此避免双写）。 */
   readonly detailPanel: 'right' | 'bottom' | 'hidden';
+  /**
+   * 详情面板尺寸（px；right=宽度 / bottom=高度）。
+   * `null` = 用户没拖过，跟随各位置的默认值——不能写死一个数：
+   * 同一个值当"右侧宽度"合适、当"底部高度"就离谱。
+   */
+  readonly detailSize: number | null;
 }
+
+/** 详情面板的缺省尺寸（与 w-72 / h-28 一致，保持升级前后观感不变）。 */
+export const DETAIL_DEFAULT_WIDTH = 288;
+export const DETAIL_DEFAULT_HEIGHT = 112;
 
 export const DEFAULT_LAYOUT: LayoutState = {
   preset: 'default',
   treeWidth: 264,
   detailPanel: 'right',
+  detailSize: null,
 };
+
+/** 详情面板尺寸的边界（拖拽与解析共用；同一套钳制避免"存进去读出来变了"）。 */
+export const DETAIL_SIZE_LIMITS = {
+  horizontal: { min: 240, max: 640 } as const,
+  vertical: { min: 96, max: 480 } as const,
+} as const;
+
+/** 按方向钳制详情面板尺寸；非有限数一律回 null（跟随默认）。 */
+export function clampDetailSize(
+  size: number | null,
+  orientation: 'horizontal' | 'vertical',
+): number | null {
+  if (size === null || !Number.isFinite(size)) {
+    return null;
+  }
+  const { min, max } = DETAIL_SIZE_LIMITS[orientation];
+  return Math.min(max, Math.max(min, Math.round(size)));
+}
 
 /** 解析持久化值；非法 → 默认 + 错误消息（调用方提示"布局已重置"）。 */
 export function parseLayout(raw: string | undefined): {
@@ -61,7 +92,11 @@ export function parseLayout(raw: string | undefined): {
       source['detailPanel'] === 'right'
         ? source['detailPanel']
         : DEFAULT_LAYOUT.detailPanel;
-    return { layout: { preset, treeWidth, detailPanel }, error: null };
+    // 旧版布局 JSON 没有 detailSize：缺省即 null（跟随默认），不算损坏
+    const detailSizeRaw = source['detailSize'];
+    const detailSize =
+      typeof detailSizeRaw === 'number' ? clampDetailSize(detailSizeRaw, 'horizontal') : null;
+    return { layout: { preset, treeWidth, detailPanel, detailSize }, error: null };
   } catch (error) {
     return {
       layout: { ...DEFAULT_LAYOUT },
@@ -79,6 +114,8 @@ export interface LayoutStoreState {
   setLayout(layout: LayoutState): void;
   setPreset(preset: LayoutPreset): void;
   setTreeWidth(width: number): void;
+  /** 拖拽详情面板后记录尺寸（orientation 决定钳制边界）。 */
+  setDetailSize(size: number, orientation: 'horizontal' | 'vertical'): void;
   resetToDefault(): void;
   /** 从 settings 表载入（App 启动调用一次）。 */
   hydrate(raw: string | undefined): void;
@@ -107,6 +144,12 @@ export const useLayoutStore = create<LayoutStoreState>()((set) => ({
     }));
   },
 
+  setDetailSize: (size, orientation) => {
+    set((state) => ({
+      layout: { ...state.layout, detailSize: clampDetailSize(size, orientation) },
+    }));
+  },
+
   resetToDefault: () => {
     set({ layout: { ...DEFAULT_LAYOUT } });
   },
@@ -120,3 +163,30 @@ export const useLayoutStore = create<LayoutStoreState>()((set) => ({
     set({ corrupted: false });
   },
 }));
+
+/**
+ * 布局变化自动持久化（防抖 400ms，拖拽结束后的那一帧才落库）。
+ *
+ * 为什么在 store 模块里订阅而不是让每个写入口自己 persist：写入口现在有
+ * 设置页、拖拽把手、预设切换，将来只会更多——任何一处忘记写库就出现
+ * "重启后布局回退"。订阅是唯一覆盖全部入口的位置。
+ *
+ * 拖拽每帧都会 set：不防抖就是每帧一次 IPC 往返。失败静默（布局持久化
+ * 是便利功能，不值得为它打断用户）。
+ */
+let persistTimer: ReturnType<typeof setTimeout> | null = null;
+
+useLayoutStore.subscribe((state) => {
+  if (typeof window === 'undefined' || !isTauriRuntime()) {
+    return;
+  }
+  if (persistTimer !== null) {
+    clearTimeout(persistTimer);
+  }
+  persistTimer = setTimeout(() => {
+    persistTimer = null;
+    void settingsSet('global', LAYOUT_KEY, JSON.stringify(state.layout)).catch(() => {
+      // 写失败不回滚 store：内存态照常工作，下次变更会再尝试
+    });
+  }, 400);
+});
