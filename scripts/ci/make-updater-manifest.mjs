@@ -28,8 +28,8 @@
  *     --signature <包.sig> --url <包的下载地址> [--notes <文件>] [--pub-date <ISO8601>] \
  *     [--merge] --out <latest.json>
  */
-import { readFileSync, writeFileSync, existsSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
 
 /** Tauri 认可的 target 取值（与 `endpoints` 的 `{{target}}` 同源）。 */
 const KNOWN_TARGETS = new Set([
@@ -163,8 +163,14 @@ const manifest = {
   platforms,
 };
 
+// 输出目录由本脚本保证存在：清单的路径形如 `updates/<渠道>/<target>.json`，
+// 而那个子目录在第一次发布时并不存在——把"先 mkdir"的责任推给每个调用方，
+// 迟早会有一次在发版当天以 ENOENT 收场（本脚本的本地演练就撞上过这个）
+const outPath = resolve(options.out);
+mkdirSync(dirname(outPath), { recursive: true });
+
 // 缩进 + 结尾换行：清单是要被人读、被人 diff 的（排障时第一眼看的就是它）
-writeFileSync(resolve(options.out), `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
+writeFileSync(outPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
 console.log(`已写入 ${options.out}`);
 console.log(`  version: ${manifest.version}`);
 console.log(`  platforms: ${Object.keys(platforms).join('、')}`);

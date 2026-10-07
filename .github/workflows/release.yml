@@ -100,6 +100,11 @@ jobs:
           fi
           echo "版本号 ${version} 与触发条件 ${GITHUB_REF_NAME} 一致。"
 
+      # 用假产物把发布脚本链先跑一遍：几毫秒的成本，换来"参数/顺序/路径写错"
+      # 在 30 分钟的构建之前就暴露（这条链第一次被跑就抓出两处真问题）
+      - name: Rehearse the release script chain
+        run: pnpm release:rehearse
+
       - name: Resolve channel
         id: channel
         shell: bash
@@ -271,9 +276,11 @@ jobs:
             exit 1
           fi
 
-          installer=$(ls releases/*_windows_x64-setup.exe 2>/dev/null | head -n 1 || true)
+          # 注意归一化后的名字：`rename-bundles.mjs` 会把 Tauri 的 `…-setup.exe` 变成
+          # `ForgeDesk_<版本>_windows_x64.exe`（后缀被规整掉），因此这里**不能**匹配 `-setup`
+          installer=$(ls releases/*_windows_x64.exe 2>/dev/null | head -n 1 || true)
           if [[ -z "${installer}" ]]; then
-            echo "::error title=缺少 NSIS 安装器::releases/ 下没有 ForgeDesk_<版本>_windows_x64-setup.exe，updater 清单无法指向可下载的包。"
+            echo "::error title=缺少 NSIS 安装器::releases/ 下没有 ForgeDesk_<版本>_windows_x64.exe，updater 清单无法指向可下载的包。"
             exit 1
           fi
           asset=$(basename "${installer}")

@@ -42,6 +42,8 @@
     "portable:win": "node scripts/ci/make-portable.mjs --out bundles",
     "version:sync": "node scripts/setup/sync-version.mjs",
     "version:check": "node scripts/setup/sync-version.mjs --check",
+    "//release:rehearse": "本地演练发布脚本链（假产物），不需要任何凭据；覆盖脚本之间的接口与顺序，不覆盖 tauri build / 签名 / Release / Pages",
+    "release:rehearse": "node scripts/ci/rehearse-release.mjs",
     "//pages": "使用 npx 而非 pnpm dlx：pnpm 在遇到需要构建的依赖（esbuild/workerd）时会弹出交互式选择框，且 dlx 的隔离环境不读取项目的 pnpm 配置，脚本化场景下会直接卡住。",
     "pages:preview": "npx --yes wrangler@4 pages dev site",
     "pages:deploy": "npx --yes wrangler@4 pages deploy site --project-name=forgedesk",

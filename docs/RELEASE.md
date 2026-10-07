@@ -180,6 +180,23 @@ beta 走 `workflow_dispatch` 且版本号需自带预发布后缀（如 `1.0.0-b
 2. 更新清单的 URL 能匿名访问（`curl -fsS https://forgedesk.pages.dev/updates/stable/windows-x86_64.json`），
    并核对里面的 `version` 与 `signature` 与 Release 附件一致。
 
+**本地演练（不需要任何凭据）**
+
+```bash
+pnpm release:rehearse
+```
+
+它用**假产物**造一棵与 `tauri build` 输出同形的 bundle 树，然后按 `release.yml` 的顺序跑
+"归一化命名 → 便携版 zip → 合并 SHA256SUMS → updater 清单 → Release Notes"，
+并断言产物命名、`SHA256SUMS` 的行数与格式、清单的版本/签名/URL 形状。
+
+- **覆盖**：脚本之间的接口与顺序（含"归一化后 NSIS 安装器改名成 `…_windows_x64.exe`"这类细节）；
+- **不覆盖**：`tauri build` 本身、Ed25519 与 GPG 签名、GitHub Release 创建、Pages 部署。
+- 第一次跑它就已经抓出两处问题：清单脚本要求调用方先建目录（已改为自建）、
+  以及清单步骤按 `-setup.exe` 匹配归一化后的产物名（永远匹配不到，已修正）。
+
+加了 `--keep` 可以保留现场（`target/release-rehearsal/`）供人工翻看产物。
+
 ---
 
 ## 5. 发布后检查
