@@ -293,6 +293,16 @@
 | Pages 项目 | ✅ 早已存在（2026-09-23 创建）：`pnpm pages:create` 重复执行会以 `code 8000002 already exists` 失败——那是**预期**，不是故障。已在该 npm 脚本上补注释说明 |
 | 配额 | ✅ 转公开后 standard runner 不计费：ADR-002 记的"130 配额分钟/次矩阵"约束解除 |
 
+### 2026-10-07（续二十）：⚠️ 发现 CI 在 main 上长期为红
+
+| 项 | 事实 |
+| --- | --- |
+| 现象 | 转公开后第一次推送触发的 CI 中 `quality` / `safety` / `example-plugins` **三个作业全部失败**。回查最近 100 次运行：**`CI` 从未成功过**（只有 `i18n` / `Compliance` / `Deploy site` 这类会跳过或轻量的通过）。也就是说 M0–M6 期间"CI 矩阵覆盖跨平台"的说法**没有得到过 CI 的兑现**——那些验收结论实际只由本地门禁支撑 |
+| 证据来源 | 本机 `gh` 未安装，GitHub 的作业日志端点对匿名请求返回 403；改用**匿名的 check-runs annotations** 拿到了根因（这是可行的取证路径，值得记住） |
+| `quality` 根因 | `[vitest] No "systemDiagnoseError" export is defined on the "@/lib/ipc" mock`（`src/lib/errors.ts:228`）：`errors.ts` 在"错误带 detail"时会调用诊断，而某个测试对 `@/lib/ipc` 的**部分 mock** 没声明该导出 → **同步抛出**逃出了 `.catch`，把"诊断失败不影响错误提示"这条声明意图绕过 |
+| 已修 | ✅ `errors.ts` 把诊断调用推入微任务（`Promise.resolve().then(...)`），同步抛出变成被捕获的 rejection；`settingsStore.test.ts` 的 mock 补上该导出。本地 `pnpm test` **891 全过**、typecheck / lint / format 全绿 |
+| 未修（缺日志） | `safety`（Rust panic，exit 101）与 `example-plugins`（`git diff --exit-code -- plugins/examples` 失败，exit 1）。本机已排除的假说：路径嵌入（换目录重建字节完全相同，`C:\Temp\fd-path-test` 实测）、工具链版本（CI runner 的 Rust 同为 **1.98.1**）、`.gitattributes` 把 wasm 当文本（已正确标 `binary`）。**结论：需要真实作业日志才能定因** |
+
 ### 2026-10-07（续十三）：转公开门禁 B-3 / B-4（图标原创性证据链）
 
 | 项 | 结果 |

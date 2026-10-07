@@ -20,6 +20,10 @@ import {
 vi.mock('@/lib/ipc', () => ({
   settingsAll: vi.fn(),
   settingsSet: vi.fn(),
+  // errors.ts 在"错误带 detail"时会调它做诊断（T5.6）。mock 里不声明这个导出的话，
+  // 只要有用例走到那条路径，失败信息会是"mock 缺导出"——与诊断逻辑本身无关，
+  // 排查时会把人引到完全错误的方向（CI 上出现过一次）。
+  systemDiagnoseError: vi.fn().mockResolvedValue({ primary: null, related: [] }),
 }));
 
 const settingsAllMock = vi.mocked(settingsAll);

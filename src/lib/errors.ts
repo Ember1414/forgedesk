@@ -223,9 +223,17 @@ export function useAppError() {
 
       // 诊断（T5.6）：detail 是已脱敏的 stderr——异步诊断后挂回同一条提示，
       // 失败完全静默（诊断是增强，不是第二个错误源）。
+      //
+      // 为什么把它推进微任务而不是直接 `void systemDiagnoseError(...)`：
+      // 直接调用时，若 `systemDiagnoseError` **同步**抛出（最典型的是测试里
+      // 对 `@/lib/ipc` 的部分 mock 没声明这个导出——vitest 的 mock 代理在**取属性**
+      // 时就抛），异常会从 `show()` 里冒出去，于是"诊断失败不影响错误提示"这条
+      // 声明的意图被绕过：错误提示反而变成了第二个错误源（CI 上真实发生过一次）。
+      // 包一层 then 之后，同步抛出变成被捕获的 rejected promise，与异步失败同一路径。
       const stderr = error.detail;
       if (stderr !== undefined && stderr.trim() !== '') {
-        void systemDiagnoseError(stderr)
+        void Promise.resolve()
+          .then(() => systemDiagnoseError(stderr))
           .then((report) => {
             if (report.primary !== null) {
               useToastStore.getState().attachDiagnosis(toastId, report);
