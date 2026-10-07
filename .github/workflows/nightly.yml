@@ -43,20 +43,20 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
 
       - name: Setup Node
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: 24
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
 
       - name: Cache Rust artifacts
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           shared-key: bench
 
@@ -75,8 +75,10 @@ jobs:
           node scripts/perf/gen-repo.mjs target/perf/commits-100000-br200 --commits 100000 --branches 200
           node scripts/perf/gen-repo.mjs target/perf/modified-10000 --modified 10000
 
+      # `--locked`：夜间基线必须跑在提交进仓库的 Cargo.lock 上，
+      # 否则"今晚的数字"与"昨晚的数字"可能来自不同的依赖版本，基线就失去可比性
       - name: Build probe
-        run: cargo build --release -p forgedesk-services --example perf_probe
+        run: cargo build --release -p forgedesk-services --example perf_probe --locked
 
       # 每个夹具跑两遍取第二遍：第一遍是冷文件缓存（modified-10000 的首次
       # 状态计算会把所有文件冷读一遍，数字差 7 倍），第二遍才是可比口径
@@ -104,7 +106,7 @@ jobs:
 
       - name: Upload results
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: perf-results
           path: |

@@ -22,6 +22,8 @@ src-tauri/gen/
 # ---------- 构建产物与本地数据 ----------
 /release/
 /artifacts/
+# 归一化后的安装包与便携版 zip（scripts/ci/rename-bundles.mjs 与 make-portable.mjs 的输出）
+/bundles/
 
 # ---------- 本地环境相关（故意不提交）----------
 # Cargo 镜像源属于「本机网络环境」的配置，不是项目配置。

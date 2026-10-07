@@ -61,26 +61,26 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v6
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
 
       - name: Setup Node
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: 24
           cache: pnpm
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
         with:
           components: rustfmt, clippy
 
       - name: Cache Rust artifacts
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           shared-key: quality
 
@@ -134,11 +134,19 @@ jobs:
       - name: Documentation links
         run: pnpm check:docs
 
+      # 版本号三处（tauri.conf.json / package.json / Cargo.toml）必须一致：
+      # 漏改一处的后果是产物名与关于页/ crate 版本不一致，而它要到打包后才暴露。
+      - name: Version consistency
+        run: pnpm version:check
+
       - name: Rust format
         run: cargo fmt --all -- --check
 
+      # 以下 cargo 构建/测试步骤一律带 `--locked`：CI 必须用**提交进仓库的** Cargo.lock，
+      # 若锁文件过期就立刻失败，而不是在 runner 上悄悄解析出另一组版本
+      # （本地不加此参数，因为开发时需要能更新锁文件）。见 OPEN-SOURCE-READINESS C-2。
       - name: Rust clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
       # 测试夹具应该自足（仓库级身份由各自配置）；这条全局身份是**防御层**——
       # 任何漏配身份的新测试不会因此挂掉 CI（2026-09-28 起的长期红灯根因：
@@ -149,7 +157,7 @@ jobs:
           git config --global user.email "ci@forgedesk.invalid"
 
       - name: Rust tests
-        run: cargo test --workspace
+        run: cargo test --workspace --locked
 
   # ------------------------------------------------------------------
   # T3.11 破坏性操作安全测试矩阵（docs/PLAN.md §10.6 的 15 个场景）：
@@ -163,13 +171,13 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
 
       - name: Cache Rust artifacts
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           shared-key: quality
 
@@ -180,15 +188,15 @@ jobs:
           git config --global user.email "ci@forgedesk.invalid"
 
       - name: Destructive operation safety matrix
-        run: cargo test -p forgedesk-services --test destructive_safety_matrix
+        run: cargo test -p forgedesk-services --test destructive_safety_matrix --locked
 
   example-plugins:
     name: example-plugins
     runs-on: ubuntu-22.04
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
         with:
           targets: wasm32-wasip1
       - name: 构建示例插件并同步产物
@@ -196,7 +204,7 @@ jobs:
       - name: 校验产物与源码同步（忘了跑构建脚本会在这里红）
         run: git diff --exit-code -- plugins/examples
       - name: 冒烟测试（加载入库产物）
-        run: cargo test -p forgedesk-plugin-host --test example_plugins
+        run: cargo test -p forgedesk-plugin-host --test example_plugins --locked
 
   build:
     name: build (${{ matrix.platform }})
@@ -225,22 +233,22 @@ jobs:
     timeout-minutes: 45
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v6
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
 
       - name: Setup Node
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: 24
           cache: pnpm
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
 
       - name: Cache Rust artifacts
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           shared-key: build-${{ matrix.platform }}
 
@@ -299,7 +307,7 @@ jobs:
 
       - name: Upload bundles
         if: startsWith(github.ref, 'refs/tags/')
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: forgedesk-bundles-${{ matrix.platform }}
           path: bundles/*
@@ -309,7 +317,7 @@ jobs:
 
       - name: Upload executable
         if: "!startsWith(github.ref, 'refs/tags/')"
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: forgedesk-${{ matrix.platform }}-debug
           # 各平台可执行文件路径不同，缺失的一方由 if-no-files-found 容忍

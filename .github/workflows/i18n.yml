@@ -1,0 +1,60 @@
+name: i18n
+
+# ===========================================================================
+# 文案门禁（T7.2 / PLAN §11.1）：
+#   · 硬编码文案：源码里未走 t('key') 的用户可见中/英文
+#   · key 对齐：zh-CN 与 en-US 的 key 一一对应、无空值、占位符一致
+#
+# 为什么单独成 workflow 而不是塞进 ci.yml：
+#   这两条检查只与文案文件相关，按 paths 过滤后在"只改文案"的 PR 上跑最省配额；
+#   失败原因（哪个文件哪一行写了硬编码）也需要单独一眼可见。
+# ===========================================================================
+
+on:
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'scripts/i18n/**'
+      - '.github/workflows/i18n.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'scripts/i18n/**'
+      - '.github/workflows/i18n.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: i18n-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  i18n:
+    name: i18n (hard-coded copy + key parity)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install JS dependencies
+        run: pnpm install --frozen-lockfile
+
+      # 硬编码文案不会让任何测试变红，但会在做中英完整覆盖时集中爆雷（AGENTS.md §6）
+      - name: Hard-coded copy check
+        run: pnpm i18n:lint
+
+      - name: Key parity check (zh-CN / en-US)
+        run: pnpm i18n:check

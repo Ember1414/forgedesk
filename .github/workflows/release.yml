@@ -1,0 +1,386 @@
+name: Release
+
+# ===========================================================================
+# 发布流水线（M7 / T7.3）。规格来源：docs/RELEASE.md §4，行为说明见 §4.1。
+#
+# 触发：
+#   · push tag（`v<版本>`）→ 正式发布，渠道 stable；
+#   · workflow_dispatch    → 演练或 beta：可选渠道、可"只构建不发布"（默认就是）。
+#
+# 为什么没有 macOS / Linux 矩阵：ADR-005 决策**Windows 优先**，macOS/Linux 暂缓
+# （用户少、真机验证成本高）。本文件不塞半成品矩阵——将来要做时把 build-windows
+# 复制成 build-macos / build-linux，各自上传自己那一段清单即可：清单按
+# `<渠道>/<target>.json` 分段，互不覆盖（make-updater-manifest.mjs 已按此设计）。
+#
+# 未配置发布密钥时的行为（与 pages.yml 同一约定）：
+#   缺 TAURI_SIGNING_PRIVATE_KEY / TAURI_UPDATER_PUBKEY → **警告并跳过构建**，
+#   而不是失败。发布凭据是人类交付物；让每次打 tag 都红，只会训练出
+#   "红着也能合"的习惯。跳过后的应急路径：本地按 docs/RELEASE.md §4 构建并上传。
+#
+# 为什么发布不取消进行中的运行：半途取消可能留下"构建成功但没发布"的不可知状态，
+# 而 tag 不会重来。串行化同一 ref 的重复触发即可。
+# ===========================================================================
+
+on:
+  push:
+    tags:
+      # 字符集写法而不是 `v*`：避免 `vfoo` 之类的 tag 误触发一条发布流水线
+      - 'v[0-9]*'
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: '发布渠道（beta 需要版本号自带预发布后缀，如 1.0.0-beta.1）'
+        type: choice
+        options:
+          - stable
+          - beta
+        default: stable
+      dry_run:
+        description: '只构建不发布（默认开启：演练时不会产生 Release）'
+        type: boolean
+        default: true
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  # ------------------------------------------------------------------
+  # 预检：版本一致性与凭据探测。
+  #
+  # tag ↔ 版本号 的一致性放在这里而不是忽略：tag 打错是本流水线**唯一无法自愈**
+  # 的错误（历史已推送，改 tag 属红线禁止），必须在构建之前拦住。
+  # ------------------------------------------------------------------
+  preflight:
+    name: preflight
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      channel: ${{ steps.channel.outputs.channel }}
+      updater: ${{ steps.credentials.outputs.updater }}
+      gpg: ${{ steps.credentials.outputs.gpg }}
+      pages: ${{ steps.credentials.outputs.pages }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # 生成 Release Notes 要遍历历史：浅克隆会让 git log 的范围出错
+          fetch-depth: 0
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install JS dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Version consistency (three manifests + tag)
+        id: version
+        shell: bash
+        run: |
+          set -eu
+          pnpm version:check
+          version=$(node -p "require('./package.json').version")
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            tag="${GITHUB_REF_NAME#v}"
+            if [[ "${tag}" != "${version}" ]]; then
+              echo "::error title=tag 与版本号不一致::tag=${GITHUB_REF_NAME} 而版本号是 ${version}。请改版本号后重打 tag；不要修改已推送的 tag（红线）。"
+              exit 1
+            fi
+          fi
+          echo "版本号 ${version} 与触发条件 ${GITHUB_REF_NAME} 一致。"
+
+      - name: Resolve channel
+        id: channel
+        shell: bash
+        run: |
+          set -eu
+          # 手动触发时用输入；tag 触发一律 stable（beta 走 workflow_dispatch）
+          channel="${{ inputs.channel }}"
+          if [[ -z "${channel}" ]]; then
+            channel=stable
+          fi
+          echo "channel=${channel}" >> "$GITHUB_OUTPUT"
+          echo "渠道：${channel}"
+
+      - name: Probe release credentials
+        id: credentials
+        shell: bash
+        env:
+          UPDATER_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          UPDATER_PUBKEY: ${{ vars.TAURI_UPDATER_PUBKEY }}
+          GPG_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          set -eu
+          updater=false
+          gpg=false
+          pages=false
+          if [[ -n "${UPDATER_KEY}" && -n "${UPDATER_PUBKEY}" ]]; then updater=true; fi
+          if [[ -n "${GPG_KEY}" ]]; then gpg=true; fi
+          if [[ -n "${CF_TOKEN}" ]]; then pages=true; fi
+          {
+            echo "updater=${updater}"
+            echo "gpg=${gpg}"
+            echo "pages=${pages}"
+          } >> "$GITHUB_OUTPUT"
+
+          if [[ "${updater}" != "true" ]]; then
+            echo "::warning title=跳过发布构建::未配置 TAURI_SIGNING_PRIVATE_KEY 与/或 TAURI_UPDATER_PUBKEY（公钥应为仓库变量）。已跳过构建，不会产生任何 Release。配置方法见 docs/RELEASE.md §3。"
+          fi
+          if [[ "${gpg}" != "true" ]]; then
+            echo "::warning title=跳过 SHA256SUMS 签名::未配置 GPG_PRIVATE_KEY，SHA256SUMS 将不带 .asc 签名（M8 的 D8.5 要求补齐）。"
+          fi
+          if [[ "${pages}" != "true" ]]; then
+            echo "::warning title=跳过更新清单发布::未配置 CLOUDFLARE_API_TOKEN，updater 清单不会上传；自动更新因此不会生效。"
+          fi
+
+  # ------------------------------------------------------------------
+  # Windows 构建与打包。
+  #
+  # 只在凭据齐备时运行：没有签名密钥时 `createUpdaterArtifacts` 会让 tauri build
+  # 直接失败，而且产物也不该被当成可发布的更新源。
+  # ------------------------------------------------------------------
+  build-windows:
+    name: build (windows x64)
+    needs: preflight
+    if: needs.preflight.outputs.updater == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
+
+      - name: Cache Rust artifacts
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+
+      - name: Install JS dependencies
+        run: pnpm install --frozen-lockfile
+
+      # 更新源与公钥**不进仓库**（理由见 scripts/ci/make-build-config.mjs 的文件头）：
+      # 发布构建通过 --config 叠加，开发构建保持"没有更新源"的干净状态
+      - name: Generate updater build config
+        shell: bash
+        env:
+          UPDATER_PUBKEY: ${{ vars.TAURI_UPDATER_PUBKEY }}
+        run: |
+          set -eu
+          node scripts/ci/make-build-config.mjs \
+            --pubkey "${UPDATER_PUBKEY}" \
+            --channel "${{ needs.preflight.outputs.channel }}" \
+            --out release-config.json
+
+      # Windows 上按 tauri.conf.json 的 bundle.targets 产出 msi + nsis（其余目标
+      # 只在自己平台上生效）。签名私钥只经 env 注入，绝不落盘。
+      - name: Build installers (tauri build)
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: pnpm tauri build --config release-config.json
+
+      - name: Normalize bundle names
+        shell: bash
+        run: node scripts/ci/rename-bundles.mjs --out releases --sha256 --arch x64
+
+      - name: Build portable zip
+        shell: bash
+        run: node scripts/ci/make-portable.mjs --out releases --arch x64
+
+      # 安装器与便携版各自算过校验和了；发布前统一重算一次：**一个目录一份 SHA256SUMS**
+      - name: Merge checksums
+        shell: bash
+        run: node scripts/ci/make-checksums.mjs --dir releases
+
+      - name: Generate release notes
+        shell: bash
+        env:
+          VERSION: ${{ needs.preflight.outputs.version }}
+        run: |
+          set -eu
+          # 上一个 tag 到本次 tag；首次发布（没有任何 tag）时用全量历史
+          previous=$(git describe --tags --abbrev=0 --match 'v[0-9]*' "${GITHUB_REF_NAME}^" 2>/dev/null || true)
+          if [[ -n "${previous}" ]]; then
+            echo "Release Notes 范围：${previous}..${GITHUB_REF_NAME}"
+            node scripts/ci/release-notes.mjs --version "${VERSION}" --from "${previous}" --out notes.md
+          else
+            echo "没有上一个 tag：Release Notes 使用全量历史。"
+            node scripts/ci/release-notes.mjs --version "${VERSION}" --out notes.md
+          fi
+
+      # GPG 签名是可选的（缺密钥时 preflight 已警告）：没有它也能发布，
+      # 只是用户少了一条独立的完整性校验途径
+      - name: Sign checksums (GPG)
+        if: needs.preflight.outputs.gpg == 'true'
+        shell: bash
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        run: |
+          set -eu
+          printf '%s' "${GPG_PRIVATE_KEY}" | gpg --batch --import
+          if [[ -n "${GPG_PASSPHRASE}" ]]; then
+            gpg --batch --pinentry-mode loopback --passphrase "${GPG_PASSPHRASE}" \
+              --detach-sign --armor --output releases/SHA256SUMS.asc releases/SHA256SUMS
+          else
+            gpg --batch --detach-sign --armor --output releases/SHA256SUMS.asc releases/SHA256SUMS
+          fi
+          gpg --verify releases/SHA256SUMS.asc releases/SHA256SUMS
+
+      # updater 清单的 URL 指向 Release 附件：**先算出附件名再用它拼 URL**，
+      # 不允许手写（手写等于给未来的自己埋一个"更新下载 404"）
+      - name: Assemble updater manifest
+        shell: bash
+        env:
+          VERSION: ${{ needs.preflight.outputs.version }}
+          CHANNEL: ${{ needs.preflight.outputs.channel }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -eu
+          # 优先取 NSIS 安装器的签名（Tauri 的 Windows updater 下载的就是它）
+          signature=$(find target -type f -name '*-setup.exe.sig' | head -n 1)
+          if [[ -z "${signature}" ]]; then
+            signature=$(find target -type f -name '*.sig' | head -n 1)
+          fi
+          if [[ -z "${signature}" ]]; then
+            echo "::error title=缺少 updater 签名::没找到任何 .sig —— 说明 createUpdaterArtifacts 未生效（检查 release-config.json 是否被 tauri build 读取）。"
+            exit 1
+          fi
+
+          installer=$(ls releases/*_windows_x64-setup.exe 2>/dev/null | head -n 1 || true)
+          if [[ -z "${installer}" ]]; then
+            echo "::error title=缺少 NSIS 安装器::releases/ 下没有 ForgeDesk_<版本>_windows_x64-setup.exe，updater 清单无法指向可下载的包。"
+            exit 1
+          fi
+          asset=$(basename "${installer}")
+
+          mkdir -p "updates/${CHANNEL}"
+          node scripts/ci/make-updater-manifest.mjs \
+            --version "${VERSION}" \
+            --target windows-x86_64 \
+            --signature "${signature}" \
+            --url "https://github.com/${REPO}/releases/download/v${VERSION}/${asset}" \
+            --notes notes.md \
+            --pub-date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --out "updates/${CHANNEL}/windows-x86_64.json"
+
+          echo "清单指向：${asset}"
+
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: forgedesk-release
+          # 产物 + 校验和 + 说明 + 清单：发布作业只依赖这一个 artifact，
+          # 避免"发布用到的文件来自另一个 job 的另一次下载"这类不可复现
+          path: |
+            releases/*
+            notes.md
+            updates/**
+          if-no-files-found: error
+          retention-days: 7
+
+  # ------------------------------------------------------------------
+  # 发布：创建 Release 并把清单部署到 Pages。
+  #
+  # 只有 tag 触发 + 构建成功 + 非演练时才运行；`needs` 保证了"先全部构建成功
+  # 再发布"（绝不产生残缺 Release，见 docs/RELEASE.md §4 的约束）。
+  # ------------------------------------------------------------------
+  publish:
+    name: publish
+    needs: [preflight, build-windows]
+    if: >-
+      needs.build-windows.result == 'success' &&
+      startsWith(github.ref, 'refs/tags/v') &&
+      inputs.dry_run != true
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    permissions:
+      # 只有这一步需要写：创建 Release 与上传附件
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Download artifacts
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: forgedesk-release
+
+      - name: Create release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.preflight.outputs.version }}
+          CHANNEL: ${{ needs.preflight.outputs.channel }}
+        run: |
+          set -eu
+          prerelease=""
+          if [[ "${CHANNEL}" == "beta" ]]; then prerelease="--prerelease"; fi
+          gh release create "v${VERSION}" \
+            --title "ForgeDesk v${VERSION}" \
+            --notes-file notes.md \
+            --verify-tag \
+            ${prerelease} \
+            releases/*
+          gh release view "v${VERSION}" --json assets --jq '.assets[].name'
+
+      # 清单与官网**同宿主**（ADR-003 的 Direct Upload）：Pages 的发布是目录**快照**，
+      # 因此必须把 site/ 与 updates/ 组装到同一个目录再上传——只传 updates/ 会把
+      # 官网覆盖掉，只传 site/ 会把清单抹掉。
+      - name: Deploy site + update manifests to Cloudflare Pages
+        if: needs.preflight.outputs.pages == 'true'
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CHANNEL: ${{ needs.preflight.outputs.channel }}
+        run: |
+          set -eu
+          staging=pages-staging
+          mkdir -p "${staging}"
+          cp -r site/. "${staging}/"
+          cp -r updates "${staging}/"
+
+          # 另一个渠道的清单要**保留**：快照式发布会把没带上的文件删掉，
+          # 而 stable 发布不该让 beta 用户失去更新通道（反之亦然）
+          for other in stable beta; do
+            if [[ "${other}" == "${CHANNEL}" ]]; then continue; fi
+            url="https://forgedesk.pages.dev/updates/${other}/windows-x86_64.json"
+            mkdir -p "${staging}/updates/${other}"
+            if curl -fsS "${url}" -o "${staging}/updates/${other}/windows-x86_64.json"; then
+              echo "保留已有清单：${url}"
+            else
+              echo "（${url} 尚不存在，跳过）"
+            fi
+          done
+
+          npx --yes wrangler@4 pages deploy "${staging}" --project-name=forgedesk --branch=main
+
+      - name: Publish skipped (no Pages token)
+        if: needs.preflight.outputs.pages != 'true'
+        run: |
+          echo "::warning title=更新清单未发布::未配置 CLOUDFLARE_API_TOKEN。Release 已创建，但 updater 拿不到清单，用户不会收到这个版本。配置方法见 docs/adr/ADR-003-cloudflare-instead-of-github-pages.md。"

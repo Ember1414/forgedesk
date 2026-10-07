@@ -35,6 +35,12 @@ on:
     - cron: '7 3 * * 1'
   workflow_dispatch:
 
+concurrency:
+  # 同一分支只保留最新一次运行：合规检查含两次依赖元数据查询（约 2–3 分钟），
+  # 连续推送时旧的运行已无意义，取消它能省配额（与 ci.yml 的同一取舍）
+  group: compliance-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
@@ -45,20 +51,20 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v6
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
 
       - name: Setup Node
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: 24
           cache: pnpm
 
       # cargo metadata（许可审计的 Rust 侧数据源）只需要工具链，不需要系统 GUI 库
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
 
       # pnpm licenses list 与 AI 依赖扫描需要依赖清单就位
       - name: Install JS dependencies
