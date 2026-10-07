@@ -142,7 +142,10 @@ export function Toaster({ closeLabel }: ToasterProps) {
               }
             }}
             className={cn(
-              'fd-transition flex items-start gap-2 rounded-lg border border-line bg-surface-raised p-3 shadow-lg',
+              // 纵向堆叠：附着诊断卡时卡片独占整行，正文与关闭按钮另起一行。
+              // 曾经是横向 flex 把"诊断卡 + 正文 + 关闭"挤进 320px 视口，
+              // 诊断卡把正文压到近 0 宽、关闭按钮视觉重叠（用户实测）
+              'fd-transition flex flex-col gap-2 rounded-lg border border-line bg-surface-raised p-3 shadow-lg',
               'data-[state=closed]:opacity-0',
             )}
           >
@@ -150,45 +153,47 @@ export function Toaster({ closeLabel }: ToasterProps) {
               <DiagnosticsCard
                 report={toast.diagnosis as Parameters<typeof DiagnosticsCard>[0]['report']}
                 context={diagContext()}
-                className="mb-2"
+                className="min-w-0"
               />
             ) : null}
 
-            <ErrorToastContent
-              title={toast.title}
-              {...(toast.description === undefined ? {} : { hint: toast.description })}
-              {...(toast.detail === undefined ? {} : { detail: toast.detail })}
-              detailsLabel={t('details')}
-              leading={
-                <Icon
-                  aria-hidden="true"
-                  className={cn('mt-0.5 size-4 shrink-0', TONE_ICON_CLASS[toast.tone])}
-                />
-              }
-              actions={actions}
-              onAction={(actionId) => {
-                if (actionId === VIEW_LOGS_ACTION_ID) {
-                  openLogViewer({ nearTimestamp: toast.occurredAt ?? null });
-                  return;
+            <div className="flex items-start gap-2">
+              <ErrorToastContent
+                title={toast.title}
+                {...(toast.description === undefined ? {} : { hint: toast.description })}
+                {...(toast.detail === undefined ? {} : { detail: toast.detail })}
+                detailsLabel={t('details')}
+                leading={
+                  <Icon
+                    aria-hidden="true"
+                    className={cn('mt-0.5 size-4 shrink-0', TONE_ICON_CLASS[toast.tone])}
+                  />
                 }
-                const action = toast.actions?.find((candidate) => candidate.id === actionId);
-                if (action === undefined) {
-                  return;
-                }
-                void handleAction(action);
-              }}
-            />
+                actions={actions}
+                onAction={(actionId) => {
+                  if (actionId === VIEW_LOGS_ACTION_ID) {
+                    openLogViewer({ nearTimestamp: toast.occurredAt ?? null });
+                    return;
+                  }
+                  const action = toast.actions?.find((candidate) => candidate.id === actionId);
+                  if (action === undefined) {
+                    return;
+                  }
+                  void handleAction(action);
+                }}
+              />
 
-            <ToastPrimitive.Close asChild>
-              <IconButton label={closeLabel} size="sm">
-                <X aria-hidden="true" className="size-3" />
-              </IconButton>
-            </ToastPrimitive.Close>
+              <ToastPrimitive.Close asChild>
+                <IconButton label={closeLabel} size="sm">
+                  <X aria-hidden="true" className="size-3" />
+                </IconButton>
+              </ToastPrimitive.Close>
+            </div>
           </ToastPrimitive.Root>
         );
       })}
 
-      <ToastPrimitive.Viewport className="fixed bottom-9 right-3 z-50 flex w-80 max-w-[calc(100vw-1.5rem)] flex-col gap-2" />
+      <ToastPrimitive.Viewport className="fixed bottom-9 right-3 z-50 flex w-[26rem] max-w-[calc(100vw-1.5rem)] flex-col gap-2" />
 
       {dangerousFix !== null ? (
         <AlertDialog open>
