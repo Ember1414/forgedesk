@@ -4,7 +4,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { PluginSettingsPage } from '@/features/settings/PluginSettingsPage';
 import {
+  pluginBuiltinExamples,
   pluginGrant,
+  pluginInstallBuiltin,
   pluginInstallFromDir,
   pluginList,
   pluginRevoke,
@@ -21,11 +23,14 @@ import { createTestQueryClient } from '@/test/queryClient';
  *   缺授权的启用 → 授权对话框 → 危险权限必须显式确认 → 授权并启用；
  *   已全授权的启用 → 不弹对话框直接启用；
  *   撤销 → plugin_revoke；卸载 → plugin_uninstall；
- *   空态 → 引导文案；无权限插件 → 不渲染权限区。
+ *   空态 → 引导文案；无权限插件 → 不渲染权限区；
+ *   示例插件（随应用分发）→ 有清单时出现安装入口，已装则隐藏。
  * 后端状态机（管理器/引擎/撤权即时性）由 Rust 侧测试钉住。
  */
 vi.mock('@/lib/ipc', () => ({
   pluginList: vi.fn(),
+  pluginBuiltinExamples: vi.fn(async () => []),
+  pluginInstallBuiltin: vi.fn(),
   pluginSetEnabled: vi.fn(),
   pluginGrant: vi.fn(),
   pluginRevoke: vi.fn(),
@@ -36,6 +41,8 @@ vi.mock('@/lib/ipc', () => ({
 }));
 
 const listMock = vi.mocked(pluginList);
+const builtinMock = vi.mocked(pluginBuiltinExamples);
+const installBuiltinMock = vi.mocked(pluginInstallBuiltin);
 const setEnabledMock = vi.mocked(pluginSetEnabled);
 const grantMock = vi.mocked(pluginGrant);
 const revokeMock = vi.mocked(pluginRevoke);
@@ -64,6 +71,7 @@ beforeEach(() => {
   grantMock.mockResolvedValue(undefined);
   revokeMock.mockResolvedValue(undefined);
   uninstallMock.mockResolvedValue(true);
+  builtinMock.mockResolvedValue([]);
   installMock.mockResolvedValue({
     id: 'com.example.stats',
     name: 'Repo Stats',
@@ -228,5 +236,55 @@ describe('插件管理页', () => {
     renderPage();
     expect(await screen.findByText('此插件未申请任何权限。')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '启用' })).toBeInTheDocument();
+  });
+
+  it('示例插件：有清单时出现安装入口，点击调用 plugin_install_builtin', async () => {
+    listMock.mockResolvedValue([]);
+    builtinMock.mockResolvedValue([
+      {
+        dirName: 'commit-template',
+        id: 'com.example.commit-template',
+        name: 'Commit Template',
+        description: '按模板填写提交信息。',
+        version: '0.1.0',
+        installed: false,
+      },
+    ]);
+    installBuiltinMock.mockResolvedValue({
+      id: 'com.example.commit-template',
+      name: 'Commit Template',
+      version: '0.1.0',
+      sha256: 'b'.repeat(64),
+      insideRoot: true,
+      declaredPermissions: ['git:read'],
+    });
+
+    renderPage();
+
+    const row = await screen.findByTestId('plugin-builtin-commit-template');
+    // 行内定位：页面上"开发者模式"区块也有一个同名的「安装」按钮
+    fireEvent.click(within(row).getByRole('button', { name: '安装' }));
+    await waitFor(() => {
+      expect(installBuiltinMock).toHaveBeenCalledWith('commit-template');
+    });
+  });
+
+  it('示例插件：已安装的条目隐藏安装入口，未随包分发时整块不渲染', async () => {
+    listMock.mockResolvedValue([]);
+    builtinMock.mockResolvedValue([
+      {
+        dirName: 'repo-stats',
+        id: 'com.example.repo-stats',
+        name: 'Repo Stats',
+        description: '仓库统计面板。',
+        version: '0.1.0',
+        installed: true,
+      },
+    ]);
+
+    renderPage();
+    const row = await screen.findByTestId('plugin-builtin-repo-stats');
+    expect(within(row).queryByRole('button', { name: '安装' })).not.toBeInTheDocument();
+    expect(within(row).getByText('已安装')).toBeInTheDocument();
   });
 });

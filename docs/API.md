@@ -125,6 +125,8 @@ interface FixAction {
 
 | [`plugin_list`](#plugin_插件管理t64) | ReadOnly | T6.4 | 已安装插件列表（含状态/授权/用量） |
 | [`plugin_install_from_dir`](#plugin_插件管理t64) | Mutating | T6.4 | 开发者模式：从本地目录安装（校验清单 + SHA256） |
+| [`plugin_builtin_examples`](#plugin_插件管理t64) | ReadOnly | T7 | 随应用分发的示例插件清单（未随包分发时为空数组） |
+| [`plugin_install_builtin`](#plugin_插件管理t64) | Mutating | T7 | 安装一个随应用分发的示例插件（复制进插件目录后注册） |
 | [`plugin_set_enabled`](#plugin_插件管理t64) | Mutating | T6.4 | 启用 / 禁用（幂等） |
 | [`plugin_grant`](#plugin_插件管理t64) | Mutating | T6.4 | 逐项授予权限（扩权在插件重启后生效） |
 | [`plugin_revoke`](#plugin_插件管理t64) | Mutating | T6.4 | 撤销一项权限（立即生效） |
@@ -2057,6 +2059,8 @@ editor 的第一个参数追加，cp 完成替换；`GIT_EDITOR=true` 让 reword
 | --- | --- | --- | --- |
 | `plugin_list` | ReadOnly | `{}` | `PluginSummary[]`：id/name/version/author/license/description/state（`enabled`/`disabled`/`crashed`）/declaredPermissions/grantedPermissions/permissionUsage（运行中才有） |
 | `plugin_install_from_dir` | Mutating | `{ dir }` | `InstallReport { id, name, version, sha256, insideRoot, declaredPermissions }`。清单非法返回 `VALIDATION`（detail 含原因）；重复 id 返回 `VALIDATION`；目录缺文件返回 `NOT_FOUND` |
+| `plugin_builtin_examples` | ReadOnly | `{}` | `BuiltinExampleDto[] { dirName, id, name, description, version, installed }`。扫描随包资源目录（开发模式退回仓库 checkout 的 `plugins/examples`）；都没有时返回空数组 |
+| `plugin_install_builtin` | Mutating | `{ dirName }` | `InstallReport`（同上，`insideRoot` 恒为 true）。`dirName` 必须是 `[a-z0-9-]` 组成的目录名且在随包清单里（否则 `VALIDATION`/`NOT_FOUND`）；示例目录复制进 `plugins_root` 后走标准安装路径，重复安装返回 `VALIDATION` |
 | `plugin_set_enabled` | Mutating | `{ id, enabled }` | `void`。启用 = 加载（生效权限 = 清单 ∩ 授权）+ 激活；激活失败插件进入 `crashed` 态并返回错误 |
 | `plugin_grant` | Mutating | `{ id, permissions: string[] }` | `void`。权限名必须是白名单成员（否则 `VALIDATION`）；插件运行中调用返回 `VALIDATION`（先禁用再扩权） |
 | `plugin_revoke` | Mutating | `{ id, permission }` | `void`。立即生效：运行中实例的下一次相关调用返回 `PERMISSION_DENIED` |

@@ -138,9 +138,10 @@ pub use network::{
     ConnectivityResult, GpgKey, ProxyMode,
 };
 pub use plugins::{
-    plugin_grant, plugin_install_from_dir, plugin_invoke_command, plugin_list, plugin_logs,
-    plugin_registrations, plugin_reload, plugin_render_panel, plugin_revoke, plugin_set_enabled,
-    plugin_uninstall, RegistrationDto, EVENT_PLUGIN_REGISTRATIONS, EVENT_PLUGIN_TOAST,
+    plugin_builtin_examples, plugin_grant, plugin_install_builtin, plugin_install_from_dir,
+    plugin_invoke_command, plugin_list, plugin_logs, plugin_registrations, plugin_reload,
+    plugin_render_panel, plugin_revoke, plugin_set_enabled, plugin_uninstall, BuiltinExampleDto,
+    RegistrationDto, EVENT_PLUGIN_REGISTRATIONS, EVENT_PLUGIN_TOAST,
 };
 pub use pty_spike::{
     pty_spike_close, pty_spike_create, pty_spike_resize, pty_spike_throughput, pty_spike_write,

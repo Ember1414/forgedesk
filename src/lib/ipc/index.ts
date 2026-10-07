@@ -612,6 +612,29 @@ export function pluginList(): Promise<PluginSummary[]> {
   return invokeCommand<PluginSummary[]>('plugin_list', {});
 }
 
+/** 随应用分发的示例插件（`plugin_builtin_examples`）。 */
+export interface PluginBuiltinExample {
+  /** 安装时传给 `pluginInstallBuiltin` 的目录名。 */
+  readonly dirName: string;
+  /** 清单里的插件 id（与已安装列表比对用）。 */
+  readonly id: string;
+  readonly name: string;
+  readonly description: string;
+  readonly version: string;
+  /** 是否已在注册表中（安装入口据此隐藏）。 */
+  readonly installed: boolean;
+}
+
+/** 列出随应用分发的示例插件（未随包分发时为空数组，UI 据此隐藏入口）。 */
+export function pluginBuiltinExamples(): Promise<PluginBuiltinExample[]> {
+  return invokeCommand<PluginBuiltinExample[]>('plugin_builtin_examples', {});
+}
+
+/** 安装一个随应用分发的示例插件（复制进插件目录，初始禁用）。 */
+export function pluginInstallBuiltin(dirName: string): Promise<PluginInstallReport> {
+  return invokeCommand<PluginInstallReport>('plugin_install_builtin', { dirName });
+}
+
 /** 开发者模式：从本地目录安装插件。 */
 export function pluginInstallFromDir(dir: string): Promise<PluginInstallReport> {
   return invokeCommand<PluginInstallReport>('plugin_install_from_dir', { dir });

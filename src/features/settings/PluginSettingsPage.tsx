@@ -4,8 +4,11 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 
 import { useAppError } from '@/lib/errors';
+import { pickFolder } from '@/lib/ipc/dialog';
 import {
+  pluginBuiltinExamples,
   pluginGrant,
+  pluginInstallBuiltin,
   pluginInstallFromDir,
   pluginList,
   pluginLogs,
@@ -262,6 +265,11 @@ export function PluginSettingsPage() {
     queryKey: [PLUGINS_QUERY_KEY],
     queryFn: pluginList,
   });
+  // 随应用分发的示例插件（未随包分发的安装形态返回空数组 → 整块隐藏）
+  const builtins = useQuery({
+    queryKey: [PLUGINS_QUERY_KEY, 'builtin'],
+    queryFn: pluginBuiltinExamples,
+  });
   const [grantTarget, setGrantTarget] = useState<PluginSummary | null>(null);
   const [pendingRemoval, setPendingRemoval] = useState<PluginSummary | null>(null);
   const [logsOpen, setLogsOpen] = useState<string | null>(null);
@@ -328,6 +336,28 @@ export function PluginSettingsPage() {
     onError: show,
   });
 
+  const installBuiltin = useMutation({
+    mutationFn: (dirName: string) => pluginInstallBuiltin(dirName),
+    onSuccess: (report) => {
+      invalidate();
+      pushToast({
+        title: t('plugins.installOk', { sha: report.sha256.slice(0, 12) }),
+        tone: 'success',
+      });
+    },
+    onError: show,
+  });
+
+  const browseDevDir = useMutation({
+    mutationFn: () => pickFolder(t('plugins.devInstallPathLabel')),
+    onSuccess: (dir) => {
+      // null = 用户取消 / 环境不支持：静默返回，不是错误
+      if (dir !== null) {
+        setDevDir(dir);
+      }
+    },
+  });
+
   /** 启用入口：缺失授权才走对话框，否则直接启用。 */
   const handleEnable = (plugin: PluginSummary): void => {
     const missing = plugin.declaredPermissions.filter(
@@ -354,6 +384,44 @@ export function PluginSettingsPage() {
         <div className="flex flex-col gap-1 rounded-lg border border-line bg-surface p-4">
           <p className="text-14 font-medium">{t('plugins.emptyTitle')}</p>
           <p className="text-13 text-fg-muted">{t('plugins.emptyHint')}</p>
+        </div>
+      ) : null}
+
+      {/* 示例插件（随应用分发）：一键安装后走同一条授权流程。
+          空数组 = 这份安装没有附带示例（开发模式找不到资源目录）→ 整块隐藏。 */}
+      {builtins.data !== undefined && builtins.data.length > 0 ? (
+        <div className="flex flex-col gap-3 rounded-lg border border-line bg-surface p-4">
+          <span className="text-14 font-medium">{t('plugins.builtinTitle')}</span>
+          <span className="text-12 text-fg-subtle">{t('plugins.builtinHint')}</span>
+          <ul className="flex flex-col gap-2">
+            {builtins.data.map((example) => (
+              <li
+                key={example.dirName}
+                className="flex items-center justify-between gap-2"
+                data-testid={`plugin-builtin-${example.dirName}`}
+              >
+                <div className="min-w-0">
+                  <p className="text-13 font-medium">
+                    {example.name}{' '}
+                    <span className="text-12 font-normal text-fg-subtle">v{example.version}</span>
+                  </p>
+                  <p className="text-12 text-fg-subtle">{example.description}</p>
+                </div>
+                {example.installed ? (
+                  <Badge tone="neutral">{t('plugins.builtinInstalled')}</Badge>
+                ) : (
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    disabled={installBuiltin.isPending}
+                    onClick={() => installBuiltin.mutate(example.dirName)}
+                  >
+                    {t('plugins.builtinInstall')}
+                  </Button>
+                )}
+              </li>
+            ))}
+          </ul>
         </div>
       ) : null}
 
@@ -482,6 +550,14 @@ export function PluginSettingsPage() {
             aria-label={t('plugins.devInstallPathLabel')}
             className="flex-1"
           />
+          <Button
+            size="sm"
+            variant="ghost"
+            loading={browseDevDir.isPending}
+            onClick={() => browseDevDir.mutate()}
+          >
+            {t('plugins.devInstallBrowse')}
+          </Button>
           <Button
             size="sm"
             variant="secondary"

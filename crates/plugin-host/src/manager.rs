@@ -291,6 +291,57 @@ impl PluginManager {
         })
     }
 
+    /// 安装随应用分发的示例插件：把 `src_dir` **复制**进 `plugins_root` 再注册。
+    ///
+    /// 为什么复制而不是像 [`Self::install_from_dir`] 那样原位注册：随包分发的
+    /// 资源目录（Windows 的 Program Files / macOS 的 .app 内）运行期通常只读，
+    /// 而且"root 内的插件卸载 = 删除目录"的语义只有复制后才成立。
+    /// `id` 已由清单校验为反向域名（`[a-z0-9.-]`），作为单一路径组件是安全的。
+    pub fn install_copied(&self, src_dir: &Path) -> Result<InstallReport, HostError> {
+        let (manifest, wasm) = read_plugin_dir(src_dir)?;
+        let id = manifest.id.clone();
+        {
+            let plugins = self.plugins.read();
+            if plugins.contains_key(&id) {
+                return Err(HostError::InvalidArgument(
+                    "id",
+                    format!("plugin `{id}` is already installed"),
+                ));
+            }
+        }
+        let dest = self.plugins_root.join(&id);
+        if dest.exists() {
+            return Err(HostError::Engine(format!(
+                "destination already exists: {}",
+                dest.display()
+            )));
+        }
+        std::fs::create_dir_all(&dest).map_err(|error| {
+            HostError::Engine(format!("could not create {}: {error}", dest.display()))
+        })?;
+        let copy_result = (|| -> Result<(), HostError> {
+            std::fs::copy(src_dir.join("plugin.json"), dest.join("plugin.json")).map_err(
+                |error| HostError::Engine(format!("could not copy the manifest: {error}")),
+            )?;
+            std::fs::write(dest.join(&manifest.main), &wasm)
+                .map_err(|error| HostError::Engine(format!("could not write the wasm: {error}")))?;
+            Ok(())
+        })();
+        if let Err(error) = copy_result {
+            // 落盘失败不留半截目录：卸载语义要求 root 内的目录要么完整要么不存在
+            let _ = std::fs::remove_dir_all(&dest);
+            return Err(error);
+        }
+        // 从复制后的目录走标准安装路径：sha256、注册、持久化与开发者模式共用一套
+        match self.install_from_dir(&dest) {
+            Ok(report) => Ok(report),
+            Err(error) => {
+                let _ = std::fs::remove_dir_all(&dest);
+                Err(error)
+            }
+        }
+    }
+
     /// 授予权限（启用前的授权对话框逐项调用；扩权在下次启用时生效）。
     pub fn grant(&self, id: &str, permissions: &[Permission]) -> Result<(), HostError> {
         let mut plugins = self.plugins.write();
@@ -780,6 +831,52 @@ mod tests {
         assert_eq!(summary.state, ManagedState::Disabled);
         assert!(summary.granted_permissions.is_empty(), "安装后授权集为空");
         assert_eq!(store.entries.lock().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn install_copied_places_plugin_inside_root_and_registers_it() {
+        let (manager, root, _store) = test_manager("copied");
+        // 源目录在 plugins_root **之外**（模拟随包资源目录）：只读、不该被引用
+        let src_root = root.parent().unwrap().join("forgedesk-mgr-copied-src");
+        let _ = std::fs::remove_dir_all(&src_root);
+        let src = write_plugin(&src_root, "builtin", &fixture::normal_plugin());
+
+        let report = manager.install_copied(&src).unwrap();
+        assert_eq!(report.id, "com.example.installed");
+        assert!(report.inside_root, "复制进 root 后卸载才能删目录");
+
+        // 落盘的是复制出来的目录，且清单与 wasm 都在
+        let dest = root.join("com.example.installed");
+        assert!(dest.join("plugin.json").is_file());
+        assert!(dest.join("plugin.wasm").is_file());
+        assert_eq!(manager.list().len(), 1);
+        assert_eq!(manager.list()[0].state, ManagedState::Disabled);
+
+        // 卸载语义成立：root 内目录被删除
+        assert!(manager.uninstall("com.example.installed").unwrap());
+        assert!(!dest.exists());
+        let _ = std::fs::remove_dir_all(&src_root);
+    }
+
+    #[test]
+    fn install_copied_refuses_duplicates_and_missing_sources() {
+        let (manager, root, _store) = test_manager("copied-dup");
+        let src_root = root.parent().unwrap().join("forgedesk-mgr-copied-dup-src");
+        let _ = std::fs::remove_dir_all(&src_root);
+        let src = write_plugin(&src_root, "builtin", &fixture::normal_plugin());
+
+        manager.install_copied(&src).unwrap();
+        let error = manager.install_copied(&src).unwrap_err();
+        assert!(matches!(error, HostError::InvalidArgument("id", _)));
+
+        // 源目录不存在：报 NotFound，且不动已装插件
+        let error = manager
+            .install_copied(&root.join("nonexistent-src"))
+            .unwrap_err();
+        assert!(matches!(error, HostError::NotFound(_)));
+        assert!(root.join("com.example.installed").is_dir());
+        assert_eq!(manager.list().len(), 1);
+        let _ = std::fs::remove_dir_all(&src_root);
     }
 
     #[test]

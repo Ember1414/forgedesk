@@ -572,6 +572,146 @@ pub fn plugin_list(state: tauri::State<'_, PluginManager>) -> AppResult<Vec<Plug
     Ok(state.list())
 }
 
+/// 随应用分发的示例插件所在的目录（打包 = 资源目录下的 `examples/`）。
+///
+/// 开发模式的兜底：`tauri dev` 不打包资源，退回当前工作目录旁的仓库 checkout
+/// （`src-tauri` 旁的 `plugins/examples`）。两处都找不到返回 `None`——
+/// 调用方据此把"安装示例"入口整个隐藏，而不是报错吓用户。
+/// 刻意不用 `env!("CARGO_MANIFEST_DIR")`：那会把构建机的绝对路径编译进产物。
+fn builtin_examples_dir(app: &tauri::AppHandle) -> Option<PathBuf> {
+    use tauri::Manager;
+    if let Ok(resource_dir) = app.path().resource_dir() {
+        let candidate = resource_dir.join("examples");
+        if candidate.join("commit-template").is_dir() {
+            return Some(candidate);
+        }
+    }
+    let dev = std::env::current_dir()
+        .ok()?
+        .parent()?
+        .join("plugins/examples");
+    if dev.join("commit-template").is_dir() {
+        dev.canonicalize().ok()
+    } else {
+        None
+    }
+}
+
+/// 随应用分发的示例插件（目录扫描结果的 UI 形态）。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BuiltinExampleDto {
+    /// 安装时传给 `plugin_install_builtin` 的目录名。
+    pub dir_name: String,
+    /// 清单里的插件 id（与已安装列表比对用）。
+    pub id: String,
+    /// 展示名。
+    pub name: String,
+    /// 一句话描述（来自清单）。
+    pub description: String,
+    /// 版本（SemVer）。
+    pub version: String,
+    /// 是否已在注册表中（安装入口据此隐藏）。
+    pub installed: bool,
+}
+
+/// 扫描示例插件目录：读每个子目录的 `plugin.json`，返回可展示的条目。
+///
+/// 这里解析清单是因为 UI 需要 name/description；坏清单的目录直接跳过
+/// （安装时反正会被拒绝，不该在列表页报错吓用户）。
+fn builtin_example_dtos(dir: &std::path::Path, installed_ids: &[String]) -> Vec<BuiltinExampleDto> {
+    let mut examples: Vec<BuiltinExampleDto> = std::fs::read_dir(dir)
+        .map(|entries| {
+            entries
+                .flatten()
+                .filter_map(|entry| {
+                    let dir_name = entry.file_name().into_string().ok()?;
+                    let manifest =
+                        std::fs::read_to_string(entry.path().join("plugin.json")).ok()?;
+                    let parsed =
+                        forgedesk_plugin_host::manifest::PluginManifest::parse(&manifest).ok()?;
+                    // ValidatedManifest 是 Deref 包装：字段只能克隆不能移动
+                    Some(BuiltinExampleDto {
+                        installed: installed_ids.contains(&parsed.id),
+                        id: parsed.id.clone(),
+                        name: parsed.name.clone(),
+                        description: parsed.description.clone(),
+                        version: parsed.version.clone(),
+                        dir_name,
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    examples.sort_by(|a, b| a.dir_name.cmp(&b.dir_name));
+    examples
+}
+
+/// 安装校验用的轻扫描：目录里必须有 `plugin.json` 才算示例条目。
+fn builtin_example_ids(dir: &std::path::Path) -> Vec<String> {
+    let mut ids: Vec<String> = std::fs::read_dir(dir)
+        .map(|entries| {
+            entries
+                .flatten()
+                .filter(|entry| entry.path().join("plugin.json").is_file())
+                .filter_map(|entry| entry.file_name().into_string().ok())
+                .collect()
+        })
+        .unwrap_or_default();
+    ids.sort();
+    ids
+}
+
+/// 列出随应用分发的示例插件（含"是否已安装"，供前端隐藏已装条目的入口）。
+#[tauri::command]
+pub fn plugin_builtin_examples(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, PluginManager>,
+) -> AppResult<Vec<BuiltinExampleDto>> {
+    let installed: Vec<String> = state.list().into_iter().map(|p| p.id).collect();
+    Ok(builtin_examples_dir(&app)
+        .map(|dir| builtin_example_dtos(&dir, &installed))
+        .unwrap_or_default())
+}
+
+/// 安装一个随应用分发的示例插件（复制进插件目录后注册，初始禁用）。
+#[tauri::command]
+pub fn plugin_install_builtin(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, PluginManager>,
+    dir_name: String,
+) -> AppResult<InstallReport> {
+    // 零信任：目录名只允许作为单一路径组件，且必须是扫描清单里的真实条目——
+    // 不给前端任何"用相对路径探测文件系统"的机会
+    if dir_name.is_empty()
+        || dir_name.starts_with('.')
+        || dir_name
+            .chars()
+            .any(|c| !(c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-'))
+    {
+        return Err(AppError::new(
+            forgedesk_domain::ErrorCode::Validation,
+            format!("invalid builtin example name: {dir_name}"),
+        ));
+    }
+    let dir = builtin_examples_dir(&app).ok_or_else(|| {
+        AppError::new(
+            forgedesk_domain::ErrorCode::NotFound,
+            "builtin examples are not present in this installation".to_owned(),
+        )
+    })?;
+    if !builtin_example_ids(&dir)
+        .iter()
+        .any(|known| known == &dir_name)
+    {
+        return Err(AppError::new(
+            forgedesk_domain::ErrorCode::NotFound,
+            format!("no builtin example named {dir_name}"),
+        ));
+    }
+    state.install_copied(&dir.join(&dir_name)).map_err(to_app)
+}
+
 /// 开发者模式：从本地目录安装插件（需用户在 UI 确认警告）。
 #[tauri::command]
 pub fn plugin_install_from_dir(
@@ -705,4 +845,29 @@ pub fn build_plugin_host(
     // 构造循环的解法：服务在构造期没有引擎，这里回填（OnceLock，只写一次）
     let _ = services_impl.engine_ref.set(Arc::clone(&engine));
     Ok((manager, services_impl))
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod builtin_examples_tests {
+    use super::builtin_example_ids;
+
+    use std::path::Path;
+
+    #[test]
+    fn lists_directories_with_a_manifest_and_ignores_the_rest() {
+        let root = std::env::temp_dir().join(format!("forgedesk-builtin-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("com.example.b")).unwrap();
+        std::fs::create_dir_all(root.join("com.example.a")).unwrap();
+        std::fs::write(root.join("com.example.a/plugin.json"), "{}").unwrap();
+        // 没有 manifest 的目录与普通文件都不算"可选示例"
+        std::fs::write(root.join("README.md"), "not a plugin").unwrap();
+
+        let ids = builtin_example_ids(&root);
+        assert_eq!(ids, vec!["com.example.a".to_owned()]);
+        // 空目录（目录本身不存在 / 为空）返回空清单而不是报错
+        assert!(builtin_example_ids(Path::new(&root.join("missing"))).is_empty());
+        let _ = std::fs::remove_dir_all(&root);
+    }
 }
