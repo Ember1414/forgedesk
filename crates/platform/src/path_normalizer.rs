@@ -99,8 +99,12 @@ impl PathNormalizer {
     ///
     /// 为什么不总是加前缀：`\\?\` 会关闭路径规范化（`..`、`/` 不再被展开），
     /// 短路径加了反而容易踩坑——只在接近 MAX_PATH 时才加。
+    ///
+    /// 平台判断只看 `long_path_prefix` 策略位，不再叠加 `cfg!(windows)`：
+    /// 生产配置由 [`Self::for_current_platform`] 按平台给出；叠加运行时门
+    /// 曾让 `windows()` 策略在 Linux CI 上无法被测试（策略位被无视）。
     pub fn ensure_extended_length(&self, path: &Path) -> PathBuf {
-        if !self.long_path_prefix || !cfg!(windows) {
+        if !self.long_path_prefix {
             return path.to_path_buf();
         }
         let text = path.as_os_str().to_string_lossy();

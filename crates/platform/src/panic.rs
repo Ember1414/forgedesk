@@ -26,9 +26,17 @@ use forgedesk_diagnostics::sanitize_log;
 /// panic 日志文件名前缀。
 pub const PANIC_FILE_PREFIX: &str = "panic-";
 
-/// panic 日志文件名（`panic-<毫秒时间戳>.log`）。
+/// 进程内自增序号：`std::fs::write` 是截断写，同毫秒的两个报告若同名会
+/// 互相覆盖（只剩后写的一份）——并行线程同时崩溃时证据就丢了一份
+/// （Linux CI 的并行测试实测触发过）。序号后缀让同毫秒也各得一个文件。
+static PANIC_SEQUENCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// panic 日志文件名（`panic-<毫秒时间戳>-<序号>.log`）。
+///
+/// 时间戳在前且毫秒位数固定，字典序仍即时间序；同毫秒内按序号区分。
 pub fn panic_file_name(timestamp_millis: i64) -> String {
-    format!("{PANIC_FILE_PREFIX}{timestamp_millis}.log")
+    let sequence = PANIC_SEQUENCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    format!("{PANIC_FILE_PREFIX}{timestamp_millis}-{sequence:04}.log")
 }
 
 /// 当前时间（Unix 毫秒）。
@@ -161,11 +169,13 @@ mod tests {
 
     #[test]
     fn panic_file_name_is_stable_and_sortable() {
-        assert_eq!(
-            panic_file_name(1_787_000_000_000),
-            "panic-1787000000000.log"
-        );
-        // 数字长度固定（毫秒时间戳到 2286 年都是 13 位），因此字典序即时间序
+        let first = panic_file_name(1_787_000_000_000);
+        let second = panic_file_name(1_787_000_000_000);
+        // 同一毫秒内的两次调用要各得一个文件名（截断覆盖会让证据只剩一份）
+        assert!(first.starts_with("panic-1787000000000-"));
+        assert_ne!(first, second);
+        assert!(second > first, "同毫秒内字典序即写入序");
+        // 数字位数固定（毫秒时间戳到 2286 年都是 13 位），跨毫秒仍字典序即时间序
         assert!(panic_file_name(1_787_000_000_001) > panic_file_name(1_787_000_000_000));
     }
 
