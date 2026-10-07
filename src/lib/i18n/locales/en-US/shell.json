@@ -648,7 +648,7 @@
       "themeLabel": "Theme",
       "themeHint": "Applies immediately and is remembered; System follows the OS appearance.",
       "languageLabel": "Language",
-      "languageHint": "Text updates immediately (M0 already covers the shell and skeleton pages).",
+      "languageHint": "Text updates immediately — no restart needed.",
       "themesTitle": "Theme gallery",
       "themesHint": "Pick a built-in theme or import a custom theme JSON. Each theme belongs to a light or dark appearance.",
       "themesBuiltinGroup": "Built-in",
@@ -1046,7 +1046,7 @@
     "previewHooks": "Hooks that will run",
     "previewHooksEmpty": "This repository has no runnable commit hooks",
     "previewAuthor": "Author",
-    "previewSnapshot": "No snapshot will be created (snapshots land in M3). The current safety net is the plan preview plus the index fingerprint check.",
+    "previewSnapshot": "A snapshot is created automatically once the commit succeeds — roll back anytime from the Snapshots page.",
     "previewAmend": "This rewrites the last commit; if it is already pushed, pushing later needs force-with-lease.",
     "amendTitle": "Amend the last commit",
     "amendEmpty": "This repository has no commits yet, so there is nothing to amend.",
@@ -1363,7 +1363,6 @@
     "loadedCount": "{{count}} commits loaded",
     "filter": {
       "label": "Filter",
-      "placeholder": "Filters (branch, author, path, date) arrive in T2.3",
       "searchPlaceholder": "Search commit messages…",
       "searchLabel": "Search commits",
       "caseToggle": "Toggle case sensitivity",
@@ -1484,12 +1483,7 @@
       "organizeCommits": "Organize these commits…",
       "rewordCommit": "Edit commit message (reword)",
       "editCommit": "Edit this commit (edit)",
-      "dropCommit": "Drop this commit (drop)",
-      "createTag": "Create tag (T2.8)",
-      "createBranch": "Create branch (T2.8)",
-      "cherryPick": "Cherry-pick (T2.8)",
-      "revert": "Revert commit (T2.8)",
-      "reset": "Reset to here (T2.8)"
+      "dropCommit": "Drop this commit (drop)"
     },
     "list": {
       "gridLabel": "Commit list",
@@ -1531,7 +1525,6 @@
       "renamedBadge": "renamed",
       "binaryBadge": "binary",
       "copyPatch": "Copy as patch",
-      "t28Hint": "Use the Branches page or the history operations panel instead",
       "error": "Failed to load commit details",
       "kind": {
         "added": "added",
@@ -2114,6 +2107,7 @@
     "empty": "Open a file from the tree on the left.",
     "notOpen": "Open a repository first.",
     "toggleTree": "File tree",
+    "resizeTree": "Resize the file tree width",
     "save": "Save",
     "close": "Close",
     "binaryNotice": "{size} is a binary file; use an external editor.",

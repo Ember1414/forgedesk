@@ -577,7 +577,8 @@ export function CommitDetailPanel({ repoId, fallback, className }: CommitDetailP
         )}
       </section>
 
-      {/* 底部操作条：复制为 patch 可用；写操作在 T2.8 接通（如实禁用并注明） */}
+      {/* 底部操作条：复制为 patch 与整理历史可用；拣选/反转/重置在历史页的
+          操作面板（HistoryOpsPanel），建标签/分支在分支页——这里不再放禁用占位 */}
       <footer className="mt-auto flex flex-wrap gap-1 border-t border-line pt-2">
         <button
           type="button"
@@ -599,24 +600,10 @@ export function CommitDetailPanel({ repoId, fallback, className }: CommitDetailP
         >
           {t('history.detail.organizeHistory')}
         </button>
-        {T28_ACTIONS.map((action) => (
-          <button
-            key={action}
-            type="button"
-            disabled
-            title={t('history.detail.t28Hint')}
-            className="cursor-not-allowed rounded-md border border-line px-2 py-1 text-11 text-fg-subtle opacity-60"
-          >
-            {t(`history.menu.${action}`)}
-          </button>
-        ))}
       </footer>
     </div>
   );
 }
-
-/** T2.8 才接通的写操作（菜单文案与右键菜单共用 `history.menu.*`）。 */
-const T28_ACTIONS = ['createBranch', 'createTag', 'cherryPick', 'revert', 'reset'] as const;
 
 /** 空展开集（模块级：每次切换提交都要一个空集，不该每次新建）。 */
 const EMPTY_PATH_SET: ReadonlySet<string> = new Set<string>();

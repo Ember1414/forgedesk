@@ -455,13 +455,7 @@ test('右键菜单打开且写操作项为禁用态', async ({ page }) => {
   // 可用项
   await expect(page.getByTestId('graph-menu-copy-oid')).toBeEnabled();
   await expect(page.getByTestId('graph-menu-copy-message')).toBeEnabled();
-
-  // 禁用项（T2.8 写操作）
-  await expect(page.getByTestId('graph-menu-create-tag')).toBeDisabled();
-  await expect(page.getByTestId('graph-menu-create-branch')).toBeDisabled();
-  await expect(page.getByTestId('graph-menu-cherry-pick')).toBeDisabled();
-  await expect(page.getByTestId('graph-menu-revert')).toBeDisabled();
-  await expect(page.getByTestId('graph-menu-reset')).toBeDisabled();
+  // （写操作占位项已移除：拣选/反转/重置走历史页操作面板，建标签/分支在分支页）
 
   // 视觉截图：右键菜单展开
   await page.screenshot({ path: join(VISUAL_DIR, '04-context-menu.png') });

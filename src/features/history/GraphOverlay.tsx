@@ -39,19 +39,7 @@
 import { useCallback, useMemo, useState } from 'react';
 import type { MouseEvent as ReactMouseEvent } from 'react';
 
-import {
-  Copy,
-  GitBranch,
-  GitCompare,
-  GitMerge,
-  History,
-  MessageSquare,
-  Pencil,
-  PenLine,
-  RotateCcw,
-  Tag,
-  Trash2,
-} from 'lucide-react';
+import { Copy, GitCompare, History, MessageSquare, Pencil, PenLine, Trash2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import { useAppError } from '@/lib/errors';
@@ -441,35 +429,6 @@ export function GraphOverlay({
             </ContextMenuItem>
           </>
         ) : null}
-
-        <ContextMenuSeparator />
-
-        {/**
-         * 以下五项都是**写操作**，要到 T2.8（分支与标签管理 / 提交动作）才有对应的
-         * IPC 命令。这里保留禁用态而不是先不画：用户能看见"这个功能是有的、
-         * 只是还没接通"，比菜单里凭空少几项更容易理解，也让 T2.8 的接线点
-         * 在代码里是显式的（把 `disabled` 去掉、补上 onSelect 即可）。
-         */}
-        <ContextMenuItem disabled data-testid="graph-menu-create-tag">
-          <Tag aria-hidden="true" className={MENU_ICON_CLASS} />
-          {t('history.menu.createTag')}
-        </ContextMenuItem>
-        <ContextMenuItem disabled data-testid="graph-menu-create-branch">
-          <GitBranch aria-hidden="true" className={MENU_ICON_CLASS} />
-          {t('history.menu.createBranch')}
-        </ContextMenuItem>
-        <ContextMenuItem disabled data-testid="graph-menu-cherry-pick">
-          <GitMerge aria-hidden="true" className={MENU_ICON_CLASS} />
-          {t('history.menu.cherryPick')}
-        </ContextMenuItem>
-        <ContextMenuItem disabled data-testid="graph-menu-revert">
-          <RotateCcw aria-hidden="true" className={MENU_ICON_CLASS} />
-          {t('history.menu.revert')}
-        </ContextMenuItem>
-        <ContextMenuItem disabled destructive data-testid="graph-menu-reset">
-          <RotateCcw aria-hidden="true" className={MENU_ICON_CLASS} />
-          {t('history.menu.reset')}
-        </ContextMenuItem>
       </ContextMenuContent>
     </ContextMenu>
   );

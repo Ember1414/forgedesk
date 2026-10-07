@@ -35,12 +35,7 @@ export function DashboardPage() {
   return (
     <section className="flex flex-col gap-4">
       <header className="flex flex-col gap-1">
-        <div className="flex flex-wrap items-center gap-2">
-          <h1 className="text-20 font-semibold tracking-tight">{t('pages.dashboard.title')}</h1>
-          <span className="rounded-sm border border-line bg-surface-sunken px-2 py-0.5 font-mono text-12 text-fg-subtle">
-            {t('placeholder.planned')} T4.11
-          </span>
-        </div>
+        <h1 className="text-20 font-semibold tracking-tight">{t('pages.dashboard.title')}</h1>
         <p className="text-13 text-fg-muted">{t('pages.dashboard.description')}</p>
       </header>
 
@@ -109,10 +104,6 @@ export function DashboardPage() {
           <p className="mt-2 text-12 text-fg-subtle">{t('dashboard.recentHint')}</p>
         </article>
       </div>
-
-      <p className="rounded-md border border-dashed border-line bg-surface p-4 text-12 text-fg-subtle">
-        {t('placeholder.note')}
-      </p>
     </section>
   );
 }

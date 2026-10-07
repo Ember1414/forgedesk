@@ -648,7 +648,7 @@
       "themeLabel": "主题",
       "themeHint": "切换立即生效并记住选择；跟随系统会随系统外观自动变化。",
       "languageLabel": "语言",
-      "languageHint": "切换后界面文案立即更新（M0 已覆盖外壳与骨架页面）。",
+      "languageHint": "切换后界面文案立即更新，无需重启。",
       "themesTitle": "主题画廊",
       "themesHint": "选择内置主题，或导入自定义主题 JSON。激活的主题归属于亮/暗外观之一。",
       "themesBuiltinGroup": "内置",
@@ -1046,7 +1046,7 @@
     "previewHooks": "将要执行的钩子",
     "previewHooksEmpty": "这个仓库没有可执行的提交钩子",
     "previewAuthor": "作者",
-    "previewSnapshot": "本次不会创建快照（快照功能在 M3 落地）。当前的安全网是计划预览与索引指纹校验。",
+    "previewSnapshot": "提交成功后会自动创建一份快照，可在「快照」页随时回溯。",
     "previewAmend": "这会改写上一次提交；若它已推送到远端，之后推送需要 force-with-lease。",
     "amendTitle": "Amend 上一次提交",
     "amendEmpty": "这个仓库还没有提交，无法 amend。",
@@ -1363,7 +1363,6 @@
     "loadedCount": "已加载 {{count}} 个提交",
     "filter": {
       "label": "筛选",
-      "placeholder": "筛选（分支、作者、路径、时间）将在 T2.3 提供",
       "searchPlaceholder": "搜索提交信息…",
       "searchLabel": "搜索提交",
       "caseToggle": "切换大小写敏感",
@@ -1484,12 +1483,7 @@
       "organizeCommits": "整理这些提交…",
       "rewordCommit": "修改提交信息（reword）",
       "editCommit": "编辑此提交（edit）",
-      "dropCommit": "丢弃此提交（drop）",
-      "createTag": "创建标签（T2.8）",
-      "createBranch": "创建分支（T2.8）",
-      "cherryPick": "Cherry-pick（T2.8）",
-      "revert": "还原提交（T2.8）",
-      "reset": "重置到此处（T2.8）"
+      "dropCommit": "丢弃此提交（drop）"
     },
     "list": {
       "gridLabel": "提交列表",
@@ -1531,7 +1525,6 @@
       "renamedBadge": "重命名",
       "binaryBadge": "二进制",
       "copyPatch": "复制为 patch",
-      "t28Hint": "请到「分支」页或「历史」页的操作面板执行",
       "error": "读取提交详情失败",
       "kind": {
         "added": "新增",
