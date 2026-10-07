@@ -161,8 +161,13 @@ jobs:
       - name: Clippy failure annotation
         if: failure()
         run: |
-          grep -E '^error' clippy.log | head -8 | while IFS= read -r line; do
-            echo "::error title=clippy (Linux)::${line:0:180}"
+          grep -E '^error|panicked at' clippy.log | head -8 | while IFS= read -r line; do
+            echo "::error title=clippy (Linux)::${line:0:200}"
+          done
+          # 兜底：无论错误形态是什么，把日志尾部亮出来（注解匿名可读）
+          tail -3 clippy.log | while IFS= read -r line; do
+            [ -z "$line" ] && continue
+            echo "::error title=clippy tail::${line:0:200}"
           done
 
       # 测试夹具应该自足（仓库级身份由各自配置）；这条全局身份是**防御层**——
@@ -217,6 +222,13 @@ jobs:
         run: |
           git config --global user.name "ForgeDesk CI"
           git config --global user.email "ci@forgedesk.invalid"
+
+      # keyring（crates/credentials）在 Linux 上的 sync-secret-service 走 libdbus-sys，
+      # 编译期需要 dbus-1 头文件——quality 有整包安装，这个精简作业只装真正需要的
+      - name: Linux system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libdbus-1-dev
 
       - name: Destructive operation safety matrix
         run: |

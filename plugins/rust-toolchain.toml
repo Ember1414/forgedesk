@@ -1,0 +1,12 @@
+# 插件产物的编译器钉子（T6.5 / 2026-10-07）
+#
+# plugin.wasm 提交入库，且 CI 会重建并做**字节级**同步校验（scripts/build-plugins.mjs
+# 已把路径差异重映射掉，见该文件头注释）。字节还取决于编译器版本：升一级 rustc，
+# 代码生成就可能变化。因此插件 workspace 单独钉住工具链——升级 rustc 的步骤是：
+# 改这里的版本 → 重跑 `node scripts/build-plugins.mjs` → 提交新产物。
+#
+# 主 workspace（crates/）不受影响：rustup 从构建目录向上查找，只有 plugins/ 下的
+# 构建会命中本文件。
+[toolchain]
+channel = "1.99.0"
+targets = ["wasm32-wasip1"]

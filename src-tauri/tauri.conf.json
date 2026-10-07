@@ -27,6 +27,12 @@
       "csp": "default-src 'self'; img-src 'self' data: asset: http://asset.localhost https:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' ipc: http://ipc.localhost; font-src 'self' data:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
     }
   },
+  "plugins": {
+    "updater": {
+      "pubkey": "",
+      "endpoints": []
+    }
+  },
   "bundle": {
     "active": true,
     "targets": ["msi", "nsis", "dmg", "app", "appimage", "deb", "rpm"],

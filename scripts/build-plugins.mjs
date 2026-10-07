@@ -19,6 +19,28 @@ const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const pluginsRoot = join(repoRoot, 'plugins');
 const target = join(pluginsRoot, 'target', 'wasm32-wasip1', 'release');
 
+/**
+ * 产物确定性（为什么这里要拼 RUSTFLAGS）：
+ *
+ * plugin.wasm 是**提交入库**的，CI 会重建并做字节级比对。而 Rust 的 panic 位置
+ * （每个 unwrap/expect 的 Location）以**绝对路径字符串**写进 .rodata——`strip = true`
+ * 只删 DWARF，删不掉这些字符串。于是"在哪台机器上构建"就会改变 wasm 的字节：
+ * 本机 `e:\Projects\...`、CI `D:\a\forgedesk\...`、注册表 `C:\Users\<谁>\.cargo\...`。
+ *
+ * 解法：把所有机器相关前缀重映射成固定名字。同一前缀给两种分隔符各一条
+ * （rustc 对路径分隔符的规范化行为没有稳定承诺，两条里总有一条命中，而命中的
+ * 产物字符串相同）。首次重建产物时本应多出几行 diff，属于预期的一次性变化。
+ */
+const toSlash = (value) => value.replaceAll('\\', '/');
+const remap = (prefix) => [
+  `--remap-path-prefix=${prefix}=/build`,
+  `--remap-path-prefix=${toSlash(prefix)}=/build`,
+];
+const cargoHome = resolve(
+  process.env.CARGO_HOME || join(process.env.USERPROFILE ?? process.env.HOME, '.cargo'),
+);
+const rustflags = [...remap(pluginsRoot), ...remap(cargoHome)].join(' ');
+
 const PLUGINS = ['commit-template', 'repo-stats', 'repo-audit'];
 
 function run(command, args, options = {}) {
@@ -38,7 +60,13 @@ if (!String(rustup.stdout).includes('wasm32-wasip1')) {
   process.exit(1);
 }
 
-run('cargo', ['build', '--release', '--target', 'wasm32-wasip1'], { cwd: pluginsRoot });
+run('cargo', ['build', '--release', '--target', 'wasm32-wasip1'], {
+  cwd: pluginsRoot,
+  env: {
+    ...process.env,
+    RUSTFLAGS: [process.env.RUSTFLAGS, rustflags].filter(Boolean).join(' '),
+  },
+});
 
 for (const name of PLUGINS) {
   const source = join(target, `plugin_${name.replace(/-/g, '_')}.wasm`);

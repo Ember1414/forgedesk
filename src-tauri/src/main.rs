@@ -93,6 +93,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // 更新源与公钥来自 tauri.conf.json 的 `plugins.updater`（**发布配置**）；
         // 密钥生成、配置与发布流程见 docs/RELEASE.md §3.2。未配置时命令如实返回
         // `configured: false`，不会让界面出现修不好的错误条。
+        //
+        // 注意：这个插件**必须**在 conf 里有一份合法的 `plugins.updater`（结构体里
+        // `pubkey` 是必填字段，键缺失会被反序列化成 null → 启动即崩，2026-10-07 实测）。
+        // 因此 conf 里的占位是 `pubkey: ""` + `endpoints: []`：插件初始化成功，
+        // 而 `updater()` 对空 endpoints 返回 EmptyEndpoints，命令层据此给出
+        // `configured: false`——"没配置"就走这条诚实通道，而不是崩溃。
+        // 发布时（F 步）用真实公钥与 endpoints **替换**这两个占位值。
         .plugin(tauri_plugin_updater::Builder::new().build())
         // 日志、panic hook、数据库都在 setup 中初始化：
         // 因为 `app_log_dir()` / `app_data_dir()` 只有在拿到 App 句柄后才可用。
