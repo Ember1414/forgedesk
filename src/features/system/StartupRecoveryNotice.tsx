@@ -52,7 +52,11 @@ export function StartupRecoveryNotice() {
     onError: (error) => show(error),
   });
 
-  if (!inTauri || report.data === undefined) {
+  // `== null` 同时覆盖 undefined 与 null：IPC 边界（mock / 旧后端 / 命令未注册时的
+  // 兜底）可能返回 null，而这里的读取路径是 `data.lastExit…`——只判 undefined 会让
+  // null 一路穿过，`data.lastExit` 抛错并击穿整棵路由的错误边界（整页白屏）。
+  // 与 TerminalPage 对 `term_shell_list` 的归一化同一约定。
+  if (!inTauri || report.data == null) {
     return null;
   }
 

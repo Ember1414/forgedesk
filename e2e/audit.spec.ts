@@ -40,6 +40,12 @@ const MOCK_SCRIPT = `
           ]
         });
       }
+      // T7.6 起导出先弹系统"另存为"对话框（pickSavePath → plugin:dialog|save）。
+      // 不实现它时 save() 拿到兜底的 null，会被当成"用户取消"→ 整条导出链路不执行，
+      // 断言便永远等不到结果。返回一个路径即代表"用户选了位置"。
+      if (command === "plugin:dialog|save") {
+        return Promise.resolve("C:\\\\Temp\\\\forgedesk-audit.csv");
+      }
       if (command === "audit_export") {
         window.__auditCalls.push({ command: command, args: args });
         return Promise.resolve({ path: "C:\\\\Temp\\\\forgedesk-audit-1700000002000." + args.format, rows: 2, format: args.format });

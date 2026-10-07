@@ -380,7 +380,7 @@ export function PluginSettingsPage() {
         </p>
       </header>
 
-      {plugins.data !== undefined && plugins.data.length === 0 ? (
+      {plugins.data != null && plugins.data.length === 0 ? (
         <div className="flex flex-col gap-1 rounded-lg border border-line bg-surface p-4">
           <p className="text-14 font-medium">{t('plugins.emptyTitle')}</p>
           <p className="text-13 text-fg-muted">{t('plugins.emptyHint')}</p>
@@ -389,7 +389,7 @@ export function PluginSettingsPage() {
 
       {/* 示例插件（随应用分发）：一键安装后走同一条授权流程。
           空数组 = 这份安装没有附带示例（开发模式找不到资源目录）→ 整块隐藏。 */}
-      {builtins.data !== undefined && builtins.data.length > 0 ? (
+      {builtins.data != null && builtins.data.length > 0 ? (
         <div className="flex flex-col gap-3 rounded-lg border border-line bg-surface p-4">
           <span className="text-14 font-medium">{t('plugins.builtinTitle')}</span>
           <span className="text-12 text-fg-subtle">{t('plugins.builtinHint')}</span>

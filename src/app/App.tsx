@@ -13,7 +13,7 @@ import { TooltipProvider } from '@/ui/components/tooltip';
 import { LAYOUT_KEY, useLayoutStore } from '@/stores/layoutStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useUiStore } from '@/stores/uiStore';
-import { settingsGet } from '@/lib/ipc';
+import { isTauriRuntime, settingsGet } from '@/lib/ipc';
 
 const hydrateLayout = useLayoutStore.getState().hydrate;
 
@@ -51,10 +51,22 @@ export function App() {
     // 而不是等用户进设置页才生效。失败会被 store 记录，由设置页负责展示。
     void useSettingsStore.getState().load();
     // 布局同理：拖出来的面板尺寸必须启动即恢复。曾经只在布局设置页挂载时
-    // hydrate——不进那页就永远是默认值，拖了等于白拖
-    void settingsGet('global', LAYOUT_KEY).then((raw) => {
-      hydrateLayout(raw ?? undefined);
-    });
+    // hydrate——不进那页就永远是默认值，拖了等于白拖。
+    //
+    // 无宿主时（`pnpm dev` 直接在浏览器里打开）必须先判定运行时：`invoke` 会
+    // **同步**抛 "Cannot read properties of undefined"，`.catch` 接不住一个还没
+    // 返回 promise 的调用——每次首屏都会往 `window.__errs` 里塞一条未捕获错误
+    // （PLAN §10 的 DoD 闸门因此在浏览器预览下长期为红）。有宿主但命令失败时
+    // 仍保留 `.catch`，读不到就维持默认布局。
+    if (isTauriRuntime()) {
+      void settingsGet('global', LAYOUT_KEY)
+        .then((raw) => {
+          hydrateLayout(raw ?? undefined);
+        })
+        .catch(() => {
+          // 读不到布局：保持默认，不打扰用户
+        });
+    }
   }, []);
 
   return (
