@@ -160,6 +160,8 @@ CI **不**自动向第三方仓库（winget/homebrew/flathub…）推送，只�
 > 站点与清单同宿主（ADR-003 的 Direct Upload）：Pages 发布是目录**快照**，因此发布作业把
 > `site/`、`updates/<渠道>/windows-x86_64.json` 与 `updates/<渠道>/SHA256SUMS`（有签名时含 `.asc`）
 > 组装到同一个目录再上传，并**拉回另一渠道已有的文件**（否则 stable 发布会把 beta 用户断更）。
+> 拉回时按 `Content-Type` 排除 Pages 的 **HTML 兜底页**：该宿主对不存在的路径返回
+> `200 + text/html`（而非 404），只看 HTTP 状态会把首页当成清单/校验和部署上去。
 > 校验和放到同源，是为了让下载页能直接显示数值 —— GitHub 的 Release 附件不返回 CORS 头。
 
 **需要配置的凭据**（仓库 Settings → Secrets and variables）

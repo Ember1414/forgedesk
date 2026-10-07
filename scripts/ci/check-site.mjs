@@ -79,6 +79,8 @@ const appJs = readFileSync(join(repoRoot, 'site', 'app.js'), 'utf8');
  * 载入站点页面并跑完 app.js。
  *
  * `routes` 是 `URL → { status, body | json() | text() }`；未列出的 URL 一律 404。
+ * `routes[url].contentType` 可模拟托管方的 HTML 兜底（Cloudflare Pages 对不存在的
+ * 路径返回 200 + text/html，而不是 404——见 app.js 的 isHtmlFallback）。
  * `userAgent` 用来测平台识别。
  */
 async function loadPage(file, routes, { path = '/', userAgent } = {}) {
@@ -88,11 +90,16 @@ async function loadPage(file, routes, { path = '/', userAgent } = {}) {
   const fakeFetch = (url) => {
     const route = routes[String(url)];
     if (route === undefined) {
-      return Promise.resolve({ ok: false, status: 404 });
+      return Promise.resolve({ ok: false, status: 404, headers: { get: () => null } });
     }
+    const contentType =
+      route.contentType ?? (route.json !== undefined ? 'application/json' : 'text/plain');
     return Promise.resolve({
       ok: true,
       status: 200,
+      headers: {
+        get: (name) => (String(name).toLowerCase() === 'content-type' ? contentType : null),
+      },
       json: () => Promise.resolve(route.json),
       text: () => Promise.resolve(route.text ?? ''),
     });
@@ -368,10 +375,44 @@ console.log('状态 4：更新日志页（Releases 拉取与兜底）');
   populated.window.close();
 }
 
+// ---- 状态 5：托管方 HTML 兜底（未发布时的真实形态） ------------------------
+// Cloudflare Pages 对**不存在的路径**返回 200 + 首页 HTML，而不是 404（实测）。
+// 页面必须把它当成"没有这个文件"——否则会把首页当清单/校验和渲染、并给出坏链接。
+console.log('状态 5：托管方 HTML 兜底（Pages 对缺失路径返回 200 + 首页）');
+{
+  const HTML = { contentType: 'text/html', text: '<!doctype html><html>home</html>' };
+  const routes = { [MANIFEST_URL]: HTML, [CHECKSUMS_URL]: HTML, [ASC_URL]: HTML };
+  const dom = await loadPage('index.html', routes, {
+    path: '/',
+    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+  });
+  const { document } = dom.window;
+  assert(
+    document.getElementById('status').textContent.includes('尚无可用版本'),
+    'HTML 兜底时状态仍为「尚无可用版本」',
+  );
+  assert(artifactLinks(document).length === 0, 'HTML 兜底时不产生任何下载链接');
+  dom.window.close();
+
+  // 下载页同样不能把首页兜底当成数据
+  const downloadDom = await loadPage('download.html', routes, { path: '/download.html' });
+  assert(
+    downloadDom.window.document.getElementById('checksums').hidden,
+    'HTML 兜底时校验和区保持隐藏',
+  );
+  assert(
+    downloadDom.window.document.getElementById('matrix-wrap').hidden,
+    'HTML 兜底时版本矩阵保持隐藏',
+  );
+  downloadDom.window.close();
+}
+
 rmSync(work, { recursive: true, force: true });
 
 if (failures > 0) {
   console.error(`\n官网自检失败：${failures} 项。`);
   process.exit(1);
 }
-console.log('\n官网自检通过（静态结构 / 无清单 / 有清单无校验和 / 有清单有校验和 / 更新日志）。');
+console.log(
+  '\n官网自检通过（静态结构 / 无清单 / 有清单无校验和 / 有清单有校验和 / HTML 兜底 / 更新日志）。',
+);

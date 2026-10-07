@@ -25,6 +25,18 @@
     linux: { label: 'Linux', targets: [] },
   };
 
+  /*
+   * 托管方（Cloudflare Pages）对**不存在的路径**返回的是 `200 + 首页 HTML` 兜底，
+   * 而不是 404（实测：请求任意不存在的 .json 都拿到 200 text/html）。
+   * 因此只判 `response.ok` 会把首页当成真实文件：清单会被当成 JSON 解析失败、
+   * 校验和会被当成正文渲染、`.asc` 会被当成"存在"从而给出一个下载 HTML 的坏链接。
+   * 这里统一把 HTML 兜底视同"没有这个文件"。
+   */
+  function isHtmlFallback(response) {
+    var contentType = (response.headers && response.headers.get('content-type')) || '';
+    return contentType.indexOf('text/html') === 0;
+  }
+
   /* ---------- 平台识别（T7.9 第 8 点：userAgent 识别 + 手动切换兜底） ---------- */
 
   function storedOS() {
@@ -73,7 +85,7 @@
         return fetch(CHANNEL + '/' + target + '.json', { cache: 'no-store' }).then(
           function (response) {
             // 未发布时这里是 404，也可能被托管方返回 HTML 兜底页——都按"没有清单"处理
-            if (!response.ok) return null;
+            if (!response.ok || isHtmlFallback(response)) return null;
             return response.json();
           },
         );
@@ -96,7 +108,7 @@
 
   function fetchChecksums() {
     return fetch(CHANNEL + '/SHA256SUMS', { cache: 'no-store' }).then(function (response) {
-      if (!response.ok) throw new Error('no checksums');
+      if (!response.ok || isHtmlFallback(response)) throw new Error('no checksums');
       return response.text();
     });
   }
@@ -260,7 +272,8 @@
 
   function probeByUrl(url) {
     return fetch(url, { cache: 'no-store' }).then(function (response) {
-      if (!response.ok) throw new Error('missing');
+      // HTML 兜底 = 这个文件其实不存在（缺 GPG 签名时就是这种情形）
+      if (!response.ok || isHtmlFallback(response)) throw new Error('missing');
       return true;
     });
   }
