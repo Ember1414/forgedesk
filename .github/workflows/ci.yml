@@ -134,6 +134,11 @@ jobs:
       - name: Documentation links
         run: pnpm check:docs
 
+      # 官网是仓库里唯一没有其他测试覆盖的面向用户的代码：它按命名约定拼下载地址，
+      # 拼错的后果是"官网上的下载按钮 404"。这条检查用真实生成的清单夹具跑一遍页面脚本。
+      - name: Landing page self-check
+        run: pnpm check:site
+
       # 版本号三处（tauri.conf.json / package.json / Cargo.toml）必须一致：
       # 漏改一处的后果是产物名与关于页/ crate 版本不一致，而它要到打包后才暴露。
       - name: Version consistency

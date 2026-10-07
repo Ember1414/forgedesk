@@ -6,15 +6,18 @@
     <meta name="color-scheme" content="light dark" />
     <meta
       name="description"
-      content="ForgeDesk — an open-source, cross-platform desktop workbench for Git and GitHub workflows."
+      content="ForgeDesk — an open-source, cross-platform desktop workbench for Git and GitHub workflows. 下载、校验与安装说明。"
     />
     <title>ForgeDesk — A Git client for everyone</title>
     <link rel="icon" href="/favicon.png" />
     <style>
       /*
-       * 占位站点（M0）。刻意做成零依赖单文件：不需要构建步骤，
-       * 让 Cloudflare 部署链路可以先跑通并被验证。
-       * T7.9 会把它替换为正式的团队站点（VitePress / Astro）。
+       * 站点刻意保持**零依赖单文件**：没有构建步骤、没有第三方脚本、没有外部字体。
+       *
+       * 为什么不做 VitePress / Astro 站点（M0 时的原计划）：本页要回答的问题只有
+       * "最新版是什么、去哪儿下、怎么校验"——而答案的唯一真相源是**发布清单**
+       * （与应用内自动更新同一份数据）。为此引入一套静态站生成器，只会多一条
+       * 需要维护、且可能与清单漂移的链路（红线 R5 的精神：能不加就不加）。
        */
       :root {
         --brand: #4f46e5;
@@ -24,6 +27,7 @@
         --canvas: #f7f8fa;
         --surface: #ffffff;
         --line: #e3e6eb;
+        --surface-sunken: #f2f3f6;
       }
       @media (prefers-color-scheme: dark) {
         :root {
@@ -32,6 +36,7 @@
           --canvas: #0f1115;
           --surface: #171a20;
           --line: #2a2f38;
+          --surface-sunken: #1e222a;
         }
       }
       * {
@@ -78,6 +83,11 @@
         line-height: 1.25;
         letter-spacing: -0.02em;
       }
+      h2 {
+        margin: 32px 0 8px;
+        font-size: 17px;
+        letter-spacing: -0.01em;
+      }
       .tagline {
         margin: 0;
         color: var(--fg-muted);
@@ -101,6 +111,67 @@
       li + li {
         margin-top: 6px;
       }
+      .downloads {
+        display: grid;
+        gap: 8px;
+        margin-top: 12px;
+      }
+      .downloads a {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 10px 14px;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        text-decoration: none;
+        font-size: 14px;
+      }
+      .downloads a:hover {
+        border-color: var(--brand);
+      }
+      .downloads .hint {
+        color: var(--fg-muted);
+        font-size: 12px;
+        text-align: right;
+      }
+      .note {
+        margin: 12px 0 0;
+        color: var(--fg-muted);
+        font-size: 13px;
+      }
+      ol {
+        margin: 8px 0 0;
+        padding-left: 20px;
+        color: var(--fg-muted);
+        font-size: 13px;
+      }
+      ol li + li {
+        margin-top: 6px;
+      }
+      pre {
+        margin: 8px 0 0;
+        padding: 10px 12px;
+        overflow-x: auto;
+        background: var(--surface-sunken);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        font-size: 12px;
+      }
+      code {
+        font-family: ui-monospace, SFMono-Regular, Consolas, 'Liberation Mono', monospace;
+      }
+      button {
+        margin-top: 8px;
+        padding: 5px 12px;
+        font: inherit;
+        font-size: 12px;
+        color: var(--brand);
+        background: transparent;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        cursor: pointer;
+      }
       footer {
         margin-top: 28px;
         padding-top: 20px;
@@ -115,13 +186,16 @@
         a {
           color: #8b93f8;
         }
+        button {
+          color: #8b93f8;
+        }
       }
     </style>
   </head>
   <body>
     <main>
       <div class="icon" aria-hidden="true">
-        <!-- 与 docs/brand/icon-source.svg 同源的简化标志（砧台 + 火花），仅用于占位页 -->
+        <!-- 与 docs/brand/icon-source.svg 同源的简化标志（砧台 + 火花），仅用于本站 -->
         <svg width="44" height="44" viewBox="0 0 1024 1024" fill="#ffffff">
           <path d="M512 198 L560 262 L512 326 L464 262 Z" />
           <path d="M400 306 L424 340 L400 374 L376 340 Z" />
@@ -134,22 +208,166 @@
 
       <h1>ForgeDesk</h1>
       <p class="tagline">A Git client for everyone · 看得见的 Git，不只是命令行。</p>
-      <span class="status">开发中 · 尚无可用版本</span>
+      <!-- 默认文案面向**无 JS** 与**尚未发布**两种情形；有 JS 且已发布时会被替换成版本号 -->
+      <span class="status" id="status">状态：尚无可用版本</span>
 
       <ul>
         <li>开源、跨平台（Windows / macOS / Linux）的 Git 与 GitHub 桌面工作台</li>
         <li>把终端里易错的 Git 操作变成可视化界面、向导与可交互图表</li>
         <li>破坏性操作自动打快照，随时一键回滚</li>
-        <li>不含任何 AI 功能；本地 Git 操作完全离线可用</li>
+        <li>不含任何 AI 功能；无遥测；本地 Git 操作完全离线可用</li>
       </ul>
 
+      <h2>下载</h2>
+      <p class="note" id="download-lead">
+        尚未发布任何正式版本。
+        <a id="releases-link" href="https://github.com/Ember1414/forgedesk/releases"
+          >前往 Releases</a
+        >
+        查看是否已有可用构建；源码构建方式见仓库的 README。
+      </p>
+      <!-- 已发布时由脚本填充分区下方内容（保持"未发布就什么都不假装"的默认态） -->
+      <div class="downloads" id="downloads" hidden></div>
+      <p class="note" id="windows-note" hidden>
+        Windows 首次运行可能被 SmartScreen 拦截（本项目未购买代码签名证书）： 选择「更多信息 →
+        仍要运行」，或改用免安装的便携版 zip。 完整说明见仓库 <code>docs/install/windows.md</code>。
+      </p>
+
+      <h2>校验下载</h2>
+      <ol>
+        <li>把安装包与同一次发布里的 <code>SHA256SUMS</code> 下载到同一目录。</li>
+        <li>在 PowerShell 里计算安装包的哈希（把文件名换成你下载的那个）：</li>
+      </ol>
+      <pre><code id="hash-command">Get-FileHash .\ForgeDesk_&lt;版本&gt;_windows_x64.exe -Algorithm SHA256</code></pre>
+      <button type="button" id="copy-hash-command">复制命令</button>
+      <ol start="3">
+        <li>与 <code>SHA256SUMS</code> 里同名的行逐字比对（大小写不敏感）。</li>
+        <li>
+          若该次发布附带 <code>SHA256SUMS.asc</code>，可用
+          <code>gpg --verify SHA256SUMS.asc SHA256SUMS</code> 再验一层签名（公钥发布方式见仓库
+          <code>docs/RELEASE.md</code>）。
+        </li>
+      </ol>
+
       <footer>
-        <p>本页为部署链路验证用的占位页，正式站点见 T7.9。</p>
+        <p>
+          本页显示的版本来自发布清单（与应用内自动更新使用同一份数据）。尚无发布时本页如实显示"无可用版本"，
+          不提供任何虚假下载入口。
+        </p>
         <p>
           ForgeDesk is an independent project. It is not affiliated with, endorsed by, or sponsored
           by the Git project, the Software Freedom Conservancy, GitHub, Inc., or the Tauri project.
         </p>
       </footer>
     </main>
+
+    <script>
+      /*
+       * 从发布清单读取最新版本并渲染下载入口。
+       *
+       * 关于"为什么不用 GitHub Releases API"：那需要额外的网络请求、受匿名速率限制、
+       * 且与自动更新用的清单是**两份数据**（迟早不一致）。清单本身就是发布流程写出的
+       * 单一真相源，同源读取即可——顺带让"清单是否可匿名访问"这件事在页面上直接可见。
+       *
+       * 关于"为什么资产名是拼出来的"：发布流程用 rename-bundles.mjs 固定了产物命名
+       * （ForgeDesk_<版本>_windows_<架构><扩展名>），便携版 zip 由 make-portable.mjs 生成
+       * （…_portable.zip）。清单里带的是安装包的完整下载地址，因此从它取出
+       * 基础地址后，其余两个产物名可以按同一约定拼出，无需第二次请求。
+       * 命名约定若变更，本段与 docs/RELEASE.md 必须同步改。
+       */
+      (function () {
+        var MANIFEST = '/updates/stable/windows-x86_64.json';
+        var ARCH_BY_TARGET = { 'windows-x86_64': 'x64', 'windows-aarch64': 'arm64' };
+        var status = document.getElementById('status');
+        var lead = document.getElementById('download-lead');
+        var downloads = document.getElementById('downloads');
+        var windowsNote = document.getElementById('windows-note');
+
+        function renderRelease(manifest) {
+          var target = Object.keys(manifest.platforms || {})[0];
+          if (!target || !manifest.platforms[target].url) {
+            return false;
+          }
+          var arch = ARCH_BY_TARGET[target] || 'x64';
+          var version = manifest.version;
+          var base = manifest.platforms[target].url.replace(/\/[^/]+$/, '');
+          var prefix = 'ForgeDesk_' + version + '_windows_' + arch;
+
+          var assets = [
+            { name: 'NSIS 安装器（.exe）', hint: '推荐 · 双击安装', file: prefix + '.exe' },
+            { name: 'MSI 安装包（.msi）', hint: '适合静默安装', file: prefix + '.msi' },
+            { name: '便携版（.zip）', hint: '免安装 · 解压即用', file: prefix + '_portable.zip' },
+            { name: 'SHA256SUMS', hint: '校验和', file: 'SHA256SUMS' },
+          ];
+
+          downloads.textContent = '';
+          assets.forEach(function (asset) {
+            var link = document.createElement('a');
+            link.href = base + '/' + asset.file;
+            var label = document.createElement('span');
+            label.textContent = asset.name;
+            var hint = document.createElement('span');
+            hint.className = 'hint';
+            hint.textContent = asset.hint;
+            link.appendChild(label);
+            link.appendChild(hint);
+            downloads.appendChild(link);
+          });
+          downloads.hidden = false;
+          windowsNote.hidden = false;
+
+          var released = manifest.pub_date ? manifest.pub_date.slice(0, 10) : '';
+          status.textContent = '最新版本 v' + version + (released ? ' · ' + released : '');
+          lead.textContent = '当前版本 v' + version + '（Windows x64）。';
+          // 下载按钮都指向 release 附件，因此把"去 Releases 看全部产物"作为一句补充
+          var more = document.createElement('a');
+          more.href = base;
+          more.textContent = '在 Releases 查看全部产物与校验文件';
+          lead.appendChild(more);
+          return true;
+        }
+
+        fetch(MANIFEST, { cache: 'no-store' })
+          .then(function (response) {
+            // 未发布时这里是 404，也可能被托管方返回一个 HTML 兜底页——两种都按"没有清单"处理
+            if (!response.ok) {
+              throw new Error('no manifest');
+            }
+            return response.json();
+          })
+          .then(function (manifest) {
+            if (!renderRelease(manifest)) {
+              throw new Error('manifest has no usable platform entry');
+            }
+          })
+          .catch(function () {
+            // 如实保持"尚无可用版本"：宁可什么都不显示，也不要给一个必然 404 的下载按钮
+          });
+
+        var copyButton = document.getElementById('copy-hash-command');
+        copyButton.addEventListener('click', function () {
+          var command = document.getElementById('hash-command').textContent;
+          var done = function (text) {
+            copyButton.textContent = text;
+            setTimeout(function () {
+              copyButton.textContent = '复制命令';
+            }, 2000);
+          };
+          // 无剪贴板权限（非安全上下文等）时不能装作已复制
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(command).then(
+              function () {
+                done('已复制');
+              },
+              function () {
+                done('复制失败，请手动选择');
+              },
+            );
+          } else {
+            done('复制失败，请手动选择');
+          }
+        });
+      })();
+    </script>
   </body>
 </html>

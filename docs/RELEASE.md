@@ -206,7 +206,11 @@ pnpm release:rehearse
 # 篡改包必须被拒绝（改动 zip 一个字节后手动放入更新目录，安装应失败并提示）
 ```
 
-- 下载页（Pages）显示正确的版本、SHA256 与安装指引；
+- 下载页（Pages）显示正确的版本与安装指引。**版本号是页面运行时从发布清单读的**
+  （`/updates/stable/windows-x86_64.json`），因此它同时也是"清单可匿名访问"的一次活体验证：
+  页面若仍显示"尚无可用版本"，说明清单没上传成功或路径不符；
+- 页面上列出的四个下载入口都能点开（NSIS / MSI / 便携版 zip / `SHA256SUMS`）——
+  它们由命名约定拼出，改名时 `pnpm check:site` 会先红；
 - `gpg --verify SHA256SUMS.asc SHA256SUMS` 在新环境可通过；
 - 便携版 zip 解压后可启动（见 `docs/install/windows.md`）。
 

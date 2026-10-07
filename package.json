@@ -37,6 +37,8 @@
     "check:workflows": "node scripts/ci/validate-workflows.mjs",
     "check:repo": "node scripts/ci/validate-repo.mjs",
     "check:docs": "node scripts/ci/check-docs-links.mjs",
+    "//check:site": "官网落地页自检：用 jsdom 跑一遍页面脚本，断言「有/无发布清单」两种状态下的下载入口",
+    "check:site": "node scripts/ci/check-site.mjs",
     "compliance": "node scripts/compliance/check.mjs",
     "setup:cargo-mirror": "node scripts/setup/cargo-mirror.mjs",
     "portable:win": "node scripts/ci/make-portable.mjs --out bundles",

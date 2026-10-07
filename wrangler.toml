@@ -19,7 +19,8 @@
 
 name = "forgedesk"
 
-# Pages 的静态资源目录。当前是验证链路用的占位页，T7.9 会替换为正式站点。
+# Pages 的静态资源目录：零构建的单文件站点（下载与校验说明）。
+# 发布时由 .github/workflows/release.yml 把 site/ 与 updates/ 组装后一起上传（快照式部署）。
 pages_build_output_dir = "site"
 
 compatibility_date = "2026-09-23"
