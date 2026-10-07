@@ -407,7 +407,9 @@ export function HistoryPage() {
         {showToolbar ? (
           <div className="flex flex-wrap items-center gap-2" data-testid="history-toolbar">
             {/* 视图模式：图 / 列表（无障碍等价路径，AGENTS.md 要求）。用 aria-pressed
-                而不是 radio 语义：两个按钮各自表达"当前是否处于该模式"。 */}
+                而不是 radio 语义：两个按钮各自表达"当前是否处于该模式"。
+                激活态必须有可见样式——默认就是图模式，若按钮长得一模一样，
+                用户再点"图"时会觉得"点了没反应"（实测反馈）。 */}
             <div
               role="group"
               aria-label={t('history.mode.label')}
@@ -417,6 +419,7 @@ export function HistoryPage() {
                 size="sm"
                 variant="secondary"
                 aria-pressed={viewMode === 'graph'}
+                className={viewMode === 'graph' ? 'bg-brand-subtle text-brand' : undefined}
                 onClick={() => {
                   setViewMode('graph');
                 }}
@@ -429,6 +432,7 @@ export function HistoryPage() {
                 size="sm"
                 variant="secondary"
                 aria-pressed={viewMode === 'list'}
+                className={viewMode === 'list' ? 'bg-brand-subtle text-brand' : undefined}
                 onClick={() => {
                   setViewMode('list');
                 }}
