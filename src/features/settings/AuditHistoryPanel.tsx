@@ -148,10 +148,15 @@ export function AuditHistoryPanel() {
   const [exportedPath, setExportedPath] = useState<string | null>(null);
   const [busy, setBusy] = useState<'export' | 'prune' | null>(null);
 
-  const getJson = useSettingsStore((state) => state.getJson);
+  // 逐项经 selector 订阅（selector 内调用 getJson）：值变才重渲染，
+  // 否则改保留策略时输入框会停在旧值（订阅函数引用等于没有订阅）
   const setJson = useSettingsStore((state) => state.setJson);
-  const retentionDays = getJson<number>(AUDIT_RETENTION_DAYS_KEY, AUDIT_RETENTION_DEFAULT_DAYS);
-  const retentionRows = getJson<number>(AUDIT_RETENTION_MAX_KEY, AUDIT_RETENTION_DEFAULT_ROWS);
+  const retentionDays = useSettingsStore((state) =>
+    state.getJson<number>(AUDIT_RETENTION_DAYS_KEY, AUDIT_RETENTION_DEFAULT_DAYS),
+  );
+  const retentionRows = useSettingsStore((state) =>
+    state.getJson<number>(AUDIT_RETENTION_MAX_KEY, AUDIT_RETENTION_DEFAULT_ROWS),
+  );
 
   const filter = {
     repoId: repoId === 'all' ? null : Number(repoId),

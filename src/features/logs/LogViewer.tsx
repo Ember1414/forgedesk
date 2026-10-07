@@ -42,18 +42,32 @@ export function isNearTimestamp(
   return Math.abs(lineTimestamp - anchor) <= HIGHLIGHT_WINDOW_MS;
 }
 
-/** 格式化时间：只显示到毫秒，日志里精确到秒往往不够定位。 */
-function formatTime(timestamp: number | null, locale: string): string {
-  if (timestamp === null) {
-    return '—';
+/** 格式化器缓存（按 locale）：构造 Intl.DateTimeFormat 很贵，300 行日志逐行
+ * 新建就是 300 次构造——这是设置页"日志区一滚就卡"的实测热点，必须复用。 */
+const timeFormatters = new Map<string, Intl.DateTimeFormat>();
+
+function timeFormatter(locale: string): Intl.DateTimeFormat {
+  const cached = timeFormatters.get(locale);
+  if (cached !== undefined) {
+    return cached;
   }
-  return new Intl.DateTimeFormat(locale, {
+  const formatter = new Intl.DateTimeFormat(locale, {
     hour: '2-digit',
     minute: '2-digit',
     second: '2-digit',
     fractionalSecondDigits: 3,
     hour12: false,
-  }).format(new Date(timestamp));
+  });
+  timeFormatters.set(locale, formatter);
+  return formatter;
+}
+
+/** 格式化时间：只显示到毫秒，日志里精确到秒往往不够定位。 */
+function formatTime(timestamp: number | null, locale: string): string {
+  if (timestamp === null) {
+    return '—';
+  }
+  return timeFormatter(locale).format(new Date(timestamp));
 }
 
 const LEVEL_CLASS: Record<string, string> = {

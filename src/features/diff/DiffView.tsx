@@ -409,8 +409,11 @@ export function DiffView({
           }),
   });
 
-  const settings = useSettingsStore();
-  const mode = settings.getJson<DiffViewMode>(DIFF_VIEW_MODE_KEY, 'unified');
+  // DiffView 是重组件：必须订阅具体值而不是整个 store，否则任何设置写入
+  // （与 diff 无关的也一样）都会让整个 diff 重渲染一遍
+  const mode = useSettingsStore((state) =>
+    state.getJson<DiffViewMode>(DIFF_VIEW_MODE_KEY, 'unified'),
+  );
 
   const file = query.data?.files.find((candidate) => candidate.path === path);
   const hunks = useMemo(() => file?.hunks ?? [], [file]);
@@ -721,7 +724,7 @@ export function DiffView({
           label={t('diff.mode.label')}
           value={mode}
           onValueChange={(next) => {
-            void settings.setJson(DIFF_VIEW_MODE_KEY, next);
+            void useSettingsStore.getState().setJson(DIFF_VIEW_MODE_KEY, next);
           }}
           options={[
             { value: 'unified', label: t('diff.mode.unified') },

@@ -74,13 +74,25 @@ function NumberSetting({
 export function TerminalSettingsPage() {
   const { t } = useTranslation('shell');
   const setJson = useSettingsStore((state) => state.setJson);
-  const getJson = useSettingsStore((state) => state.getJson);
 
-  const safetyEnabled = getJson<boolean>(TERMINAL_SAFETY_ENABLED_KEY, true);
-  const safetyLevel = getJson<TerminalSafetyLevel>(TERMINAL_SAFETY_LEVEL_KEY, 'hint');
-  const autoSnapshot = getJson<boolean>(TERMINAL_SAFETY_AUTO_SNAPSHOT_KEY, true);
-  const fontSize = getJson<number>(TERMINAL_FONT_SIZE_KEY, DEFAULT_TERMINAL_FONT_SIZE);
-  const lineHeight = getJson<number>(TERMINAL_LINE_HEIGHT_KEY, DEFAULT_TERMINAL_LINE_HEIGHT);
+  // 逐项经 selector 订阅（selector 内调用 getJson）：store 任何变化都会重跑
+  // selector，值变才重渲染。曾踩的坑：把 getJson 函数本身订阅下来再在渲染里
+  // 调用——函数引用恒定，组件永远不重渲染，开关点了纹丝不动。
+  const safetyEnabled = useSettingsStore((state) =>
+    state.getJson<boolean>(TERMINAL_SAFETY_ENABLED_KEY, true),
+  );
+  const safetyLevel = useSettingsStore((state) =>
+    state.getJson<TerminalSafetyLevel>(TERMINAL_SAFETY_LEVEL_KEY, 'hint'),
+  );
+  const autoSnapshot = useSettingsStore((state) =>
+    state.getJson<boolean>(TERMINAL_SAFETY_AUTO_SNAPSHOT_KEY, true),
+  );
+  const fontSize = useSettingsStore((state) =>
+    state.getJson<number>(TERMINAL_FONT_SIZE_KEY, DEFAULT_TERMINAL_FONT_SIZE),
+  );
+  const lineHeight = useSettingsStore((state) =>
+    state.getJson<number>(TERMINAL_LINE_HEIGHT_KEY, DEFAULT_TERMINAL_LINE_HEIGHT),
+  );
 
   // 设置项在页面加载时可能尚未就绪：触发一次全局加载（幂等）
   useEffect(() => {

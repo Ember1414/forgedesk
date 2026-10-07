@@ -41,7 +41,6 @@ export function GeneralSettingsPage() {
   const loading = useSettingsStore((state) => state.loading);
   const loadError = useSettingsStore((state) => state.loadError);
   const load = useSettingsStore((state) => state.load);
-  const getJson = useSettingsStore((state) => state.getJson);
   const setJson = useSettingsStore((state) => state.setJson);
 
   useEffect(() => {
@@ -49,9 +48,15 @@ export function GeneralSettingsPage() {
     void load();
   }, [load]);
 
-  const density = getJson<Density>(DENSITY_KEY, 'comfortable');
-  const autoRefresh = getJson<boolean>(WATCH_AUTO_REFRESH_KEY, true);
-  const debounceMs = getJson<number>(WATCH_DEBOUNCE_KEY, DEFAULT_DEBOUNCE_MS);
+  // 逐项经 selector 订阅（selector 内调用 getJson）：值变才重渲染。
+  // 曾踩的坑：订阅 getJson 函数引用（恒定）再在渲染里调用，控件点了不更新。
+  const density = useSettingsStore((state) => state.getJson<Density>(DENSITY_KEY, 'comfortable'));
+  const autoRefresh = useSettingsStore((state) =>
+    state.getJson<boolean>(WATCH_AUTO_REFRESH_KEY, true),
+  );
+  const debounceMs = useSettingsStore((state) =>
+    state.getJson<number>(WATCH_DEBOUNCE_KEY, DEFAULT_DEBOUNCE_MS),
+  );
   // 性能模式（T2.9）：订阅原始值（字符串比较稳定，切换时触发重渲染），
   // 再经 parsePerformanceMode 解析（坏值回落 auto）——与 parseDensity 同一防御姿势
   const performanceModeRaw = useSettingsStore((state) => state.values[PERFORMANCE_MODE_KEY]);

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { THEME_MODES, currentResolvedTheme } from '@/app/theme';
@@ -60,7 +60,9 @@ function themeSwatchStyle(token: string, value: string | undefined): { backgroun
 
 function ContrastRows({ theme }: { readonly theme: ThemeDefinition }): React.JSX.Element {
   const { t } = useTranslation('shell');
-  const rows = contrastReport(theme);
+  // WCAG 对比度是全量成对计算，主题画廊每张卡都要跑一遍：按主题缓存，
+  // 页面任意 state 变化（导入报错、切换主题）不应让整面画廊重算
+  const rows = useMemo(() => contrastReport(theme), [theme]);
   return (
     <div className="flex flex-col gap-1 text-12">
       <span className="font-medium text-fg-muted">{t('settings.appearance.contrastTitle')}</span>
