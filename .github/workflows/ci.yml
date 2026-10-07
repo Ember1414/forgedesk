@@ -51,7 +51,11 @@ permissions:
   contents: read
 
 env:
-  CARGO_TERM_COLOR: always
+  # 曾是 always（为了日志好看），但色码会让失败注解的 `grep '^error'` 匹配不到
+  # 任何行——2026-10-07 的真实教训：错误行全被 `\x1b[91merror` 吃掉，只剩
+  # "could not compile"的尾行。RUST_BACKTRACE 保留：panic 注解里带回栈
+  # 比只有一行 assert 有用得多。
+  CARGO_TERM_COLOR: never
   RUST_BACKTRACE: 1
 
 jobs:

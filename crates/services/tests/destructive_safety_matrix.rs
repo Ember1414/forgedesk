@@ -1499,10 +1499,30 @@ fn a_read_only_worktree_fails_loudly_and_damages_nothing() {
 }
 
 /// 只读目录的 RAII 守卫：构造时拒绝写入，`Drop` 时恢复。
+///
+/// 两个平台的"拒绝"都必须是**整树**的，否则场景 14 的前提不成立：
+/// Windows 的 `icacls /deny` 天然继承到子目录；Unix 的权限位**不递归**——
+/// 只挡顶层会让 `.git/`（子目录，权限不变）照常可写，git 就能先移动 HEAD
+/// 再在工作区文件上失败，"整体中止"的前提（什么都别动）就不成立了
+/// （2026-10-07 CI 首次在 Linux 上跑出这个真实差异）。
 struct ReadOnlyGuard {
-    path: PathBuf,
     #[allow(dead_code)] // Unix 用权限位，不需要记主账号
     principal: Option<String>,
+    /// 被"只读化"的目录清单（含根）；`Drop` 时逐个恢复。
+    readonly_dirs: Vec<PathBuf>,
+}
+
+#[cfg(unix)]
+fn collect_directories(root: &Path, out: &mut Vec<PathBuf>) {
+    out.push(root.to_path_buf());
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        if entry.file_type().is_ok_and(|file_type| file_type.is_dir()) {
+            collect_directories(&entry.path(), out);
+        }
+    }
 }
 
 impl ReadOnlyGuard {
@@ -1510,11 +1530,15 @@ impl ReadOnlyGuard {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o555))
-                .expect("设置只读权限失败");
+            let mut readonly_dirs = Vec::new();
+            collect_directories(path, &mut readonly_dirs);
+            for dir in &readonly_dirs {
+                std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o555))
+                    .expect("设置只读权限失败");
+            }
             Self {
-                path: path.to_path_buf(),
                 principal: None,
+                readonly_dirs,
             }
         }
         #[cfg(not(unix))]
@@ -1533,8 +1557,8 @@ impl ReadOnlyGuard {
                 String::from_utf8_lossy(&output.stderr)
             );
             Self {
-                path: path.to_path_buf(),
                 principal: Some(principal),
+                readonly_dirs: vec![path.to_path_buf()],
             }
         }
     }
@@ -1546,13 +1570,16 @@ impl Drop for ReadOnlyGuard {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            let _ = std::fs::set_permissions(&self.path, std::fs::Permissions::from_mode(0o755));
+            for dir in &self.readonly_dirs {
+                let _ = std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o755));
+            }
         }
         #[cfg(not(unix))]
         {
             if let Some(principal) = &self.principal {
+                // 根目录就是 readonly_dirs[0]（apply 时放入）
                 let _ = std::process::Command::new("icacls")
-                    .arg(&self.path)
+                    .arg(&self.readonly_dirs[0])
                     .args(["/remove:d", principal])
                     .output();
             }

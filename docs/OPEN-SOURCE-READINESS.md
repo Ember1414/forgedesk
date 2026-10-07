@@ -7,7 +7,7 @@
 >
 > 状态：**已转公开，收口进行中**——A-1 ~ A-6、B-1 / B-2 / B-4（声明与证据链部分）/ B-5 / B-6 / B-7 / B-8 / B-9、C-1 ~ C-4 均已通过（见 §4）；
 > 尚未完成的全部是**人工或外部**项：**B-3 / B-4 的 3 人盲测**（ADR-005 延后至首次对外预发布前；证据链与记录表见 `docs/BRAND.md` §4.1–4.2）、
-> **B-10**（干净环境照 CONTRIBUTING 复现）、§1.3 的凭据核对、§1.4 C-3 的 Rust 侧补跑（`cargo audit`，本机不可用）。
+> **B-10**（干净环境照 CONTRIBUTING 复现）、**E-4 更新签名密钥**（Cloudflare 凭据已配置并经真实部署验证，见 §4）、§1.4 C-3 的 Rust 侧补跑（`cargo audit`，本机不可用）。
 > **A 组残留已由人类决策处置**：历史中曾回显的个人邮箱选择"**接受公开**"，处置记录见 §4。
 > 负责人：人类（涉及账号与法律判断的部分）+ 编码代理（可自动化的部分）
 
@@ -149,7 +149,9 @@
 | 2026-10-07 | **人类（决策）+ 编码代理（记录）** | **A-2 残留处置：接受公开** | 历史中 `docs/adr/ADR-004` 曾回显个人邮箱（HEAD 已于 `c707a54` 脱敏，历史侧因该串存在于 M0 之后的每个树而无法在不重写历史的前提下收回）。人类选择**选项①接受**——重写历史会使文档中数十处提交哈希失效，代价高于该地址（QQ 邮箱）已在多处公开的事实。代理已把该决策写入本表，并据此关闭 A-2 残留项 |
 | 2026-10-07 | 编码代理 | **转公开后的收口变更** | `ci.yml`：删除 build job 的私有阶段 `if`，恢复"每个 PR 跑三平台矩阵"；`nightly.yml`：加 `schedule: cron '0 2 * * *'` 真正启用；新增 `.github/workflows/e2e.yml`（**仅手动触发**，Linux+Chromium 首跑待观察）；`playwright.config.ts` 的浏览器改为 `PW_CHANNEL` 可覆盖（CI 用 chromium）；README 安装段指向下载页与 Releases；ADR-002 补记"公开阶段已生效"。E-2 旁证：`https://forgedesk.pages.dev` 返回 200，说明 Pages 项目与部署凭据此前已就位 |
 | 2026-10-07 | 编码代理 | **发布链路代码侧就位（承接 E-1 ~ E-4）** | `release.yml`（preflight / build-windows / publish）+ 4 个脚本落地，`pnpm check:workflows` 6 个工作流 0 警告。**E-3 的口径已明确**：endpoints 由发布构建注入而非写进仓库（见上表注），与工作流写出的 `<渠道>/<target>.json` 路径逐字一致。E-2 / E-4 仍待人类配置凭据后复核（`docs/RELEASE.md` §4.1 的凭据表） |
-| — | — | §1 其余门禁（B-3 / B-4 盲测、B-10、C-3 的 Rust 侧）与 §1.3 托管凭据（E-2 / E-4） | 转公开前执行 |
+| 2026-10-07 | 编码代理 | **E-2 复核为通过：Cloudflare 凭据已配置并经真实部署验证** | 当天一次真实推送触发 Deploy site：`Setup pnpm` / `Deploy` 等步骤由 skip 变为 **success**，线上落地页（含下载区与校验和说明）匿名可访问——满足"清单 URL 能匿名访问"的核对口径（RELEASE.md §4.1） |
+| 2026-10-07 | 编码代理 | **发布前置的真实环境缺陷修复（转公开后首轮实跑发现）** | ① `pnpm dev` 启动即崩：`tauri-plugin-updater` 要求 conf 必须有合法 `plugins.updater`（`pubkey` 必填，键缺失按 null 反序列化）→ 补占位 `pubkey:""` + `endpoints:[]`，发布时仍由 overlay 注入真实值；该崩溃自 T7.1 落地起就存在，只是全部测试都不启动 Tauri 运行时——"能启动"从此列入待补的冒烟项。② CI 长期红灯三根因（`8c539ae`）：safety 作业缺 `libdbus-1-dev`（9-30 后全红的根因，10-01 keyring 落地引入）、example-plugins 跨机器 wasm 字节差异（构建机路径进了 panic 字符串 → `--remap-path-prefix` + 钉 rustc 版本）、失败详情提升为匿名可读注解。③ safety 在 Linux 暴露真实差异：`chmod 0o555` 不递归，git 能先动 HEAD——`ReadOnlyGuard` 改为递归只读（与 Windows icacls 继承语义对齐）。④ quality 在 Linux 的 `forgedesk-platform` 编译错误已由注解管道锁定到具体 crate，复现与修复进行中 |
+| — | — | §1 其余门禁（B-3 / B-4 盲测、B-10、C-3 的 Rust 侧）与 §1.3 托管凭据（E-4：更新签名密钥） | 已公开，按"能改的改、不能改的记录"处理 |
 
 ---
 
