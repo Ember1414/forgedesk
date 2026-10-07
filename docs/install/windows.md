@@ -17,7 +17,15 @@ Windows SmartScreen 可能提示"未知发布者"，这是正常现象——**�
 | 便携版 zip | 不想安装 / 无管理员权限 | 解压即用，**最不容易触发 SmartScreen** |
 | Scoop / Winget | 习惯包管理器的用户 | 来源更可信，审核由包管理器承担（随 M8 上线） |
 
-下载地址：GitHub Releases 页面（`Ember1414/forgedesk` 的 Releases）。
+下载地址有两种，内容一致：
+
+- **下载页**：<https://forgedesk.pages.dev>（显示当前版本、四个下载入口与校验和；Pages 部署后生效）
+- **Releases 页面**：`Ember1414/forgedesk` 的 Releases（含全部历史版本）
+
+> **产物命名约定**（认清文件名可避免下错东西）：
+> `ForgeDesk_<版本>_windows_x64.exe`（NSIS 安装器）、`ForgeDesk_<版本>_windows_x64.msi`、
+> `ForgeDesk_<版本>_windows_x64_portable.zip`。Tauri 原始产物名（如 `…_x64-setup.exe`）不会出现在 Releases 里，
+> 发布流程会统一改名——改名规则见 `docs/RELEASE.md` §4.1。
 
 **便携版 zip 内含**：`ForgeDesk.exe`、`LICENSE`、`README-portable.txt`。
 本地自行构建（Windows）：
@@ -32,16 +40,20 @@ pnpm portable:win
 
 ## 2. 校验下载完整性（推荐）
 
-每个 Release 都会附带 `SHA256SUMS`（以及用项目 GPG 公钥签名的 `SHA256SUMS.asc`）。
+每个 Release 都附带 `SHA256SUMS`；**若该次发布带了 GPG 签名**，还会有一个 `SHA256SUMS.asc`
+（签名是可选的：没有它不影响校验和本身，只是少一层"这份清单确实由项目发布"的证明）。
 
 PowerShell 校验：
 
 ```powershell
-# 1) 计算你下载的文件的 SHA256
-Get-FileHash .\ForgeDesk_1.0.0_x64-setup.exe -Algorithm SHA256
+# 1) 计算你下载的文件的 SHA256（文件名按实际下载的那个填）
+Get-FileHash .\ForgeDesk_<版本>_windows_x64.exe -Algorithm SHA256
 
-# 2) 与 Release 中的 SHA256SUMS 对应行比对（哈希应完全一致）
+# 2) 与 SHA256SUMS 里同名行逐字比对（大小写不敏感）
 ```
+
+也可以在**下载页**展开「查看当前版本的校验和」直接看到三个产物的哈希
+（那一份与 Release 附件里的 `SHA256SUMS` 是同一次发布生成的）。
 
 带 GPG 的完整校验（需要已导入项目公钥）：
 

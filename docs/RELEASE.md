@@ -69,7 +69,7 @@ gpg --armor --detach-sign --local-user <KEYID> --output SHA256SUMS.asc SHA256SUM
 # 用户侧：
 gpg --verify SHA256SUMS.asc SHA256SUMS && sha256sum -c SHA256SUMS
 # Windows（无 gpg 时）：
-Get-FileHash .\ForgeDesk_1.0.0_x64-setup.exe -Algorithm SHA256   # 与 SHA256SUMS 比对
+Get-FileHash .\ForgeDesk_<版本>_windows_x64.exe -Algorithm SHA256   # 与 SHA256SUMS 比对
 ```
 
 > 私钥密码单独存 Secret `GPG_PASSPHRASE`。CI 里**只**用环境变量注入，不落盘、不进日志。

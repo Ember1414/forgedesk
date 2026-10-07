@@ -19,9 +19,13 @@
        * （与应用内自动更新同一份数据）。为此引入一套静态站生成器，只会多一条
        * 需要维护、且可能与清单漂移的链路（红线 R5 的精神：能不加就不加）。
        */
+      /* 两个 :root 块（第二个在深色媒体查询里）由 scripts/design/check-contrast.mjs
+         一并校验 WCAG AA：官网是用户最先看到的东西，配色不能只在应用里守住。
+         因此链接色也收敛成变量（而不是在深色块里再写一次字面量）。 */
       :root {
         --brand: #4f46e5;
         --brand-2: #7c3aed;
+        --link: #4f46e5;
         --fg: #14161a;
         --fg-muted: #565d6b;
         --canvas: #f7f8fa;
@@ -31,6 +35,7 @@
       }
       @media (prefers-color-scheme: dark) {
         :root {
+          --link: #8b93f8;
           --fg: #eceef2;
           --fg-muted: #a6adba;
           --canvas: #0f1115;
@@ -174,7 +179,7 @@
         padding: 5px 12px;
         font: inherit;
         font-size: 12px;
-        color: var(--brand);
+        color: var(--link);
         background: transparent;
         border: 1px solid var(--line);
         border-radius: 6px;
@@ -188,15 +193,7 @@
         color: var(--fg-muted);
       }
       a {
-        color: var(--brand);
-      }
-      @media (prefers-color-scheme: dark) {
-        a {
-          color: #8b93f8;
-        }
-        button {
-          color: #8b93f8;
-        }
+        color: var(--link);
       }
     </style>
   </head>
