@@ -32,14 +32,15 @@ pnpm version:check          # 只校验三处一致（CI 门禁用）
 | `stable` | `1.0.0` | 所有用户 | 启动后 60s + 每 24h（可关） |
 | `beta` | `1.0.0-beta.N` | 提前 1–2 周验证 | 同上 |
 
-更新清单托管在 Cloudflare Pages（见 `ADR-003`）：
-`https://<project>.pages.dev/updates/{target}/{arch}/{channel}.json`。
-清单地址写入 `src-tauri/tauri.conf.json` 的 updater `endpoints`。
+更新清单托管在 Cloudflare Pages（见 `ADR-003`），路径为
+`https://forgedesk.pages.dev/updates/<渠道>/<target>.json`（例如 `updates/stable/windows-x86_64.json`）。
 
 > **应用侧已就绪（T7.1）**：`update_check` / `update_install` 命令（见 `docs/API.md`）与状态栏横幅。
 > 尚缺的只有**发布配置**：`plugins.updater.{pubkey, endpoints}` 与 §3 的两套密钥——
 > 配置缺一即被视为"未配置"，命令返回 `configured: false`，界面不打扰用户。
-> 渠道（stable/beta）在 v1 通过**各渠道一份清单地址**体现；同一次构建不切换渠道（后续再评估）。
+> **这两项刻意不写进仓库**：发布流水线在构建时用 `scripts/ci/make-build-config.mjs --pubkey … --channel …`
+> 注入（理由见 §4.1）。写进仓库的代价是开发构建会从"静默无更新源"变成"每次检查都网络失败"。
+> 渠道（stable / beta）在 v1 通过**各渠道各自构建**体现；同一次构建不切换渠道（应用内文案亦如此说明）。
 
 ---
 
@@ -81,12 +82,15 @@ Get-FileHash .\ForgeDesk_<版本>_windows_x64.exe -Algorithm SHA256   # 与 SHA2
 ```bash
 # 生成（需要时输入并保存一个密码）
 pnpm tauri signer generate -w ~/.tauri/forgedesk.key
+# Windows（PowerShell）：`~` 不展开，用
+#   pnpm tauri signer generate -w "$env:USERPROFILE\.tauri\forgedesk.key"
 ```
 
-- **公钥**（生成的 `.key.pub` 内容）写入 `src-tauri/tauri.conf.json` 的
-  `plugins.updater.pubkey`（**硬编码在应用内**）。
+- **公钥**（生成的 `.key.pub` 内容）存为 GitHub **仓库变量** `TAURI_UPDATER_PUBKEY`：
+  发布构建时由 `make-build-config.mjs` 注入到应用的 update 配置，效果等价于"硬编码在应用内"，
+  但不把发布参数写进仓库（见 §4.1）。
 - **私钥与密码**存 CI Secrets：`TAURI_SIGNING_PRIVATE_KEY`、`TAURI_SIGNING_PRIVATE_KEY_PASSWORD`。
-- 私钥与密码必须**离线多份备份**（见 §7）。
+- 私钥与密码必须**离线多份备份**（见 §7）——**丢了就无法再给已发布版本签发更新**。
 
 ### 3.3 密钥保管与轮换
 
