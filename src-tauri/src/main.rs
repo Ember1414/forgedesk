@@ -13,7 +13,9 @@ use std::sync::{Arc, Mutex};
 use forgedesk_commands::{emit_watch_event, AppState, WatcherRegistry};
 use forgedesk_diagnostics::SanitizingMakeWriter;
 use forgedesk_jobs::JobRunner;
-use forgedesk_platform::session::{detect_previous_session, start_session, SessionMarker};
+use forgedesk_platform::session::{
+    detect_previous_session, start_session, take_safe_mode_request, SessionMarker,
+};
 use forgedesk_platform::watcher::NotifyFileWatcher;
 use forgedesk_platform::{install_panic_hook, non_blocking_writer, LogFlushGuard, LogPolicy};
 use forgedesk_provider::{GitHubHttp, HttpConfig};
@@ -87,6 +89,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // 权限在 capabilities/default.json 里显式声明（dialog:default 只含打开
         // 选择器，不含保存/消息框之外的任何能力）
         .plugin(tauri_plugin_dialog::init())
+        // 自动更新（T7.1）：插件负责"取清单 → 校验签名 → 下载 → 安装/重启"。
+        // 更新源与公钥来自 tauri.conf.json 的 `plugins.updater`（**发布配置**）；
+        // 密钥生成、配置与发布流程见 docs/RELEASE.md §3.2。未配置时命令如实返回
+        // `configured: false`，不会让界面出现修不好的错误条。
+        .plugin(tauri_plugin_updater::Builder::new().build())
         // 日志、panic hook、数据库都在 setup 中初始化：
         // 因为 `app_log_dir()` / `app_data_dir()` 只有在拿到 App 句柄后才可用。
         // 代价是 Tauri 自身在 setup 之前的那几行日志不会被记录——那些是框架内部
@@ -100,16 +107,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let guard = init_logging(&log_dir)?;
             install_panic_hook(&log_dir, APP_VERSION);
 
-            // 上一次是否异常退出：T0.8 只记录事实，M7/T7.5 会据此提供恢复引导
-            if let Some(previous) = detect_previous_session(&log_dir) {
+            // 上一次是否异常退出：T0.8 记录事实，T7.5 据此提供恢复引导。
+            // 顺序要紧：先取残留标记（本次会话的标记还没写），再消费安全模式请求，
+            // 最后才 start_session —— 否则会把本次自己写的标记读成"上次崩溃"。
+            let previous = detect_previous_session(&log_dir);
+            if let Some(session) = previous.as_ref() {
                 warn!(
-                    marker = %previous.marker_path.display(),
-                    pid = previous.info.as_ref().map(|info| info.pid),
-                    version = previous.info.as_ref().map(|info| info.version.as_str()),
-                    started_at = previous.info.as_ref().map(|info| info.started_at),
+                    marker = %session.marker_path.display(),
+                    pid = session.info.as_ref().map(|info| info.pid),
+                    version = session.info.as_ref().map(|info| info.version.as_str()),
+                    started_at = session.info.as_ref().map(|info| info.started_at),
                     "检测到上次会话未正常退出"
                 );
             }
+
+            // 安全模式请求是一次性的：读取即删除，只影响本次启动（T7.5）。
+            let safe_mode = take_safe_mode_request(&log_dir);
+            if safe_mode {
+                warn!("以安全模式启动：本次不加载插件、禁用内嵌终端");
+            }
+            let startup = forgedesk_commands::StartupReport::from_previous(previous, safe_mode);
 
             let session = start_session(&log_dir, APP_VERSION)?;
 
@@ -213,7 +230,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Arc::clone(&open_repos),
                 app.path().app_data_dir()?.join("plugins"),
                 app.handle().clone(),
+                safe_mode,
             )?;
+
+            // T7.5：重启前结束会话的能力。会话标记由 RuntimeHandles 独占持有，
+            // 这里只提供一个"取走并删除"的闭包给命令层用（见 SessionEnder 的说明）。
+            let session_handle = app.handle().clone();
+            let end_session = forgedesk_commands::SessionEnder::new(move || {
+                if let Some(handles) = session_handle.try_state::<RuntimeHandles>() {
+                    if let Ok(mut guard) = handles.session.lock() {
+                        if let Some(marker) = guard.take() {
+                            marker.finish()?;
+                        }
+                    }
+                }
+                Ok(())
+            });
 
             app.manage(AppState {
                 database: Arc::clone(&database),
@@ -240,6 +272,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 terminals: Arc::new(TerminalRegistry::new()),
                 plugins: Arc::new(plugin_manager),
                 plugin_services,
+                startup,
+                end_session,
             });
 
             // 审计的保留策略在**启动时**执行一次（T1.11）：查历史不该顺带删记录，
@@ -260,6 +294,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(debug_assertions)]
     let builder = builder.invoke_handler(tauri::generate_handler![
         forgedesk_commands::app_version,
+        forgedesk_commands::app_startup_report,
+        forgedesk_commands::app_restart,
+        // T7.1 自动更新（全构建注册；未配置更新源时如实返回 configured=false）
+        forgedesk_commands::update_check,
+        forgedesk_commands::update_install,
         forgedesk_commands::set_window_title,
         forgedesk_commands::network_proxy_test,
         forgedesk_commands::network_git_test,
@@ -455,6 +494,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(not(debug_assertions))]
     let builder = builder.invoke_handler(tauri::generate_handler![
         forgedesk_commands::app_version,
+        forgedesk_commands::app_startup_report,
+        forgedesk_commands::app_restart,
+        // T7.1 自动更新（全构建注册；未配置更新源时如实返回 configured=false）
+        forgedesk_commands::update_check,
+        forgedesk_commands::update_install,
         forgedesk_commands::set_window_title,
         forgedesk_commands::network_proxy_test,
         forgedesk_commands::network_git_test,

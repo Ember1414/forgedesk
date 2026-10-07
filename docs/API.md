@@ -62,6 +62,10 @@ interface FixAction {
 | 命令 | 能力等级 | 里程碑 | 说明 |
 | --- | --- | --- | --- |
 | [`app_version`](#app_version) | ReadOnly | T0.1 | 应用版本与构建信息 |
+| [`app_startup_report`](#app_startup_report) | ReadOnly | T7.5 | 启动恢复报告（上次是否异常退出、本次是否安全模式） |
+| [`app_restart`](#app_restart) | Mutating | T7.5 | 重启应用（可选择以安全模式重启） |
+| [`update_check`](#update_check) | Network | T7.1 | 查询是否有新版本（未配置更新源时 `configured: false`） |
+| [`update_install`](#update_install) | Network | T7.1 | 下载并安装指定版本（校验签名后），随后重启 |
 | [`settings_get`](#settings_get--settings_set--settings_all) | ReadOnly | T0.7 | 读取单个设置项 |
 | [`settings_set`](#settings_get--settings_set--settings_all) | Mutating | T0.7 | 写入（覆盖）设置项 |
 | [`settings_all`](#settings_get--settings_set--settings_all) | ReadOnly | T0.7 | 读取某个范围的全部设置 |
@@ -115,7 +119,7 @@ interface FixAction {
 | [`snapshot_restore_pending`](#snapshot_restore_pending) | ReadOnly | T3.9 | 未完成的回滚（崩溃恢复：上次回滚被强杀时留下） |
 | [`snapshot_restore_abandon`](#snapshot_restore_abandon) | Mutating | T3.9 | 清除未完成回滚的标记（不回退任何东西） |
 | [`audit_list`](#audit_list--audit_export--audit_prune) | ReadOnly | T1.11 | 分页查询操作历史（可按仓库 / 类型 / 时间筛选） |
-| [`audit_export`](#audit_list--audit_export--audit_prune) | ReadOnly | T1.11 | 导出操作历史到临时文件（CSV / JSON），返回路径 |
+| [`audit_export`](#audit_list--audit_export--audit_prune) | ReadOnly | T1.11 / T7.6 | 导出操作历史（CSV / JSON）到用户选定路径或临时目录 |
 | [`audit_prune`](#audit_list--audit_export--audit_prune) | Mutating | T1.11 | 按保留策略清理旧记录 |
 | [`git_log_page`](#git_log_page) | ReadOnly | T2.1 | 提交历史分页 + 泳道布局 |
 
@@ -154,6 +158,101 @@ interface AppVersion {
 - **错误**：正常路径不产生错误（失败即 `INTERNAL`）
 - **前端封装**：`src/lib/ipc/index.ts` 的 `appVersion()`
 - **调用点**：`src/features/system/VersionBadge.tsx`
+
+---
+
+### app_startup_report
+
+启动恢复报告（T7.5）。宿主在启动时**一次性**计算：残留的会话标记（= 上次未正常退出）
+与本次是否安全模式，之后不再变化——运行期重新探测会读到本次会话自己写的标记，
+把结论污染成"每次都崩"。
+
+- **能力等级**：`ReadOnly`（无参数、无副作用）
+- **参数**：无
+- **返回**：
+
+```ts
+interface StartupReport {
+  abnormalExit: boolean;            // 上次是否异常退出
+  lastExit: {
+    pid: number | null;             // 崩溃进程 pid（标记损坏时为 null）
+    version: string | null;         // 崩溃时的应用版本
+    startedAtMs: number | null;     // 崩溃会话的开始时间（Unix 毫秒）
+    detectedAtMs: number | null;    // 检测到残留标记的时间（Unix 毫秒）
+  } | null;
+  safeMode: boolean;                // 本次是否为安全模式启动
+  logDir: string;                   // 日志目录（"查看日志"入口用）
+}
+```
+
+- **错误**：正常路径不产生错误（失败即 `INTERNAL`）
+- **前端封装**：`src/lib/ipc/index.ts` 的 `appStartupReport()`
+- **调用点**：`src/features/system/StartupRecoveryNotice.tsx`
+
+### app_restart
+
+重启应用（T7.5）。`safeMode = true` 时写入**一次性**安全模式标记后重启：
+新进程不激活任何插件、禁用内嵌终端，但**保留**用户的插件启用意愿；`safeMode = false`
+用于退出安全模式（清除标记后正常重启）。
+
+- **能力等级**：`Mutating`（写标记文件并重启进程；不改仓库数据）
+- **参数**：
+
+| 参数 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `safeMode` | `boolean` | 是 | 是否以安全模式重启 |
+
+- **返回**：`null`（调用成功后进程重启，因此实际不会返回）
+- **错误**：写标记失败返回 `STORAGE`
+- **副作用**：重启前**先结束当前会话标记**——否则新进程会把这次主动重启误判为崩溃，
+  每次重启都弹一次恢复提示
+- **前端封装**：`src/lib/ipc/index.ts` 的 `appRestart(safeMode)`
+- **调用点**：`src/features/system/StartupRecoveryNotice.tsx`
+
+---
+
+### update_check
+
+查询是否有新版本（T7.1）。更新源与公钥来自 `tauri.conf.json` 的 `plugins.updater`——那是**发布配置**，
+源码自编译与开发构建没有它，因此"未配置"**不是错误**：返回 `configured: false`，
+界面据此静默（否则会出现一条永远修不好的红条）。
+
+- **能力等级**：`Network`（一次 HTTPS 请求）
+- **参数**：无
+- **返回**：
+
+```ts
+interface UpdateCheck {
+  configured: boolean;        // 本构建是否配置了更新源（endpoints + 公钥）
+  update: {
+    version: string;          // 新版本号
+    currentVersion: string;   // 当前版本号
+    notes: string | null;     // 发布说明
+    date: string | null;      // 发布日期
+  } | null;
+}
+```
+
+- **错误**：网络失败 → `NETWORK`；配置存在但非法（如 URL 不合法）→ `NETWORK`（原始错误进 `detail`，已脱敏）
+- **前端封装**：`src/lib/ipc/index.ts` 的 `updateCheck()`
+
+### update_install
+
+下载并安装指定版本（T7.1）。要求 `version` 与**本次**检查到的版本一致：界面上的信息可能已过期
+（期间又发布了新版本），不一致时返回 `VALIDATION` 要求界面重新确认——避免"用户点了 A、装上的却是 B"。
+
+- **能力等级**：`Network`（下载安装包；安装成功后由插件重启应用）
+- **参数**：
+
+| 参数 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `version` | `string` | 是 | 要安装的版本号（必须等于最近一次检查返回的 `version`） |
+
+- **返回**：`null`（安装成功后进程会重启，因此实际不会返回到界面）
+- **错误**：无可用更新 → `NOT_FOUND`；版本不匹配 → `VALIDATION`；下载/安装/签名校验失败 → `NETWORK`
+  （**签名校验失败绝不降级为跳过校验**，见 `docs/RELEASE.md` §3.2）
+- **进度事件**：`update:progress`（见 §3）
+- **前端封装**：`src/lib/ipc/index.ts` 的 `updateInstall(version)`
 
 ---
 
@@ -631,6 +730,7 @@ PTY Spike（T5.1）的调试通道：把 `docs/PTY-SPIKE.md` 验证过的会话�
 | 事件 | 载荷 | 用途 | 任务 | 状态 |
 | --- | --- | --- | --- | --- |
 | `repo:changed` | `{ repoId, kind, paths }` | 仓库数据已变化（应用自己的写操作，或文件监听发现的**外部**变化） | T1.4 / T1.10 | ✅ 已实现 |
+| `update:progress` | `{ phase, received, total }` | 自动更新的下载/安装进度（`phase` ∈ `downloading` \| `installing`；`total` 为 null 表示服务端未给长度） | T7.1 | ✅ 已实现 |
 
 **`repo:changed` 的载荷（T1.10 起带 `kind`）**：
 
@@ -1189,8 +1289,8 @@ interface SnapshotWarning {
 操作审计（T1.11）。每一次**写操作**都会留一条记录，这三个命令负责把它读出来、
 导出、以及按保留策略清理。
 
-- **能力等级**：`audit_list` = `ReadOnly`；`audit_export` = `ReadOnly`（**写临时文件**，
-  不改仓库、不改库表）；`audit_prune` = `Mutating`（删除本地记录）
+- **能力等级**：`audit_list` = `ReadOnly`；`audit_export` = `ReadOnly`（**只写出一个文件**，
+  不改仓库、不改库表；目标位置由用户在系统保存对话框里选定，见 T7.6）；`audit_prune` = `Mutating`（删除本地记录）
 - **记录的形状**（`operation_records` 表）：
 
 | 字段 | 含义 |
@@ -1218,15 +1318,21 @@ interface SnapshotWarning {
 
 #### audit_export
 
-- **参数**：`repoId?`、`opType?`、`format`（`csv` | `json`）、`fromMs?`、`toMs?`
+- **参数**：`repoId?`、`opType?`、`format`（`csv` | `json`）、`targetPath?`、`fromMs?`、`toMs?`
 - **返回**：`{ path, rows, format }`
-- **文件写到**临时目录**（`forgedesk-audit-<时间戳>.<ext>`），返回路径由界面显示并允许复制。
-  "让用户选目录"需要文件对话框插件（M7）；在那之前返回临时路径比假装已保存到用户选的位置诚实。
+- **目标路径（T7.6）**：界面先弹系统保存对话框，把用户选定的**绝对路径**通过 `targetPath` 传入。
+  - 给了 `targetPath`：内容写到该路径（父目录不存在等写失败会返回带路径的 `STORAGE`）；
+  - 没给或给空白：退回**临时目录**（`forgedesk-audit-<时间戳>.<ext>`），返回路径由界面显示并可复制。
+  - 校验（先拒绝，不写出打不开的文件）：路径必须是绝对的——相对路径的基准是进程当前目录，那是用户看不见的东西；
+    扩展名必须与 `format` 一致（大小写不敏感）。
+  - 界面侧语义：**用户在对话框里取消 = 什么都不写**，不会静默回退到临时目录（否则用户以为文件在自己选的位置）。
 - **CSV 的开头写 UTF-8 BOM**：没有它 Excel 会按本地代码页解码，中文全变乱码。
   所有字段都引号包裹并转义（`argsJson` 里有换行与逗号）。
 - 一次导出超过 50000 条会被拒绝（`VALIDATION`）：那是误点的特征，不是用法。
 - **导出本身也会被记录**（`audit_export`）：谁把历史倒出去过是审计的一部分。
-- **错误**：`VALIDATION`（格式未知 / 命中条数过多）、`STORAGE`（写文件失败）
+- **错误**：`VALIDATION`（格式未知 / 命中条数过多 / 目标路径非绝对 / 扩展名与格式不符）、`STORAGE`（写文件失败）
+- **宿主能力**：前端用 `plugin:dialog|save` 取得路径，因此 `capabilities/default.json` 需要 `dialog:allow-save`
+  （在此之前的 `dialog:default` 只含打开选择器）。
 
 #### audit_prune
 

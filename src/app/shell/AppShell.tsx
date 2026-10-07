@@ -9,6 +9,8 @@ import { StatusBar } from '@/app/shell/StatusBar';
 import { TitleBar } from '@/app/shell/TitleBar';
 import { useIsNarrowViewport } from '@/app/shell/useIsNarrowViewport';
 import { ShortcutManagerWithPalette } from '@/features/commands/ShortcutManager';
+import { StartupRecoveryNotice } from '@/features/system/StartupRecoveryNotice';
+import { UpdateBanner } from '@/features/system/UpdateBanner';
 import { useUiStore } from '@/stores/uiStore';
 
 /**
@@ -68,6 +70,12 @@ export function AppShell() {
       </a>
 
       <TitleBar />
+
+      {/* T7.5：崩溃恢复提示（模态，仅异常退出时）与安全模式常驻横幅 */}
+      <StartupRecoveryNotice />
+
+      {/* T7.1：有新版本时的提示横幅（未配置更新源或无更新时不渲染） */}
+      <UpdateBanner />
 
       <div className="flex min-h-0 flex-1">
         <SideNav collapsed={collapsed} autoCollapsed={autoCollapsed} />

@@ -162,6 +162,19 @@ pub fn term_create(
     app: AppHandle,
     request: TermCreateRequest,
 ) -> AppResult<TermCreatedDto> {
+    // 安全模式（T7.5）：终端会拉起真实 shell（可执行任意命令），是崩溃排查时
+    // 最该先关掉的两个面之一（另一个是插件）。这里做后端兜底，界面上同时禁用入口。
+    if state.startup.safe_mode {
+        tracing::warn!(
+            repo_id = request.repo_id,
+            "safe-mode: terminal creation refused"
+        );
+        return Err(AppError::new(
+            ErrorCode::PermissionDenied,
+            "the embedded terminal is disabled in safe mode",
+        ));
+    }
+
     let spec = prepare_spec(&state, &request)?;
 
     // 输出与退出回调共用一个 id 槽位（见模块头说明）。

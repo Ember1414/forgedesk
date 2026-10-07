@@ -32,6 +32,9 @@ serde_json.workspace = true
 # （JSON 数字数组约 3.9 字节/字节，base64 约 1.33 字节/字节，实测数据见 docs/PTY-SPIKE.md）。
 base64 = "0.22"
 tauri.workspace = true
+# 自动更新（T7.1）：update_check / update_install 走插件的 Rust API（不经 JS 命令层，
+# 因此不需要在 capabilities 里授予 `updater:*` 权限）。
+tauri-plugin-updater.workspace = true
 reqwest = { version = "0.13.5", features = ["json", "form", "query"] }
 thiserror.workspace = true
 time.workspace = true

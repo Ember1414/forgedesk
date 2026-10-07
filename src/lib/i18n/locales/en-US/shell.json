@@ -12,7 +12,7 @@
       "label": "Global search",
       "placeholder": "Search repositories, commits, commands…",
       "shortcut": "Ctrl K",
-      "hint": "The command palette and global search arrive in M4"
+      "hint": "The command palette is available (Ctrl/Cmd+Shift+P); searching repositories and commits from this box arrives in a later release"
     },
     "account": {
       "label": "Account",
@@ -77,6 +77,29 @@
   "placeholder": {
     "planned": "Planned in",
     "note": "This page is not implemented yet; the badge above names the milestone task it belongs to."
+  },
+  "startupRecovery": {
+    "abnormalTitle": "ForgeDesk did not close cleanly last time",
+    "abnormalDescription": "The previous session ended abnormally (a crash or a forced exit). Your repositories are not damaged; you can start in safe mode to investigate.",
+    "detailsVersion": "Last version: {{version}}",
+    "detailsTime": "When: {{time}}",
+    "detailsUnknown": "No details available (the previous session record was corrupted).",
+    "close": "Close notice",
+    "safeModeHint": "Safe mode temporarily disables plugins and the embedded terminal to help you narrow down the problem. It does not change your plugin configuration.",
+    "continue": "Continue",
+    "restartSafeMode": "Restart in safe mode",
+    "safeModeBadge": "Safe mode: plugins and the embedded terminal are disabled",
+    "exitSafeMode": "Leave safe mode"
+  },
+  "updateBanner": {
+    "available": "A new version is available: {{version}}",
+    "later": "Remind me later",
+    "install": "Update now",
+    "installing": "Updating…",
+    "downloading": "Downloading {{percent}}%",
+    "downloadingUnknown": "Downloading…",
+    "installingPhase": "Installing — the app will restart when it finishes",
+    "skip": "Skip this version"
   },
   "notFound": {
     "title": "Page not found",
@@ -277,10 +300,6 @@
       "title": "Appearance",
       "description": "Theme and language."
     },
-    "settingsGit": {
-      "title": "Git",
-      "description": "Commit identity, line endings and safety-snapshot policy."
-    },
     "settingsGithub": {
       "title": "Hosting account",
       "description": "How the account is connected and where the token lives."
@@ -321,6 +340,10 @@
     "settingsNetwork": {
       "title": "Network & keys",
       "description": "Proxy settings, connectivity tests and signing key management."
+    },
+    "settingsPrivacy": {
+      "title": "Privacy",
+      "description": "Data inventory, outbound requests and telemetry."
     }
   },
   "terminal": {
@@ -596,6 +619,31 @@
       "logsPolicy": "Logs are written to the app data directory, rotate on both a daily and a 10MB threshold, and are kept for 7 days. Tokens and passwords are stripped before writing, and nothing is ever uploaded.",
       "openLogDirectory": "Open log directory"
     },
+    "privacy": {
+      "summary": "Local first: your code is never collected, no usage data is uploaded, there is no AI inference, and credentials live only in the system keychain.",
+      "noTelemetryTitle": "No telemetry",
+      "noTelemetryBody": "This version ships no analytics or telemetry SDK and collects no usage data. If self-hosted telemetry is ever added, it will be off by default, switchable at any time, and will preview the fields it would send before you enable it.",
+      "noAiTitle": "No AI features",
+      "noAiBody": "The application performs no model inference and needs no network access for local Git work.",
+      "credentialsTitle": "Credentials",
+      "credentialsBody": "Access tokens are stored only in the system credential store (Windows Credential Manager / macOS Keychain / Linux Secret Service); the local database keeps just a reference. SSH private keys are neither copied nor stored.",
+      "logsTitle": "Logs",
+      "logsBody": "Logs are local files, sanitized before writing, kept for 7 days, and never uploaded automatically. You can view or remove them under Advanced.",
+      "requestsTitle": "Outbound requests",
+      "requestsBody": "Only when you use them: your Git remotes, the hosting API you configured, the update manifest address, and proxy connectivity tests you start yourself. Request headers carry no identity information beyond what authentication requires.",
+      "dataTitle": "Local data and deletion",
+      "dataBody": "Repository list, settings, audit records and snapshot metadata live in a database inside the app data directory. Uninstalling or clearing that directory removes them; your repositories are untouched.",
+      "openPolicy": "Read the full privacy policy"
+    },
+    "update": {
+      "title": "Updates",
+      "autoCheck": "Check for updates automatically",
+      "autoCheckHint": "Checks once at startup. When off, nothing is checked automatically. The check fetches one manifest and carries no personal information.",
+      "skippedLabel": "Skipped version",
+      "skippedNone": "No version is skipped",
+      "skippedClear": "Stop skipping",
+      "channelHint": "The update channel is decided by the build you installed (stable / beta); switching it in-app is not supported yet."
+    },
     "appearance": {
       "themeLabel": "Theme",
       "themeHint": "Applies immediately and is remembered; System follows the OS appearance.",
@@ -699,6 +747,7 @@
       "export": {
         "csv": "Export CSV",
         "json": "Export JSON",
+        "chooseTitle": "Export operation history",
         "done": "Exported {{rows}} record(s)",
         "path": "File:",
         "copy": "Copy path"
@@ -1055,7 +1104,7 @@
       "stage": "Stage",
       "unstage": "Unstage",
       "discard": "Discard changes",
-      "openEditor": "Open in editor (available in M5)",
+      "openEditor": "Open in editor",
       "reveal": "Reveal in file manager",
       "copyPath": "Copy path",
       "fileHistory": "View file history"
@@ -1482,7 +1531,7 @@
       "renamedBadge": "renamed",
       "binaryBadge": "binary",
       "copyPatch": "Copy as patch",
-      "t28Hint": "Arrives with T2.8",
+      "t28Hint": "Use the Branches page or the history operations panel instead",
       "error": "Failed to load commit details",
       "kind": {
         "added": "added",

@@ -12,7 +12,6 @@ import { cn } from '@/lib/utils';
 const SETTINGS_SECTIONS = [
   { segment: 'general', labelKey: 'pages.settingsGeneral.title' },
   { segment: 'appearance', labelKey: 'pages.settingsAppearance.title' },
-  { segment: 'git', labelKey: 'pages.settingsGit.title' },
   { segment: 'github', labelKey: 'pages.settingsGithub.title' },
   { segment: 'network', labelKey: 'pages.settingsNetwork.title' },
   { segment: 'terminal', labelKey: 'pages.settingsTerminal.title' },
@@ -20,6 +19,7 @@ const SETTINGS_SECTIONS = [
   { segment: 'layout', labelKey: 'pages.settingsLayout.title' },
   { segment: 'plugins', labelKey: 'pages.settingsPlugins.title' },
   { segment: 'advanced', labelKey: 'pages.settingsAdvanced.title' },
+  { segment: 'privacy', labelKey: 'pages.settingsPrivacy.title' },
 ] as const;
 
 export function SettingsLayout() {

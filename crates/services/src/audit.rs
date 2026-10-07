@@ -346,11 +346,11 @@ impl<'a> AuditLog<'a> {
         }
     }
 
-    /// 导出（CSV / JSON）到临时文件，返回文件路径。
+    /// 导出（CSV / JSON），返回文件路径。
     ///
-    /// 本任务只写临时目录：让用户选目录需要文件对话框插件（M7）。返回的路径
-    /// 界面会显示并允许复制，用户据此自己另存——比"假装已经保存到你选的位置"
-    /// 诚实。
+    /// 目标路径由调用方决定（T7.6）：命令层拿到用户在保存对话框里选的路径后传进来；
+    /// 没有指定时退回**临时目录**（旧行为，便于测试与"先看一眼再另存"）。
+    /// 服务层不解析对话框、也不猜路径——它只负责把内容写到给定位置。
     pub fn export(&self, request: &AuditExportRequest) -> AppResult<AuditExport> {
         let records = self.operations.query_all(&request.query)?;
         if records.len() > EXPORT_MAX_ROWS {
@@ -368,7 +368,10 @@ impl<'a> AuditLog<'a> {
             AuditExportFormat::Csv => csv_body(&records),
             AuditExportFormat::Json => json_body(&records, request.now_ms),
         };
-        let path = export_path(request.format, request.now_ms);
+        let path = match &request.target_path {
+            Some(target) => target.clone(),
+            None => export_path(request.format, request.now_ms),
+        };
 
         std::fs::write(&path, body.as_bytes()).map_err(|error| {
             AppError::new(ErrorCode::Storage, "failed to write the audit export")
@@ -478,8 +481,11 @@ impl AuditExportFormat {
         }
     }
 
-    /// 扩展名。
-    const fn extension(self) -> &'static str {
+    /// 扩展名（不含点）。
+    ///
+    /// 公开给命令层用：用户在保存对话框里手改扩展名时，要在**写之前**发现
+    /// "扩展名与内容格式不符"，而那条校验需要这个映射（T7.6）。
+    pub const fn extension(self) -> &'static str {
         match self {
             Self::Csv => "csv",
             Self::Json => "json",
@@ -494,6 +500,8 @@ pub struct AuditExportRequest {
     pub query: OperationQuery,
     /// 格式。
     pub format: AuditExportFormat,
+    /// 目标文件路径；`None` 表示写到临时目录（由服务自己决定文件名）。
+    pub target_path: Option<PathBuf>,
     /// 当前时间（用于文件名与 JSON 头的生成时间）。
     pub now_ms: i64,
 }
@@ -501,7 +509,7 @@ pub struct AuditExportRequest {
 /// 导出结果。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AuditExport {
-    /// 写好的临时文件路径。
+    /// 写好的文件路径（用户指定的，或临时目录里的）。
     pub path: PathBuf,
     /// 导出条数。
     pub rows: usize,
@@ -918,6 +926,7 @@ mod tests {
             .export(&super::AuditExportRequest {
                 query: OperationQuery::default(),
                 format: AuditExportFormat::Csv,
+                target_path: None,
                 now_ms: 1_700_000_000_000,
             })
             .unwrap();
@@ -953,6 +962,7 @@ mod tests {
             .export(&super::AuditExportRequest {
                 query: OperationQuery::default(),
                 format: AuditExportFormat::Json,
+                target_path: None,
                 now_ms: 1_700_000_000_000,
             })
             .unwrap();
@@ -966,6 +976,36 @@ mod tests {
         assert_eq!(parsed["records"][0]["reversible"], true);
 
         std::fs::remove_file(&export.path).ok();
+    }
+
+    /// T7.6：给了目标路径就必须写到那里——用户点了"保存到 D:\报表.csv"，
+    /// 结果文件出现在临时目录，比不给这个功能更糟。
+    #[test]
+    fn an_explicit_target_path_is_where_the_export_lands() {
+        let database = database();
+        let log = AuditLog::new(OperationStore::new(&database));
+
+        let run = log.begin(&AuditEntry::new(1, "stage")).unwrap();
+        run.finish(&Ok::<(), forgedesk_domain::AppError>(()), None);
+
+        let dir = std::env::temp_dir().join(format!("fd-audit-target-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let target = dir.join("report.csv");
+
+        let export = log
+            .export(&super::AuditExportRequest {
+                query: OperationQuery::default(),
+                format: AuditExportFormat::Csv,
+                target_path: Some(target.clone()),
+                now_ms: 1_700_000_000_000,
+            })
+            .unwrap();
+
+        assert_eq!(export.path, target, "路径必须原样使用，不改名、不改目录");
+        assert!(target.exists(), "文件要真的落在用户选的位置");
+        assert_eq!(export.rows, 1);
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
@@ -1001,6 +1041,7 @@ mod tests {
             .export(&super::AuditExportRequest {
                 query: OperationQuery::default(),
                 format: AuditExportFormat::Json,
+                target_path: None,
                 now_ms: 42,
             })
             .unwrap();

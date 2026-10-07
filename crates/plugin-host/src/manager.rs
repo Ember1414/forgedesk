@@ -84,6 +84,12 @@ struct InstalledPlugin {
     /// 用户授权集（生效权限 = 清单 ∩ 本集合，加载时收敛）。
     granted: BTreeSet<Permission>,
     state: ManagedState,
+    /// 用户**意愿**：用户在正常模式下是否启用过（与 `state` 分开是 T7.5 的需要）。
+    ///
+    /// 安全模式启动时我们不激活任何插件，但绝不能因此把"用户启用过"这件事写成
+    /// `false`——否则用户下次正常启动会发现插件被永久禁用了，而他什么都没做。
+    /// 因此持久化写的是意愿，`state` 只表示**本次会话**的实际情况。
+    enabled_intent: bool,
     /// 运行中实例的句柄；Disabled/Crashed 时为 None。
     runtime: Option<PluginHandle>,
 }
@@ -154,14 +160,20 @@ pub struct PluginManager {
     plugins_root: PathBuf,
     store: Arc<dyn RegistryStore>,
     plugins: parking_lot::RwLock<BTreeMap<String, InstalledPlugin>>,
+    /// 安全模式（T7.5）：为真时**本次会话不激活任何插件**（但不改用户意愿）。
+    safe_mode: bool,
 }
 
 impl PluginManager {
     /// 构建并从持久层恢复注册表（损坏/缺失的条目跳过并告警，不 panic）。
+    ///
+    /// `safe_mode` 为真时（T7.5 的崩溃恢复）：**不激活**任何插件，但保留用户的
+    /// 启用意愿——排查问题时最怕"以安全模式启动一次，插件就被永久关掉了"。
     pub fn new(
         engine: Arc<WasmiEngine>,
         plugins_root: PathBuf,
         store: Arc<dyn RegistryStore>,
+        safe_mode: bool,
     ) -> Result<Self, HostError> {
         std::fs::create_dir_all(&plugins_root).map_err(|error| {
             HostError::Engine(format!("could not create the plugins directory: {error}"))
@@ -171,6 +183,7 @@ impl PluginManager {
             plugins_root,
             store,
             plugins: parking_lot::RwLock::new(BTreeMap::new()),
+            safe_mode,
         };
         manager.restore()?;
         Ok(manager)
@@ -194,7 +207,7 @@ impl PluginManager {
                 );
                 continue;
             }
-            let state = if entry.enabled {
+            let state = if entry.enabled && !self.safe_mode {
                 match self.load_and_activate(
                     &manifest,
                     &wasm,
@@ -207,6 +220,12 @@ impl PluginManager {
                     }
                 }
             } else {
+                if entry.enabled {
+                    tracing::warn!(
+                        plugin_id = entry.id,
+                        "safe-mode startup: plugin activation deferred"
+                    );
+                }
                 ManagedState::Disabled
             };
             self.plugins.write().insert(
@@ -218,6 +237,7 @@ impl PluginManager {
                     sha256: entry.sha256,
                     granted: entry.granted.into_iter().collect(),
                     state,
+                    enabled_intent: entry.enabled,
                     runtime: None,
                 },
             );
@@ -255,6 +275,7 @@ impl PluginManager {
                     sha256: sha256.clone(),
                     granted: BTreeSet::new(),
                     state: ManagedState::Disabled,
+                    enabled_intent: false,
                     runtime: None,
                 },
             );
@@ -332,6 +353,7 @@ impl PluginManager {
             let mut plugins = self.plugins.write();
             let plugin = Self::lookup_mut(&mut plugins, id)?;
             plugin.state = ManagedState::Enabled;
+            plugin.enabled_intent = true;
             plugin.runtime = Some(handle);
             Ok(())
         } else {
@@ -342,6 +364,7 @@ impl PluginManager {
                     return Ok(()); // 幂等
                 }
                 plugin.state = ManagedState::Disabled;
+                plugin.enabled_intent = false;
                 plugin.runtime.take()
             };
             if let Some(handle) = runtime {
@@ -540,7 +563,9 @@ impl PluginManager {
                     dir: plugin.dir.display().to_string(),
                     sha256: plugin.sha256.clone(),
                     granted: plugin.granted.iter().copied().collect(),
-                    enabled: matches!(plugin.state, ManagedState::Enabled),
+                    // 写**意愿**而不是当前状态：安全模式启动时状态是 Disabled，
+                    // 但用户并没有关闭插件，持久化不能替用户做这个决定（T7.5）。
+                    enabled: plugin.enabled_intent,
                 })
                 .collect()
         };
@@ -719,6 +744,7 @@ mod tests {
             engine,
             root.clone(),
             Arc::clone(&store) as Arc<dyn RegistryStore>,
+            false,
         )
         .unwrap();
         (manager, root, store)
@@ -850,6 +876,7 @@ mod tests {
             engine,
             root.clone(),
             Arc::clone(&store) as Arc<dyn RegistryStore>,
+            false,
         )
         .unwrap();
         let summary = &manager.list()[0];
@@ -877,6 +904,7 @@ mod tests {
             engine,
             root.clone(),
             Arc::clone(&store) as Arc<dyn RegistryStore>,
+            false,
         )
         .unwrap();
         assert!(

@@ -12,7 +12,7 @@
       "label": "全局搜索",
       "placeholder": "搜索仓库、提交、命令…",
       "shortcut": "Ctrl K",
-      "hint": "命令面板与全局搜索将在 M4 实现"
+      "hint": "命令面板已可用（Ctrl/Cmd+Shift+P）；在此框内直接搜索仓库与提交将在后续版本提供"
     },
     "account": {
       "label": "账号",
@@ -77,6 +77,29 @@
   "placeholder": {
     "planned": "计划任务",
     "note": "这个页面还没有实现；上方标记了它属于哪个里程碑的任务号。"
+  },
+  "startupRecovery": {
+    "abnormalTitle": "上次异常退出",
+    "abnormalDescription": "ForgeDesk 上次没有正常关闭（崩溃或被强制结束）。这不会损坏仓库数据，你可以先用安全模式排查。",
+    "detailsVersion": "上次运行版本：{{version}}",
+    "detailsTime": "异常时间：{{time}}",
+    "detailsUnknown": "没有可用的详情（上次的会话记录已损坏）。",
+    "close": "关闭提示",
+    "safeModeHint": "安全模式会暂时禁用插件与内嵌终端，便于定位问题；它不会改动你的插件配置。",
+    "continue": "继续使用",
+    "restartSafeMode": "以安全模式重启",
+    "safeModeBadge": "安全模式：插件与内嵌终端已禁用",
+    "exitSafeMode": "退出安全模式"
+  },
+  "updateBanner": {
+    "available": "有新版本可用：{{version}}",
+    "later": "稍后提醒",
+    "install": "立即更新",
+    "installing": "更新中…",
+    "downloading": "下载中 {{percent}}%",
+    "downloadingUnknown": "下载中…",
+    "installingPhase": "正在安装，完成后会自动重启",
+    "skip": "跳过此版本"
   },
   "notFound": {
     "title": "页面不存在",
@@ -277,10 +300,6 @@
       "title": "外观",
       "description": "主题与语言。"
     },
-    "settingsGit": {
-      "title": "Git",
-      "description": "提交身份、行尾处理与安全快照策略。"
-    },
     "settingsGithub": {
       "title": "代码托管账号",
       "description": "账号连接方式与令牌存储位置。"
@@ -321,6 +340,10 @@
     "settingsNetwork": {
       "title": "网络与密钥",
       "description": "代理设置、连通性测试与签名密钥管理。"
+    },
+    "settingsPrivacy": {
+      "title": "隐私",
+      "description": "数据清单、对外请求与遥测说明。"
     }
   },
   "terminal": {
@@ -596,6 +619,31 @@
       "logsPolicy": "日志写入应用数据目录，按天与 10MB 双阈值轮转，保留最近 7 天；写入前会抹掉令牌与密码，且不会上传到任何服务器。",
       "openLogDirectory": "打开日志目录"
     },
+    "privacy": {
+      "summary": "本地优先：不收集代码内容、不上传使用数据、不做 AI 推理；凭据只存系统钥匙串。",
+      "noTelemetryTitle": "无遥测",
+      "noTelemetryBody": "当前版本不包含任何分析或遥测 SDK，也不收集使用数据。若将来引入自建遥测，它会默认关闭、可随时关闭，并在开启前展示将发送的字段。",
+      "noAiTitle": "无 AI 功能",
+      "noAiBody": "应用不做任何模型推理，也不需要联网即可处理本地 Git 操作。",
+      "credentialsTitle": "凭据",
+      "credentialsBody": "访问令牌只保存在系统凭据库（Windows 凭据管理器 / macOS 钥匙串 / Linux Secret Service），本地数据库里只存引用；SSH 私钥不复制、不存储。",
+      "logsTitle": "日志",
+      "logsBody": "日志是本地文件，写入前统一脱敏，保留最近 7 天且绝不自动上传；你可以在「高级」里查看或删除。",
+      "requestsTitle": "对外网络请求",
+      "requestsBody": "只在你使用时访问：你的 Git 远端、你配置的代码托管 API、更新清单地址，以及你手动发起的代理连通性测试。请求头不包含用户身份信息（认证所必需除外）。",
+      "dataTitle": "本地数据与删除",
+      "dataBody": "仓库列表、设置、审计记录与快照元数据保存在应用数据目录的数据库里；卸载或清理该目录即可删除，你的仓库本身不受影响。",
+      "openPolicy": "查看完整隐私政策"
+    },
+    "update": {
+      "title": "更新",
+      "autoCheck": "自动检查更新",
+      "autoCheckHint": "启动时检查一次；关闭后不再自动检查。检查只请求一次更新清单，不携带任何个人信息。",
+      "skippedLabel": "已跳过的版本",
+      "skippedNone": "没有跳过任何版本",
+      "skippedClear": "不再跳过",
+      "channelHint": "更新渠道由安装的构建决定（stable / beta），当前版本不支持在应用内切换。"
+    },
     "appearance": {
       "themeLabel": "主题",
       "themeHint": "切换立即生效并记住选择；跟随系统会随系统外观自动变化。",
@@ -699,6 +747,7 @@
       "export": {
         "csv": "导出 CSV",
         "json": "导出 JSON",
+        "chooseTitle": "导出操作历史",
         "done": "已导出 {{rows}} 条记录",
         "path": "文件：",
         "copy": "复制路径"
@@ -1055,7 +1104,7 @@
       "stage": "暂存",
       "unstage": "取消暂存",
       "discard": "放弃修改",
-      "openEditor": "在编辑器打开（M5 可用）",
+      "openEditor": "在编辑器打开",
       "reveal": "在文件管理器显示",
       "copyPath": "复制路径",
       "fileHistory": "查看文件历史"
@@ -1482,7 +1531,7 @@
       "renamedBadge": "重命名",
       "binaryBadge": "二进制",
       "copyPatch": "复制为 patch",
-      "t28Hint": "将在 T2.8 接通",
+      "t28Hint": "请到「分支」页或「历史」页的操作面板执行",
       "error": "读取提交详情失败",
       "kind": {
         "added": "新增",

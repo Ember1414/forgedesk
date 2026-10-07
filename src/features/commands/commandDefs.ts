@@ -346,8 +346,9 @@ export function useCommandDefinitions(): readonly RegisteredCommand[] {
     void t;
     return commands;
   }, [
+    // 注意：不列 `queryClient`——它经 `refreshStatus`（其自身 useCallback 已依赖它）间接使用，
+    // 直接列入会被 react-hooks/exhaustive-deps 判为多余依赖。
     navigate,
-    queryClient,
     refreshStatus,
     repoScope,
     setDetailPanel,

@@ -47,6 +47,14 @@ pub struct AppState {
     /// 为什么由宿主传入而不是在这里解析：`platform` crate 刻意不依赖 Tauri，
     /// 这样日志与会话逻辑能在纯 Rust 测试里跑，不必启动桌面运行时。
     pub log_dir: PathBuf,
+    /// 启动恢复报告（T7.5）：上次是否异常退出、本次是否安全模式。
+    ///
+    /// 在宿主启动时计算一次并保持不变——"上次是否崩溃"是**那一刻**的事实，
+    /// 运行期间重新探测会读到本次会话自己写下的标记，把结论污染成"每次都崩"。
+    pub startup: crate::startup::StartupReport,
+    /// 结束会话的能力（T7.5）：`app_restart` 在重启前调用它删除会话标记，
+    /// 否则新进程会把这次主动重启误判为崩溃。
+    pub end_session: crate::startup::SessionEnder,
     /// 读引擎（libgit2）与写引擎（系统 git CLI）。
     pub engines: Arc<GitEngines>,
     /// 长任务执行器（进度、取消、结果上报）。

@@ -46,10 +46,10 @@ import { PluginPanelsPage } from '@/features/plugins/PluginPanelsPage';
 import { AdvancedSettingsPage } from '@/features/settings/AdvancedSettingsPage';
 import { AppearanceSettingsPage } from '@/features/settings/AppearanceSettingsPage';
 import { GeneralSettingsPage } from '@/features/settings/GeneralSettingsPage';
-import { GitSettingsPage } from '@/features/settings/GitSettingsPage';
 import { GitHubSettingsPage } from '@/features/settings/GitHubSettingsPage';
 import { NetworkSettingsPage } from '@/features/settings/NetworkSettingsPage';
 import { PluginSettingsPage } from '@/features/settings/PluginSettingsPage';
+import { PrivacySettingsPage } from '@/features/settings/PrivacySettingsPage';
 import { SettingsLayout } from '@/features/settings/SettingsLayout';
 import { LayoutSettingsPage } from '@/features/settings/LayoutSettingsPage';
 import { ShortcutsSettingsPage } from '@/features/settings/ShortcutsSettingsPage';
@@ -124,12 +124,12 @@ export const appRoutes: RouteObject[] = [
           { path: 'appearance', element: <AppearanceSettingsPage /> },
           { path: 'plugins', element: <PluginSettingsPage /> },
           { path: 'network', element: <NetworkSettingsPage /> },
-          { path: 'git', element: <GitSettingsPage /> },
           { path: 'github', element: <GitHubSettingsPage /> },
           { path: 'terminal', element: <TerminalSettingsPage /> },
           { path: 'layout', element: <LayoutSettingsPage /> },
           { path: 'shortcuts', element: <ShortcutsSettingsPage /> },
           { path: 'advanced', element: <AdvancedSettingsPage /> },
+          { path: 'privacy', element: <PrivacySettingsPage /> },
         ],
       },
 

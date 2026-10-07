@@ -3,7 +3,7 @@
 //! | 命令 | 能力等级 | 说明 |
 //! | --- | --- | --- |
 //! | [`audit_list`] | `ReadOnly` | 分页查询操作历史（可按仓库 / 类型 / 时间筛） |
-//! | [`audit_export`] | `ReadOnly`（写临时文件） | 导出 CSV / JSON，返回文件路径 |
+//! | [`audit_export`] | `ReadOnly`（写文件） | 导出 CSV / JSON 到用户选定的路径（未指定则写临时目录） |
 //! | [`audit_prune`] | `Mutating` | 按保留策略清理旧记录 |
 //!
 //! # 为什么拦截放在命令层
@@ -73,7 +73,7 @@ pub struct AuditPageDto {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AuditExportDto {
-    /// 写好的文件路径（本任务只写临时目录；用户选目录要等 M7 的文件对话框）。
+    /// 写好的文件路径（用户选定的，或未指定时临时目录里的）。
     pub path: String,
     /// 导出条数。
     pub rows: usize,
@@ -274,10 +274,12 @@ pub fn audit_export(
     repo_id: Option<i64>,
     op_type: Option<String>,
     format: String,
+    target_path: Option<String>,
     from_ms: Option<i64>,
     to_ms: Option<i64>,
 ) -> AppResult<AuditExportDto> {
     let format = AuditExportFormat::parse(&format)?;
+    let target_path = validate_export_target(target_path.as_deref(), format)?;
     let query = OperationQuery {
         repo_id,
         op_type: normalize_op_type(op_type.clone())?,
@@ -301,6 +303,7 @@ pub fn audit_export(
     let result = audit.export(&forgedesk_services::AuditExportRequest {
         query,
         format,
+        target_path,
         now_ms: forgedesk_services::audit::now_ms(),
     });
 
@@ -436,6 +439,55 @@ pub fn prune_on_startup(state: &AppState) -> usize {
 
 // ---------------------------------------------------------------- 内部
 
+/// 校验用户选定的导出目标路径（T7.6）。
+///
+/// 两条规则，都是"早失败好过晚失败"：
+///
+/// - **必须是绝对路径**：相对路径的基准是进程当前目录——那是用户看不见的东西，
+///   写出来的文件会落在没人预期的地方；
+/// - **扩展名必须与格式一致**：保存对话框里用户可能把 `.csv` 改成 `.json`，
+///   内容按所选格式生成而扩展名相反，双击打开时就是"文件损坏"。
+///
+/// **刻意不做**的事：不检查父目录是否存在（真的写失败会返回带路径的 `STORAGE`
+/// 错误，那条信息比这里猜的准）；不检查目标是否落在仓库工作树内——保存对话框
+/// 已经明确显示了位置，替用户否决一个他/她明确选择的位置是越权。
+fn validate_export_target(
+    target: Option<&str>,
+    format: AuditExportFormat,
+) -> AppResult<Option<std::path::PathBuf>> {
+    let Some(raw) = target else {
+        return Ok(None);
+    };
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        // 未指定 = 退回临时目录（旧行为），因此空串按"没给"处理
+        return Ok(None);
+    }
+
+    let path = std::path::PathBuf::from(trimmed);
+    if !path.is_absolute() {
+        return Err(forgedesk_domain::AppError::new(
+            forgedesk_domain::ErrorCode::Validation,
+            "the export target must be an absolute path",
+        )
+        .with_hint(trimmed.to_owned()));
+    }
+
+    let actual = path
+        .extension()
+        .map(|value| value.to_string_lossy().to_ascii_lowercase())
+        .unwrap_or_default();
+    if actual != format.extension() {
+        return Err(forgedesk_domain::AppError::new(
+            forgedesk_domain::ErrorCode::Validation,
+            "the export file extension does not match the chosen format",
+        )
+        .with_hint(format.extension().to_owned()));
+    }
+
+    Ok(Some(path))
+}
+
 /// 空字符串/空白按"不筛选"处理：界面上的下拉框是"全部"时不该发一个空字符串过来。
 fn normalize_op_type(op_type: Option<String>) -> AppResult<Option<String>> {
     match op_type {
@@ -475,8 +527,47 @@ fn to_dto(record: OperationRecord) -> AuditEntryDto {
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
-    use super::{normalize_op_type, to_dto};
+    use super::{normalize_op_type, to_dto, validate_export_target};
+    use forgedesk_services::AuditExportFormat;
     use forgedesk_storage::OperationRecord;
+
+    /// 相对路径的基准是进程当前目录（用户看不见它），因此一律拒绝。
+    #[test]
+    fn a_relative_export_target_is_refused() {
+        let error = validate_export_target(Some("reports/audit.csv"), AuditExportFormat::Csv)
+            .expect_err("相对路径必须被拒绝");
+        assert_eq!(error.code, forgedesk_domain::ErrorCode::Validation);
+    }
+
+    /// 扩展名与格式不符会被双击打开时报"文件损坏"，因此在写之前就拦下。
+    #[test]
+    fn the_extension_must_match_the_format() {
+        let temp = std::env::temp_dir();
+        let csv = temp.join("audit.csv");
+        let json = temp.join("audit.json");
+
+        assert!(validate_export_target(csv.to_str(), AuditExportFormat::Csv).is_ok());
+        assert!(validate_export_target(json.to_str(), AuditExportFormat::Json).is_ok());
+        assert!(validate_export_target(json.to_str(), AuditExportFormat::Csv).is_err());
+    }
+
+    /// 大小写不敏感：Windows 上用户很容易保存成 `报表.CSV`。
+    #[test]
+    fn the_extension_check_ignores_case() {
+        let upper = std::env::temp_dir().join("audit.CSV");
+        assert!(validate_export_target(upper.to_str(), AuditExportFormat::Csv).is_ok());
+    }
+
+    /// 没给（或只给了空白）= 退回临时目录，是合法用法而不是错误。
+    #[test]
+    fn a_blank_target_falls_back_to_the_temp_directory() {
+        assert!(validate_export_target(None, AuditExportFormat::Csv)
+            .expect("缺省不是错误")
+            .is_none());
+        assert!(validate_export_target(Some("   "), AuditExportFormat::Csv)
+            .expect("空白不是错误")
+            .is_none());
+    }
 
     #[test]
     fn the_result_and_duration_are_derived_from_the_stored_columns() {

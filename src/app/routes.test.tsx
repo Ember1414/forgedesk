@@ -32,9 +32,9 @@ const ROUTE_CASES: readonly (readonly [path: string, heading: string])[] = [
   ['/settings', '通用'],
   ['/settings/general', '通用'],
   ['/settings/appearance', '外观'],
-  ['/settings/git', 'Git'],
   ['/settings/github', '代码托管账号'],
   ['/settings/advanced', '高级'],
+  ['/settings/privacy', '隐私'],
   ['/plugins', '插件'],
   ['/commands', '命令字典'],
   // 未知路径必须给出明确出口，而不是白屏

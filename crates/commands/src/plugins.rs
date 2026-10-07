@@ -681,6 +681,7 @@ pub fn build_plugin_host(
     open: Arc<OpenRepoRegistry>,
     plugins_root: PathBuf,
     app: tauri::AppHandle,
+    safe_mode: bool,
 ) -> AppResult<(PluginManager, Arc<AppHostServices>)> {
     let services_impl = Arc::new(AppHostServices::new(
         Arc::clone(&database),
@@ -694,8 +695,13 @@ pub fn build_plugin_host(
         services,
     ));
     let store = SettingsRegistryStore::new(database);
-    let manager = PluginManager::new(Arc::clone(&engine), plugins_root, Arc::new(store))
-        .map_err(|error| AppError::new(forgedesk_domain::ErrorCode::Internal, error.to_string()))?;
+    let manager = PluginManager::new(
+        Arc::clone(&engine),
+        plugins_root,
+        Arc::new(store),
+        safe_mode,
+    )
+    .map_err(|error| AppError::new(forgedesk_domain::ErrorCode::Internal, error.to_string()))?;
     // 构造循环的解法：服务在构造期没有引擎，这里回填（OnceLock，只写一次）
     let _ = services_impl.engine_ref.set(Arc::clone(&engine));
     Ok((manager, services_impl))

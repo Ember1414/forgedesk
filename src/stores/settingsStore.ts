@@ -79,6 +79,26 @@ export const DEFAULT_TERMINAL_FONT_SIZE = 13;
 /** 终端行高的缺省值（任务书：默认 1.35）。 */
 export const DEFAULT_TERMINAL_LINE_HEIGHT = 1.35;
 
+/**
+ * 自动检查更新（T7.1）。默认开启。
+ *
+ * 关闭后**不再自动检查**（当前版本没有手动检查入口，因此等于完全静默）。
+ * 为什么默认开启：更新提示的收益依赖"用户知道有新版本"；关掉是一个明确的用户选择，
+ * 而不是默认行为。检查只发一次清单请求，不携带任何用户信息（见 docs/PRIVACY.md）。
+ */
+export const UPDATE_AUTO_CHECK_KEY = 'update.autoCheck';
+
+/**
+ * 用户选择"跳过"的版本号（T7.1）。
+ *
+ * 只跳过**这一个**版本：发布下一个版本时仍会提示（"永久忽略更新"是另一种产品决策，
+ * 这里不做）。存的是版本号字符串而不是布尔值，因此不需要在发版时清理。
+ */
+export const UPDATE_SKIPPED_VERSION_KEY = 'update.skippedVersion';
+
+/** 自动检查更新的缺省值。 */
+export const DEFAULT_UPDATE_AUTO_CHECK = true;
+
 const DEFAULT_DENSITY: Density = 'comfortable';
 
 /**

@@ -22,7 +22,7 @@
  */
 export { invokeCommand, isTauriRuntime, listenEvent } from './client';
 export type { Unlisten } from './client';
-export { pickFolder } from './dialog';
+export { pickFolder, pickSavePath } from './dialog';
 
 import { invokeCommand } from './client';
 
@@ -397,6 +397,42 @@ export function appVersion(): Promise<AppVersion> {
   return invokeCommand<AppVersion>('app_version');
 }
 
+/** 上一次异常退出的会话信息（对应 Rust 侧 `forgedesk_commands::LastExitDto`）。 */
+export interface LastExit {
+  /** 崩溃进程的 pid；标记无法解析时为 null。 */
+  readonly pid: number | null;
+  /** 崩溃时的应用版本。 */
+  readonly version: string | null;
+  /** 崩溃会话的开始时间（Unix 毫秒）。 */
+  readonly startedAtMs: number | null;
+  /** 检测到残留标记的时间（Unix 毫秒），近似崩溃时间。 */
+  readonly detectedAtMs: number | null;
+}
+
+/** 启动恢复报告（对应 Rust 侧 `StartupReportDto`）。 */
+export interface StartupReport {
+  readonly abnormalExit: boolean;
+  readonly lastExit: LastExit | null;
+  /** 本次是否为安全模式启动（插件与内嵌终端被禁用）。 */
+  readonly safeMode: boolean;
+  readonly logDir: string;
+}
+
+/** 启动恢复报告（T7.5，只读）。 */
+export function appStartupReport(): Promise<StartupReport> {
+  return invokeCommand<StartupReport>('app_startup_report');
+}
+
+/**
+ * 重启应用（T7.5）。
+ *
+ * `safeMode = true` 时以安全模式重启（本次不加载插件、禁用内嵌终端）；
+ * `safeMode = false` 用于从安全模式回到正常模式。调用成功后进程会重启。
+ */
+export function appRestart(safeMode: boolean): Promise<void> {
+  return invokeCommand<void>('app_restart', { safeMode });
+}
+
 /**
  * 更新主窗口标题（T6.7：语言切换后标题跟随）。
  *
@@ -668,3 +704,8 @@ export function gpgListSecretKeys(): Promise<GpgKey[]> {
 export function gpgTestSign(keyId?: string): Promise<ConnectivityResult> {
   return invokeCommand<ConnectivityResult>('gpg_test_sign', { keyId });
 }
+
+// ---------------------------------------------------------------- T7.1 自动更新
+
+export { EVENT_UPDATE_PROGRESS, listenUpdateProgress, updateCheck, updateInstall } from './updater';
+export type { UpdateCheck, UpdateInfo, UpdateProgressPayload } from './updater';

@@ -3,7 +3,7 @@ import { QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AuditHistoryPanel } from '@/features/settings/AuditHistoryPanel';
-import { auditExport, auditList, auditPrune, repoRecentList } from '@/lib/ipc';
+import { auditExport, auditList, auditPrune, pickSavePath, repoRecentList } from '@/lib/ipc';
 import type { AuditEntry, AuditPage } from '@/lib/ipc';
 import { initialSettingsState, useSettingsStore } from '@/stores/settingsStore';
 import { useToastStore } from '@/stores/toastStore';
@@ -23,12 +23,15 @@ vi.mock('@/lib/ipc', () => ({
   auditExport: vi.fn(),
   auditPrune: vi.fn(),
   repoRecentList: vi.fn(),
+  // T7.6：导出前先弹保存对话框，路径由它给出
+  pickSavePath: vi.fn(),
 }));
 
 const auditListMock = vi.mocked(auditList);
 const auditExportMock = vi.mocked(auditExport);
 const auditPruneMock = vi.mocked(auditPrune);
 const repoRecentListMock = vi.mocked(repoRecentList);
+const pickSavePathMock = vi.mocked(pickSavePath);
 
 function entry(overrides: Partial<AuditEntry> = {}): AuditEntry {
   return {
@@ -66,6 +69,8 @@ beforeEach(() => {
   useSettingsStore.setState(initialSettingsState);
   useToastStore.setState({ toasts: [] });
   repoRecentListMock.mockResolvedValue([]);
+  // 默认"用户选了保存位置"；取消的用例自己覆盖成 null
+  pickSavePathMock.mockResolvedValue('D:\\reports\\audit.csv');
 });
 
 afterEach(() => {
@@ -147,10 +152,11 @@ describe('AuditHistoryPanel', () => {
     });
   });
 
-  it('导出调用后端并显示文件路径（本任务只写临时目录）', async () => {
+  it('导出先让用户选位置，再把选定的路径交给后端', async () => {
     auditListMock.mockResolvedValue(page([entry()]));
+    pickSavePathMock.mockResolvedValue('D:\\reports\\audit.csv');
     auditExportMock.mockResolvedValue({
-      path: 'C:\\Temp\\forgedesk-audit-1700000000000.csv',
+      path: 'D:\\reports\\audit.csv',
       rows: 1,
       format: 'csv',
     });
@@ -160,9 +166,30 @@ describe('AuditHistoryPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: /导出 CSV/ }));
 
     await waitFor(() => {
-      expect(auditExportMock).toHaveBeenCalledWith({ repoId: null, opType: null }, 'csv');
+      expect(auditExportMock).toHaveBeenCalledWith(
+        { repoId: null, opType: null },
+        'csv',
+        'D:\\reports\\audit.csv',
+      );
     });
-    expect(await screen.findByText(/forgedesk-audit-1700000000000\.csv/)).toBeInTheDocument();
+    // 建议文件名要带扩展名，且与本次格式一致（后端会拒绝不符的组合）
+    expect(pickSavePathMock.mock.calls[0]?.[1]).toMatch(/^forgedesk-audit-\d{8}-\d{6}\.csv$/);
+    expect(await screen.findByText(/D:\\reports\\audit\.csv/)).toBeInTheDocument();
+  });
+
+  it('保存对话框被取消时不写任何文件', async () => {
+    auditListMock.mockResolvedValue(page([entry()]));
+    pickSavePathMock.mockResolvedValue(null);
+
+    renderPanel();
+    await screen.findByText('提交');
+    fireEvent.click(screen.getByRole('button', { name: /导出 CSV/ }));
+
+    await waitFor(() => {
+      expect(pickSavePathMock).toHaveBeenCalledTimes(1);
+    });
+    // 取消后**不能**偷偷回退到临时目录：那会让用户以为文件在自己选的地方
+    expect(auditExportMock).not.toHaveBeenCalled();
   });
 
   it('清理旧记录后报告条数与所用策略，并重新拉取列表', async () => {

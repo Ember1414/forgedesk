@@ -46,7 +46,7 @@ export type AuditExportFormat = 'csv' | 'json';
 
 /** 导出结果。 */
 export interface AuditExportResult {
-  /** 写好的临时文件路径（用户据此另存；选目录要等 M7 的文件对话框）。 */
+  /** 写好的文件路径（用户选定的，或未指定时的临时目录）。 */
   readonly path: string;
   /** 导出条数。 */
   readonly rows: number;
@@ -97,14 +97,22 @@ export function auditList(filter: AuditFilter, limit: number, offset: number): P
   });
 }
 
-/** 导出（CSV / JSON）到临时文件，返回文件路径。 */
+/**
+ * 导出（CSV / JSON）。
+ *
+ * `targetPath` 由保存对话框给出（T7.6）；不提供时后端写到临时目录并返回路径。
+ * 后端会校验：必须是**绝对路径**、扩展名要与 `format` 一致（不符时返回 `VALIDATION`，
+ * 而不是写出一个双击打不开的文件）。
+ */
 export function auditExport(
   filter: AuditFilter,
   format: AuditExportFormat,
+  targetPath?: string,
 ): Promise<AuditExportResult> {
   return invokeCommand<AuditExportResult>('audit_export', {
     ...filterArgs(filter),
     format,
+    targetPath,
   });
 }
 

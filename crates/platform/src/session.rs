@@ -135,6 +135,55 @@ pub fn detect_previous_session(directory: impl AsRef<Path>) -> Option<PreviousSe
     })
 }
 
+/// 安全模式请求标记文件名（T7.5）。
+///
+/// 语义是**一次性**的：写标记 = "请下次启动进入安全模式"；启动时消费（读取并删除）
+/// 它。用一次性语义而不是持久设置，是因为安全模式应当只影响**这一次**恢复启动：
+/// 用户重启回正常模式时不必再去关掉一个开关（也避免忘记关导致插件长期被禁）。
+pub const SAFE_MODE_FLAG_FILE: &str = "safe-mode.flag";
+
+/// 请求下次启动进入安全模式（写标记）。
+///
+/// 在"崩溃恢复"对话框里点"以安全模式重启"时调用；随后宿主重启应用，
+/// 新进程在启动时消费该标记。
+pub fn request_safe_mode(directory: impl AsRef<Path>) -> AppResult<()> {
+    let directory = directory.as_ref();
+    std::fs::create_dir_all(directory).map_err(|error| {
+        AppError::new(ErrorCode::Storage, "could not create the log directory")
+            .with_detail(format!("{}: {error}", directory.display()))
+    })?;
+    let path = directory.join(SAFE_MODE_FLAG_FILE);
+    std::fs::write(&path, b"safe-mode").map_err(|error| {
+        AppError::new(ErrorCode::Storage, "could not write the safe-mode flag")
+            .with_detail(format!("{}: {error}", path.display()))
+    })
+}
+
+/// 清除安全模式请求（幂等：标记不存在也算成功）。
+pub fn clear_safe_mode(directory: impl AsRef<Path>) -> AppResult<()> {
+    let path = directory.as_ref().join(SAFE_MODE_FLAG_FILE);
+    match std::fs::remove_file(&path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(
+            AppError::new(ErrorCode::Storage, "could not remove the safe-mode flag")
+                .with_detail(format!("{}: {error}", path.display())),
+        ),
+    }
+}
+
+/// 消费安全模式标记：存在则删除并返回 `true`。
+///
+/// 读失败（权限等）按"没有请求"处理——安全模式是**降级**手段，
+/// 拿不到标记时正常启动，不能因为一个标记读不出来就让应用起不来。
+pub fn take_safe_mode_request(directory: impl AsRef<Path>) -> bool {
+    let path = directory.as_ref().join(SAFE_MODE_FLAG_FILE);
+    match std::fs::remove_file(&path) {
+        Ok(()) => true,
+        Err(_) => false,
+    }
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
@@ -225,6 +274,44 @@ mod tests {
 
         // 已被外部清理时，finish 不应报错（否则退出路径会多出一次假失败）
         marker.finish().expect("重复删除应视同成功");
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// 安全模式标记是一次性的：消费一次后即消失，重启回正常模式不需要额外操作。
+    #[test]
+    fn safe_mode_request_is_consumed_exactly_once() {
+        let dir = unique_dir("safe-mode");
+        std::fs::create_dir_all(&dir).unwrap();
+
+        assert!(
+            !super::take_safe_mode_request(&dir),
+            "没有请求时不应进入安全模式"
+        );
+
+        super::request_safe_mode(&dir).expect("应能写入安全模式请求");
+        assert!(super::take_safe_mode_request(&dir), "写入后应被消费为真");
+        assert!(
+            !super::take_safe_mode_request(&dir),
+            "一次性语义：第二次消费必须为假"
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// 清除是幂等的：没有标记时也不报错（退出安全模式会无条件调用它）。
+    #[test]
+    fn clearing_a_missing_safe_mode_flag_is_not_an_error() {
+        let dir = unique_dir("safe-mode-clear");
+        std::fs::create_dir_all(&dir).unwrap();
+
+        super::clear_safe_mode(&dir).expect("清除不存在的标记不应报错");
+        super::request_safe_mode(&dir).unwrap();
+        super::clear_safe_mode(&dir).expect("清除已存在的标记不应报错");
+        assert!(
+            !super::take_safe_mode_request(&dir),
+            "清除后不应再进入安全模式"
+        );
 
         std::fs::remove_dir_all(&dir).ok();
     }

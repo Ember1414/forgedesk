@@ -56,10 +56,12 @@ pub mod remote_repos;
 pub mod repository;
 pub mod settings;
 pub mod snapshots;
+pub mod startup;
 pub mod state;
 pub mod sync;
 pub mod system;
 pub mod terminal;
+pub mod updater;
 pub mod watch;
 pub mod workspace;
 
@@ -176,6 +178,9 @@ pub use snapshots::{
     RestoreStageDto, SnapshotDiffDto, SnapshotEstimateDto, SnapshotMetaDto, SnapshotOutcomeDto,
     SnapshotUsageDto, SnapshotWarningDto,
 };
+pub use startup::{
+    app_restart, app_startup_report, LastExitDto, SessionEnder, StartupReport, StartupReportDto,
+};
 pub use state::AppState;
 pub use sync::{
     git_fetch, git_pull, git_push, git_remote_add, git_remote_list, git_remote_remove,
@@ -187,6 +192,9 @@ pub use terminal::{
     term_scan_command, term_shell_list, term_write, TermCreateRequest, TermCreatedDto,
     TermDangerDto, TermExitPayload, TermOutputPayload, TermReportRequest, TermShellDto,
     EVENT_TERM_EXIT, EVENT_TERM_OUTPUT,
+};
+pub use updater::{
+    update_check, update_install, UpdateCheckDto, UpdateInfoDto, EVENT_UPDATE_PROGRESS,
 };
 pub use watch::{emit_watch_event, WatchSettings, WatcherRegistry, AUTO_REFRESH_KEY, DEBOUNCE_KEY};
 pub use workspace::{

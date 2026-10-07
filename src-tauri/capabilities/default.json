@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "ForgeDesk 默认能力集。核心命令与窗口事件之外，每项能力按里程碑逐项添加，禁止使用过宽的权限集合。dialog:default 只含打开选择器（打开/克隆/初始化仓库的目录选择），不含消息框与保存对话框。",
+  "description": "ForgeDesk 默认能力集。核心命令与窗口事件之外，每项能力按里程碑逐项添加，禁止使用过宽的权限集合。dialog:default 只含打开选择器（打开/克隆/初始化仓库的目录选择）；dialog:allow-save 是 T7.6 导出操作历史时让用户选保存位置所必需，消息框等其余 dialog 子权限仍未授予。",
   "windows": ["main"],
-  "permissions": ["core:default", "dialog:default"]
+  "permissions": ["core:default", "dialog:default", "dialog:allow-save"]
 }

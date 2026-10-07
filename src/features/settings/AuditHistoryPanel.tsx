@@ -6,7 +6,7 @@ import { ClipboardCopy, Download, Trash2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import { normalizeError, useAppError } from '@/lib/errors';
-import { auditExport, auditList, auditPrune, repoRecentList } from '@/lib/ipc';
+import { auditExport, auditList, auditPrune, pickSavePath, repoRecentList } from '@/lib/ipc';
 import type { AuditEntry, AuditExportFormat, AuditPage } from '@/lib/ipc';
 import {
   AUDIT_RETENTION_DAYS_KEY,
@@ -70,6 +70,22 @@ export const OP_TYPES = [
   'audit_export',
   'audit_prune',
 ] as const;
+
+/**
+ * 建议的导出文件名（保存对话框里的默认名）。
+ *
+ * 用**本地时间**而不是 UTC：用户是拿它跟"我刚才导出的是哪一次"对照的，
+ * 本地时间才是他/她看到的时间。扩展名直接取格式名，因此不可能出现
+ * "内容按 CSV 生成、扩展名却是 .json"这种后端会拒绝的组合。
+ */
+function suggestedExportName(format: AuditExportFormat): string {
+  const now = new Date();
+  const pad = (value: number): string => String(value).padStart(2, '0');
+  const stamp =
+    `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}` +
+    `-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+  return `forgedesk-audit-${stamp}.${format}`;
+}
 
 /**
  * 操作类型短名 → i18n key 后缀。
@@ -175,7 +191,17 @@ export function AuditHistoryPanel() {
   async function runExport(format: AuditExportFormat): Promise<void> {
     setBusy('export');
     try {
-      const result = await auditExport(filter, format);
+      // 先让用户选位置（T7.6）。取消就整个中止——**不要**在取消后偷偷写到临时目录：
+      // 用户会以为文件在自己选的地方，而真正的副本在别处，找起来比不给还糟。
+      const target = await pickSavePath(
+        t('settings.audit.export.chooseTitle'),
+        suggestedExportName(format),
+      );
+      if (target === null) {
+        return;
+      }
+
+      const result = await auditExport(filter, format, target);
       setExportedPath(result.path);
       pushToast({
         title: t('settings.audit.export.done', { rows: result.rows }),
