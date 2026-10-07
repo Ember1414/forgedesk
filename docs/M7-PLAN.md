@@ -282,6 +282,17 @@
 | 安装文档对齐真实产物 | ✅ `docs/install/windows.md` 修正了一处**会误导用户的错误文件名**：示例写的是 Tauri 原始名 `ForgeDesk_1.0.0_x64-setup.exe`，而 Releases 里实际是归一化后的 `ForgeDesk_<版本>_windows_x64.exe`；同时补上产物命名约定、下载页入口、以及"`.asc` 是可选签名"的精确表述 |
 | 未采纳的做法 | 不在 `docs/PLAN.md` §M7 与 `docs/AGENT-PROMPTS.md` 的**历史提示词块**里改这个文件名：那两处是当时下发的任务原文，改它等于篡改记录。命名约定的单一真相源放在 `docs/RELEASE.md` §4.1，并由 `pnpm release:rehearse` 在代码层钉住形状；活文档（install / RELEASE）已改正 |
 
+### 2026-10-07（续十九）：仓库转公开与公开阶段收口
+
+| 事项 | 状态 |
+| --- | --- |
+| 仓库转公开 | ✅ 人类执行；代理匿名核实 `private=false` / `visibility=public` / 首页 200（readiness §3 的 D-1、D-3） |
+| A-2 残留处置 | ✅ 人类决策：**接受公开**（`docs/adr/ADR-004` 历史中的个人邮箱）。理由记录在 readiness §4：重写历史会让文档里数十处提交哈希失效，代价高于该地址本身 |
+| ⚠️ 关键发现 | 转公开时**公开仓库还停在 M6（`5670d8f`）**，本地有 9 个提交未推送 → 公开仓库当时缺 `PRIVACY.md` / `SECURITY.md` / `CODE_OF_CONDUCT.md` / `docs/RELEASE.md` 等文件，且**线上站点仍是 M0 占位页**（`pages.yml` 只在 `site/**` 变化时部署）。**"转公开"与"推送 M7 成果"必须当作同一件事** |
+| 收口变更 | `ci.yml` 删除私有阶段的 `if`（恢复每个 PR 跑三平台矩阵）；`nightly.yml` 加 cron 真正启用；新增 `e2e.yml`（仅手动触发，首跑待观察）；`playwright.config.ts` 浏览器改为 `PW_CHANNEL` 可覆盖；README 安装段指向下载页与 Releases；ADR-002 补记"公开阶段已生效" |
+| Pages 项目 | ✅ 早已存在（2026-09-23 创建）：`pnpm pages:create` 重复执行会以 `code 8000002 already exists` 失败——那是**预期**，不是故障。已在该 npm 脚本上补注释说明 |
+| 配额 | ✅ 转公开后 standard runner 不计费：ADR-002 记的"130 配额分钟/次矩阵"约束解除 |
+
 ### 2026-10-07（续十三）：转公开门禁 B-3 / B-4（图标原创性证据链）
 
 | 项 | 结果 |

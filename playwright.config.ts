@@ -21,9 +21,12 @@ export default defineConfig({
   retries: 0,
   workers: 1,
   use: {
-    // 用系统自带的 Edge（Chromium 内核）：免去 ~200MB 的浏览器下载；
+    // 本地默认用系统自带的 Edge（Chromium 内核）：免去 ~200MB 的浏览器下载；
     // M0 的断言都是 DOM 级交互，与"哪个 Chromium 发行版"无关。
-    channel: 'msedge',
+    //
+    // CI（Linux）没有 Edge，用 `PW_CHANNEL=chromium` 切到 Playwright 自带的 Chromium
+    // （工作流里会先 `playwright install --with-deps chromium`）。
+    channel: process.env['PW_CHANNEL'] ?? 'msedge',
     baseURL: 'http://localhost:1420',
     viewport: { width: 1280, height: 800 },
   },

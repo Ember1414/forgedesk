@@ -214,19 +214,13 @@ jobs:
   build:
     name: build (${{ matrix.platform }})
     needs: [quality, safety]
-    # 私有阶段的三平台矩阵只在这两种情况运行：
-    #   1. 打 tag（发布需要三平台产物）
-    #   2. 手动触发且显式勾选 run_build
+    # 三平台矩阵**每个 PR / 每次 push main 都跑**。
     #
-    # 为什么不再"每次推 main 都跑"：macOS 10x / Windows 2x 计费，
-    # 一次矩阵约 130 配额分钟，而私有仓库每月只有 2000 分钟。
-    # 按每天推几次 main 的频率，两周就会耗尽配额；配额耗尽的后果是 CI 整体不可用，
-    # 比"少跑几次矩阵"严重得多。
-    # 平台差异由本地开发（Windows）+ 发布前的 tag 构建共同覆盖。
-    #
-    # 转公开后请删除这个 if，恢复"每个 PR 都跑三平台矩阵"（额度不再受限）。
+    # 历史：私有阶段这里曾有一条 `if`，把矩阵收窄到"只打 tag 或手动勾选"——
+    # 因为私有仓库按倍率计费（Windows 2x / macOS 10x），一次矩阵约 130 配额分钟，
+    # 而免费私有仓库每月只有 2000 分钟（见 ADR-002）。2026-10-07 仓库转公开后，
+    # 公共仓库的 standard runner 不计费，这条限制的前提消失，故删除（ADR-002 已补记）。
     # 单行写法：块标量会让表达式带上换行，虽然 GitHub 能处理，但这里刻意保持单行以便本地校验
-    if: startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && inputs.run_build)
     strategy:
       fail-fast: false
       matrix:

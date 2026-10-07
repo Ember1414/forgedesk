@@ -1,13 +1,14 @@
 # 转公开前审计清单（Open-Source Readiness）
 
-> 背景：本项目采用**私有仓库起步**（见 `docs/adr/ADR-002-private-first-two-phase-ci.md`）。
+> 背景：本项目采用**私有仓库起步**（见 `docs/adr/ADR-002-private-first-two-phase-ci.md`），
+> 已于 **2026-10-07 转为公开**（`visibility=public` 由匿名 API 核实，见 §3 与 §4）。
 > 关键风险：**把仓库改为 public 时，全部 git 历史会一起公开，且不可撤销**（只能靠重写历史或重建仓库补救）。
-> 因此本清单必须在改动 visibility **之前**逐项完成。
+> 因此本清单要求在改动 visibility **之前**逐项完成；转公开之后才发现的问题按"能改的改、不能改的记录"处理。
 >
-> 状态：**进行中**——A-1 ~ A-6、B-1 / B-2 / B-4（声明与证据链部分）/ B-5 / B-6 / B-7 / B-8 / B-9、C-1 ~ C-4 均已通过（见 §4）；
+> 状态：**已转公开，收口进行中**——A-1 ~ A-6、B-1 / B-2 / B-4（声明与证据链部分）/ B-5 / B-6 / B-7 / B-8 / B-9、C-1 ~ C-4 均已通过（见 §4）；
 > 尚未完成的全部是**人工或外部**项：**B-3 / B-4 的 3 人盲测**（ADR-005 延后至首次对外预发布前；证据链与记录表见 `docs/BRAND.md` §4.1–4.2）、
-> **B-10**（干净环境照 CONTRIBUTING 复现）、§1.3 的托管凭据项、§1.4 C-3 的 Rust 侧补跑（`cargo audit`，本机不可用）。
-> **A 组有一处需人类决策的残留**：历史中曾回显个人邮箱（HEAD 已脱敏），见 §4 与 §1.1 的说明。
+> **B-10**（干净环境照 CONTRIBUTING 复现）、§1.3 的凭据核对、§1.4 C-3 的 Rust 侧补跑（`cargo audit`，本机不可用）。
+> **A 组残留已由人类决策处置**：历史中曾回显的个人邮箱选择"**接受公开**"，处置记录见 §4。
 > 负责人：人类（涉及账号与法律判断的部分）+ 编码代理（可自动化的部分）
 
 ---
@@ -85,22 +86,24 @@
 
 ## 2. 转公开时执行的动作（一次性）
 
-按顺序执行，逐步验证：
+按顺序执行，逐步验证。**实际执行记录（2026-10-07）**：
 
-```text
-1. 完成第 1 节全部门禁，并把结果记录在本文件末尾的「审计记录」小节。
-2. 在 GitHub 上把仓库 visibility 改为 public。
-3. 立即验证：Actions 是否恢复不限额度；用一次 workflow_dispatch 触发三平台构建确认。
-4. 修改 .github/workflows/ci.yml：删除 build job 上的
-   `if: github.event_name != 'pull_request'`（见文件顶部注释的第 1 条）。
-5. 启用 GitHub Pages（Settings → Pages → Source: GitHub Actions）。
-6. 启用 Discussions 并创建分类（T8.7 / PLAN §14.4）。
-7. 恢复/启用 e2e.yml 与 nightly.yml（T7.2）。
-8. 检查仓库设置：Issues 开启、Wiki 关闭（用 docs/ 代替）、Sponsors 视需要、
-   Security Advisories 开启（SECURITY.md 依赖它）。
-9. 更新 README：去掉任何"开发中/私有"的措辞，补齐安装与校验说明。
-10. 发布一条公告（首个公开 commit 的说明），并在 Discussions 发欢迎贴。
-```
+| # | 原定动作 | 结果 |
+| --- | --- | --- |
+| 1 | 完成 §1 全部门禁并记录到 §4 | 🟡 自动部分全通过；人工项（B-3/B-4 盲测、B-10）按 ADR-005 与本 ADR 的"不阻塞公开"判定延后，见 §4 |
+| 2 | 在 GitHub 上把 visibility 改为 public | ✅ 已执行（匿名 API：`private=false`、`visibility=public`） |
+| 3 | 立即验证 Actions 额度，并用一次 `workflow_dispatch` 确认三平台构建 | ⏳ 推送后由 `push main` 的 ci.yml 自动验证（公开仓库 standard runner 不计费） |
+| 4 | 修改 `ci.yml`：删除 build job 上的 `if` | ✅ 已删除。**更正**：原文记的条件 `if: github.event_name != 'pull_request'` 是更早期形态；实际被删的是 `startsWith(github.ref,'refs/tags/') \|\| (workflow_dispatch && inputs.run_build)` |
+| 5 | "启用 GitHub Pages" | ⚠️ **本项目不需要**——ADR-003 已把官网与更新清单托管改为 Cloudflare Pages（私有/公开均可用） |
+| 6 | 启用 Discussions 并创建分类 | ⏳ 需人类在仓库设置里做（模板已在 `.github/DISCUSSION_TEMPLATE/`） |
+| 7 | 恢复/启用 `e2e.yml` 与 `nightly.yml` | 🟡 `nightly.yml` 已加 `schedule`；`e2e.yml` 已创建但**只挂手动触发**（整套 spec 此前仅在 Windows+Edge 跑过，首跑通过后再接 PR 门禁） |
+| 8 | 仓库设置：Issues 开、Wiki 关、Security Advisories 开 | ⏳ 需人类在设置里做 |
+| 9 | 更新 README 措辞与安装说明 | ✅ 安装段已改为指向下载页与 Releases，并保留"尚无发布"的如实表述 |
+| 10 | 发布公告与欢迎贴 | ⏳ 待首次发布（§1.3 凭据 + 打 tag）之后进行 |
+
+> 第 2 步的执行顺序上，代码侧存在一个**先后关系**：把 M7 的提交推送到 main 之前，公开仓库仍停留在
+> M6 的内容（缺 `PRIVACY.md`/`SECURITY.md`/`RELEASE.md` 等，且站点仍是占位页）。因此"转公开"与
+> "推送 M7 成果"必须当作同一件事完成，否则公开仓库会短暂处于"文件缺失"的状态。
 
 ---
 
@@ -112,8 +115,15 @@
 | D-2 | 匿名访问 Actions | 构建记录与产物可见（公共仓库的 artifact 对未登录用户仍不可下载，属正常） |
 | D-3 | 匿名访问 Issues 模板 | 可看到 bug/feature/RFC 模板 |
 | D-4 | 搜索仓库内容中的敏感关键词 | `token`、`password`、`secret`、本机路径 → 0 命中 |
-| D-5 | 用未登录浏览器打开 GitHub Pages | 可访问（若已启用） |
+| D-5 | 用未登录浏览器打开官网（Pages） | 可访问（本项目用 Cloudflare Pages，见 ADR-003） |
 | D-6 | 对照 PLAN §9.5 的红线复检 | 无 Git / GitHub / Tauri Logo，无 Octocat 变体，产品名不含相关字样 |
+
+**2026-10-07 实测**：
+
+- **D-1 ✅** 匿名 `GET https://api.github.com/repos/Ember1414/forgedesk` → 200，`private=false`、`visibility=public`、`default_branch=main`；
+- **D-3 ✅** 匿名访问仓库首页 → 200（353 KB，含 README 与免责声明）；
+- **D-5 ✅** 匿名访问 `https://forgedesk.pages.dev/` → 200（当时仍是 M0 占位页；站点随下一次 `site/**` 变更自动部署）；
+- **D-2 / D-4 / D-6 ⏳** 待 M7 成果推送后复检（D-4 的内容侧已在 A 组扫描过：无凭据、无本机路径）。
 
 ---
 
@@ -135,6 +145,9 @@
 | 2026-10-07 | 编码代理 | **C-2 / C-4 通过** | **C-2**：`Cargo.lock` 与 `pnpm-lock.yaml` 均被跟踪；CI 用 `pnpm install --frozen-lockfile`（3 处），本轮又给 cargo 的构建/测试步骤补上 `--locked`（`ci.yml` 的 clippy / tests / safety / example-plugins 与 `nightly.yml` 的 probe；加参数前先本地跑 `cargo check --workspace --all-targets --locked` 确认锁文件与工作区一致）。**C-4**：5 个工作流均有顶层 `permissions`，`pnpm check:workflows` 0 警告 |
 | 2026-10-07 | 编码代理 | **C-3 通过：2 处 high 已修，扫描归零** | 本机默认 registry（`registry.npmmirror.com`）不实现 audit 端点 → 改用 `pnpm audit --registry=https://registry.npmjs.org/`。修复前 2 处：`sharp` <0.35.5（CVE-2026-96889，librsvg）与 `source-map-js` <1.2.2（GHSA-68fv-2mgg-jv7q，事件循环 DoS）——**两者都在 dev 链路、不进产物**。处置：`sharp` 提到 `^0.35.5`；`source-map-js` 用 `pnpm-workspace.yaml` 的 `overrides` 钉到 `1.2.2`（**pnpm 11 不读 `package.json#pnpm`**，该字段会告警并被忽略——本项目配置本就以 `pnpm-workspace.yaml` 为准，与既有 `ansi-regex` 条目同一处）。复核：`pnpm audit` → **No known vulnerabilities found**；前端 891 测试、`compliance`（含依赖许可）、`check:workflows`、`typecheck`、`lint`、`format:check`、`i18n:check` 全绿。**Rust 侧 `cargo audit` 未跑**（本机无该工具且需联网拉 RustSec 库）→ 建议在可安装的环境补跑 |
 | 2026-10-07 | 编码代理 | **B-3 / B-4 的证据链就位；人工盲测仍待执行（ADR-005）** | **真源自检**：`docs/brand/icon-source.svg` 全部图元为基础几何（`rect`×5 + `path`×3 + 渐变×2），无 `<image>`、无外部引用、注释外无品牌词。**产物可复现**：重跑 `node scripts/brand/render-icon.mjs` 后 `icon-1024.png` 的 SHA256 **完全不变**（`def8097a509dc22a…`，且在升级后的 `sharp` 0.35.5 下复现）——证明图标确由真源渲染。**产物台账**（真源 + 1024 PNG + 17 个平台图标）写入 `docs/BRAND.md` §4.1。自动化侧：`pnpm compliance` 的「图标检查（R2）」通过。**未过项**：`known-logos.json` 的 `knownSha256` 为空（有意为之，避免虚假安全感），故"与官方 Logo 无相似"仍须**人工并排目视**确认；3 人盲测按 ADR-005 延后，方法 + 记录表见 `docs/BRAND.md` §4.2（不得由代理代填） |
+| 2026-10-07 | **人类** | **仓库转为公开（`visibility=public`）** | 编码代理不能执行账号级操作（本机亦无 `gh`），由人类在 GitHub 设置里完成；代理随后匿名核实：`private=false`、`visibility=public`、首页 200（见 §3） |
+| 2026-10-07 | **人类（决策）+ 编码代理（记录）** | **A-2 残留处置：接受公开** | 历史中 `docs/adr/ADR-004` 曾回显个人邮箱（HEAD 已于 `c707a54` 脱敏，历史侧因该串存在于 M0 之后的每个树而无法在不重写历史的前提下收回）。人类选择**选项①接受**——重写历史会使文档中数十处提交哈希失效，代价高于该地址（QQ 邮箱）已在多处公开的事实。代理已把该决策写入本表，并据此关闭 A-2 残留项 |
+| 2026-10-07 | 编码代理 | **转公开后的收口变更** | `ci.yml`：删除 build job 的私有阶段 `if`，恢复"每个 PR 跑三平台矩阵"；`nightly.yml`：加 `schedule: cron '0 2 * * *'` 真正启用；新增 `.github/workflows/e2e.yml`（**仅手动触发**，Linux+Chromium 首跑待观察）；`playwright.config.ts` 的浏览器改为 `PW_CHANNEL` 可覆盖（CI 用 chromium）；README 安装段指向下载页与 Releases；ADR-002 补记"公开阶段已生效"。E-2 旁证：`https://forgedesk.pages.dev` 返回 200，说明 Pages 项目与部署凭据此前已就位 |
 | 2026-10-07 | 编码代理 | **发布链路代码侧就位（承接 E-1 ~ E-4）** | `release.yml`（preflight / build-windows / publish）+ 4 个脚本落地，`pnpm check:workflows` 6 个工作流 0 警告。**E-3 的口径已明确**：endpoints 由发布构建注入而非写进仓库（见上表注），与工作流写出的 `<渠道>/<target>.json` 路径逐字一致。E-2 / E-4 仍待人类配置凭据后复核（`docs/RELEASE.md` §4.1 的凭据表） |
 | — | — | §1 其余门禁（B-3 / B-4 盲测、B-10、C-3 的 Rust 侧）与 §1.3 托管凭据（E-2 / E-4） | 转公开前执行 |
 

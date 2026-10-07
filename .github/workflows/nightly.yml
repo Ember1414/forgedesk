@@ -24,6 +24,10 @@ name: Nightly
 #   schedule:
 #     - cron: '0 2 * * *' # 每日 02:00 UTC（PLAN §11.1；私有阶段不启用，见 ADR-002）
 on:
+  # 2026-10-07 仓库转公开后启用（此前只有 workflow_dispatch）：
+  # 公共仓库的 standard runner 不计费，夜间全量 + 性能基准的前提条件因此成立。
+  schedule:
+    - cron: '0 2 * * *' # 每日 02:00 UTC（PLAN §11.1）
   workflow_dispatch:
 
 concurrency:

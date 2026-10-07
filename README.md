@@ -77,13 +77,16 @@ pnpm tauri build      # 打包（本机平台；产物在 src-tauri/target/relea
 
 ## 安装
 
-**预编译发布版尚未提供**（M7 进行中，目标 Windows 首发）。发布后会给出：
+**预编译发布版尚未提供**（M7 进行中，目标 Windows 首发）。届时会有两处入口：
 
-- GitHub Releases 下载页与 SHA256/GPG 校验；
-- Windows 安装包（NSIS/MSI）与**便携版 zip**、Scoop / Winget；
-- macOS / Linux 分发随 M8 推进。
+- **下载页**：<https://forgedesk.pages.dev> —— 显示当前版本与 NSIS / MSI / 便携版三个入口及
+  SHA256 校验和（版本信息取自发布清单，与实际发布同源）；没有发布时它**如实显示"尚无可用版本"**，
+  不给任何虚假下载入口；
+- **GitHub Releases**：全部历史版本、`SHA256SUMS`（发布带了 GPG 签名时还有 `.asc`）。
 
-已提供的说明：[`docs/install/windows.md`](docs/install/windows.md)（含校验命令与 SmartScreen 指引）。
+随之提供：Windows 安装包（NSIS/MSI）与**便携版 zip**；Scoop / Winget 与 macOS / Linux 分发随 M8 推进。
+
+已提供的说明：[`docs/install/windows.md`](docs/install/windows.md)（含产物命名、校验命令与 SmartScreen 指引）。
 
 ---
 

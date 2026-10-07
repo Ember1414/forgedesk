@@ -1,0 +1,68 @@
+name: E2E
+
+# ===========================================================================
+# Playwright 端到端测试（`e2e/` 下的 23 个 spec，覆盖 M0–M6 的主要交互面）。
+#
+# 为什么现在还是"手动触发"：readiness §2 要求转公开后启用 e2e，而整套 spec 此前
+# **只在 Windows + Edge 上跑过**（见 docs/acceptance/M0-interaction.md），
+# Linux + Chromium 下的首跑尚未发生。先手动触发观察一次，通过后再接
+# `pull_request` / `push main`——否则公开仓库的第一个 CI 就可能是一片红。
+#
+# 浏览器的分工：本地默认用系统 Edge（配置见 playwright.config.ts），
+# 这里用 `PW_CHANNEL=chromium` + `playwright install --with-deps` 让 Linux runner
+# 拿到自带的 Chromium。规格本身是 DOM 级断言，与浏览器发行版无关。
+#
+# 为什么 workers=1（见 playwright.config.ts）：spec 之间共享同一个 dev server 与
+# localStorage，并行会互相污染。
+# ===========================================================================
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    name: playwright (chromium)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install JS dependencies
+        run: pnpm install --frozen-lockfile
+
+      # --with-deps 会装 Chromium 运行所需的系统库（Linux runner 上没有它们）
+      - name: Install Chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      # PW_CHANNEL=chromium 覆盖 playwright.config.ts 里的 msedge 默认值
+      - name: Run e2e
+        env:
+          PW_CHANNEL: chromium
+        run: pnpm test:e2e --reporter=line,html
+
+      # 报告只在失败时上传：失败时最需要它，通过时上传只是浪费存储
+      - name: Upload report
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: playwright-report
+          path: playwright-report/
+          if-no-files-found: ignore
+          retention-days: 7

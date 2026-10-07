@@ -1,7 +1,8 @@
 # ADR-002: 私有仓库起步 + 两阶段 CI 配额策略
 
-- 状态：已接受
-- 日期：2026-09-23
+- 状态：**已生效（私有阶段）→ 公开阶段已生效（2026-10-07）**。本 ADR 保留以记录判断过程，
+  不再作为约束来源：仓库已于 2026-10-07 转为公开，私有阶段的两条约束随之解除（见下方"公开阶段"）。
+- 日期：2026-09-23（公开阶段补记：2026-10-07）
 - 里程碑：M0 / T0.10
 - 关联：`docs/PLAN.md` §11.1、§11.2；`docs/OPEN-SOURCE-READINESS.md`；`.github/workflows/ci.yml`
 
@@ -63,12 +64,15 @@ GitHub Pages 在 Free 计划的**私有**仓库中不提供（需要 Pro/Team/En
 - macOS / Linux 的差异集中在依赖安装与打包环节，这些在 tag 构建时会被完整验证；
 - M0 出口标准中的"三平台产物"由 tag 构建 + `workflow_dispatch` 满足。
 
-### 公开阶段（转公开后）
+### 公开阶段（转公开后）—— 已于 2026-10-07 执行
 
-1. 删除 `build` job 上的 `if: github.event_name != 'pull_request'`，恢复"每个 PR 都跑三平台矩阵"。
-2. 启用 `e2e.yml`（Linux 必需）与 `nightly.yml`（全量 + 性能基准）。
-3. 启用 GitHub Pages（M7/T7.9）与更新清单托管（T7.1/T7.3）。
-4. 执行 `docs/OPEN-SOURCE-READINESS.md` 中的全部审计项。
+| # | 动作 | 实际执行 |
+| --- | --- | --- |
+| 1 | 删除 `build` job 上的 `if`，恢复"每个 PR 都跑三平台矩阵" | ✅ 已删除（那条 `if` 是 `startsWith(github.ref,'refs/tags/') \|\| (workflow_dispatch && inputs.run_build)`）。公共仓库 standard runner 不计费，前提消失 |
+| 2 | 启用 `nightly.yml`（性能基准） | ✅ 已加 `schedule: cron '0 2 * * *'` |
+| 2b | 启用 `e2e.yml` | 🟡 已创建但**只挂 `workflow_dispatch`**：整套 spec 此前仅在 Windows + Edge 跑过，Linux + Chromium 首跑未发生；观察通过后再接 PR/push 触发（避免公开仓库首个 CI 变红） |
+| 3 | "启用 GitHub Pages" | ⚠️ **不需要**——ADR-003 已把官网与更新清单托管改为 Cloudflare Pages（私有/公开均可），本项目不使用 GitHub Pages |
+| 4 | 执行 readiness 全部审计项 | 🟡 A/B/C 三组的自动部分已完成；剩 B-3/B-4 人工盲测、B-10 干净环境复现、C-3 的 Rust 侧补跑，以及 §1.3 的凭据核对 |
 
 ## 备选方案
 

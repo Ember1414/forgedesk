@@ -49,6 +49,7 @@
     "//pages": "使用 npx 而非 pnpm dlx：pnpm 在遇到需要构建的依赖（esbuild/workerd）时会弹出交互式选择框，且 dlx 的隔离环境不读取项目的 pnpm 配置，脚本化场景下会直接卡住。",
     "pages:preview": "npx --yes wrangler@4 pages dev site",
     "pages:deploy": "npx --yes wrangler@4 pages deploy site --project-name=forgedesk",
+    "//pages:create": "一次性引导步骤：项目 forgedesk 已于 2026-09-23 创建，重复执行会以 code 8000002（already exists）失败——那是预期结果，不是故障。保留此脚本是为了让流程能在全新账号上自举。",
     "pages:create": "npx --yes wrangler@4 pages project create forgedesk --production-branch=main",
     "tauri": "tauri"
   },
