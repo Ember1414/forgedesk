@@ -33,6 +33,8 @@ forgedesk-services.workspace = true
 forgedesk-snapshot.workspace = true
 forgedesk-storage.workspace = true
 tauri-plugin-dialog = "2.7.3"
+# 自动更新（T7.1）：宿主注册插件（`.plugin(...)`）；命令实现在 crates/commands。
+tauri-plugin-updater.workspace = true
 
 [lints]
 workspace = true

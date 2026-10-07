@@ -18,8 +18,12 @@ onlyBuiltDependencies:
   - esbuild
   - workerd
 
-# 供应链加固（T0.12 / OPS-6）：强制把存在已知漏洞的传递依赖钉到修复版。
-# ansi-regex@5.0.0 ReDoS（GHSA-93q8-gq69-wqmw，经 pretty-format@27 传入，仅 dev 链路）。
-# 升级 jest-dom / pretty-format 主版本后可移除本条。
+# 供应链加固（T0.12 / OPS-6 / M7 的 C-3）：强制把存在已知漏洞的传递依赖钉到修复版。
+# · ansi-regex@5.0.0 ReDoS（GHSA-93q8-gq69-wqmw，经 pretty-format@27 传入，仅 dev 链路）。
+#   升级 jest-dom / pretty-format 主版本后可移除本条。
+# · source-map-js <1.2.2 事件循环 DoS（GHSA-68fv-2mgg-jv7q，经 vite/postcss 传入，
+#   仅 dev 链路且不进产物）。父包的范围写法不会自动升到 1.2.2，故在此钉住。
+#   （注：`sharp` 的 CVE-2026-96889 走 devDependencies 的版本号修复，不需要 override。）
 overrides:
   ansi-regex@<5.0.1: 5.0.1
+  source-map-js@<1.2.2: 1.2.2
