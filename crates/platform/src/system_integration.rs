@@ -422,6 +422,11 @@ pub fn autostart_for_current_platform() -> Box<dyn Autostart> {
     Box::new(windows_autostart::WindowsAutostart::new(exe))
 }
 
+/// macOS：登录项走 `~/Library/LaunchAgents` 的 LaunchAgent plist。
+///
+/// 与 Windows 变体同一契约：exe 路径取不到时回退到打包后的安装位置。
+/// （三个平台变体必须**各自**带文档：`missing_docs` 按 cfg 分别检查，
+/// Windows 上编译不到这段并不代表它合规——2026-10-07 的真实教训。）
 #[cfg(target_os = "macos")]
 pub fn autostart_for_current_platform() -> Box<dyn Autostart> {
     let exe = std::env::current_exe().unwrap_or_else(|_| {
@@ -433,6 +438,10 @@ pub fn autostart_for_current_platform() -> Box<dyn Autostart> {
     Box::new(LaunchAgentAutostart::new(exe, dir))
 }
 
+/// Linux：遵循 XDG 自启规范（`$XDG_CONFIG_HOME/autostart`，缺省 `~/.config/autostart`）的 .desktop 文件。
+///
+/// 文档缺失只会在 Linux/macOS 的编译里被 `missing_docs` 拒绝——
+/// 这是 cfg 门控代码必须逐变体自查的原因（见 macOS 变体的说明）。
 #[cfg(target_os = "linux")]
 pub fn autostart_for_current_platform() -> Box<dyn Autostart> {
     let exe =
@@ -447,6 +456,7 @@ pub fn autostart_for_current_platform() -> Box<dyn Autostart> {
     Box::new(XdgAutostart::new(exe, dir))
 }
 
+/// 其余平台：占位实现（状态恒为未启用，enable 报明确错误）。
 #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 pub fn autostart_for_current_platform() -> Box<dyn Autostart> {
     Box::new(UnsupportedAutostart)
