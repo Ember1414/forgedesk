@@ -151,7 +151,19 @@ jobs:
       # 若锁文件过期就立刻失败，而不是在 runner 上悄悄解析出另一组版本
       # （本地不加此参数，因为开发时需要能更新锁文件）。见 OPEN-SOURCE-READINESS C-2。
       - name: Rust clippy
-        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+        run: |
+          set -o pipefail
+          cargo clippy --workspace --all-targets --locked -- -D warnings 2>&1 | tee clippy.log
+
+      # 失败详情只进日志（日志 API 不允许匿名读取），把首因提升为注解——注解可以匿名读取。
+      # 背景：clippy 在 Linux 上才编译 `cfg(unix)` 路径，"本地 Windows 全绿、CI 红"的
+      # 平台差异问题由此可直接定位（2026-10-07 的真实案例）。
+      - name: Clippy failure annotation
+        if: failure()
+        run: |
+          grep -E '^error' clippy.log | head -8 | while IFS= read -r line; do
+            echo "::error title=clippy (Linux)::${line:0:180}"
+          done
 
       # 测试夹具应该自足（仓库级身份由各自配置）；这条全局身份是**防御层**——
       # 任何漏配身份的新测试不会因此挂掉 CI（2026-09-28 起的长期红灯根因：
@@ -162,7 +174,21 @@ jobs:
           git config --global user.email "ci@forgedesk.invalid"
 
       - name: Rust tests
-        run: cargo test --workspace --locked
+        run: |
+          set -o pipefail
+          cargo test --workspace --locked 2>&1 | tee test.log
+
+      # 同上：panic 消息与失败用例名提升为注解，匿名可读，省一次"猜是哪条用例"
+      - name: Test failure annotation
+        if: failure()
+        run: |
+          grep -E 'panicked at' test.log | head -5 | while IFS= read -r line; do
+            echo "::error title=test panic::${line:0:180}"
+          done
+          sed -n '/^failures:$/,$p' test.log | grep -vE '^(failures:|test result:)' | head -10 | while IFS= read -r line; do
+            [ -z "$line" ] && continue
+            echo "::error title=failed test::$line"
+          done
 
   # ------------------------------------------------------------------
   # T3.11 破坏性操作安全测试矩阵（docs/PLAN.md §10.6 的 15 个场景）：
@@ -193,12 +219,30 @@ jobs:
           git config --global user.email "ci@forgedesk.invalid"
 
       - name: Destructive operation safety matrix
-        run: cargo test -p forgedesk-services --test destructive_safety_matrix --locked
+        run: |
+          set -o pipefail
+          cargo test -p forgedesk-services --test destructive_safety_matrix --locked 2>&1 | tee matrix.log
+
+      # 同上：panic 消息与失败用例名提升为注解，匿名可读
+      - name: Matrix failure annotation
+        if: failure()
+        run: |
+          grep -E 'panicked at' matrix.log | head -5 | while IFS= read -r line; do
+            echo "::error title=matrix panic::${line:0:180}"
+          done
+          sed -n '/^failures:$/,$p' matrix.log | grep -vE '^(failures:|test result:)' | head -10 | while IFS= read -r line; do
+            [ -z "$line" ] && continue
+            echo "::error title=failed matrix case::$line"
+          done
 
   example-plugins:
-    name: example-plugins
-    runs-on: ubuntu-22.04
+    name: example-plugins (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2022]
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
@@ -206,7 +250,12 @@ jobs:
           targets: wasm32-wasip1
       - name: 构建示例插件并同步产物
         run: node scripts/build-plugins.mjs
+      # 产物由 Windows 端 rustc/lld 生成并入库；跨 OS 的编译器在 DWARF（编译目录等）
+      # 上并不逐字节一致，因此"源码 ↔ 产物"的同步校验只在产物来源平台上执行——
+      # 在 Linux 上做字节比较等于要求两个编译器逐字节相同，那不是本检查的目的。
+      # 构建本身仍然两平台都跑：它验证插件 SDK 在两个平台都能编译。
       - name: 校验产物与源码同步（忘了跑构建脚本会在这里红）
+        if: runner.os == 'Windows'
         run: git diff --exit-code -- plugins/examples
       - name: 冒烟测试（加载入库产物）
         run: cargo test -p forgedesk-plugin-host --test example_plugins --locked
