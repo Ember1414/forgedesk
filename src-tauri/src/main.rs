@@ -477,6 +477,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // T5.5 诊断引擎（全构建注册）
         forgedesk_commands::system_diagnose_error,
         forgedesk_commands::system_diagnose_keys,
+        // 外链出口（全构建注册）：隐私政策、文档、终端链接都经它打开；
+        // 曾经只在 commands 层实现而没注册——调用直接报 Command not found
+        forgedesk_commands::system_open_url,
         // T5.7 工作区文件系统（全构建注册）
         forgedesk_commands::fs_tree,
         forgedesk_commands::fs_read,
@@ -676,6 +679,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // T5.5 诊断引擎（全构建注册）
         forgedesk_commands::system_diagnose_error,
         forgedesk_commands::system_diagnose_keys,
+        // 外链出口（全构建注册）：隐私政策、文档、终端链接都经它打开；
+        // 曾经只在 commands 层实现而没注册——调用直接报 Command not found
+        forgedesk_commands::system_open_url,
         // T5.7 工作区文件系统（全构建注册）
         forgedesk_commands::fs_tree,
         forgedesk_commands::fs_read,
