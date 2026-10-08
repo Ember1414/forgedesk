@@ -97,6 +97,14 @@ export interface ThemeDefinition {
   readonly colors: Readonly<Partial<Record<ThemeColorToken, string>>>;
   /** 字体覆盖（可选）。sizeScale 目前为预留字段：字阶是固定 px，暂不缩放。 */
   readonly fonts?: { readonly ui?: string; readonly mono?: string; readonly sizeScale?: number };
+  /**
+   * 动效时长覆盖（可选）。
+   *
+   * 主题此前只能改颜色，切换主题除了变个色调没有任何手感差异
+   * （2026-10-08 反馈的"只有颜色变化，显得单调"）。时长是**非颜色**维度里
+   * 最安全的一个：不改变任何布局与字号，只改过渡的快慢。
+   */
+  readonly motion?: { readonly fast?: string; readonly base?: string; readonly slow?: string };
   /** 终端配色覆盖（可选，键见 XTERM_KEYS）。 */
   readonly xterm?: Readonly<Partial<Record<XtermKey, string>>>;
 }
@@ -124,6 +132,16 @@ const SEMVER_PATTERN = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
 
 function isValidColorValue(value: string): boolean {
   return HEX_PATTERN.test(value) || RGB_PATTERN.test(value);
+}
+
+/** 动效时长：`<n>ms` 或 `<n>s`（秒允许小数，如 `0.2s`），且落在 0–2000ms 的合理区间。 */
+function isValidDuration(value: string): boolean {
+  const match = /^(\d{1,4}(?:\.\d+)?)(ms|s)$/.exec(value);
+  if (match === null) {
+    return false;
+  }
+  const milliseconds = Number(match[1]) * (match[2] === 's' ? 1000 : 1);
+  return Number.isFinite(milliseconds) && milliseconds >= 0 && milliseconds <= 2000;
 }
 
 function err(field: string, code: string, value?: string): ThemeFieldError {
@@ -215,6 +233,27 @@ export function validateThemeJson(input: unknown): ThemeValidateResult {
     }
   }
 
+  let motion: { fast?: string; base?: string; slow?: string } | undefined = undefined;
+  if (raw.motion !== undefined) {
+    if (typeof raw.motion !== 'object' || raw.motion === null || Array.isArray(raw.motion)) {
+      errors.push(err('motion', 'notAnObject'));
+    } else {
+      const rawMotion = raw.motion as Record<string, unknown>;
+      motion = {};
+      for (const key of ['fast', 'base', 'slow'] as const) {
+        const value = rawMotion[key];
+        if (value === undefined) {
+          continue;
+        }
+        if (typeof value !== 'string' || !isValidDuration(value)) {
+          errors.push(err(`motion.${key}`, 'invalidDuration', String(value)));
+        } else {
+          motion[key] = value;
+        }
+      }
+    }
+  }
+
   const xterm: Record<string, string> = {};
   if (raw.xterm !== undefined) {
     if (typeof raw.xterm !== 'object' || raw.xterm === null || Array.isArray(raw.xterm)) {
@@ -248,6 +287,7 @@ export function validateThemeJson(input: unknown): ThemeValidateResult {
       version,
       colors,
       ...(fonts !== undefined && Object.keys(fonts).length > 0 ? { fonts } : {}),
+      ...(motion !== undefined && Object.keys(motion).length > 0 ? { motion } : {}),
       ...(Object.keys(xterm).length > 0 ? { xterm } : {}),
     },
   };

@@ -84,6 +84,50 @@ describe('首帧缓存', () => {
   });
 });
 
+describe('非颜色维度（字体 / 动效）', () => {
+  afterEach(() => {
+    applyCustomThemeColors(null, 'light');
+  });
+
+  it('动效时长会被写到 --fd-duration-*，清除时移除', () => {
+    const theme = {
+      id: 'slow-motion',
+      name: 'Slow Motion',
+      appearance: 'light' as const,
+      version: '1.0.0',
+      colors: {},
+      motion: { fast: '180ms', base: '260ms' },
+    };
+
+    applyCustomThemeColors(theme, 'light');
+
+    const root = document.documentElement;
+    expect(root.style.getPropertyValue('--fd-duration-fast')).toBe('180ms');
+    expect(root.style.getPropertyValue('--fd-duration-base')).toBe('260ms');
+    // 未声明的档位不写（继续用 tokens.css 的值）
+    expect(root.style.getPropertyValue('--fd-duration-slow')).toBe('');
+
+    applyCustomThemeColors(null, 'light');
+    expect(root.style.getPropertyValue('--fd-duration-fast')).toBe('');
+  });
+
+  it('外观与主题不一致时不落任何变量（动效也不落）', () => {
+    applyCustomThemeColors(
+      {
+        id: 'dark-only',
+        name: 'Dark Only',
+        appearance: 'dark',
+        version: '1.0.0',
+        colors: { canvas: '#000000' },
+        motion: { fast: '300ms' },
+      },
+      'light',
+    );
+
+    expect(document.documentElement.style.getPropertyValue('--fd-duration-fast')).toBe('');
+  });
+});
+
 describe('xterm 配色派生', () => {
   it('未覆盖的键从 resolve 取内置值，显式 xterm 段优先级最高', () => {
     const palette = deriveXtermPalette(

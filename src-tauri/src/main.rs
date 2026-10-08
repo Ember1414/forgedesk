@@ -421,6 +421,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         forgedesk_commands::git_reset_execute,
         forgedesk_commands::git_reflog,
         forgedesk_commands::git_reflog_create_branch,
+        // 提交详情：曾经只加进了 release 块，于是**开发构建**里点提交详情必然
+        // 报 Command not found（文件历史面板的"提交详情"、历史页的详情都受影响）。
+        // 两块的清单必须保持一致，差异只允许是"演示/调试命令"（见 CI 的
+        // check:ipc 的注册一致性检查）。
+        forgedesk_commands::git_commit_detail,
         forgedesk_commands::git_rebase_preview_only,
         forgedesk_commands::git_rebase_execute,
         forgedesk_commands::git_rebase_continue_edit,
@@ -532,6 +537,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         forgedesk_commands::settings_all,
         forgedesk_commands::logs_open,
         forgedesk_commands::workspace_status,
+        // 工作区差异：曾经只在 dev 块注册，于是**发布构建**里 diff 面板必然报
+        // Command not found——这不是"演示命令"，两块都要有（2026-10-08 发现）。
+        forgedesk_commands::workspace_diff,
+        forgedesk_commands::workspace_diff_patch,
         forgedesk_commands::workspace_reveal,
         forgedesk_commands::workspace_stage,
         forgedesk_commands::workspace_unstage,

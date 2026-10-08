@@ -14,6 +14,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { fsCreate, fsDelete, fsRename, fsTree } from '@/lib/ipc/fs';
 import { workspaceStatus } from '@/lib/ipc/workspace';
+import { useAppError } from '@/lib/errors';
 import { STATUS_QUERY_KEY } from '@/lib/queryKeys';
 import type { FsNode } from '@/lib/ipc/fs';
 import {
@@ -55,6 +56,7 @@ function parentOf(path: string): string {
 
 export function FileTreePanel({ repoId, onOpenFile }: FileTreePanelProps) {
   const { t } = useTranslation('shell');
+  const { show } = useAppError();
   const queryClient = useQueryClient();
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
   const [showHidden, setShowHidden] = useState(false);
@@ -76,6 +78,8 @@ export function FileTreePanel({ repoId, onOpenFile }: FileTreePanelProps) {
     ].map((file) => file.path),
   );
 
+  // `reloadTick` 是"手动刷新"的版本号：它也进每一层子目录的键，
+  // 否则新建/重命名/删除之后只有根层级会重新拉取（子目录保持旧结果）
   const tree = useQuery({
     queryKey: ['fs-tree', repoId, '', showHidden, reloadTick],
     queryFn: () => fsTree(repoId, '', { showHidden }),
@@ -118,11 +122,15 @@ export function FileTreePanel({ repoId, onOpenFile }: FileTreePanelProps) {
           break;
       }
       refresh();
+    } catch (error) {
+      // 失败必须说出来：此前只有 try/finally，创建/重命名/删除失败时对话框照常关闭、
+      // 界面毫无反应（重名、无权限、路径非法都表现为"点了没反应"）
+      show(error);
     } finally {
       setPrompt(null);
       setPromptText('');
     }
-  }, [prompt, promptText, refresh, repoId]);
+  }, [prompt, promptText, refresh, repoId, show]);
 
   const visible = (tree.data ?? []).filter(
     (node) => !(onlyChanged && node.kind === 'file' && !changedPaths.has(node.relPath)),
@@ -151,12 +159,23 @@ export function FileTreePanel({ repoId, onOpenFile }: FileTreePanelProps) {
           <FolderPlus aria-hidden="true" className="size-3.5" />
         </Button>
         <span className="flex-1" />
+        {/* 用外层 label 保持紧凑排版（组件自带的 label 是 text-13），
+            aria-label 让开关有可访问名——此前它只有一个视觉相邻的文字，
+            读屏用户与测试都拿不到名字 */}
         <label className="text-fg-muted flex items-center gap-1 text-11">
-          <Checkbox checked={showHidden} onCheckedChange={(c) => setShowHidden(c === true)} />
+          <Checkbox
+            checked={showHidden}
+            aria-label={t('editor.tree.showHidden')}
+            onCheckedChange={(c) => setShowHidden(c === true)}
+          />
           {t('editor.tree.showHidden')}
         </label>
         <label className="text-fg-muted flex items-center gap-1 text-11">
-          <Checkbox checked={onlyChanged} onCheckedChange={(c) => setOnlyChanged(c === true)} />
+          <Checkbox
+            checked={onlyChanged}
+            aria-label={t('editor.tree.onlyChanged')}
+            onCheckedChange={(c) => setOnlyChanged(c === true)}
+          />
           {t('editor.tree.onlyChanged')}
         </label>
       </div>
@@ -170,6 +189,8 @@ export function FileTreePanel({ repoId, onOpenFile }: FileTreePanelProps) {
             depth={0}
             expanded={expanded}
             changedPaths={changedPaths}
+            showHidden={showHidden}
+            reloadTick={reloadTick}
             onToggle={toggle}
             onOpenFile={onOpenFile}
             refresh={refresh}
@@ -252,6 +273,8 @@ function TreeRow({
   depth,
   expanded,
   changedPaths,
+  showHidden,
+  reloadTick,
   onToggle,
   onOpenFile,
   refresh,
@@ -262,6 +285,10 @@ function TreeRow({
   readonly depth: number;
   readonly expanded: ReadonlySet<string>;
   readonly changedPaths: ReadonlySet<string>;
+  /** 显示隐藏文件：必须逐层传下去——子目录此前固定 false，于是开关只对根层级生效。 */
+  readonly showHidden: boolean;
+  /** 手动刷新版本号：进子目录的查询键，刷新才会重取每一层。 */
+  readonly reloadTick: number;
   readonly onToggle: (relPath: string) => void;
   readonly onOpenFile: (path: string) => void;
   readonly refresh: () => void;
@@ -270,9 +297,11 @@ function TreeRow({
   const { t } = useTranslation('shell');
   const isDir = node.kind === 'dir';
   const isExpanded = expanded.has(node.relPath);
+  // 查询键里不再放 `isExpanded`：展开状态由 `enabled` 表达就够了，
+  // 放进键里会让每个目录产生两份缓存（展开/收起各一份），刷新时也更难失效
   const children = useQuery({
-    queryKey: ['fs-tree', repoId, node.relPath, isExpanded],
-    queryFn: () => fsTree(repoId, node.relPath, { showHidden: false }),
+    queryKey: ['fs-tree', repoId, node.relPath, showHidden, reloadTick],
+    queryFn: () => fsTree(repoId, node.relPath, { showHidden }),
     enabled: isDir && isExpanded,
   });
   const changed = changedPaths.has(node.relPath);
@@ -326,6 +355,8 @@ function TreeRow({
               depth={depth + 1}
               expanded={expanded}
               changedPaths={changedPaths}
+              showHidden={showHidden}
+              reloadTick={reloadTick}
               onToggle={onToggle}
               onOpenFile={onOpenFile}
               refresh={refresh}

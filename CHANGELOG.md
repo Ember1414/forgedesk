@@ -6,7 +6,43 @@
 > 说明：M0–M6 在开发期未逐一打 tag，下方日期对应各里程碑的**验收日期**
 > （见 `docs/acceptance/`）。正式对外分发从 M7（v1.0）开始。
 
-## [未发布]
+## [1.1.0] - 2026-10-08
+
+### 修复
+
+- **IPC 参数形状（19 处调用点在真机上必然失败）**：Tauri 按形参名从 payload 取值，
+  结构体参数必须包在同名键里。`fs_*`（编辑器文件树恒空、新建文件必失败）、
+  `git_blame` / `git_file_history`、`repo_dashboard`、`repo_issue_*` 与 `repo_pull_*`
+  共 19 处平铺传参，而 `docs/API.md` 的 `fs_*` 行也写错成平铺——前端照着错的文档实现。
+  单测与 e2e 都 mock 掉了 `invoke`，因此这条规则测不出来；新增门禁 `pnpm check:ipc`
+  逐一比对 194 个命令 × 186 个调用点
+- **命令注册漂移（两处真实事故）**：`git_commit_detail` 只注册在 release 清单里
+  （开发构建点提交详情必失败——文件历史里的"提交详情"就是它）；`workspace_diff` /
+  `workspace_diff_patch` 只注册在 dev 清单里（**发布版**的工作区 diff 面板会失败）。
+  同一门禁现在也会校验 dev / release 两份清单一致
+- **黑框闪烁**：发布构建是 GUI 子系统（没有控制台），启动 `git.exe` 时 Windows 会为
+  它新建控制台窗口——"打开仓库"一次十几条 git 命令就是连续闪黑框。新增
+  `platform::subprocess`（`CREATE_NO_WINDOW`）覆盖全部 git / ssh / gpg 调用
+- **卡顿**：45 个仍在主线程（WebView2 事件循环）执行的命令改为 `#[tauri::command(async)]`——
+  一次 git 子进程就是整窗冻结 + 全部 IPC 排队（实测记录：一条 `git log --all` 用了 5.2 秒）。
+  写操作保持同步（它们依赖"主线程串行化"这个隐式不变量，见 `docs/PERF-BASELINE.md` §5.8）
+- 历史页：`HistoryOpsPanel`（含 20 条 reflog）把 `flex-1` 的提交图挤成 0 高度——
+  提交加载了却看不到图、也滚不动。面板压成单行 + reflog 默认折叠，图画布给下限，
+  页面改为可滚动
+- 仓库初始化：目标目录不存在时以它为工作目录执行 `git init`，被进程层拒绝（"找不到目标"）。
+  `InitRequest` 的契约本就是"不存在时创建"，现在真的创建（含缺失父目录）
+- 主题：Sandstone Dawn / Pine Nocturne 有色板却被无条件当成"清空覆盖"处理，
+  四种内置主题只有两种能用；激活也不触发重渲染，"使用中"标记不动
+- 编辑器文件树：`reloadTick` 未进子目录的查询键（在子目录里新建/删除后界面保持旧结果）、
+  隐藏文件开关只对根层级生效（子目录固定 `false`）、创建/重命名/删除失败时静默关闭对话框
+- 插件面板：只读"运行态注册表"，于是"没有面板"与"声明了面板但尚未启用"都显示为空——
+  用户以为插件功能根本不存在
+- 首次运行自动安装随应用分发的三个示例插件（**初始禁用、权限零预授**，卸载后不会被塞回来）
+- 右上角头像按钮此前**没有 onClick**（点了没有任何反应），现在读账号状态并跳转
+  「代码托管账号」；旁边的版本徽标此前写死"已是最新版本"，现在复用更新查询并如实显示
+  "本地构建（未配置更新源）"
+- 修掉 3 处既有 lint 错误（`site/app.js` 与官网截图脚本），它们本来就让 CI 的
+  `quality` 长期变红
 
 ### 新增
 
@@ -25,11 +61,35 @@
   `check:site` 增加三条断言（副本存在 / 与真相源逐字节一致 / 源缺失时不留旧副本）
 - 自动更新的**「篡改包被拒」自动化测试**（M7 验收第 2 条）：与 `tauri-plugin-updater` 相同的
   验签库与调用方式，覆盖"原样通过 / 改一字节拒绝 / 长度变化拒绝 / 非签发者公钥拒绝"
+- **编辑器**：Monaco 主题改为**跟随应用主题**（用 `--fd-*` 设计令牌定义，自定义主题同样生效）
+  并显式填满可用高度；语法高亮语言从 14 种扩到 34 种（+C#/PHP/Ruby/Swift/Kotlin/
+  PowerShell/Bat/Lua/R/Dart/Objective-C/Less/Protobuf/Clojure/Scala/Perl/Julia/GraphQL/
+  F#/Pascal）；打开时的滚动与内边距、大文件优化显式声明
+- **主题不再只是换颜色**：主题模型新增 `motion`（`--fd-duration-*` 覆盖）与既有 `fonts` 的
+  组合使用——Sandstone Dawn 走"纸面"气质（打字机等宽栈 + 放慢一档动效），
+  Pine Nocturne 走"利落"（现代等宽栈 + 更快动效）；画廊卡片新增**迷你界面预览**
+  （用该主题自己的色值绘制，未覆盖的令牌取该外观的真实值）与"配色 / 字体 / 动效 /
+  终端配色"维度标记
+- **命令词典**从 36 条命令扩到 **69 条**（54 个子命令），补齐 `grep` / `shortlog` /
+  `rev-list` / `rev-parse` / `describe` / `merge-base` / `cherry-pick` 之外的常用面：
+  `apply` / `am` / `format-patch` / `notes` / `ls-files` / `check-ignore` / `archive` /
+  `bundle` / `cat-file` / `hash-object` / `sparse-checkout` / `mergetool` / `range-diff` /
+  `difftool` / `ls-remote` / `request-pull` / `repack` / `prune` / `maintenance` /
+  `count-objects` / `credential` / `version` / `help` 等，每条带风险等级、官方文档与典型用法
+- 插件面板页列出"已安装但未启用"的插件与其声明的面板标题，并提供启用入口
+  （`PluginSummary` 新增 `declaredPanels`）
 
 ### 文档
 
 - `docs/RELEASE.md` §3.1：写明公钥副本是**构建时生成**，换公钥只改 `docs/keys/` 一处
 - `docs/acceptance/M7.md`：按 v1.0.0 实况复检（8 通过 / 2 部分通过 / 0 未执行）
+- `docs/API.md`：新增"参数形状"通用约定（Tauri 按形参名取值，结构体参数不能平铺），
+  修正 `fs_*` 一节的错误契约；`plugin_list` 补 `declaredPanels`
+- `docs/PLATFORM-NOTES.md`：记录 Windows 控制台子进程的黑框与 `CREATE_NO_WINDOW` 修法
+- `docs/PERF-BASELINE.md` §5.8：记录"哪些命令移出主线程、哪些必须保持同步"及其理由
+- `docs/manual/04-github-and-tools.md`：插件（自带示例与初始禁用语义）与主题
+  （四套、非颜色维度、迷你预览）两节按现状重写
+- `AGENTS.md`：新增 `pnpm check:ipc` 到强制门禁清单（含它为什么必须存在的事故记录）
 
 ## [1.0.0] - 2026-10-07
 

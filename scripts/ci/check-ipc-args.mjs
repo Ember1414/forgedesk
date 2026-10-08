@@ -219,7 +219,124 @@ for (const call of calls) {
   }
 }
 
-// ---------------------------------------------------------------- 4. 结果
+// ------------------------------------------------- 4. 命令注册一致性（2026-10-08 加）
+
+/**
+ * 只允许出现在开发构建里的命令（演示 / 调试 / PTY 探针）。
+ *
+ * `src-tauri/src/main.rs` 用 `#[cfg(debug_assertions)]` 与
+ * `#[cfg(not(debug_assertions))]` 维护**两份** `generate_handler!` 清单，
+ * 目的只是"演示命令不进正式产物"。两份清单一旦漂移，症状是两个极端：
+ *
+ * - 命令只加进 release 块 → **开发构建**里调用必失败（真实事故：
+ *   `git_commit_detail`，于是 dev 里点提交详情永远报 Command not found）；
+ * - 命令只加进 dev 块 → **发布构建**里调用必失败（真实事故：`workspace_diff`
+ *   与 `workspace_diff_patch`，发布版用户根本看不到工作区差异）。
+ *
+ * 两者都不会被单测发现（单测不启动 Tauri 运行时），所以必须由这里守住。
+ */
+const DEV_ONLY_COMMANDS = new Set([
+  'pty_spike_create',
+  'pty_spike_write',
+  'pty_spike_resize',
+  'pty_spike_close',
+  'pty_spike_throughput',
+  'debug_throw_error',
+  'debug_panic',
+]);
+
+/** 取出 `generate_handler![...]` 的每一段内容（按括号配平，去掉行注释）。 */
+function handlerBlocks(source) {
+  const blocks = [];
+  let cursor = 0;
+  while ((cursor = source.indexOf('generate_handler![', cursor)) >= 0) {
+    const start = source.indexOf('[', cursor) + 1;
+    let index = start;
+    let depth = 1;
+    while (index < source.length && depth > 0) {
+      const char = source[index];
+      if (char === '[') depth += 1;
+      else if (char === ']') depth -= 1;
+      index += 1;
+    }
+    blocks.push(source.slice(start, index - 1).replace(/\/\/[^\n]*/g, ''));
+    cursor = index;
+  }
+  return blocks;
+}
+
+const toCommandName = (entry) => /^forgedesk_commands::(\w+)$/.exec(entry.trim())?.[1] ?? null;
+
+const mainRs = readFileSync(join(repoRoot, 'src-tauri', 'src', 'main.rs'), 'utf8');
+const handlerLists = handlerBlocks(mainRs).map((block) =>
+  block
+    .split(',')
+    .map(toCommandName)
+    .filter((name) => name !== null),
+);
+
+if (handlerLists.length !== 2) {
+  console.error(
+    `命令注册校验失败：期望 main.rs 里有 2 份 generate_handler!（dev / release），实际 ${handlerLists.length} 份。`,
+  );
+  process.exit(1);
+}
+
+const [devCommands, releaseCommands] = handlerLists;
+const devSet = new Set(devCommands);
+const releaseSet = new Set(releaseCommands);
+const registered = new Set([...devSet, ...releaseSet]);
+
+for (const name of devCommands) {
+  if (!releaseSet.has(name) && !DEV_ONLY_COMMANDS.has(name)) {
+    problems.push(
+      `src-tauri/src/main.rs  命令 \`${name}\` 只在 dev 清单里\n    ` +
+        `发布构建会调用失败（Command not found）。要么加进 release 清单，要么登记进 DEV_ONLY_COMMANDS。`,
+    );
+  }
+}
+for (const name of releaseCommands) {
+  if (!devSet.has(name)) {
+    problems.push(
+      `src-tauri/src/main.rs  命令 \`${name}\` 只在 release 清单里\n    ` +
+        `开发构建会调用失败。要么加进 dev 清单，要么登记进 DEV_ONLY_COMMANDS。`,
+    );
+  }
+}
+for (const call of calls) {
+  if (!registered.has(call.name)) {
+    problems.push(
+      `${call.where}  命令 \`${call.name}\` 没有任何地方注册\n    ` +
+        `前端调用它只会拿到 Command not found。`,
+    );
+  }
+}
+
+// 定义了 `#[tauri::command]` 却从未注册：命令写了但没人能调用（多半是漏注册）。
+// 文档注释里的示例代码要先剔除，否则会把 `/// pub fn some_action()` 当成真命令。
+const definitions = new Set();
+for (const file of walk(join(repoRoot, 'crates', 'commands', 'src'), ['.rs'])) {
+  const source = readFileSync(file, 'utf8')
+    .split('\n')
+    .filter((line) => !line.trimStart().startsWith('///'))
+    .join('\n');
+  const pattern =
+    /#\[tauri::command[^\]]*\](?:\s*(?:#\[[^\]]*\]|\/\/[^\n]*))*\s*(?:pub\s+)?(?:async\s+)?fn\s+(\w+)/g;
+  let match;
+  while ((match = pattern.exec(source)) !== null) {
+    definitions.add(match[1]);
+  }
+}
+for (const name of definitions) {
+  if (!registered.has(name)) {
+    problems.push(
+      `crates/commands  命令 \`${name}\` 定义了但两份清单都没注册\n    ` +
+        `前端无法调用它（要么注册，要么删掉）。`,
+    );
+  }
+}
+
+// ---------------------------------------------------------------- 5. 结果
 
 if (problems.length > 0) {
   console.error(`IPC 参数形状校验失败：${problems.length} 处\n`);
@@ -242,5 +359,6 @@ if (unknown.length > 0) {
 }
 
 console.log(
-  `[PASS] IPC 参数形状：${rustCommands.size} 个命令、${calls.length} 个调用点，键名与形参名一一对应。`,
+  `[PASS] IPC 契约：${rustCommands.size} 个命令、${calls.length} 个调用点，参数形状与形参名一一对应；` +
+    `dev / release 两份注册清单一致（仅 ${DEV_ONLY_COMMANDS.size} 个演示命令只存在于 dev）。`,
 );

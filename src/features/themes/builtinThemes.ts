@@ -31,7 +31,13 @@ export const BUILTIN_THEMES: readonly ThemeDefinition[] = [
     id: 'sandstone-dawn',
     name: 'Sandstone Dawn',
     appearance: 'light',
-    version: '1.0.0',
+    version: '1.1.0',
+    // 非颜色维度（2026-10-08）：主题此前只改颜色，切换后除了变色没有任何手感差异。
+    // 这套是"纸面"气质——等宽字体选打字机感的栈，动效放慢一档，读起来更缓。
+    fonts: {
+      mono: "'Courier New', 'Cascadia Mono', Consolas, monospace",
+    },
+    motion: { fast: '180ms', base: '260ms', slow: '420ms' },
     colors: {
       canvas: '#f6f1e7',
       surface: '#fdfaf3',
@@ -58,7 +64,13 @@ export const BUILTIN_THEMES: readonly ThemeDefinition[] = [
     id: 'pine-nocturne',
     name: 'Pine Nocturne',
     appearance: 'dark',
-    version: '1.0.0',
+    version: '1.1.0',
+    // 与 Sandstone 相反的一档：现代等宽栈 + 更短的动效（"利落"），
+    // 两套主题切换时除了配色，手感也明显不同
+    fonts: {
+      mono: "'Cascadia Mono', 'JetBrains Mono', ui-monospace, Consolas, monospace",
+    },
+    motion: { fast: '90ms', base: '130ms', slow: '200ms' },
     colors: {
       canvas: '#0c1512',
       surface: '#12201b',

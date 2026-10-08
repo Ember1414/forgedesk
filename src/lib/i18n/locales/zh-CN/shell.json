@@ -686,7 +686,11 @@
       "contrastMuted": "次要文字 / 卡片底色",
       "contrastInherited": "继承内置（由 CI 保证）",
       "themesDeleteConfirm": "删除主题「{{name}}」？该操作不可撤销。",
-      "themesDeleteImpact": "「{{name}}」将从画廊移除；若它正在使用，界面恢复为对应外观的内置配色。"
+      "themesDeleteImpact": "「{{name}}」将从画廊移除；若它正在使用，界面恢复为对应外观的内置配色。",
+      "dimensionColors": "配色",
+      "dimensionFonts": "字体",
+      "dimensionMotion": "动效",
+      "dimensionTerminal": "终端配色"
     },
     "audit": {
       "title": "操作历史",
@@ -2151,7 +2155,9 @@
       "changeKind": "变更类型：{kind}",
       "compare": "对比",
       "compareAria": "与该历史版本对比",
-      "loadMore": "加载更多"
+      "loadMore": "加载更多",
+      "listError": "文件历史加载失败。",
+      "retry": "重试"
     }
   },
   "commands": {
@@ -2277,9 +2283,13 @@
     "crashedHint": "插件异常停止。查看日志排查原因；修复后可重新启用。",
     "panelsLoading": "正在加载…",
     "panelsEmpty": "还没有已启用插件提供面板。",
-    "panelsEmptyHint": "在 设置 → 插件 里以开发者模式安装示例插件并启用后，面板会出现在这里。",
+    "panelsEmptyHint": "内置示例插件已随应用安装（见下方列表）。在上方启用它们并逐项授予权限后，面板就会出现在这里。",
     "panelRetry": "重试",
-    "commandDone": "插件命令已执行"
+    "commandDone": "插件命令已执行",
+    "panelsPendingTitle": "已安装但未启用的面板",
+    "panelsPendingHint": "这些插件声明了面板，但尚未启用。启用后（需要逐项授予权限）它们会出现在上方。",
+    "panelsPendingAction": "去启用",
+    "panelsPendingState": "当前状态"
   },
   "network": {
     "proxyTitle": "代理",

@@ -115,7 +115,14 @@ export function FileHistoryPanel({ repoId, path, onCompare, onClose }: FileHisto
         {history.isLoading ? (
           <p className="text-fg-subtle p-2 text-12">…</p>
         ) : history.isError ? (
-          <p className="text-danger p-2 text-12">{t('editor.history.detailError')}</p>
+          // 列表失败此前复用"提交详情加载失败"的文案（张冠李戴），而且没有重试入口：
+          // 用户看到一句对不上的错误，也不知道能做什么
+          <div className="flex flex-col items-start gap-2 p-2">
+            <p className="text-danger text-12">{t('editor.history.listError')}</p>
+            <Button size="sm" variant="secondary" onClick={() => void history.refetch()}>
+              {t('editor.history.retry')}
+            </Button>
+          </div>
         ) : (
           <ul className="flex flex-col gap-0.5">
             {(history.data?.items ?? []).map((entry) => (

@@ -564,6 +564,14 @@ export function debugPanic(): Promise<void> {
 /** 插件管理态（`plugin_list`，T6.4）。 */
 export type PluginManagedState = 'enabled' | 'disabled' | 'crashed';
 
+/** 清单声明的面板（`plugin_list` 的 `declaredPanels`）。 */
+export interface PluginDeclaredPanel {
+  readonly id: string;
+  readonly title: string;
+  /** 呈现位置（后端 `PanelLocation` 的 kebab-case 序列化）。 */
+  readonly location: 'sidebar' | 'bottom' | 'repo-tab';
+}
+
 /** 已安装插件摘要（`plugin_list`）。 */
 export interface PluginSummary {
   readonly id: string;
@@ -578,6 +586,14 @@ export interface PluginSummary {
   readonly grantedPermissions: readonly string[];
   /** 成功的宿主调用计数（按权限聚合）；仅运行中的插件有值。 */
   readonly permissionUsage: readonly (readonly [string, number])[];
+  /**
+   * 清单声明的面板贡献点（含未启用的插件）。
+   *
+   * 与 `plugin_registrations` 的区别：那个只反映**运行中**插件注册了哪些面板，
+   * 这个反映**清单里写了什么**。两者都要有，界面才能区分"没有面板"与
+   * "声明了面板但还没启用"（否则两种都表现为空列表）。
+   */
+  readonly declaredPanels?: readonly PluginDeclaredPanel[];
 }
 
 /** 安装结果（`plugin_install_from_dir`）。 */

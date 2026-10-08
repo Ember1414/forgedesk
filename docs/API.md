@@ -2062,7 +2062,7 @@ editor 的第一个参数追加，cp 完成替换；`GIT_EDITOR=true` 让 reword
 
 | 命令 | 能力 | 参数 | 返回/说明 |
 | --- | --- | --- | --- |
-| `plugin_list` | ReadOnly | `{}` | `PluginSummary[]`：id/name/version/author/license/description/state（`enabled`/`disabled`/`crashed`）/declaredPermissions/grantedPermissions/permissionUsage（运行中才有） |
+| `plugin_list` | ReadOnly | `{}` | `PluginSummary[]`：id/name/version/author/license/description/state（`enabled`/`disabled`/`crashed`）/declaredPermissions/grantedPermissions/permissionUsage（运行中才有）/declaredPanels（清单声明的面板，含**未启用**的插件——注册表 `plugin_registrations` 只反映运行态） |
 | `plugin_install_from_dir` | Mutating | `{ dir }` | `InstallReport { id, name, version, sha256, insideRoot, declaredPermissions }`。清单非法返回 `VALIDATION`（detail 含原因）；重复 id 返回 `VALIDATION`；目录缺文件返回 `NOT_FOUND` |
 | `plugin_builtin_examples` | ReadOnly | `{}` | `BuiltinExampleDto[] { dirName, id, name, description, version, installed }`。扫描随包资源目录（开发模式退回仓库 checkout 的 `plugins/examples`）；都没有时返回空数组 |
 | `plugin_install_builtin` | Mutating | `{ dirName }` | `InstallReport`（同上，`insideRoot` 恒为 true）。`dirName` 必须是 `[a-z0-9-]` 组成的目录名且在随包清单里（否则 `VALIDATION`/`NOT_FOUND`）；示例目录复制进 `plugins_root` 后走标准安装路径，重复安装返回 `VALIDATION` |

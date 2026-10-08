@@ -72,6 +72,77 @@ export function applyCustomThemeColors(
     }
     // sizeScale 为预留字段：当前字阶为固定 px，不缩放（校验层仍接受它，见 themeModel）
   }
+  if (theme.motion !== undefined) {
+    for (const key of ['fast', 'base', 'slow'] as const) {
+      const value = theme.motion[key];
+      if (value !== undefined) {
+        const name = `--fd-duration-${key}`;
+        root.style.setProperty(name, value);
+        appliedVarNames.push(name);
+      }
+    }
+  }
+}
+
+/** 主题画廊预览要用的令牌（画一个迷你界面所需的全部颜色）。 */
+export const PREVIEW_TOKENS = [
+  'canvas',
+  'surface',
+  'surfaceSunken',
+  'line',
+  'fg',
+  'fgMuted',
+  'fgSubtle',
+  'brand',
+  'success',
+  'warning',
+  'danger',
+] as const;
+
+const paletteCache = new Map<'light' | 'dark', Record<string, string>>();
+
+/**
+ * 读出**某个外观**下的真实令牌值。
+ *
+ * 为什么不能直接读 `document.documentElement`：那只会给出*当前*外观的颜色，
+ * 于是画廊里的暗色主题卡片会显示成亮色配色（"预览与实际不符"）。
+ * 这里用一个离屏元素挂上 `data-theme`，让 CSS 自己算出该外观的令牌——
+ * 不复制任何色值，`tokens.css` 仍是唯一真相源。
+ */
+export function resolveAppearancePalette(appearance: 'light' | 'dark'): Record<string, string> {
+  const cached = paletteCache.get(appearance);
+  if (cached !== undefined) {
+    return cached;
+  }
+  const palette: Record<string, string> = {};
+  if (typeof document === 'undefined') {
+    return palette;
+  }
+  const probe = document.createElement('div');
+  probe.setAttribute('data-theme', appearance);
+  probe.setAttribute('aria-hidden', 'true');
+  probe.style.cssText =
+    'position:absolute;left:-9999px;top:0;width:0;height:0;pointer-events:none;';
+  document.body.appendChild(probe);
+  const styles = window.getComputedStyle(probe);
+  for (const token of PREVIEW_TOKENS) {
+    palette[token] = styles.getPropertyValue(cssVarName(token)).trim();
+  }
+  probe.remove();
+  paletteCache.set(appearance, palette);
+  return palette;
+}
+
+/** 主题在画廊预览里的最终配色（主题覆盖优先，其余取该外观的令牌）。 */
+export function resolveThemePalette(theme: ThemeDefinition): Record<string, string> {
+  const base = resolveAppearancePalette(theme.appearance);
+  const merged: Record<string, string> = { ...base };
+  for (const [token, value] of Object.entries(theme.colors)) {
+    if (value !== undefined) {
+      merged[token] = value;
+    }
+  }
+  return merged;
 }
 
 /** 从 localStorage 读取首帧缓存的自定义主题；损坏的缓存按未激活处理。 */

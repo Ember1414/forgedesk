@@ -13,6 +13,7 @@ import {
 
 /** SSR / 非浏览器环境的快照（画廊在那种环境下不会渲染，值只要稳定即可）。 */
 const getServerActiveCustomTheme = (): null => null;
+import { resolveThemePalette } from '@/features/themes/themeApply';
 import { contrastReport } from '@/features/themes/themeModel';
 import type { ThemeDefinition, ThemeFieldError } from '@/features/themes/themeModel';
 import { SUPPORTED_LANGUAGES, changeLanguage, resolveActiveLanguage } from '@/lib/i18n';
@@ -60,6 +61,86 @@ function themeSwatchStyle(token: string, value: string | undefined): { backgroun
   return {
     backgroundColor: value ?? `var(--fd-${token.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`)})`,
   };
+}
+
+/**
+ * 迷你界面预览：用该主题**自己的**色值画一个小窗口。
+ *
+ * 比一排色块有用得多——色块看不出"这主题用起来是什么样"，而这个能。
+ * 未覆盖的令牌取该外观在 `tokens.css` 里的真实值（见 `resolveThemePalette`），
+ * 因此内置的"空覆盖"主题也能显示出正确配色，而不是空白或当前主题的颜色。
+ */
+function ThemePreview({ theme }: { readonly theme: ThemeDefinition }): React.JSX.Element {
+  const palette = useMemo(() => resolveThemePalette(theme), [theme]);
+  const row = (width: string, color: string, opacity = 1): React.JSX.Element => (
+    <span
+      className="block rounded-full"
+      style={{ width, height: '5px', backgroundColor: color, opacity }}
+    />
+  );
+  return (
+    <div
+      className="overflow-hidden rounded border"
+      style={{ borderColor: palette['line'], backgroundColor: palette['canvas'] }}
+      aria-hidden
+    >
+      <div
+        className="flex items-center gap-1 px-1.5 py-1"
+        style={{
+          backgroundColor: palette['surface'],
+          borderBottom: `1px solid ${palette['line']}`,
+        }}
+      >
+        <span className="size-1.5 rounded-full" style={{ backgroundColor: palette['danger'] }} />
+        <span className="size-1.5 rounded-full" style={{ backgroundColor: palette['warning'] }} />
+        <span className="size-1.5 rounded-full" style={{ backgroundColor: palette['success'] }} />
+      </div>
+      <div className="flex gap-1.5 p-1.5">
+        <div
+          className="w-7 rounded-sm"
+          style={{ backgroundColor: palette['surfaceSunken'], minHeight: '34px' }}
+        />
+        <div className="flex flex-1 flex-col gap-1 pt-0.5">
+          {row('78%', palette['brand'] ?? '')}
+          {row('100%', palette['fgMuted'] ?? '', 0.55)}
+          {row('62%', palette['fgSubtle'] ?? '', 0.5)}
+          {row('45%', palette['success'] ?? '', 0.85)}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * 这个主题动了哪些维度。
+ *
+ * 用户反馈"主题只有颜色变化，显得单调"——把"它到底定制了什么"直接写出来，
+ * 也让新增的非颜色维度（字体、动效、终端配色）在界面上可见。
+ */
+function ThemeDimensions({ theme }: { readonly theme: ThemeDefinition }): React.JSX.Element | null {
+  const { t } = useTranslation('shell');
+  const dimensions: string[] = [t('settings.appearance.dimensionColors')];
+  if (theme.fonts?.ui !== undefined || theme.fonts?.mono !== undefined) {
+    dimensions.push(t('settings.appearance.dimensionFonts'));
+  }
+  if (theme.motion !== undefined) {
+    dimensions.push(t('settings.appearance.dimensionMotion'));
+  }
+  if (theme.xterm !== undefined) {
+    dimensions.push(t('settings.appearance.dimensionTerminal'));
+  }
+  if (dimensions.length <= 1) {
+    return null;
+  }
+  return (
+    <div className="flex flex-wrap gap-1">
+      {dimensions.map((label) => (
+        <Badge key={label} tone="neutral">
+          {label}
+        </Badge>
+      ))}
+    </div>
+  );
 }
 
 function ContrastRows({ theme }: { readonly theme: ThemeDefinition }): React.JSX.Element {
@@ -120,11 +201,13 @@ function ThemeCard({
             : t('settings.appearance.themesAppearanceLight')}
         </Badge>
       </div>
+      <ThemePreview theme={theme} />
       <div className="flex overflow-hidden rounded border border-line" aria-hidden>
         {swatchTokens.map((token) => (
           <div key={token} className="h-6 flex-1" style={themeSwatchStyle(token, colors[token])} />
         ))}
       </div>
+      <ThemeDimensions theme={theme} />
       <ContrastRows theme={theme} />
       <div className="flex items-center gap-2">
         {active ? (

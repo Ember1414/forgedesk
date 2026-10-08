@@ -146,6 +146,31 @@ describe('主题 JSON 校验', () => {
     });
     expect(result.ok).toBe(true);
   });
+
+  it('接受合法的动效时长（ms / s 两种写法）', () => {
+    const result = validateThemeJson({
+      ...validTheme(),
+      motion: { fast: '90ms', base: '0.2s' },
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.theme.motion).toEqual({ fast: '90ms', base: '0.2s' });
+    }
+  });
+
+  it('拒绝非法或过大的动效时长（防止主题把界面变卡）', () => {
+    const result = validateThemeJson({
+      ...validTheme(),
+      motion: { fast: 'soon', base: '5000ms', slow: '320ms' },
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.errors.some((e) => e.field === 'motion.fast')).toBe(true);
+      // 单值上限 2000ms：1 秒的过渡已经很难用，5 秒是错误量级
+      expect(result.errors.some((e) => e.field === 'motion.base')).toBe(true);
+      expect(result.errors.some((e) => e.field === 'motion.slow')).toBe(false);
+    }
+  });
 });
 
 describe('颜色解析与对比度', () => {

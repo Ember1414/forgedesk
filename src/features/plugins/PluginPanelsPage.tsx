@@ -1,12 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
+import { useNavigate } from 'react-router-dom';
 
 import { PanelRenderer } from '@/features/plugins/PanelRenderer';
-import { pluginInvokeCommand, pluginRegistrations, pluginRenderPanel } from '@/lib/ipc';
+import { pluginInvokeCommand, pluginList, pluginRegistrations, pluginRenderPanel } from '@/lib/ipc';
 import type { PluginRegistration } from '@/lib/ipc';
-import { PLUGIN_REGISTRATIONS_QUERY_KEY } from '@/lib/queryKeys';
+import { PLUGIN_REGISTRATIONS_QUERY_KEY, PLUGINS_QUERY_KEY } from '@/lib/queryKeys';
 import { useAppError } from '@/lib/errors';
 import { pushToast } from '@/stores/toastStore';
+import { Badge } from '@/ui/components/badge';
 import { Button } from '@/ui/components/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/ui/components/tabs';
 
@@ -23,16 +25,61 @@ export function PluginPanelsPage(): React.JSX.Element {
   const { t } = useTranslation('shell');
   const { show } = useAppError();
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
 
   const registrations = useQuery({
     queryKey: [PLUGIN_REGISTRATIONS_QUERY_KEY],
     queryFn: pluginRegistrations,
   });
 
+  // 已安装的插件清单：用来区分"没有面板"与"声明了面板但还没启用"。
+  // 只读注册表会让这两种情况都显示成空列表——用户看到的就是"插件面板一无所有"。
+  const installed = useQuery({ queryKey: [PLUGINS_QUERY_KEY], queryFn: pluginList });
+
   const panels = (registrations.data ?? []).filter(
     (registration): registration is PluginRegistration & { readonly location: string } =>
       registration.kind === 'panel',
   );
+
+  // 声明了面板但当前不在运行的插件（禁用 / 崩溃）
+  const pendingPanels = (installed.data ?? [])
+    .filter((plugin) => plugin.state !== 'enabled' && (plugin.declaredPanels?.length ?? 0) > 0)
+    .map((plugin) => ({
+      id: plugin.id,
+      name: plugin.name,
+      state: plugin.state,
+      titles: (plugin.declaredPanels ?? []).map((panel) => panel.title),
+    }));
+
+  const pendingSection =
+    pendingPanels.length === 0 ? null : (
+      <section className="border-line bg-surface flex flex-col gap-2 rounded-md border p-3">
+        <h2 className="text-14 font-medium">{t('plugins.panelsPendingTitle')}</h2>
+        <p className="text-12 text-fg-subtle">{t('plugins.panelsPendingHint')}</p>
+        <ul className="flex flex-col gap-2">
+          {pendingPanels.map((plugin) => (
+            <li key={plugin.id} className="flex flex-wrap items-center gap-2 text-13">
+              <span className="font-medium">{plugin.name}</span>
+              <Badge tone={plugin.state === 'crashed' ? 'danger' : 'neutral'}>
+                {plugin.state === 'crashed'
+                  ? t('plugins.stateCrashed')
+                  : t('plugins.stateDisabled')}
+              </Badge>
+              <span className="text-fg-muted min-w-0 flex-1 truncate">
+                {plugin.titles.join(' · ')}
+              </span>
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => void navigate('/settings/plugins')}
+              >
+                {t('plugins.panelsPendingAction')}
+              </Button>
+            </li>
+          ))}
+        </ul>
+      </section>
+    );
 
   const runCommand = useMutation({
     mutationFn: ({ pluginId, command }: { pluginId: string; command: string }) =>
@@ -56,10 +103,13 @@ export function PluginPanelsPage(): React.JSX.Element {
 
   if (panels.length === 0) {
     return (
-      <section className="flex flex-col gap-1 p-4">
+      <section className="flex flex-col gap-3 p-4">
         <h1 className="text-20 font-semibold tracking-tight">{t('pages.pluginPanels.title')}</h1>
         <p className="text-13 text-fg-muted">{t('plugins.panelsEmpty')}</p>
-        <p className="text-12 text-fg-subtle">{t('plugins.panelsEmptyHint')}</p>
+        {pendingSection}
+        {pendingPanels.length === 0 ? (
+          <p className="text-12 text-fg-subtle">{t('plugins.panelsEmptyHint')}</p>
+        ) : null}
       </section>
     );
   }
@@ -100,6 +150,7 @@ export function PluginPanelsPage(): React.JSX.Element {
           </TabsContent>
         ))}
       </Tabs>
+      {pendingSection}
     </section>
   );
 }

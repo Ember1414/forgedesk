@@ -137,7 +137,10 @@ pub struct CommandContribution {
 }
 
 /// 面板贡献点。
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+///
+/// `Eq`：字段全是字符串/枚举，且它现在会进 [`crate::manager::PluginSummary`]
+/// （那份摘要要求 `Eq`，用于列表比较）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct PanelContribution {
     /// 面板短 id（kebab 风格；全名由宿主拼为 `<plugin-id>.<id>`）。

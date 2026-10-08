@@ -28,6 +28,12 @@ import { applyBlameDecorations, blameAtLine } from '@/features/editor/blameDecor
 import { CommitDetailDialog } from '@/features/editor/FileHistoryPanel';
 import { FileHistoryPanel } from '@/features/editor/FileHistoryPanel';
 import { watchExternalChanges } from '@/features/editor/editorSupport';
+import {
+  applyMonacoTheme,
+  MONACO_THEME_NAME,
+  monacoFontFamily,
+  subscribeMonacoThemeChanges,
+} from '@/features/editor/monacoTheme';
 import { gitBlame } from '@/lib/ipc/blame';
 import type { BlameLine } from '@/lib/ipc/blame';
 import { fsRead, fsWrite } from '@/lib/ipc/fs';
@@ -59,6 +65,29 @@ import 'monaco-editor/esm/vs/basic-languages/go/go.contribution';
 import 'monaco-editor/esm/vs/basic-languages/java/java.contribution';
 import 'monaco-editor/esm/vs/basic-languages/cpp/cpp.contribution';
 import 'monaco-editor/esm/vs/basic-languages/dockerfile/dockerfile.contribution';
+// 2026-10-08 扩充：此前只有 14 种语言，"打开 .cs/.rb/.kt 等文件是纯文本"被当成
+// "编辑器只能打开部分文件"。每个 contribution 约 16KB（Monarch 词法），
+// 只加"真的会被打开"的语言，不做全量打包（任务书的约束）。
+import 'monaco-editor/esm/vs/basic-languages/csharp/csharp.contribution';
+import 'monaco-editor/esm/vs/basic-languages/php/php.contribution';
+import 'monaco-editor/esm/vs/basic-languages/ruby/ruby.contribution';
+import 'monaco-editor/esm/vs/basic-languages/swift/swift.contribution';
+import 'monaco-editor/esm/vs/basic-languages/kotlin/kotlin.contribution';
+import 'monaco-editor/esm/vs/basic-languages/powershell/powershell.contribution';
+import 'monaco-editor/esm/vs/basic-languages/bat/bat.contribution';
+import 'monaco-editor/esm/vs/basic-languages/lua/lua.contribution';
+import 'monaco-editor/esm/vs/basic-languages/r/r.contribution';
+import 'monaco-editor/esm/vs/basic-languages/dart/dart.contribution';
+import 'monaco-editor/esm/vs/basic-languages/objective-c/objective-c.contribution';
+import 'monaco-editor/esm/vs/basic-languages/less/less.contribution';
+import 'monaco-editor/esm/vs/basic-languages/protobuf/protobuf.contribution';
+import 'monaco-editor/esm/vs/basic-languages/clojure/clojure.contribution';
+import 'monaco-editor/esm/vs/basic-languages/scala/scala.contribution';
+import 'monaco-editor/esm/vs/basic-languages/perl/perl.contribution';
+import 'monaco-editor/esm/vs/basic-languages/julia/julia.contribution';
+import 'monaco-editor/esm/vs/basic-languages/graphql/graphql.contribution';
+import 'monaco-editor/esm/vs/basic-languages/fsharp/fsharp.contribution';
+import 'monaco-editor/esm/vs/basic-languages/pascal/pascal.contribution';
 
 let monacoConfigured = false;
 function configureMonaco(): void {
@@ -149,6 +178,11 @@ function EditorTabView({
   const { t } = useTranslation('shell');
   const markSaved = useEditorStore((state) => state.markSaved);
   const markDirtyDisk = useEditorStore((state) => state.markDirtyDisk);
+
+  // 主题变化（亮暗切换、换自定义主题）→ 用新的令牌值重定义 Monaco 主题。
+  // 放在这里而不是 EditorPanel 顶层：每个标签一个订阅，卸载时自动退订；
+  // 重复重定义同一主题名是幂等的。
+  useEffect(() => subscribeMonacoThemeChanges(() => applyMonacoTheme()), []);
   const keepMine = useEditorStore((state) => state.keepMine);
   const [model, setModel] = useState<string | null>(tab.baseline);
   const [saving, setSaving] = useState(false);
@@ -347,12 +381,19 @@ function EditorTabView({
 
             <div className="min-h-0 flex-1">
               <Editor
-                theme="vs-dark"
+                // 主题跟随应用（令牌驱动，见 monacoTheme.ts）——写死 vs-dark 时
+                // 亮色用户看到的是一块黑框
+                theme={MONACO_THEME_NAME}
+                // 显式 100%：默认值依赖父容器有确定高度，写出来才不会被"内容高度"
+                // 带着走（表现为编辑区不填满窗口）
+                height="100%"
                 path={tab.path}
                 value={model ?? ''}
                 onChange={(value) => setModel(value ?? '')}
                 onMount={(editor, monaco) => {
                   configureMonaco();
+                  // 定义并套用"跟随主题"的配色（令牌驱动）
+                  applyMonacoTheme(monaco);
                   // 诊断/E2E 钩子（与 __forgedeskTermText 同款做法）：只读暴露实例
                   (window as unknown as { __forgedeskEditor?: unknown }).__forgedeskEditor = editor;
                   editorRef.current = editor;
@@ -367,11 +408,18 @@ function EditorTabView({
                 }}
                 options={{
                   fontSize: 13,
+                  // 与界面同一套等宽字体（令牌里定义，避免编辑器用系统默认等宽）
+                  fontFamily: monacoFontFamily(),
                   minimap: { enabled: false },
                   // blame 色条按行对齐的前提是行高恒定（word wrap 会让一行占多行）
                   wordWrap: blameOn ? ('off' as const) : ('on' as const),
                   automaticLayout: true,
                   lineDecorationsWidth: blameOn ? 16 : 10,
+                  scrollBeyondLastLine: false,
+                  smoothScrolling: true,
+                  // 大文件优化（默认开）：超过阈值时关闭词法高亮以外的重活
+                  largeFileOptimizations: true,
+                  padding: { top: 6, bottom: 6 },
                 }}
               />
             </div>

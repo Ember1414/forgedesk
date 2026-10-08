@@ -686,7 +686,11 @@
       "contrastMuted": "Secondary text / card",
       "contrastInherited": "Inherited (covered by CI)",
       "themesDeleteConfirm": "Delete theme \"{{name}}\"? This cannot be undone.",
-      "themesDeleteImpact": "\"{{name}}\" is removed from the gallery; if it was active, the built-in palette for its appearance is restored."
+      "themesDeleteImpact": "\"{{name}}\" is removed from the gallery; if it was active, the built-in palette for its appearance is restored.",
+      "dimensionColors": "Colors",
+      "dimensionFonts": "Fonts",
+      "dimensionMotion": "Motion",
+      "dimensionTerminal": "Terminal"
     },
     "audit": {
       "title": "Operation history",
@@ -2151,7 +2155,9 @@
       "changeKind": "Change type: {kind}",
       "compare": "Compare",
       "compareAria": "Compare with this revision",
-      "loadMore": "Load more"
+      "loadMore": "Load more",
+      "listError": "Could not load file history.",
+      "retry": "Retry"
     }
   },
   "commands": {
@@ -2277,9 +2283,13 @@
     "crashedHint": "The plugin stopped unexpectedly. Check its logs; re-enable after fixing.",
     "panelsLoading": "Loading…",
     "panelsEmpty": "No enabled plugin provides a panel yet.",
-    "panelsEmptyHint": "Install the example plugins via Settings → Plugins (developer mode), enable them, and their panels appear here.",
+    "panelsEmptyHint": "The built-in example plugins are installed with the app (see the list above). Enable one and grant its permissions and its panel appears here.",
     "panelRetry": "Retry",
-    "commandDone": "Plugin command executed"
+    "commandDone": "Plugin command executed",
+    "panelsPendingTitle": "Installed panels not running yet",
+    "panelsPendingHint": "These plugins declare panels but are not enabled. Once you enable them (permissions are granted one by one) they appear above.",
+    "panelsPendingAction": "Enable",
+    "panelsPendingState": "Current state"
   },
   "network": {
     "proxyTitle": "Proxy",

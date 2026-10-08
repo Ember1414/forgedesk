@@ -36,7 +36,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::engine_wasmi::WasmiEngine;
-use crate::manifest::{PluginManifest, ValidatedManifest};
+use crate::manifest::{PanelContribution, PluginManifest, ValidatedManifest};
 use crate::permission::Permission;
 use crate::runtime::{HostError, PluginEngine, PluginHandle};
 
@@ -121,6 +121,15 @@ pub struct PluginSummary {
     /// 成功的宿主调用计数（按权限聚合；未运行时为空）。
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub permission_usage: Vec<(Permission, u64)>,
+    /// 清单声明的面板贡献点。
+    ///
+    /// 为什么要暴露"声明了什么"而不只是"注册了什么"：面板只有在插件**运行中**
+    /// 才会调用宿主注册（`registrations()` 只反映运行态），于是仅凭注册表，
+    /// 界面无法区分"这个插件没有面板"与"它声明了面板但还没启用"——两者都表现为
+    /// 空列表，用户看到的就是"插件面板一无所有"（2026-10-08 反馈）。
+    /// 有了声明清单，面板页可以如实列出"已安装、未启用"的面板并给出启用入口。
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub declared_panels: Vec<PanelContribution>,
 }
 
 /// 安装结果摘要。
@@ -528,6 +537,7 @@ impl PluginManager {
                     declared_permissions: plugin.manifest.permissions.clone(),
                     granted_permissions: plugin.granted.iter().copied().collect(),
                     permission_usage: usage,
+                    declared_panels: plugin.manifest.contributes.panels.clone(),
                 }
             })
             .collect()
