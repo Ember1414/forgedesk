@@ -2289,7 +2289,8 @@
     "panelsPendingTitle": "已安装但未启用的面板",
     "panelsPendingHint": "这些插件声明了面板，但尚未启用。启用后（需要逐项授予权限）它们会出现在上方。",
     "panelsPendingAction": "去启用",
-    "panelsPendingState": "当前状态"
+    "panelsPendingState": "当前状态",
+    "panelsListError": "已安装插件列表读取失败：{message}"
   },
   "network": {
     "proxyTitle": "代理",

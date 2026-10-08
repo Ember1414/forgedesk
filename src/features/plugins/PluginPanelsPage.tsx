@@ -6,7 +6,7 @@ import { PanelRenderer } from '@/features/plugins/PanelRenderer';
 import { pluginInvokeCommand, pluginList, pluginRegistrations, pluginRenderPanel } from '@/lib/ipc';
 import type { PluginRegistration } from '@/lib/ipc';
 import { PLUGIN_REGISTRATIONS_QUERY_KEY, PLUGINS_QUERY_KEY } from '@/lib/queryKeys';
-import { useAppError } from '@/lib/errors';
+import { normalizeError, useAppError } from '@/lib/errors';
 import { pushToast } from '@/stores/toastStore';
 import { Badge } from '@/ui/components/badge';
 import { Button } from '@/ui/components/button';
@@ -106,8 +106,17 @@ export function PluginPanelsPage(): React.JSX.Element {
       <section className="flex flex-col gap-3 p-4">
         <h1 className="text-20 font-semibold tracking-tight">{t('pages.pluginPanels.title')}</h1>
         <p className="text-13 text-fg-muted">{t('plugins.panelsEmpty')}</p>
+        {installed.isError ? (
+          // 查询失败必须可见：静默空列表曾让"注册表里有 3 个禁用插件"显示成
+          // "什么都没装"，用户无从分辨是没装还是坏了
+          <p className="text-danger text-12">
+            {t('plugins.panelsListError', {
+              message: normalizeError(installed.error).message,
+            })}
+          </p>
+        ) : null}
         {pendingSection}
-        {pendingPanels.length === 0 ? (
+        {pendingPanels.length === 0 && !installed.isError ? (
           <p className="text-12 text-fg-subtle">{t('plugins.panelsEmptyHint')}</p>
         ) : null}
       </section>

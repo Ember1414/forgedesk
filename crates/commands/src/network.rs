@@ -157,8 +157,16 @@ fn test_client(database: &Database) -> AppResult<GitHubHttp> {
 /// 连通性测试（T6.8）：`api` = api.github.com/zen；`raw` = raw.githubusercontent.com。
 ///
 /// 测试走**当前设置的代理**（而非默认客户端），因此结果反映用户配置的真实可达性。
+/// 代理连通性测试（T6.8）。
+///
+/// **为什么是真异步而不是"同步命令里自建 runtime"**：本命令带
+/// `#[tauri::command(async)]`，在 Tauri 的 tokio worker 上执行——在 runtime
+/// 上下文里再 `Runtime::block_on` 会 panic（"Cannot start a runtime from
+/// within a runtime"），而 release 构建是 `panic = "abort"`，表现为**整个应用
+/// 闪退**（2026-10-08 实测：设置 → 网络测试一点就退）。直接 `await` 即可，
+/// 阻塞其余 worker 与主线程的问题都不存在。
 #[tauri::command(async)]
-pub fn network_proxy_test(
+pub async fn network_proxy_test(
     state: tauri::State<'_, crate::state::AppState>,
     target: String,
 ) -> AppResult<ConnectivityResult> {
@@ -174,36 +182,28 @@ pub fn network_proxy_test(
             ))
         }
     };
-    let result: Result<String, String> = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .map_err(|error| AppError::new(ErrorCode::Internal, format!("runtime: {error}")))?
-        .block_on(async {
-            let response = client
-                .send(&ApiRequest::get(url))
-                .await
-                .map_err(|error| http_error_message(&error))?;
-            let status = response.status().as_u16();
-            if (200..300).contains(&status) {
-                Ok(format!("HTTP {status}"))
-            } else {
-                Err(format!("HTTP {status}"))
-            }
-        });
+    // 网络失败与 HTTP 非 2xx 都按 ok:false + detail 返回（测试结果不是"错误"，是结论）
+    let response = match client.send(&ApiRequest::get(url)).await {
+        Ok(response) => response,
+        Err(error) => {
+            let latency_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
+            return Ok(ConnectivityResult {
+                target,
+                ok: false,
+                latency_ms,
+                detail: http_error_message(&error),
+            });
+        }
+    };
+    let status = response.status().as_u16();
+    let ok = (200..300).contains(&status);
+    let detail = format!("HTTP {status}");
     let latency_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
-    Ok(match result {
-        Ok(detail) => ConnectivityResult {
-            target,
-            ok: true,
-            latency_ms,
-            detail,
-        },
-        Err(detail) => ConnectivityResult {
-            target,
-            ok: false,
-            latency_ms,
-            detail,
-        },
+    Ok(ConnectivityResult {
+        target,
+        ok,
+        latency_ms,
+        detail,
     })
 }
 

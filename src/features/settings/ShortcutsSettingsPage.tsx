@@ -161,7 +161,7 @@ export function ShortcutsSettingsPage() {
                 ? t('settings.shortcuts.allCategories')
                 : t(`settings.shortcuts.category.${name}`),
           }))}
-          className="w-40"
+          className="w-44"
         />
         <Button size="sm" variant="secondary" onClick={exportMarkdown}>
           {t('settings.shortcuts.exportMarkdown')}

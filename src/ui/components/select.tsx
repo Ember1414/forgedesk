@@ -36,7 +36,9 @@ export const SelectTrigger = forwardRef<
       )}
       {...props}
     >
-      {children}
+      {/* 选中值一律单行截断而不是折行：中文四五个字的选项在窄触发器里
+          折成"三个字在上一个字在下"非常难看（2026-10-08 用户反馈） */}
+      <span className="min-w-0 flex-1 truncate text-start">{children}</span>
       <SelectPrimitive.Icon asChild>
         <ChevronDown aria-hidden="true" className="size-3.5 shrink-0 text-fg-subtle" />
       </SelectPrimitive.Icon>

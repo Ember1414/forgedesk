@@ -4,10 +4,12 @@
  * 点击条目 → 用 git_file_at(rev) 取历史内容，与当前编辑器内容并排对比
  * （复用编辑器的对比区）；条目上的提交哈希点击 → 打开提交详情（Dialog）。
  */
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
+
+import { normalizeError } from '@/lib/errors';
 
 import { gitFileHistory } from '@/lib/ipc/blame';
 import { gitCommitDetail } from '@/lib/ipc';
@@ -91,6 +93,9 @@ export function FileHistoryPanel({ repoId, path, onCompare, onClose }: FileHisto
     queryFn: () => gitFileHistory(repoId, path, { follow: true, limit: 50, cursor: page * 50 }),
   });
 
+  // 失败时把后端的原始 detail（git 的 stderr 等）亮出来——"加载失败"无法定位问题
+  const normalized = useMemo(() => normalizeError(history.error), [history.error]);
+
   const compareWith = async (oid: string) => {
     setComparing(oid);
     try {
@@ -116,9 +121,15 @@ export function FileHistoryPanel({ repoId, path, onCompare, onClose }: FileHisto
           <p className="text-fg-subtle p-2 text-12">…</p>
         ) : history.isError ? (
           // 列表失败此前复用"提交详情加载失败"的文案（张冠李戴），而且没有重试入口：
-          // 用户看到一句对不上的错误，也不知道能做什么
+          // 用户看到一句对不上的错误，也不知道能做什么。原始 detail 一并展示——
+          // "加载失败"四个字无法定位问题，git 的 stderr 才是答案。
           <div className="flex flex-col items-start gap-2 p-2">
             <p className="text-danger text-12">{t('editor.history.listError')}</p>
+            {normalized.detail !== undefined && normalized.detail !== '' ? (
+              <p className="text-fg-subtle max-h-24 overflow-auto break-all font-mono text-11">
+                {normalized.detail}
+              </p>
+            ) : null}
             <Button size="sm" variant="secondary" onClick={() => void history.refetch()}>
               {t('editor.history.retry')}
             </Button>

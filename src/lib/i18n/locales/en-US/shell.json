@@ -2289,7 +2289,8 @@
     "panelsPendingTitle": "Installed panels not running yet",
     "panelsPendingHint": "These plugins declare panels but are not enabled. Once you enable them (permissions are granted one by one) they appear above.",
     "panelsPendingAction": "Enable",
-    "panelsPendingState": "Current state"
+    "panelsPendingState": "Current state",
+    "panelsListError": "Could not load installed plugins: {message}"
   },
   "network": {
     "proxyTitle": "Proxy",

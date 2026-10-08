@@ -103,6 +103,17 @@ function configureMonaco(): void {
   loader.config({ monaco: monacoCore as unknown as Monaco });
 }
 
+/**
+ * **必须在模块加载时执行，而不是等 `<Editor>` 的 onMount。**
+ *
+ * `loader.config({ monaco })` 告诉 @monaco-editor/react"用本地打包的 monaco"；
+ * 不配置它就会走默认路径——从 CDN 拉一个 loader.js。桌面应用的 CSP 与离线
+ * 环境都会让这次拉取**静默失败**，于是 `<Editor>` 的加载态永远不结束
+ * （用户看到的就是"打开文件一直转圈"，2026-10-08 实测）。而 onMount 只有在
+ * monaco 就绪**之后**才会触发——把装配放在那里等于永远不装配。
+ */
+configureMonaco();
+
 export interface EditorPanelProps {
   readonly repoId: number;
 }
