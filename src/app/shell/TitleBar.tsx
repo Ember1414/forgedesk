@@ -40,6 +40,10 @@ export function TitleBar() {
   const navigate = useNavigate();
   const inTauri = isTauriRuntime();
 
+  // 与账号面板共用同一条缓存记录（键即 `accounts`）：标题栏不额外发请求，
+  // 登录/删除后由那一侧 invalidate，这里自然跟着更新。
+  // staleTime 给 60s 而不是默认 0：账号列举会碰系统 keyring（Windows Credential
+  // Manager），而它只在用户登录/登出时变化——每次窗口聚焦都重读一遍没有收益。
   const accountQuery = useQuery({
     queryKey: [ACCOUNTS_QUERY_KEY],
     queryFn: accountList,
