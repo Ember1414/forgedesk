@@ -202,4 +202,77 @@ mod tests {
         assert_eq!(json["currentVersion"], "0.7.0");
         assert!(json.get("current_version").is_none());
     }
+
+    /// # 篡改包被拒绝（PLAN M7 验收标准第 2 条）
+    ///
+    /// 更新包在安装前必须通过 minisign 验签。`tauri-plugin-updater` 的内部实现是
+    /// **先 base64 解码、再 `PublicKey::decode` / `Signature::decode`、最后
+    /// `verify(data, &signature, true)`**——这条测试用同一个库、同一套调用，
+    /// 把"篡改即拒绝"钉成自动化断言（此前该验收项一直标注"未执行"，因为它
+    /// 看起来需要真实发布密钥；实际上**一次性夹具密钥**就能覆盖同一段验证逻辑）。
+    ///
+    /// 夹具材料全部是常量：公钥、签名、载荷内联在下面，私钥从未进仓库。
+    /// 因此本测试离线、确定、不触碰任何真实发布密钥。
+    #[test]
+    fn a_tampered_update_payload_is_refused_by_signature_verification() {
+        use base64::Engine as _;
+        use minisign_verify::{PublicKey, Signature};
+
+        /// 夹具公钥（tauri 的 pubkey 格式：minisign 文本再做一层 base64）。
+        const PUBKEY_BASE64: &str = "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IERGOUM5MjRFMTFEMUUzQjMKUldTejQ5RVJUcEtjMzIxUWpIc2lyNmJweUliNXlhRUx1Zms0WW52MHRZVFdwZTNpRmNtdXkzMWkK";
+        /// 另一对密钥的公钥：拿错钥匙必须验不过（防止"随便什么钥匙都放行"）。
+        const OTHER_PUBKEY_BASE64: &str = "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDE3MjlGRkEyOTUyMDk3MjYKUldRbWx5Q1ZvdjhwRjBpVHFpN3ZCQ0tMajVNRTVZZU56dnp6S2NoVTkyZFpnSnhGYTFpdFpkZDAK";
+        /// 对 `PAYLOAD` 的签名（同样两层 base64）。
+        const SIGNATURE_BASE64: &str = "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTejQ5RVJUcEtjMzRNeVFlaEdCalVRMk5xZHFBYk1ld1h1ZzRlNzZ1bnBYNDJ6M2VyTDVlQ2FTUWlQNlpDdWswL0EvWlNWV0RoZnRlc1pSdVBmWWFTcVE4RGppRE5QNWdRPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkxNDMwNTU5CWZpbGU6cGF5bG9hZC50eHQKa1owcDZRcVJ2Z1ZmVVYzOVQwM0R2VVNKa3c2dkRWMG5rcllmSG5lZU9XbkRITTVsWU1lOFRrMGpmblRNTXoxQVg4Ny8ydFBhamVjVGcvSVdROE4rQ3c9PQo=";
+        /// 被签名的载荷（36 字节，无换行）。
+        const PAYLOAD: &[u8] = b"ForgeDesk updater fixture payload v1";
+
+        fn decode_base64(value: &str) -> String {
+            String::from_utf8(
+                base64::engine::general_purpose::STANDARD
+                    .decode(value)
+                    .unwrap(),
+            )
+            .unwrap()
+        }
+
+        let public_key = PublicKey::decode(&decode_base64(PUBKEY_BASE64)).unwrap();
+        let signature = Signature::decode(&decode_base64(SIGNATURE_BASE64)).unwrap();
+
+        // 正面：原样必须通过——否则下面几条"拒绝"什么也证明不了
+        public_key
+            .verify(PAYLOAD, &signature, true)
+            .expect("原样载荷必须验签通过");
+
+        // 篡改一个字节：拒绝（中间人换包的最小形态）
+        let mut tampered = PAYLOAD.to_vec();
+        tampered[0] ^= 0x01;
+        assert!(
+            public_key.verify(&tampered, &signature, true).is_err(),
+            "改动一个字节必须拒绝"
+        );
+
+        // 截短：拒绝（换包者也可能只改长度）
+        assert!(
+            public_key
+                .verify(&PAYLOAD[..PAYLOAD.len() - 1], &signature, true)
+                .is_err(),
+            "长度变化必须拒绝"
+        );
+
+        // 拿错公钥：拒绝（key id 不匹配，连"签名看起来对"的机会都不给）
+        let other_key = PublicKey::decode(&decode_base64(OTHER_PUBKEY_BASE64)).unwrap();
+        assert!(
+            other_key.verify(PAYLOAD, &signature, true).is_err(),
+            "非签发者的公钥必须拒绝"
+        );
+
+        // 签名里记录着被签的文件名（`requireSignedVersion` 读的 trusted comment
+        // 就在同一段里）——这是"签名绑定了哪个产物"的可核对凭据
+        assert!(
+            signature.trusted_comment().contains("file:payload.txt"),
+            "trusted comment 必须记录被签文件名，实际：{}",
+            signature.trusted_comment()
+        );
+    }
 }

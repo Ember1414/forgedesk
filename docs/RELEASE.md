@@ -63,6 +63,11 @@ gpg --keyserver keyserver.ubuntu.com --send-keys <KEYID>
 gpg --armor --export-secret-keys <KEYID>
 ```
 
+> **公钥随站发布是自动的**：`scripts/ci/build-site.mjs` 会把 `docs/keys/forgedesk-release.pub`
+> 复制为站点路径 `updates/gpg-pubkey.asc`（下载页探测到它才显示 GPG 公钥入口），
+> `pnpm check:site` 断言两份**逐字节一致**、且源缺失时会删除站点旧副本（轮换安全）。
+> 因此**不要手改**站点里的那份：换公钥只改 `docs/keys/forgedesk-release.pub` 并重新构建。
+
 签名与校验：
 
 ```bash

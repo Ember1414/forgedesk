@@ -53,107 +53,144 @@
 
     <main class="page">
       <h1>下载与校验</h1>
-      <span class="status" id="status">状态：尚无可用版本</span>
 
-      <h2>版本矩阵</h2>
-      <p class="note" id="matrix-note" hidden>
-        以下条目来自发布清单（与应用内自动更新同一份数据）。SHA256 列指向同一次发布的
-        <code>SHA256SUMS</code>；"大小"以清单提供为准，未提供时显示 —。
-      </p>
-      <p class="note" id="matrix-empty">
-        尚未发布任何正式版本。发布后这里会出现<strong>版本矩阵表</strong>
-        （平台 × 格式 × 大小 × SHA256），数据与应用内自动更新同源。
-        <a href="https://github.com/Ember1414/forgedesk/releases">前往 Releases</a>
-        查看是否已有可用构建。
-      </p>
-      <div class="table-wrap" id="matrix-wrap" hidden></div>
-
-      <h2>校验下载（三平台命令）</h2>
-      <p class="note">
-        把安装包与同一次发布里的
-        <code>SHA256SUMS</code> 下载到同一目录，计算哈希后与同名的行逐字比对 （大小写不敏感）。
-      </p>
-
-      <h3>Windows（PowerShell）</h3>
-      <pre><code id="cmd-windows">Get-FileHash .\ForgeDesk_&lt;版本&gt;_windows_x64.exe -Algorithm SHA256</code></pre>
-      <div class="copy-row">
-        <button type="button" class="copy" data-copy-target="#cmd-windows">复制</button>
+      <!-- 推荐入口：与首页同一套按钮（app.js 按平台识别渲染），
+           把"我该点哪个"这件事放在第一屏，细节留在下面的矩阵里 -->
+      <div class="dl-hero">
+        <span class="status" id="status">状态：尚无可用版本</span>
+        <p class="dl-lead">
+          下载后请按下方命令核对 SHA256——这一步能挡住传输损坏与中间人换包。
+          没有可用版本时这里不会给出任何下载入口。
+        </p>
+        <div class="actions">
+          <div id="download-cta" style="display: contents"></div>
+        </div>
+        <ul class="dl-facts">
+          <li><b>免安装</b>：便携版 zip 解压即用</li>
+          <li><b>系统要求</b>：Windows 10 1809+（WebView2，Win11 内置）</li>
+          <li><b>许可</b>：Apache-2.0，永久免费</li>
+        </ul>
       </div>
 
-      <h3>macOS（终端）</h3>
-      <pre><code id="cmd-macos">shasum -a 256 ForgeDesk_&lt;版本&gt;_macos_aarch64.dmg</code></pre>
-      <div class="copy-row">
-        <button type="button" class="copy" data-copy-target="#cmd-macos">复制</button>
-      </div>
+      <section class="section-card">
+        <h2>版本矩阵</h2>
+        <p class="note" id="matrix-note" hidden>
+          以下条目来自发布清单（与应用内自动更新同一份数据）。SHA256 列指向同一次发布的
+          <code>SHA256SUMS</code>；"大小"以清单提供为准，未提供时显示 —。
+        </p>
+        <p class="note" id="matrix-empty">
+          尚未发布任何正式版本。发布后这里会出现<strong>版本矩阵表</strong>
+          （平台 × 格式 × 大小 × SHA256），数据与应用内自动更新同源。
+          <a href="https://github.com/Ember1414/forgedesk/releases">前往 Releases</a>
+          查看是否已有可用构建。
+        </p>
+        <div class="table-wrap" id="matrix-wrap" hidden></div>
+      </section>
 
-      <h3>Linux（终端）</h3>
-      <pre><code id="cmd-linux">sha256sum ForgeDesk_&lt;版本&gt;_linux_amd64.AppImage</code></pre>
-      <div class="copy-row">
-        <button type="button" class="copy" data-copy-target="#cmd-linux">复制</button>
-      </div>
-
-      <details id="checksums" hidden>
-        <summary>查看当前版本的校验和（SHA256）</summary>
+      <section class="section-card">
+        <div class="section-head">
+          <h2>校验下载（三平台命令）</h2>
+        </div>
         <p class="note">
-          以下数值来自同一次发布生成的 <code>SHA256SUMS</code>，与 Release 附件内容一致。
+          把安装包与同一次发布里的
+          <code>SHA256SUMS</code> 下载到同一目录，计算哈希后与同名的行逐字比对 （大小写不敏感）。
         </p>
-        <pre><code id="checksum-lines"></code></pre>
-      </details>
 
-      <h2>GPG 签名验证</h2>
-      <p class="note">
-        发布流水线会用 GPG 对 <code>SHA256SUMS</code> 做分离签名（<code>SHA256SUMS.asc</code>）。
-        有了公钥后，验证命令：
-      </p>
-      <pre><code id="cmd-gpg">gpg --verify SHA256SUMS.asc SHA256SUMS</code></pre>
-      <div class="copy-row">
-        <button type="button" class="copy" data-copy-target="#cmd-gpg">复制</button>
-      </div>
-      <div id="gpg-key" hidden>
+        <h3>Windows（PowerShell）</h3>
+        <pre><code id="cmd-windows">Get-FileHash .\ForgeDesk_&lt;版本&gt;_windows_x64.exe -Algorithm SHA256</code></pre>
+        <div class="copy-row">
+          <button type="button" class="copy" data-copy-target="#cmd-windows">复制</button>
+        </div>
+
+        <h3>macOS（终端）</h3>
+        <pre><code id="cmd-macos">shasum -a 256 ForgeDesk_&lt;版本&gt;_macos_aarch64.dmg</code></pre>
+        <div class="copy-row">
+          <button type="button" class="copy" data-copy-target="#cmd-macos">复制</button>
+        </div>
+
+        <h3>Linux（终端）</h3>
+        <pre><code id="cmd-linux">sha256sum ForgeDesk_&lt;版本&gt;_linux_amd64.AppImage</code></pre>
+        <div class="copy-row">
+          <button type="button" class="copy" data-copy-target="#cmd-linux">复制</button>
+        </div>
+
+        <details id="checksums" hidden>
+          <summary>查看当前版本的校验和（SHA256）</summary>
+          <p class="note">
+            以下数值来自同一次发布生成的 <code>SHA256SUMS</code>，与 Release 附件内容一致。
+          </p>
+          <pre><code id="checksum-lines"></code></pre>
+        </details>
+      </section>
+
+      <section class="section-card">
+        <h2>GPG 签名验证</h2>
+        <p class="note">
+          发布流水线会用 GPG 对 <code>SHA256SUMS</code> 做分离签名（<code>SHA256SUMS.asc</code>）。
+          先导入公钥，再验证签名与清单本身：
+        </p>
         <p>
-          <a href="/updates/gpg-pubkey.asc" download>下载 GPG 公钥（gpg-pubkey.asc）</a>
+          <span class="note">公钥指纹（逐字比对，防假公钥）：</span><br />
+          <code class="fingerprint" id="gpg-fingerprint"
+            >41A6 22CA 5114 FB00 CE8A 9B98 B550 BA51 AD37 851B</code
+          >
         </p>
-      </div>
-      <p class="note" id="gpg-placeholder">
-        <!-- 这段只在 gpg-key 仍隐藏（即公钥文件尚未发布）时可见：
-             不要写成"将随首次发布提供"——v1.0.0 已发布而公钥仍未随附，
-             那会是一句当场就能被证伪的话。公钥的自动发布列在 M8 计划里。 -->
-        v1.0.0 的 <code>SHA256SUMS.asc</code> 已随 Release 附件提供，但
-        <b>公钥文件尚未随站发布</b>， 因此上面的验证命令暂时无法直接使用。当前可用
-        <code>SHA256SUMS</code> 核对下载是否完整（防传输损坏）； 公钥与指纹的自动发布见
-        <a href="https://github.com/Ember1414/forgedesk/blob/main/docs/RELEASE.md"
-          >docs/RELEASE.md</a
-        >。
-      </p>
+        <div class="copy-row">
+          <button type="button" class="copy" data-copy-target="#gpg-fingerprint">复制指纹</button>
+        </div>
+        <pre><code id="cmd-gpg">gpg --verify SHA256SUMS.asc SHA256SUMS</code></pre>
+        <div class="copy-row">
+          <button type="button" class="copy" data-copy-target="#cmd-gpg">复制</button>
+        </div>
+        <div id="gpg-key" hidden>
+          <p>
+            <a href="/updates/gpg-pubkey.asc" download>下载 GPG 公钥（gpg-pubkey.asc）</a>
+          </p>
+        </div>
+        <p class="note" id="gpg-placeholder">
+          <!-- 这段只在 gpg-key 仍隐藏（公钥文件取不到）时可见：不要写成"随首次发布提供"
+               之类会被当场证伪的话。公钥随站点由 build-site.mjs 从
+               docs/keys/forgedesk-release.pub 生成（构建时同步）。 -->
+          当前页面没有取到公钥文件（本地预览、部署不完整或镜像未同步时会这样）。
+          公钥的真相源是仓库里的
+          <a href="https://github.com/Ember1414/forgedesk/blob/main/docs/keys/forgedesk-release.pub"
+            >docs/keys/forgedesk-release.pub</a
+          >，可对照上面的指纹使用。此时仍可用 <code>SHA256SUMS</code>
+          核对下载是否完整（防传输损坏）；签名验证需要公钥到位后再进行。
+        </p>
+      </section>
 
-      <h2>安装与信任说明</h2>
-      <p class="note">
-        本项目是零成本分发的开源软件，<strong>没有购买付费代码签名证书</strong>，
-        因此系统可能在你第一次运行时多问一句。这不是木马特征，是签名缺失的正常表现。
-      </p>
-      <h3>Windows</h3>
-      <p class="note">
-        首次运行可能被 SmartScreen 拦截：选择「更多信息 → 仍要运行」； 或改用免安装的便携版
-        zip（解压即用）。安装前建议先完成上面的 SHA256 校验。 完整说明见
-        <a href="https://github.com/Ember1414/forgedesk/blob/main/docs/install/windows.md"
-          >docs/install/windows.md</a
-        >。
-      </p>
-      <h3>macOS</h3>
-      <p class="note">
-        应用使用 ad-hoc 签名（Apple Silicon 上必需）。首次打开若提示"无法验证开发者"： 右键点击应用
-        →「打开」，或到 系统设置 → 隐私与安全性 → 点「仍要打开」； 若提示"已损坏"，执行
-        <code>xattr -dr com.apple.quarantine /Applications/ForgeDesk.app</code>
-        去除隔离标记。完整步骤见仓库
-        <a href="https://github.com/Ember1414/forgedesk/blob/main/docs/install/macos.md"
-          >docs/install/macos.md</a
-        >。
-      </p>
-      <h3>系统要求</h3>
-      <p class="note">
-        Windows 10 1809 或更高（需 WebView2，Windows 11 已内置）；macOS 10.15+；Linux 需 WebKitGTK
-        4.1（依赖随发行版包提供）。应用本身不含 AI 功能、不含遥测， 本地 Git 操作完全离线可用。
-      </p>
+      <section class="section-card">
+        <h2>安装与信任说明</h2>
+        <p class="note">
+          本项目是零成本分发的开源软件，<strong>没有购买付费代码签名证书</strong>，
+          因此系统可能在你第一次运行时多问一句。这不是木马特征，是签名缺失的正常表现。
+        </p>
+        <h3>Windows</h3>
+        <p class="note">
+          首次运行可能被 SmartScreen 拦截：选择「更多信息 → 仍要运行」； 或改用免安装的便携版
+          zip（解压即用）。安装前建议先完成上面的 SHA256 校验。 完整说明见
+          <a href="https://github.com/Ember1414/forgedesk/blob/main/docs/install/windows.md"
+            >docs/install/windows.md</a
+          >。
+        </p>
+        <h3>macOS</h3>
+        <p class="note">
+          应用使用 ad-hoc 签名（Apple Silicon 上必需）。首次打开若提示"无法验证开发者"：
+          右键点击应用 →「打开」，或到 系统设置 → 隐私与安全性 → 点「仍要打开」；
+          若提示"已损坏"，执行
+          <code>xattr -dr com.apple.quarantine /Applications/ForgeDesk.app</code>
+          去除隔离标记。完整步骤见仓库
+          <a href="https://github.com/Ember1414/forgedesk/blob/main/docs/install/macos.md"
+            >docs/install/macos.md</a
+          >。
+        </p>
+        <h3>系统要求</h3>
+        <p class="note">
+          Windows 10 1809 或更高（需 WebView2，Windows 11 已内置）；macOS 10.15+；Linux 需 WebKitGTK
+          4.1（依赖随发行版包提供）。应用本身不含 AI 功能、不含遥测， 本地 Git 操作完全离线可用。
+        </p>
+      </section>
     </main>
 
     <footer class="site-footer">

@@ -426,3 +426,367 @@ footer.site-footer a {
   clip: rect(0 0 0 0);
   white-space: nowrap;
 }
+
+/* ==========================================================================
+ * 首页与下载页的展示层（2026-10-08 升级）
+ *
+ * 规矩不变：颜色一律取自上面两个 :root 块（scripts/design/check-contrast.mjs
+ * 只放行那 8 组"文字 / 底色"配对）。新增组件因此只用既有 token，不引入新色值；
+ * 需要重点的地方用字号/字重/间距，而不是第三种颜色。
+ * ========================================================================== */
+
+/* 键盘焦点：用 --link 而不是 --brand——暗色主题下 --brand 对画布只有 2.3:1，
+ * 达不到 WCAG 1.4.11 要求的 3:1（门禁只查文字配对，这里靠自觉） */
+a:focus-visible,
+button:focus-visible,
+summary:focus-visible {
+  outline: 2px solid var(--link);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* 导航：滚动时轻微毛玻璃，页面内容从下面透出来（纯观感，无行为） */
+.site-nav {
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+@supports not (backdrop-filter: blur(8px)) {
+  .site-nav {
+    background: var(--surface);
+  }
+}
+
+/* ---------- 首页主视觉：文案 + 界面示意（纯 CSS/SVG 画的，不是截图） ---------- */
+.hero-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
+  gap: 36px;
+  align-items: center;
+}
+@media (max-width: 860px) {
+  .hero-grid {
+    grid-template-columns: 1fr;
+    gap: 26px;
+  }
+}
+.hero-copy h1 {
+  font-size: 38px;
+}
+.eyebrow {
+  display: inline-block;
+  margin-bottom: 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--fg-muted);
+  text-transform: uppercase;
+}
+.hero-copy .tagline {
+  font-size: 17.5px;
+  max-width: 30em;
+}
+.hero-bullets {
+  list-style: none;
+  margin: 16px 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  color: var(--fg-muted);
+  font-size: 13px;
+}
+.hero-bullets li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.hero-bullets li::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--brand);
+  flex: none;
+}
+
+/* 界面示意：窗口框 + 泳道图 + 提交行。整体 aria-hidden（装饰性），
+ * 下方小字如实说明"示意图，非真实截图" */
+.hero-visual {
+  position: relative;
+}
+.window {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: 0 18px 48px -28px rgb(15 17 21 / 45%);
+  overflow: hidden;
+}
+.win-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-sunken);
+}
+.win-bar .dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--line);
+  flex: none;
+}
+.win-bar .win-title {
+  margin-left: 8px;
+  font-size: 11.5px;
+  color: var(--fg-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.win-body {
+  display: grid;
+  grid-template-columns: 84px 1fr;
+  min-height: 232px;
+}
+.win-body .graph {
+  border-right: 1px solid var(--line);
+  background: var(--surface-sunken);
+  padding: 10px 0;
+}
+.commit-list {
+  list-style: none;
+  margin: 0;
+  padding: 4px 0;
+  font-size: 12.5px;
+}
+.commit-list li {
+  padding: 9px 14px 9px 26px;
+  position: relative;
+  border-bottom: 1px solid var(--line);
+}
+.commit-list li:last-child {
+  border-bottom: none;
+}
+/* 节点连线：与左侧泳道图的圆点对齐（视觉隐喻，非交互元素） */
+.commit-list li::before {
+  content: '';
+  position: absolute;
+  left: 8px;
+  top: 14px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--brand);
+}
+.commit-list li::after {
+  content: '';
+  position: absolute;
+  left: 11px;
+  top: 22px;
+  bottom: -6px;
+  width: 2px;
+  background: var(--line);
+}
+.commit-list li:last-child::after {
+  display: none;
+}
+.commit-list b {
+  display: block;
+  font-weight: 600;
+}
+.commit-list span {
+  color: var(--fg-muted);
+  font-size: 11.5px;
+}
+.visual-caption {
+  margin: 10px 2px 0;
+  font-size: 12px;
+  color: var(--fg-muted);
+  text-align: right;
+}
+
+/* ---------- 三步开始 ---------- */
+.steps {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 14px;
+  margin: 16px 0 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: step;
+}
+.steps li {
+  counter-increment: step;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 16px 16px 14px;
+  position: relative;
+}
+.steps li::before {
+  content: counter(step);
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--brand) 0%, var(--brand-2) 100%);
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 700;
+  margin-bottom: 10px;
+}
+.steps b {
+  display: block;
+  font-size: 14.5px;
+  margin-bottom: 4px;
+}
+.steps span {
+  color: var(--fg-muted);
+  font-size: 13px;
+}
+
+/* ---------- 数字条（全部来自仓库里的真实测量/产物） ---------- */
+.stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 14px;
+  margin-top: 16px;
+  padding: 0;
+  list-style: none;
+}
+.stats li {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 16px;
+}
+.stats .figure {
+  display: block;
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+.stats span {
+  color: var(--fg-muted);
+  font-size: 12.5px;
+}
+
+/* ---------- 信任标签 ---------- */
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 14px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.chips li {
+  border: 1px solid var(--line);
+  background: var(--surface);
+  border-radius: 999px;
+  padding: 5px 13px;
+  font-size: 12.5px;
+  color: var(--fg-muted);
+}
+
+/* ---------- 下载页：顶部推荐卡 ---------- */
+.dl-hero {
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface);
+  padding: 20px 20px 18px;
+  margin-top: 14px;
+}
+.dl-hero .dl-lead {
+  color: var(--fg-muted);
+  font-size: 14px;
+  margin: 6px 0 0;
+  max-width: 52em;
+}
+.dl-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 22px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12.5px;
+  color: var(--fg-muted);
+}
+.dl-facts b {
+  color: var(--fg);
+  font-weight: 600;
+}
+
+/* 卡片化章节：把长页面切成可扫读的块 */
+.section-card {
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface);
+  padding: 6px 20px 18px;
+  margin-top: 16px;
+}
+.section-card h2 {
+  margin-top: 18px;
+}
+.section-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: space-between;
+}
+.section-head .note {
+  margin: 0;
+}
+
+/* 指纹：等宽、可选、不折行（用户要逐字比对） */
+.fingerprint {
+  font-family: ui-monospace, SFMono-Regular, Consolas, 'Liberation Mono', monospace;
+  font-size: 12.5px;
+  color: var(--fg-muted);
+  overflow-wrap: anywhere;
+}
+
+/* ---------- 入场动画（尊重系统"减少动态效果"设置） ---------- */
+@keyframes fd-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .hero-grid,
+  .capabilities li,
+  .steps li {
+    animation: fd-fade-up 0.45s ease-out both;
+  }
+  .capabilities li:nth-child(2) {
+    animation-delay: 0.05s;
+  }
+  .capabilities li:nth-child(3) {
+    animation-delay: 0.1s;
+  }
+  .capabilities li:nth-child(4) {
+    animation-delay: 0.15s;
+  }
+  .capabilities li,
+  .steps li,
+  .stats li {
+    transition:
+      transform 0.16s ease-out,
+      border-color 0.16s ease-out;
+  }
+  .capabilities li:hover,
+  .steps li:hover {
+    transform: translateY(-2px);
+    border-color: var(--brand);
+  }
+}

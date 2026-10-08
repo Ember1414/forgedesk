@@ -243,6 +243,25 @@ console.log('静态结构（多页导航 / 平台识别 / 三平台命令 / og �
     licensePage.includes(license.trim().split('\n')[0].slice(0, 30)),
     '许可证页与 LICENSE 同源',
   );
+
+  // GPG 公钥：站点副本必须与真相源逐字节一致。下载页给出的是"用这把公钥验签名"，
+  // 一旦两份漂移，用户拿到的就是一把验不过（或更糟：验得过旧签名）的钥匙。
+  const pubkeySource = join(repoRoot, 'docs', 'keys', 'forgedesk-release.pub');
+  const pubkeyTarget = join(repoRoot, 'site', 'updates', 'gpg-pubkey.asc');
+  if (existsSync(pubkeySource)) {
+    assert(existsSync(pubkeyTarget), '公钥真相源存在时，站点副本必须已生成（build-site）');
+    assert(
+      existsSync(pubkeyTarget) &&
+        readFileSync(pubkeyTarget, 'utf8') === readFileSync(pubkeySource, 'utf8'),
+      '站点副本与 docs/keys/forgedesk-release.pub 逐字节一致',
+    );
+    assert(
+      readFileSync(pubkeySource, 'utf8').includes('BEGIN PGP PUBLIC KEY BLOCK'),
+      '公钥文件是 ASCII armor 形态（不是二进制导出或空文件）',
+    );
+  } else {
+    assert(!existsSync(pubkeyTarget), '没有公钥真相源时站点不得残留旧副本（轮换安全）');
+  }
 }
 
 // ---- 状态 1：没有清单（尚未发布） ------------------------------------------

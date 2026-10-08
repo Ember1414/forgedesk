@@ -43,5 +43,10 @@ secrecy.workspace = true
 tokio.workspace = true
 forgedesk-provider.workspace = true
 
+[dev-dependencies]
+# 篡改包拒绝的验签测试（M7 验收第 2 条）直接调用与 tauri-plugin-updater
+# 相同的验签库与调用方式；版本跟随插件在 Cargo.lock 里的解析结果。
+minisign-verify = "0.2"
+
 [lints]
 workspace = true

@@ -19,7 +19,7 @@
  *
  * 用法：node scripts/ci/build-site.mjs
  */
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -221,6 +221,9 @@ function shell({ title, description, path, body, dataPage, prefix }) {
     `<a class="item" data-nav="${nav}" href="${prefix}${href}">${label}</a>`;
   const link = (href, label) => `<a href="${prefix}${href}">${label}</a>`;
   const external = (href, label) => `<a href="${href}" target="_blank" rel="noopener">${label}</a>`;
+  // 星标按钮保持与手写页一致的外观（class="star" + 图标）；生成页与手写页
+  // 的导航必须是同一种东西，否则用户从首页点进手册会看到导航"变了个样"
+  const star = `<a class="star" href="https://github.com/Ember1414/forgedesk" title="在 GitHub 上给 ForgeDesk 点星" target="_blank" rel="noopener"><svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2l2.9 6.3 6.9.8-5.1 4.7 1.4 6.8L12 17.2 5.9 20.6l1.4-6.8L2.2 9.1l6.9-.8L12 2z" /></svg>Star</a>`;
   return `<!doctype html>
 <html lang="zh-CN">
   <head>
@@ -249,7 +252,7 @@ function shell({ title, description, path, body, dataPage, prefix }) {
       ${item('changelog', 'changelog.html', '更新日志')}
       ${item('docs', 'docs/index.html', '文档')}
       ${item('about', 'about.html', '关于')}
-      ${external('https://github.com/Ember1414/forgedesk', 'Star')}
+      ${star}
     </header>
 
     <main class="page doc-body">
@@ -380,5 +383,23 @@ writeFileSync(
   }),
 );
 console.log('  生成 license.html');
+
+// 4) GPG 公钥随站发布（站点是**生成物**，真相源是 docs/keys/forgedesk-release.pub）
+//
+// 下载页探测 /updates/gpg-pubkey.asc 并在取到时给出下载入口。此前这个路径
+// 从来没有文件（探测必失败 → 入口永远隐藏，页面上只剩"公钥尚未随站发布"的说明）。
+// 这里按"生成页"的同一条规矩办：从真相源复制到站点目录，构建时同步。
+// 源缺失时**删除**站点里的旧副本——宁可不提供公钥，也不能让用户拿旧密钥
+// 去验新签名（轮换后最危险的状态）。
+const pubkeySource = join(repoRoot, 'docs', 'keys', 'forgedesk-release.pub');
+const pubkeyTarget = join(SITE, 'updates', 'gpg-pubkey.asc');
+if (existsSync(pubkeySource)) {
+  mkdirSync(join(SITE, 'updates'), { recursive: true });
+  writeFileSync(pubkeyTarget, readFileSync(pubkeySource));
+  console.log('  生成 updates/gpg-pubkey.asc（来自 docs/keys/forgedesk-release.pub）');
+} else {
+  rmSync(pubkeyTarget, { force: true });
+  console.log('  docs/keys/forgedesk-release.pub 不存在：跳过公钥（站点不提供 GPG 入口）');
+}
 
 console.log('站点生成完成。');

@@ -89,3 +89,5 @@ plugins/target/
 site/docs/
 site/privacy.html
 site/license.html
+# 公钥随站副本（真相源：docs/keys/forgedesk-release.pub）
+site/updates/

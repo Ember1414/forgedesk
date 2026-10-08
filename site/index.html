@@ -57,20 +57,14 @@
     </header>
 
     <main class="page">
-      <section class="hero">
-        <div class="icon" aria-hidden="true">
-          <svg width="52" height="52" viewBox="0 0 1024 1024" fill="#ffffff">
-            <path d="M512 198 L560 262 L512 326 L464 262 Z" />
-            <path d="M400 306 L424 340 L400 374 L376 340 Z" />
-            <path d="M624 306 L648 340 L624 374 L600 340 Z" />
-            <rect x="256" y="512" width="512" height="104" rx="30" />
-            <rect x="432" y="616" width="160" height="120" rx="16" />
-            <rect x="320" y="736" width="384" height="88" rx="26" />
-          </svg>
-        </div>
-        <div>
-          <h1>ForgeDesk</h1>
-          <p class="tagline">A Git client for everyone · 看得见的 Git，不只是命令行。</p>
+      <section class="hero-grid">
+        <div class="hero-copy">
+          <span class="eyebrow">ForgeDesk · 开源 Git 桌面工作台</span>
+          <h1>看得见的 Git</h1>
+          <p class="tagline">
+            把易错的 Git 操作变成可视化界面、向导与可交互图表；破坏性操作先预览计划、自动打快照，
+            随时一键回滚。<strong>免费、开源、无 AI、无遥测。</strong>
+          </p>
           <span class="status" id="status">状态：尚无可用版本</span>
           <div class="actions">
             <div id="download-cta" style="display: contents"></div>
@@ -83,6 +77,69 @@
               <button type="button" data-os="linux">Linux</button>
             </div>
           </div>
+          <ul class="hero-bullets">
+            <li>Apache-2.0 开源</li>
+            <li>凭据只存系统钥匙串</li>
+            <li>本地操作完全离线</li>
+          </ul>
+        </div>
+
+        <!-- 界面示意：纯 CSS + SVG 绘制（不是截图，也不含任何竞品素材）。
+             左侧泳道图与右侧提交行只是"提交历史长什么样"的视觉隐喻 -->
+        <div class="hero-visual" aria-hidden="true">
+          <div class="window">
+            <div class="win-bar">
+              <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+              <span class="win-title">ForgeDesk — 提交历史与快照</span>
+            </div>
+            <div class="win-body">
+              <div class="graph">
+                <svg width="84" height="232" viewBox="0 0 84 232" fill="none">
+                  <path
+                    d="M28 26 C 28 60, 44 62, 44 92"
+                    stroke="var(--line)"
+                    stroke-width="3"
+                    stroke-linecap="round"
+                  />
+                  <path
+                    d="M44 92 C 44 122, 28 124, 28 154"
+                    stroke="var(--line)"
+                    stroke-width="3"
+                    stroke-linecap="round"
+                  />
+                  <path
+                    d="M28 154 C 28 188, 52 190, 52 214"
+                    stroke="var(--line)"
+                    stroke-width="3"
+                    stroke-linecap="round"
+                  />
+                  <circle cx="28" cy="26" r="7" fill="var(--brand)" />
+                  <circle cx="44" cy="92" r="7" fill="var(--brand-2)" />
+                  <circle cx="28" cy="154" r="7" fill="var(--brand)" />
+                  <circle cx="52" cy="214" r="7" fill="var(--brand)" />
+                </svg>
+              </div>
+              <ul class="commit-list">
+                <li>
+                  <b>feat: 提交历史泳道图</b>
+                  <span>刚刚 · main · 点选即看详情</span>
+                </li>
+                <li>
+                  <b>snapshot: 变基前自动快照</b>
+                  <span>2 分钟前 · 可随时回滚</span>
+                </li>
+                <li>
+                  <b>fix: 冲突面板逐块解决</b>
+                  <span>昨天 · 已合并</span>
+                </li>
+                <li>
+                  <b>chore: 只允许 force-with-lease</b>
+                  <span>3 天前 · 安全网</span>
+                </li>
+              </ul>
+            </div>
+          </div>
+          <p class="visual-caption">界面示意（非真实截图）</p>
         </div>
       </section>
 
@@ -174,12 +231,57 @@
         </li>
       </ul>
 
+      <h2>三步开始</h2>
+      <ol class="steps">
+        <li>
+          <b>下载并校验</b>
+          <span>
+            安装器或便携版任选；<a href="download.html">下载页</a>给出每个产物的 SHA256
+            与三平台校验命令。
+          </span>
+        </li>
+        <li>
+          <b>安装并打开</b>
+          <span>首次运行的系统提示（SmartScreen / Gatekeeper）都有对应说明，不是木马特征。</span>
+        </li>
+        <li>
+          <b>打开你的仓库</b>
+          <span>克隆或打开本地目录即可；之后的破坏性操作都会先打快照。</span>
+        </li>
+      </ol>
+
+      <h2>一些不吹牛的数字</h2>
+      <ul class="stats">
+        <li>
+          <span class="figure">301 ms</span>
+          <span>打开 10 万提交的仓库（仓库内 <code>perf_probe</code> 实测）</span>
+        </li>
+        <li>
+          <span class="figure">~8 MB</span>
+          <span>Windows 安装包大小（v1.0.0 实测，不含浏览器内核）</span>
+        </li>
+        <li>
+          <span class="figure">0</span>
+          <span>遥测请求与 AI 功能；数据清单见<a href="privacy.html">隐私说明</a></span>
+        </li>
+        <li>
+          <span class="figure">Apache-2.0</span>
+          <span>开源许可，永久免费，可自行构建</span>
+        </li>
+      </ul>
+
       <h2>为谁而做</h2>
       <p class="lede">
         如果 <code>rebase --onto</code>、<code>cherry-pick</code>
         这些词让你紧张，ForgeDesk 把它们变成看得见的计划与可回滚的操作；
         如果你本就是命令行熟手，它也能当成本地 GitHub 工作台与可视化速查工具。
       </p>
+      <ul class="chips">
+        <li>刚接触 Git 的学生与转行者</li>
+        <li>想少敲命令的日常开发者</li>
+        <li>需要可视化讲解的教师与分享者</li>
+        <li>不允许数据离开本机的团队</li>
+      </ul>
 
       <h2>技术说明</h2>
       <p class="note">
