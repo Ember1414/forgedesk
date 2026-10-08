@@ -391,6 +391,56 @@
       if (nav) nav.setAttribute('aria-current', 'page');
     }
 
+    /*
+     * ---------- 滚动相关的观感增强 ----------
+     *
+     * 全部是**渐进增强**：页面内容默认就完整可见，这里只负责"动起来"。
+     * 因此每一步都要能安全跳过——jsdom（官网自检）没有 IntersectionObserver、
+     * 没有 matchMedia，也不该因为这些缺失而让自检报错。
+     */
+    var reduceMotion = false;
+    try {
+      reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    } catch (error) {
+      reduceMotion = false;
+    }
+
+    if (!reduceMotion && typeof window.IntersectionObserver === 'function') {
+      // 先藏后显这件事交给 JS 加类：没有 JS / 不支持观察器时元素保持可见
+      document.documentElement.classList.add('js-reveal');
+      var revealObserver = new window.IntersectionObserver(
+        function (entries) {
+          entries.forEach(function (entry) {
+            if (!entry.isIntersecting) return;
+            entry.target.classList.add('is-visible');
+            revealObserver.unobserve(entry.target);
+          });
+        },
+        { rootMargin: '0px 0px -6% 0px', threshold: 0.08 },
+      );
+      Array.prototype.forEach.call(document.querySelectorAll('[data-reveal]'), function (element) {
+        revealObserver.observe(element);
+      });
+    }
+
+    // 阅读进度条与导航滚动态：同样由 JS 生成（无 JS 时页面不会多一根静止的线）
+    var progress = document.createElement('div');
+    progress.className = 'scroll-progress';
+    progress.setAttribute('aria-hidden', 'true');
+    document.body.appendChild(progress);
+
+    var navBar = document.querySelector('.site-nav');
+    var updateScrollChrome = function () {
+      var doc = document.documentElement;
+      var scrollable = doc.scrollHeight - window.innerHeight;
+      var ratio = scrollable > 0 ? Math.min(1, Math.max(0, window.scrollY / scrollable)) : 0;
+      progress.style.width = (ratio * 100).toFixed(2) + '%';
+      if (navBar) navBar.classList.toggle('is-scrolled', window.scrollY > 8);
+    };
+    updateScrollChrome();
+    window.addEventListener('scroll', updateScrollChrome, { passive: true });
+    window.addEventListener('resize', updateScrollChrome);
+
     // 复制按钮：<button data-copy-target="#元素id">
     Array.prototype.forEach.call(
       document.querySelectorAll('[data-copy-target]'),

@@ -199,6 +199,32 @@ console.log('静态结构（多页导航 / 平台识别 / 三平台命令 / og �
   assert(index.includes('property="og:image"'), '首页带 og:image（原创分享图）');
   assert(existsSync(join(repoRoot, 'site', 'og.png')), 'og 分享图文件存在');
 
+  // 快速开始：三条命令卡 + 可复制的初始化命令（复制按钮指向真实存在的元素）
+  assert(index.includes('class="quickstart"'), '首页有「快速开始」命令卡');
+  assert(
+    index.includes('id="qs-init"') && index.includes('data-copy-target="#qs-init"'),
+    '快速开始的命令有可复制的锚点',
+  );
+
+  // 常见问题：折叠面板（原生 details，无 JS 依赖），问题与答案都不为空
+  assert(index.includes('class="faq"'), '首页有常见问题折叠区');
+  const faqItems = [...index.matchAll(/<details>\s*<summary>([^<]+)<\/summary>\s*<p>/g)];
+  assert(faqItems.length >= 5, `常见问题至少 5 条（实际 ${faqItems.length}）`);
+
+  // 文档卡片：**每一条指向生成页的链接都必须真的存在**——手册章节改名/重排时，
+  // 首页卡片是最容易被忘掉的地方（它长得像静态文案，其实是站内链接）
+  const docsCards = [...index.matchAll(/href="(docs\/[^"#]+\.html)"/g)].map((m) => m[1]);
+  assert(docsCards.length >= 5, `首页至少有 5 个手册卡片链接（实际 ${docsCards.length}）`);
+  for (const relative of docsCards) {
+    assert(
+      existsSync(join(repoRoot, 'site', relative)),
+      `手册卡片链接指向已生成的页面：${relative}`,
+    );
+  }
+
+  // 滚动动效是渐进增强：钩子在（data-reveal），但页面不依赖 JS 才可见
+  assert(index.includes('data-reveal'), '首页带滚动入场钩子（data-reveal）');
+
   for (const [label, html] of [
     ['download', download],
     ['index', index],

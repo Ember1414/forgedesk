@@ -16,6 +16,14 @@
   --surface: #ffffff;
   --line: #e3e6eb;
   --surface-sunken: #f2f3f6;
+  /* 渐变文字用的两个端点。**必须单独列出来**（而不是直接用 --brand/--brand-2）：
+   * 暗色主题下 --brand 对画布只有约 2.3:1，而这两组是逐个算过对比度的：
+   * 亮色 5.7:1 / 5.3:1，暗色 6.8:1 / 9.4:1（对各自画布，WCAG AA 正文阈值 4.5）。 */
+  --grad-a: #4f46e5;
+  --grad-b: #7c3aed;
+  /* 流式字号：小屏不挤、大屏不空 */
+  --fs-hero: clamp(2.15rem, 4.6vw, 3.15rem);
+  --fs-h2: clamp(1.28rem, 2.2vw, 1.55rem);
 }
 @media (prefers-color-scheme: dark) {
   :root {
@@ -26,6 +34,8 @@
     --surface: #171a20;
     --line: #2a2f38;
     --surface-sunken: #1e222a;
+    --grad-a: #8b93f8;
+    --grad-b: #a5b4fc;
   }
 }
 
@@ -607,46 +617,8 @@ summary:focus-visible {
   text-align: right;
 }
 
-/* ---------- 三步开始 ---------- */
-.steps {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 14px;
-  margin: 16px 0 0;
-  padding: 0;
-  list-style: none;
-  counter-reset: step;
-}
-.steps li {
-  counter-increment: step;
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  padding: 16px 16px 14px;
-  position: relative;
-}
-.steps li::before {
-  content: counter(step);
-  display: grid;
-  place-items: center;
-  width: 26px;
-  height: 26px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, var(--brand) 0%, var(--brand-2) 100%);
-  color: #ffffff;
-  font-size: 13px;
-  font-weight: 700;
-  margin-bottom: 10px;
-}
-.steps b {
-  display: block;
-  font-size: 14.5px;
-  margin-bottom: 4px;
-}
-.steps span {
-  color: var(--fg-muted);
-  font-size: 13px;
-}
+/* （"三步开始"已由「快速开始」的三张命令卡取代；对应的 .steps 规则随之删除，
+ *  避免留下没人用的样式——CSS 里的死代码同样会被后来的人当成约定。） */
 
 /* ---------- 数字条（全部来自仓库里的真实测量/产物） ---------- */
 .stats {
@@ -762,10 +734,256 @@ summary:focus-visible {
     transform: none;
   }
 }
+
+/* ==========================================================================
+ * 2026-10-08 第二轮：快速开始 / 文档卡片 / 常见问题 / 滚动特效
+ *
+ * 同一套规矩：颜色只用上面两个 :root 块里的值（新加的 --grad-a/--grad-b 是
+ * 逐个算过对比度的渐变端点，见 :root 注释）。所有动效都是**渐进增强**：
+ * 默认（无 JS / 系统要求减少动态效果）页面完全可用且不动。
+ * ========================================================================== */
+
+/* ---------- 主标题渐变 + 背景光晕 ---------- */
+.hero-copy h1 {
+  font-size: var(--fs-hero);
+  background: linear-gradient(135deg, var(--grad-a) 0%, var(--grad-b) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+/* 品牌色光晕：纯装饰、不承载文字，因此用透明度而不是新色值。
+ * 挂在 .hero（而不是 .hero-grid）上：::before 在 grid 容器里会占一个网格单元，
+ * 把两列布局挤成三格。内容层显式抬到光晕之上（z-index: 1）。 */
+.hero {
+  position: relative;
+}
+.hero::before {
+  content: '';
+  position: absolute;
+  inset: -40px -40px auto -40px;
+  height: 320px;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(
+      420px 200px at 18% 30%,
+      color-mix(in srgb, var(--brand) 16%, transparent),
+      transparent 70%
+    ),
+    radial-gradient(
+      360px 180px at 78% 8%,
+      color-mix(in srgb, var(--brand-2) 14%, transparent),
+      transparent 72%
+    );
+}
+.hero > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* ---------- h2 体系：小装饰条 + 流式字号 ---------- */
+h2 {
+  font-size: var(--fs-h2);
+}
+.section-head h2,
+h2 {
+  letter-spacing: -0.01em;
+}
+h2::before {
+  content: '';
+  display: inline-block;
+  width: 14px;
+  height: 3px;
+  border-radius: 2px;
+  margin-right: 9px;
+  vertical-align: 4px;
+  background: linear-gradient(90deg, var(--grad-a), var(--grad-b));
+}
+
+/* ---------- 滚动阅读进度条（JS 生成，无 JS 就没有它） ---------- */
+.scroll-progress {
+  position: fixed;
+  top: 0;
+  left: 0;
+  height: 3px;
+  width: 0;
+  z-index: 40;
+  background: linear-gradient(90deg, var(--grad-a), var(--grad-b));
+  transition: width 0.08s linear;
+}
+.site-nav.is-scrolled {
+  box-shadow: 0 10px 28px -22px rgb(15 17 21 / 55%);
+}
+
+/* ---------- 滚动入场（只有 JS 加了 .js-reveal 才隐藏；否则内容始终可见） ---------- */
+[data-reveal] {
+  transition:
+    opacity 0.55s ease-out,
+    transform 0.55s ease-out;
+}
+.js-reveal [data-reveal] {
+  opacity: 0;
+  transform: translateY(16px);
+}
+.js-reveal [data-reveal].is-visible {
+  opacity: 1;
+  transform: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .js-reveal [data-reveal] {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+}
+
+/* ---------- 快速开始：命令卡 ---------- */
+.quickstart {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 16px;
+  margin-top: 16px;
+}
+.quickstart .qs-card {
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface);
+  padding: 18px;
+}
+.quickstart h3 {
+  margin: 0 0 8px;
+  font-size: 15px;
+}
+.quickstart .qs-card .note {
+  margin: 8px 0 0;
+}
+.quickstart pre {
+  margin: 0;
+}
+.qs-badge {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--surface-sunken);
+  color: var(--fg-muted);
+  font-size: 11.5px;
+  font-weight: 500;
+  vertical-align: 2px;
+}
+
+/* ---------- 文档卡片（手册章节 → 站点上的生成页） ---------- */
+.docs-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(238px, 1fr));
+  gap: 14px;
+  margin: 16px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.docs-grid a {
+  display: block;
+  height: 100%;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+  text-decoration: none;
+  color: var(--fg);
+  transition:
+    border-color 0.16s ease-out,
+    transform 0.16s ease-out;
+}
+.docs-grid a:hover {
+  border-color: var(--brand);
+  transform: translateY(-2px);
+}
+.docs-grid b {
+  display: block;
+  color: var(--link);
+  font-size: 14.5px;
+  margin-bottom: 4px;
+}
+.docs-grid span {
+  color: var(--fg-muted);
+  font-size: 13px;
+}
+
+/* ---------- 常见问题（原生 details 手风琴，无 JS 依赖） ---------- */
+.faq {
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface);
+  padding: 2px 18px;
+  margin-top: 16px;
+}
+.faq details {
+  border-bottom: 1px solid var(--line);
+  padding: 2px 0;
+}
+.faq details:last-child {
+  border-bottom: none;
+}
+.faq summary {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 13px 0;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 14.5px;
+  list-style: none;
+}
+.faq summary::-webkit-details-marker {
+  display: none;
+}
+.faq summary::after {
+  content: '+';
+  color: var(--fg-muted);
+  font-weight: 400;
+  font-size: 16px;
+  line-height: 1;
+}
+.faq details[open] summary::after {
+  content: '−';
+}
+.faq p {
+  margin: 0 0 14px;
+  color: var(--fg-muted);
+  font-size: 13.5px;
+  max-width: 68em;
+}
+
+/* ---------- 生成页（手册 / 隐私 / 许可证）的阅读排版 ---------- */
+.doc-body {
+  max-width: 76ch;
+}
+.doc-body h2 {
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--line);
+}
+.doc-body h2::before {
+  display: none; /* 文档页的 h2 不加首页那种装饰条 */
+}
+.doc-body code {
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: var(--surface-sunken);
+  border: 1px solid var(--line);
+}
+.doc-body pre code {
+  padding: 0;
+  border: none;
+  background: none;
+}
+.doc-body a {
+  text-underline-offset: 2px;
+}
 @media (prefers-reduced-motion: no-preference) {
   .hero-grid,
-  .capabilities li,
-  .steps li {
+  .capabilities li {
     animation: fd-fade-up 0.45s ease-out both;
   }
   .capabilities li:nth-child(2) {
@@ -778,14 +996,12 @@ summary:focus-visible {
     animation-delay: 0.15s;
   }
   .capabilities li,
-  .steps li,
   .stats li {
     transition:
       transform 0.16s ease-out,
       border-color 0.16s ease-out;
   }
-  .capabilities li:hover,
-  .steps li:hover {
+  .capabilities li:hover {
     transform: translateY(-2px);
     border-color: var(--brand);
   }
