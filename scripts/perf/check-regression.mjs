@@ -16,14 +16,7 @@
  * 阈值为什么是 10%：任务书 T2.9 的约定。CI runner 是共享资源，绝对值会漂，
  * 但同一 runner 池的相对波动通常远小于 10%（夹具与口径都是确定的）。
  */
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  readdirSync,
-  statSync,
-  writeFileSync,
-} from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
 const BASELINE_PATH = resolve('scripts/perf/baseline-ci.json');
