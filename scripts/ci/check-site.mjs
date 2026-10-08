@@ -42,6 +42,10 @@ const version = JSON.parse(
 const MANIFEST_URL = '/updates/stable/windows-x86_64.json';
 const CHECKSUMS_URL = '/updates/stable/SHA256SUMS';
 const ASC_URL = '/updates/stable/SHA256SUMS.asc';
+// 公钥的公开地址。**注意它与 ASC_URL 是两个不同的文件**：曾经页面探测 .asc（存在）
+// 却链接到公钥（不存在），导致下载页上挂出一个必然拿到首页 HTML 的坏链接——
+// v1.0.0 发布后实测发现，状态 3 于是拆成"有公钥 / 无公钥"两种情形。
+const PUBKEY_URL = '/updates/gpg-pubkey.asc';
 const API_RELEASES_URL = 'https://api.github.com/repos/Ember1414/forgedesk/releases?per_page=10';
 
 let failures = 0;
@@ -324,6 +328,9 @@ console.log('状态 3：有发布清单与校验和');
       [MANIFEST_URL]: { json: manifest },
       [CHECKSUMS_URL]: { text: checksums },
       [ASC_URL]: { text: '-----BEGIN PGP SIGNATURE-----\nfake\n-----END PGP SIGNATURE-----' },
+      [PUBKEY_URL]: {
+        text: '-----BEGIN PGP PUBLIC KEY BLOCK-----\nfake\n-----END PGP PUBLIC KEY BLOCK-----',
+      },
     },
     { path: '/download.html' },
   );
@@ -343,8 +350,39 @@ console.log('状态 3：有发布清单与校验和');
     '校验和覆盖全部三个 Windows 产物',
   );
 
-  assert(!document.getElementById('gpg-key').hidden, 'GPG 公钥下载入口随 .asc 一起出现');
+  const gpgKey = document.getElementById('gpg-key');
+  assert(!gpgKey.hidden, '有公钥文件时才展示 GPG 公钥下载入口');
+  assert(
+    gpgKey.querySelector('a').getAttribute('href') === PUBKEY_URL,
+    'GPG 入口的链接指向被探测的那个文件（探测与链接不得分叉）',
+  );
+  assert(
+    document.getElementById('gpg-placeholder').hidden,
+    '公钥已发布时收起"尚未发布"的占位说明（两句话不能同时出现）',
+  );
   dom.window.close();
+
+  // 回归：只有 .asc（签名）而**没有**公钥文件时，入口必须保持隐藏。
+  // 这正是 v1.0.0 上线时的真实状态——探测 .asc 却链接公钥，页面挂出了坏链接。
+  const noPubkey = await loadPage(
+    'download.html',
+    {
+      [MANIFEST_URL]: { json: manifest },
+      [CHECKSUMS_URL]: { text: checksums },
+      [ASC_URL]: { text: '-----BEGIN PGP SIGNATURE-----\nfake\n-----END PGP SIGNATURE-----' },
+    },
+    { path: '/download.html' },
+  );
+  assert(
+    noPubkey.window.document.getElementById('gpg-key').hidden,
+    '只有签名没有公钥时，GPG 公钥入口保持隐藏（不给出必坏的链接）',
+  );
+  assert(
+    !noPubkey.window.document.getElementById('gpg-placeholder').hidden,
+    '公钥缺失时如实说明现状（占位文案可见）',
+  );
+  noPubkey.window.close();
+  void 0;
 }
 
 // ---- 状态 4：更新日志（运行时拉取 + 兜底） ---------------------------------

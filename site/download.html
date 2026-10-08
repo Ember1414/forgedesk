@@ -115,11 +115,15 @@
         </p>
       </div>
       <p class="note" id="gpg-placeholder">
-        公钥文件将随首次正式发布一起提供（并公布指纹与 keyserver 导入方式）； 现阶段可在仓库
+        <!-- 这段只在 gpg-key 仍隐藏（即公钥文件尚未发布）时可见：
+             不要写成"将随首次发布提供"——v1.0.0 已发布而公钥仍未随附，
+             那会是一句当场就能被证伪的话。公钥的自动发布列在 M8 计划里。 -->
+        v1.0.0 的 <code>SHA256SUMS.asc</code> 已随 Release 附件提供，但
+        <b>公钥文件尚未随站发布</b>， 因此上面的验证命令暂时无法直接使用。当前可用
+        <code>SHA256SUMS</code> 核对下载是否完整（防传输损坏）； 公钥与指纹的自动发布见
         <a href="https://github.com/Ember1414/forgedesk/blob/main/docs/RELEASE.md"
           >docs/RELEASE.md</a
-        >
-        查看发布签名的设计与流程。
+        >。
       </p>
 
       <h2>安装与信任说明</h2>

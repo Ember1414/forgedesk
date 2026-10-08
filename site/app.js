@@ -16,6 +16,10 @@
   'use strict';
 
   var CHANNEL = '/updates/stable';
+  // GPG 公钥的公开地址：**唯一的真相源**——探测与链接都用它。
+  // 曾经探测的是 SHA256SUMS.asc（存在）而链接指向 gpg-pubkey.asc（不存在），
+  // 于是下载页上挂出一个必然拿到首页 HTML 的坏链接（v1.0.0 发布后实测发现）。
+  var GPG_PUBKEY_URL = '/updates/gpg-pubkey.asc';
   var RELEASES_URL = 'https://github.com/Ember1414/forgedesk/releases';
   var API_RELEASES_URL = 'https://api.github.com/repos/Ember1414/forgedesk/releases';
 
@@ -428,12 +432,25 @@
               if (checksumDetails && ok) checksumDetails.hidden = false;
             });
           }
-          // GPG 公钥：发布了 .asc 才展示下载入口，否则如实说明"随首次发布提供"
+          // GPG 公钥：**探测的必须是链接要指向的那个文件**。曾经探测
+          // SHA256SUMS.asc（它存在）却链接到 gpg-pubkey.asc（不存在），
+          // 结果是一个点了只会拿到首页 HTML 的坏链接。href 也从同一常量写入，
+          // 让"探测什么"与"链接到哪"不可能再分叉。
           var gpgSection = document.getElementById('gpg-key');
           if (gpgSection) {
-            probeByUrl(CHANNEL + '/SHA256SUMS.asc')
+            probeByUrl(GPG_PUBKEY_URL)
               .then(function () {
+                var link = gpgSection.querySelector('a');
+                if (link) {
+                  link.href = GPG_PUBKEY_URL;
+                }
                 gpgSection.hidden = false;
+                // 占位说明写的是"公钥尚未发布"：公钥在了就必须收起它，
+                // 否则页面上会同时出现"可下载公钥"与"尚未发布"两句互相打脸的话
+                var placeholder = document.getElementById('gpg-placeholder');
+                if (placeholder) {
+                  placeholder.hidden = true;
+                }
               })
               .catch(function () {
                 /* 保持隐藏：占位文案已在静态内容里 */
