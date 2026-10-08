@@ -375,6 +375,26 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: pnpm tauri build --config release-config.json --target universal-apple-darwin
 
+      # ad-hoc 签名不是"顺便有了"：Apple Silicon 上未签名的二进制**直接崩**，
+      # 而 Tauri 在没有签名身份时会做 ad-hoc 签名（codesign -s -）。这一步把它
+      # 变成断言——一旦 Tauri 的行为或我们的配置变化导致签名丢失，会在构建阶段
+      # 红掉，而不是等到用户说"打开就闪退"。（M8 / T8.1）
+      - name: Assert ad-hoc signature (codesign)
+        shell: bash
+        run: |
+          set -eu
+          app="target/universal-apple-darwin/release/bundle/macos/ForgeDesk.app"
+          if [[ ! -d "${app}" ]]; then
+            echo "::error title=缺少 .app::没找到 ${app}，无法验证签名。"
+            exit 1
+          fi
+          codesign -dv --verbose=2 "${app}" 2>&1 | tee codesign.txt
+          if ! grep -q 'Signature=adhoc' codesign.txt; then
+            echo "::error title=缺少 ad-hoc 签名::codesign 输出里没有 Signature=adhoc —— 产物在 Apple Silicon 上会直接崩溃。"
+            exit 1
+          fi
+          echo "ad-hoc 签名已确认。"
+
       - name: Normalize bundle names
         shell: bash
         run: |
