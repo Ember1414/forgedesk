@@ -359,6 +359,11 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/') && startsWith(matrix.platform, 'ubuntu')
         run: |
           set -euo pipefail
+          # 先如实列出实际产物：v1.0.0 首次 tag 构建时这一步以 exit 2 失败在
+          # `ls bundles/*.AppImage`（glob 无匹配），但日志里看不到 bundles/ 里到底
+          # 有什么，只能靠猜。把清单打出来，下一次失败就是可判读的证据而不是谜题。
+          echo "bundles/ 实际内容："
+          ls -la bundles/
           APPIMAGE=$(ls bundles/*.AppImage)
           test -x "$APPIMAGE"
           "$APPIMAGE" --appimage-extract >/dev/null
