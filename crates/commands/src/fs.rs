@@ -62,7 +62,7 @@ pub struct FsReadRequest {
 /// 读取文件（≤ 5MB；二进制只给元信息；EOL/BOM 如实上报）。
 ///
 /// 能力等级：`ReadOnly`。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn fs_read(state: State<'_, AppState>, request: FsReadRequest) -> AppResult<FsFileContent> {
     let root = prepare_root(&state, request.repo_id)?;
     workspace_fs::fs_read(&root, &request.path)
@@ -97,7 +97,7 @@ pub struct FsWriteOutcome {
 /// 写入文件（EOL/BOM 按调用方声明的原文件形态恢复；成功后前端刷新 Git 状态）。
 ///
 /// 能力等级：`Mutating`。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn fs_write(state: State<'_, AppState>, request: FsWriteRequest) -> AppResult<FsWriteOutcome> {
     let root = prepare_root(&state, request.repo_id)?;
     if request.content.len() as u64 > FS_READ_LIMIT {
@@ -133,7 +133,7 @@ pub struct FsCreateRequest {
 /// 创建文件 / 目录。
 ///
 /// 能力等级：`Mutating`。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn fs_create(state: State<'_, AppState>, request: FsCreateRequest) -> AppResult<()> {
     let root = prepare_root(&state, request.repo_id)?;
     workspace_fs::fs_create(&root, &request.path, request.is_dir)
@@ -154,7 +154,7 @@ pub struct FsRenameRequest {
 /// 重命名 / 移动（目标同样不得逃逸仓库根）。
 ///
 /// 能力等级：`Mutating`。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn fs_rename(state: State<'_, AppState>, request: FsRenameRequest) -> AppResult<()> {
     let root = prepare_root(&state, request.repo_id)?;
     workspace_fs::fs_rename(&root, &request.path, &request.new_path)
@@ -163,7 +163,7 @@ pub fn fs_rename(state: State<'_, AppState>, request: FsRenameRequest) -> AppRes
 /// 删除（移入回收站——不是永久删除）。
 ///
 /// 能力等级：`Mutating`。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn fs_delete(state: State<'_, AppState>, path: String, repo_id: i64) -> AppResult<()> {
     let root = prepare_root(&state, repo_id)?;
     workspace_fs::fs_delete(&root, &path)

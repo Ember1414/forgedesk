@@ -113,7 +113,7 @@ impl std::fmt::Debug for SessionEnder {
 ///
 /// 界面在启动时调用一次：若 `abnormalExit` 为真，展示"上次异常退出"提示，
 /// 并让用户选择「以安全模式重启」或「继续」；`safeMode` 为真时界面显示常驻标识。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn app_startup_report(state: State<'_, AppState>) -> AppResult<StartupReportDto> {
     Ok(StartupReportDto {
         abnormal_exit: state.startup.abnormal_exit,

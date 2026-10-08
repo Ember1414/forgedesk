@@ -68,6 +68,12 @@ cargo test --workspace --all-features
 - 覆盖率底线：Rust 整体 ≥ 60%、`domain` crate ≥ 85%、前端关键模块 ≥ 70%。
 - 前端 E2E 必须断言 `window.__errs` 为空（未捕获错误集合）。
 - 改动文档后运行 `pnpm check:docs`：文档里的相对链接与锚点必须有效（外部链接不做网络校验）。
+- **改动 `src/lib/ipc/**` 或任何 `#[tauri::command]` 后必须运行 `pnpm check:ipc`**：
+  Tauri 按**形参名**从 payload 取值，结构体参数平铺传会得到 `invalid args`。
+  这条规则单测与 e2e 都测不到（两侧都 mock 掉了 `invoke`，mock 不关心宿主
+  能不能反序列化）。真实事故：2026-10-08 一次性查出 19 处调用点全废——
+  编辑器文件树恒空、新建文件必失败、GitHub 议题/PR 与仪表盘整页失效，而 902 个
+  单测全绿。
 - **改动任何依赖清单（`Cargo.toml`、`Cargo.lock`、`package.json`、`pnpm-lock.yaml`）后
   必须运行 `pnpm compliance`**：它会重新生成 `docs/LICENSE-AUDIT.md`，与仓库内版本不一致时
   失败并就地更新，提交新版本即可转绿。

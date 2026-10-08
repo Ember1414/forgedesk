@@ -414,14 +414,14 @@ pub fn git_stash_save(
 }
 
 /// stash 列表。只读。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn git_stash_list(state: State<'_, AppState>, repo_id: i64) -> AppResult<Vec<StashEntry>> {
     let repo_id = require_repo(repo_id)?;
     state.stash_service().list(repo_id)
 }
 
 /// 某条 stash 的 diff（相对 base + 未跟踪文件）。只读。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn git_stash_show(
     state: State<'_, AppState>,
     repo_id: i64,
@@ -717,7 +717,7 @@ pub fn git_reset_execute(
 // ---------------------------------------------------------------- reflog
 
 /// reflog（新的在前）。只读。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn git_reflog(
     state: State<'_, AppState>,
     repo_id: i64,

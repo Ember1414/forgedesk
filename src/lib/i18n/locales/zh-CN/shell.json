@@ -16,11 +16,15 @@
     },
     "account": {
       "label": "账号",
-      "signedOut": "未登录"
+      "signedOut": "未登录",
+      "signedOutHint": "未登录任何托管平台账号 —— 点击前往「代码托管账号」设置",
+      "signedInHint": "已登录：{{login}} —— 点击管理账号"
     },
     "update": {
       "label": "更新状态",
-      "latest": "已是最新版本"
+      "latest": "已是最新版本",
+      "localBuild": "本地构建（未配置更新源）",
+      "available": "可更新到 {{version}}"
     }
   },
   "nav": {

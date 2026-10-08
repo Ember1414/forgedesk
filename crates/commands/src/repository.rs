@@ -421,7 +421,7 @@ impl InitRequest {
 /// 用途：用户拖入一个子目录时先告诉界面"它属于哪个仓库、当前分支是什么"，
 /// 再由界面决定是否真的打开。路径不在任何仓库内时返回 `PATH_NOT_REPO`
 /// 并附带"初始化仓库"动作。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn repo_discover(state: State<'_, AppState>, path: String) -> AppResult<RepositoryDto> {
     let path = validated_path(&path, "path")?;
     state
@@ -435,7 +435,7 @@ pub fn repo_discover(state: State<'_, AppState>, path: String) -> AppResult<Repo
 /// 能力等级：`ReadOnly`（只读仓库、只写本地登记表；不改仓库状态，因此不需要快照）。
 ///
 /// 审计与版本检查的结果**不会阻塞打开**：它们只是附加提示。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn repo_open(state: State<'_, AppState>, path: String) -> AppResult<OpenedRepositoryDto> {
     let path = validated_path(&path, "path")?;
     let opened = state.repository_service().open(&path)?;
@@ -523,7 +523,7 @@ pub fn repo_clone(
 ///
 /// 能力等级：`Mutating`（在磁盘上创建仓库并写入文件；**不**创建提交，
 /// 因此不需要快照——没有任何可回滚的既有状态）。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn repo_init(state: State<'_, AppState>, spec: InitRequest) -> AppResult<OpenedRepositoryDto> {
     let (path, init_spec, extras) = spec.into_parts()?;
 

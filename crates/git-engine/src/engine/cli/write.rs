@@ -38,6 +38,24 @@ pub(super) fn init(
     path: &Path,
     spec: &InitSpec,
 ) -> AppResult<RepositoryInfo> {
+    // 目标目录不存在时**先建出来**。
+    //
+    // 命令是以 `path` 作为工作目录执行的（`run_write_at` 不带路径参数），
+    // 而进程层对不存在的工作目录会直接拒绝——用户看到的是"初始化失败：
+    // 找不到目标"，而不是"目录已创建"。`InitRequest` 的契约本来就是
+    // "不存在时创建"（2026-10-08：这条契约此前只有文档没有实现）。
+    //
+    // `create_dir_all` 会连同缺失的父目录一起创建（"在 D:\code\新仓库 初始化"
+    // 时 `D:\code` 不存在也应当成立）。
+    std::fs::create_dir_all(path).map_err(|error| {
+        AppError::new(
+            ErrorCode::Validation,
+            "could not create the target directory",
+        )
+        .with_detail(format!("{}: {error}", path.display()))
+        .with_hint(path.display().to_string())
+        .with_retryable(false)
+    })?;
     engine.run_write_at(path, GitInvocation::new(args::init_args(spec)))?;
     read::discover(engine, path)
 }

@@ -17,6 +17,10 @@ forgedesk-domain.workspace = true
 # 因此本 crate 在写日志前必须过一遍 sanitize_log，而不是自己实现一套规则
 # （"交互只有一种实现"）。依赖方向见 docs/ARCHITECTURE.md §2 的说明。
 forgedesk-diagnostics.workspace = true
+# 只为了 subprocess::NoConsoleWindow：GUI 构建没有控制台，不抑制 CREATE_NO_WINDOW
+# 时每条 git 命令都会闪一个黑框（见 platform/src/subprocess.rs 的说明）。
+# 方向合法：platform 只依赖 domain / diagnostics，不反向依赖本 crate。
+forgedesk-platform.workspace = true
 serde.workspace = true
 thiserror.workspace = true
 tracing.workspace = true

@@ -38,6 +38,7 @@ pub mod platform_checks;
 pub mod session;
 pub mod shell;
 pub mod shell_resolver;
+pub mod subprocess;
 pub mod system_integration;
 pub mod watcher;
 
@@ -54,6 +55,7 @@ pub use shell_resolver::{
     path_search_dirs, pick_default, probe_shells, ShellInfo, ShellKind, ShellResolver,
     SystemShellResolver,
 };
+pub use subprocess::NoConsoleWindow;
 pub use system_integration::{
     autostart_for_current_platform, open_file_with_default, reveal_in_file_manager, Autostart,
     UnsupportedAutostart,

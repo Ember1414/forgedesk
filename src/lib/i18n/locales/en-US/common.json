@@ -23,6 +23,8 @@
     "cancel": "Cancel",
     "retry": "Retry",
     "confirm": "Confirm",
-    "delete": "Delete"
+    "delete": "Delete",
+    "expand": "Expand",
+    "collapse": "Collapse"
   }
 }

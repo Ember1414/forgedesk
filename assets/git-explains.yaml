@@ -41,6 +41,64 @@ commands:
         summary: 浅克隆：只取最近的 N 次提交，节省流量与时间；之后历史不完整，某些操作受限。
         example: git clone --depth 1 https://example.com/repo.git
 
+  - command: mv
+    category: repo
+    risk: caution
+    summary: 移动或重命名文件，同时更新索引。等价于"先改磁盘文件名，再 git add 旧名与新名"。
+    docs_url: https://git-scm.com/docs/git-mv
+    example: git mv old.txt new.txt
+    equivalent_ui_route: /editor
+  - command: ls-files
+    category: staging
+    risk: safe
+    summary: 列出索引（暂存区）里的文件——已跟踪的文件清单，不是磁盘上的全部文件。
+    docs_url: https://git-scm.com/docs/git-ls-files
+    example: git ls-files
+    subcommands:
+      - name: --others
+        risk: safe
+        summary: 反过来列出未跟踪的文件（配合 --exclude-standard 尊重忽略规则）。
+        example: git ls-files --others --exclude-standard
+      - name: --deleted
+        risk: safe
+        summary: 只列出"索引里还在、磁盘上已删"的文件。
+  - command: check-ignore
+    category: repo
+    risk: safe
+    summary: 查询某个路径为什么被忽略（或没被忽略），排查 .gitignore 规则的利器。
+    docs_url: https://git-scm.com/docs/git-check-ignore
+    example: git check-ignore -v build/output.log
+  - command: archive
+    category: repo
+    risk: safe
+    summary: 把某个提交的内容导出成压缩包（不含 .git 目录），适合交付源码快照。
+    docs_url: https://git-scm.com/docs/git-archive
+    example: git archive --format=zip -o src.zip HEAD
+  - command: bundle
+    category: repo
+    risk: safe
+    summary: 把仓库（或某段历史）打包成单个文件，可在无网络的机器之间搬运。
+    docs_url: https://git-scm.com/docs/git-bundle
+    example: git bundle create repo.bundle --all
+  - command: cat-file
+    category: repo
+    risk: safe
+    summary: 直接查看 Git 对象的内容与类型（提交、树、blob）——排查"这个对象到底是什么"。
+    docs_url: https://git-scm.com/docs/git-cat-file
+    example: git cat-file -p HEAD
+  - command: hash-object
+    category: repo
+    risk: caution
+    summary: 计算文件的内容哈希；加 -w 会把对象真正写进仓库（会改变对象库）。
+    docs_url: https://git-scm.com/docs/git-hash-object
+    example: git hash-object -w README.md
+  - command: sparse-checkout
+    category: repo
+    risk: dangerous
+    summary: 只把仓库的一部分目录检出到工作区。切换规则时**会删除**不再包含的目录内容，未提交的改动会丢。
+    docs_url: https://git-scm.com/docs/git-sparse-checkout
+    example: git sparse-checkout set src docs
+
   # ------------------------------------------------------------- 查看（status）
   - command: status
     category: staging
@@ -91,6 +149,12 @@ commands:
         summary: 只取消跟踪（从索引删除），磁盘文件保留——常用于停止跟踪本地产物。
         example: git rm --cached build.log
 
+  - command: apply
+    category: staging
+    risk: caution
+    summary: 把一份补丁（diff 文本）应用到工作区或索引。加 --index 时同时更新索引，加 --check 可先试跑。
+    docs_url: https://git-scm.com/docs/git-apply
+    example: git apply --check fix.patch
   # ------------------------------------------------------------- 提交（commit）
   - command: commit
     category: commit
@@ -109,6 +173,38 @@ commands:
         risk: caution
         summary: 跳过 pre-commit / commit-msg 钩子检查。绕过团队校验，仅在明确知道后果时使用。
         example: git commit --no-verify -m "说明"
+
+  - command: am
+    category: commit
+    risk: caution
+    summary: 把邮箱格式的补丁（git format-patch 的产物）逐个应用成提交——邮件列表工作流的入口。
+    docs_url: https://git-scm.com/docs/git-am
+    example: git am 0001-fix.patch
+    subcommands:
+      - name: --abort
+        risk: caution
+        summary: 应用失败后回到开始之前的状态（会丢弃这次 am 已产生的部分提交）。
+      - name: --continue
+        risk: caution
+        summary: 手工解决冲突后继续应用剩下的补丁。
+  - command: format-patch
+    category: commit
+    risk: safe
+    summary: 把提交导出成邮箱格式的补丁文件（每个提交一个文件），配合 git am 或邮件发送。
+    docs_url: https://git-scm.com/docs/git-format-patch
+    example: git format-patch origin/main
+  - command: notes
+    category: commit
+    risk: caution
+    summary: 给提交附加独立的备注（不改变提交本身）。适合记录评审结论、构建号这类补充信息。
+    docs_url: https://git-scm.com/docs/git-notes
+    example: git notes add -m "已评审" HEAD
+  - command: verify-commit
+    category: commit
+    risk: safe
+    summary: 校验某个提交的 GPG 签名是否有效，并打印签名者信息。
+    docs_url: https://git-scm.com/docs/git-verify-commit
+    example: git verify-commit HEAD
 
   # ------------------------------------------------------------- 分支（branch）
   - command: branch
@@ -170,6 +266,31 @@ commands:
         summary: 进入"分离 HEAD"状态：直接检出一个提交而不是分支，此时的新提交不属于任何分支，切走后容易找不到。
         example: git switch --detach v1.2.0
 
+  - command: show-branch
+    category: branch
+    risk: safe
+    summary: 并排显示多条分支各自有、对方没有的提交——判断"这两条分支差在哪"的紧凑视图。
+    docs_url: https://git-scm.com/docs/git-show-branch
+    example: git show-branch main feature
+  - command: merge-base
+    category: branch
+    risk: safe
+    summary: 找出两条（或多条）分支的共同祖先提交——"从哪里开始分叉"的那个点。
+    docs_url: https://git-scm.com/docs/git-merge-base
+    example: git merge-base main feature
+  - command: describe
+    category: branch
+    risk: safe
+    summary: 用一个可读的名字描述某个提交，取"最近的标签 + 距离"（如 v1.0.0-12-gabc1234）。
+    docs_url: https://git-scm.com/docs/git-describe
+    example: git describe --tags
+  - command: verify-tag
+    category: branch
+    risk: safe
+    summary: 校验标签的 GPG 签名。发布前确认"这个标签确实是发布者打的"。
+    docs_url: https://git-scm.com/docs/git-verify-tag
+    example: git verify-tag v1.0.0
+
   # ------------------------------------------------------------- 合并与变基
   - command: merge
     category: merge
@@ -228,6 +349,19 @@ commands:
     docs_url: https://git-scm.com/docs/git-revert
     example: git revert abc1234
     equivalent_ui_route: /operations
+
+  - command: mergetool
+    category: merge
+    risk: caution
+    summary: 用外部可视化工具逐个解决冲突文件——冲突方框选完后仍要 git add 标记已解决。
+    docs_url: https://git-scm.com/docs/git-mergetool
+    example: git mergetool
+  - command: range-diff
+    category: merge
+    risk: safe
+    summary: 比较两个提交区间（如变基前后），逐条展示"同一件事的新旧两个提交差异"。
+    docs_url: https://git-scm.com/docs/git-range-diff
+    example: git range-diff main..feature@{1} main..feature
 
   # ------------------------------------------------------------- 重置与历史
   - command: reset
@@ -296,6 +430,19 @@ commands:
         example: git stash clear
         equivalent_ui_route: /snapshots
 
+  - command: ls-remote
+    category: remote
+    risk: safe
+    summary: 只查询远端有哪些引用（分支/标签）与各自指向的哈希，不下载任何对象。
+    docs_url: https://git-scm.com/docs/git-ls-remote
+    example: git ls-remote --heads origin
+  - command: request-pull
+    category: remote
+    risk: safe
+    summary: 生成一段"请把我这些提交合并过去"的说明（含区间与差异摘要），常贴在邮件或 PR 描述里。
+    docs_url: https://git-scm.com/docs/git-request-pull
+    example: git request-pull origin/main . feature
+
   # ------------------------------------------------------------- 远端（remote）
   - command: fetch
     category: remote
@@ -354,6 +501,48 @@ commands:
         risk: safe
         summary: 移除一个远端配置（只删配置，不删本地数据）。
         example: git remote remove upstream
+
+  - command: grep
+    category: history
+    risk: safe
+    summary: 在**已跟踪的文件内容**里搜索（尊重忽略规则，比外部 grep 更贴仓库语义，可按提交或分支范围搜）。
+    docs_url: https://git-scm.com/docs/git-grep
+    example: git grep -n TODO
+    subcommands:
+      - name: -n
+        risk: safe
+        summary: 输出行号。
+      - name: --cached
+        risk: safe
+        summary: 搜索索引里的内容，而不是工作区当前的文件。
+      - name: -e
+        risk: safe
+        summary: 指定搜索模式（模式以 - 开头时用它，避免被当成选项解析）。
+        example: git grep -n -e "-Werror"
+  - command: shortlog
+    category: history
+    risk: safe
+    summary: 按作者汇总提交（常用 -sn 只出"谁提交了多少条"），发版前看贡献分布很直观。
+    docs_url: https://git-scm.com/docs/git-shortlog
+    example: git shortlog -sn
+  - command: rev-list
+    category: history
+    risk: safe
+    summary: 只列出提交哈希（脚本与统计的底层命令）。范围写法与 git log 相同。
+    docs_url: https://git-scm.com/docs/git-rev-list
+    example: git rev-list --count HEAD
+  - command: rev-parse
+    category: history
+    risk: safe
+    summary: 把"人类写法"解析成具体哈希或路径（如 HEAD / HEAD~2 / 分支名），排查引用指向哪里。
+    docs_url: https://git-scm.com/docs/git-rev-parse
+    example: git rev-parse HEAD
+  - command: difftool
+    category: history
+    risk: safe
+    summary: 用外部可视化工具看差异（一次打开一个文件）。参数与 git diff 一致。
+    docs_url: https://git-scm.com/docs/git-difftool
+    example: git difftool HEAD~1
 
   # ------------------------------------------------------------- 历史查看
   - command: log
@@ -424,6 +613,25 @@ commands:
         summary: 删除一个本地标签。已推送到远端的标签不受影响（需另行推送删除）。
         example: git tag -d v1.2.0
 
+  - command: credential
+    category: config
+    risk: caution
+    summary: 直接读写 Git 的凭据存储。**fill/approve 会把密码或令牌明文输出到终端**——共享屏幕或录制时切勿执行。
+    docs_url: https://git-scm.com/docs/git-credential
+    example: git credential reject
+  - command: version
+    category: config
+    risk: safe
+    summary: 打印 Git 版本。报告问题时请附上它——很多行为差异都是版本差异。
+    docs_url: https://git-scm.com/docs/git-version
+    example: git --version
+  - command: help
+    category: config
+    risk: safe
+    summary: 打开本地手册（无网络也可用）。`git help -a` 列出全部子命令，适合查"还有哪些命令"。
+    docs_url: https://git-scm.com/docs/git-help
+    example: git help -a
+
   # ------------------------------------------------------------- 配置与维护
   - command: config
     category: config
@@ -473,6 +681,38 @@ commands:
         risk: dangerous
         summary: 直接删除一个引用（分支/标签指针），不走 branch -d 的合并检查。
         example: git update-ref -d refs/heads/experiment
+
+  - command: repack
+    category: maintenance
+    risk: caution
+    summary: 把松散对象重新打包成 pack 文件（缩小体积、加快访问）。正在被别的 git 进程使用时不要跑。
+    docs_url: https://git-scm.com/docs/git-repack
+    example: git repack -ad
+  - command: prune
+    category: maintenance
+    risk: dangerous
+    summary: 删除**不可达**的对象（没有任何引用指向的提交与文件）。默认有两周宽限期，加了 --expire now 就没有了。
+    docs_url: https://git-scm.com/docs/git-prune
+    example: git prune --dry-run
+    subcommands:
+      - name: --dry-run
+        risk: safe
+        summary: 只列出会被删除的对象，不真删——先看一遍再决定。
+      - name: --expire
+        risk: dangerous
+        summary: 指定宽限期（now = 立即）。刚误删分支还想找回时，这一步会让它彻底消失。
+  - command: maintenance
+    category: maintenance
+    risk: caution
+    summary: 官方推荐的后台维护入口，按仓库规模自动跑 gc / commit-graph 等任务，逐步替代手写 gc 调用。
+    docs_url: https://git-scm.com/docs/git-maintenance
+    example: git maintenance start
+  - command: count-objects
+    category: maintenance
+    risk: safe
+    summary: 统计仓库里的对象数量与占用（-vH 给人类可读的单位），判断"仓库为什么这么大"。
+    docs_url: https://git-scm.com/docs/git-count-objects
+    example: git count-objects -vH
 
   # ------------------------------------------------------------- 工作树与子模块
   - command: worktree

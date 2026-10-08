@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { THEME_MODES, currentResolvedTheme } from '@/app/theme';
@@ -8,7 +8,11 @@ import { useCustomThemesStore } from '@/features/themes/customThemesStore';
 import {
   currentActiveCustomTheme,
   setActiveCustomTheme,
+  subscribeActiveTheme,
 } from '@/features/themes/activeCustomTheme';
+
+/** SSR / 非浏览器环境的快照（画廊在那种环境下不会渲染，值只要稳定即可）。 */
+const getServerActiveCustomTheme = (): null => null;
 import { contrastReport } from '@/features/themes/themeModel';
 import type { ThemeDefinition, ThemeFieldError } from '@/features/themes/themeModel';
 import { SUPPORTED_LANGUAGES, changeLanguage, resolveActiveLanguage } from '@/lib/i18n';
@@ -187,8 +191,21 @@ export function AppearanceSettingsPage() {
       });
   }, []);
 
-  const activeCustom = currentActiveCustomTheme();
+  // 订阅而不是渲染期直接读模块变量：激活主题不会引起 React 更新（它只改模块变量
+  // 与 CSS 变量），直接读会让"使用中"标记停在旧卡片上——用户以为点了没反应
+  const activeCustom = useSyncExternalStore(
+    subscribeActiveTheme,
+    currentActiveCustomTheme,
+    getServerActiveCustomTheme,
+  );
   const activeBuiltin = builtinThemeFor(currentResolvedTheme());
+  /**
+   * 当前生效主题的 id（画廊据此打"使用中"标记）。
+   *
+   * 没有激活的带色主题时就是"按解析外观选中的那套基础配色"——
+   * 这也是"ForgeDesk Light / Dark"两张卡片的归属判定。
+   */
+  const activeThemeId = (activeCustom ?? activeBuiltin).id;
 
   const activateTheme = (theme: ThemeDefinition): void => {
     if (currentResolvedTheme() !== theme.appearance) {
@@ -196,11 +213,21 @@ export function AppearanceSettingsPage() {
     }
     setActiveCustomTheme(theme);
   };
+
+  /**
+   * 激活一个内置主题。
+   *
+   * ForgeDesk Light / Dark 的覆盖色集是**空**——"应用空覆盖"等价于清除自定义
+   * 变量（这正是 builtinThemes.ts 的约定），因此用 null 表示。
+   * Sandstone Dawn / Pine Nocturne 有完整色板，必须与导入主题走同一条上色路径；
+   * 此前这里无条件 `setActiveCustomTheme(null)`，于是它们的色板从未被应用过
+   * ——四种内置主题里两种"点了没反应"（2026-10-08 实测反馈）。
+   */
   const activateBuiltin = (theme: ThemeDefinition): void => {
     if (currentResolvedTheme() !== theme.appearance) {
       setThemeMode(theme.appearance as ThemeMode);
     }
-    setActiveCustomTheme(null);
+    setActiveCustomTheme(Object.keys(theme.colors).length > 0 ? theme : null);
   };
 
   const handleImportFile = (file: File): void => {
@@ -344,7 +371,7 @@ export function AppearanceSettingsPage() {
               <ThemeCard
                 key={theme.id}
                 theme={theme}
-                active={activeCustom === null && theme.id === activeBuiltin.id}
+                active={theme.id === activeThemeId}
                 onActivate={activateBuiltin}
                 onExport={exportTheme}
               />

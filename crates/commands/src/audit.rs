@@ -94,7 +94,7 @@ pub struct AuditPruneDto {
 }
 
 /// 分页查询操作历史。能力等级：`ReadOnly`。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn audit_list(
     state: State<'_, AppState>,
     repo_id: Option<i64>,
@@ -165,7 +165,7 @@ pub struct OperationHistoryDto {
 /// 本命令面向**操作历史页**——它多回答一个问题："那条记录的回滚点，现在还作数吗？"
 /// 锚点会消失（外部 clone、`git gc`、手工删 ref），而记录还在；不核对就给出一排
 /// "回滚"按钮，用户点下去只会收到一个到不了的目标。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn operation_history(
     state: State<'_, AppState>,
     repo_id: i64,

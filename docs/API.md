@@ -15,6 +15,7 @@
 | 命名 | `<domain>_<action>`，如 `repo_open`、`git_commit_execute` |
 | 返回 | 一律 `AppResult<T>`（即 `Result<T, AppError>`），**不允许**返回裸 `Result<T, String>` |
 | 参数命名 | Rust 侧 `snake_case` → 前端 `camelCase`（Tauri 自动转换；DTO 字段用 `serde(rename_all = "camelCase")`） |
+| **参数形状** | Tauri 按**形参名**从 payload 取值：`fn f(state, spec: X)` 要求前端传 `{ spec: {...} }`。**结构体参数不能被平铺**，平铺会得到 `invalid args spec for command f`。下表里写 `request：{...}` 的行就是这个意思 |
 | 输入校验 | 所有外部输入（路径、URL、sha、分支名）在后端**二次校验**；前端校验只为即时反馈 |
 | 长任务 | 超过 500ms 的操作必须走 `JobRunner` 并返回任务 id，进度通过事件推送（M1 起） |
 | 审计 | 任何改变仓库状态的操作必须经 `SnapshotManager` + `AuditLog`（红线 R7，M1 起） |
@@ -629,12 +630,16 @@ cwd 绑定仓库根（后端做逃逸校验）。
 
 | 命令 | 参数 | 返回 | 说明 / 错误 |
 | --- | --- | --- | --- |
-| `fs_tree` | `{ repoId, path?, showHidden?, showIgnored? }`（path 空串 = 根） | `FsNode[]`：`{ name, relPath, kind, size }`；目录在前 | 懒加载一层；`showIgnored=false` 时经 `git check-ignore -z --stdin` 过滤（git 失败 = 不过滤）；`path` 非目录 → `VALIDATION` |
-| `fs_read` | `{ repoId, path }` | `{ content, eol: lf\|crlf\|cr\|mixed, hasBom, size, isBinary, truncated }` | ≤ 5MB（超出 `VALIDATION` 并提示外部编辑器）；二进制 `content=null`；路径不存在 → `NOT_FOUND` |
-| `fs_write` | `{ repoId, path, content, eol?, hasBom? }` | `{ writtenBytes }` | EOL 规范化到声明形态（**不静默改变换行符**）；超 5MB → `VALIDATION` |
-| `fs_create` | `{ repoId, path, isDir }` | `null` | 已存在 → `VALIDATION` |
-| `fs_rename` | `{ repoId, path, newPath }` | `null` | 源不存在 → `NOT_FOUND`；目标已存在 → `VALIDATION` |
+| `fs_tree` | `{ request: { repoId, path?, showHidden?, showIgnored? } }`（path 空串 = 根） | `FsNode[]`：`{ name, relPath, kind, size }`；目录在前 | 懒加载一层；`showIgnored=false` 时经 `git check-ignore -z --stdin` 过滤（git 失败 = 不过滤）；`path` 非目录 → `VALIDATION` |
+| `fs_read` | `{ request: { repoId, path } }` | `{ content, eol: lf\|crlf\|cr\|mixed, hasBom, size, isBinary, truncated }` | ≤ 5MB（超出 `VALIDATION` 并提示外部编辑器）；二进制 `content=null`；路径不存在 → `NOT_FOUND` |
+| `fs_write` | `{ request: { repoId, path, content, eol?, hasBom? } }` | `{ writtenBytes }` | EOL 规范化到声明形态（**不静默改变换行符**）；超 5MB → `VALIDATION` |
+| `fs_create` | `{ request: { repoId, path, isDir } }` | `null` | 已存在 → `VALIDATION` |
+| `fs_rename` | `{ request: { repoId, path, newPath } }` | `null` | 源不存在 → `NOT_FOUND`；目标已存在 → `VALIDATION` |
 | `fs_delete` | `{ repoId, path }` | `null` | 移入回收站（`trash` crate），不是永久删除 |
+
+> 注：`fs_delete` 的两个参数是**独立形参**（`fn fs_delete(state, path, repo_id)`），
+> 因此平铺传 `{ path, repoId }` 是正确的——同一段代码里两种形状并存不是笔误，
+> 判断依据只有 Rust 侧的签名（`pnpm check:ipc` 会自动比对）。
 
 - **前端封装**：`src/lib/ipc/fs.ts`（T5.7 前端部分落地）
 - **测试**：`crates/services/src/workspace_fs.rs`（路径安全 / EOL / BOM / 树过滤）

@@ -1446,6 +1446,7 @@ version = "1.0.0"
 dependencies = [
  "forgedesk-diagnostics",
  "forgedesk-domain",
+ "forgedesk-platform",
  "git2",
  "parking_lot",
  "serde",

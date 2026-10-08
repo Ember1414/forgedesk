@@ -162,7 +162,7 @@ pub async fn repo_actions_run_rerun(
 ///
 /// 返回 `jobId`；日志行经 `actions:log-chunk` 事件分块推送，结束见模块
 /// 文档。取消走通用 `job_cancel`。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn repo_actions_job_logs(
     state: State<'_, AppState>,
     app: AppHandle,

@@ -22,7 +22,7 @@ use crate::state::AppState;
 // 同一个名字，不再重复定义（tauri::command 的宏名冲突会被编译器抓住）。
 
 /// 标签列表。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn git_tag_list(
     state: State<'_, AppState>,
     repo_id: i64,
@@ -31,7 +31,7 @@ pub fn git_tag_list(
 }
 
 /// 比较两个分支：ahead/behind 与 a 独有的提交（删除确认清单的数据源）。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn git_branch_compare(
     state: State<'_, AppState>,
     repo_id: i64,

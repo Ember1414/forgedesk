@@ -14,6 +14,7 @@ use std::time::Instant;
 
 use forgedesk_domain::{AppError, AppResult, ErrorCode};
 use forgedesk_git_engine::engines::GitEngines;
+use forgedesk_platform::NoConsoleWindow;
 use forgedesk_provider::{ApiRequest, GitHubHttp, HttpConfig};
 use forgedesk_storage::{Database, Scope, SettingsRepository};
 use serde::{Deserialize, Serialize};
@@ -156,7 +157,7 @@ fn test_client(database: &Database) -> AppResult<GitHubHttp> {
 /// 连通性测试（T6.8）：`api` = api.github.com/zen；`raw` = raw.githubusercontent.com。
 ///
 /// 测试走**当前设置的代理**（而非默认客户端），因此结果反映用户配置的真实可达性。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn network_proxy_test(
     state: tauri::State<'_, crate::state::AppState>,
     target: String,
@@ -210,7 +211,7 @@ pub fn network_proxy_test(
 ///
 /// 走 CLI 引擎的 `probe_remote`（已注入代理配置），因此测试的是"用户设置下
 /// git 网络操作"的真实可达性；公共只读仓库不需要凭据。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn network_git_test(
     state: tauri::State<'_, crate::state::AppState>,
 ) -> AppResult<ConnectivityResult> {
@@ -251,7 +252,7 @@ pub fn network_git_test(
 /// 安全边界：`BatchMode=yes`（绝不挂起等口令）、5 秒连接超时、
 /// **不**设置 `StrictHostKeyChecking=no`（T6.8 规格红线）——首次连接的
 /// known_hosts 确认由 OpenSSH 自己的提示流程处理（失败会如实回报）。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn ssh_test_connection(host: String) -> AppResult<ConnectivityResult> {
     use std::process::Command;
 
@@ -262,7 +263,9 @@ pub fn ssh_test_connection(host: String) -> AppResult<ConnectivityResult> {
         ));
     }
     let started = Instant::now();
+    // no_console_window：GUI 构建没有控制台，不抑制会闪一个黑框（见 platform::subprocess）
     let output = Command::new("ssh")
+        .no_console_window()
         .args([
             "-o",
             "BatchMode=yes",
@@ -363,9 +366,10 @@ fn parse_gpg_secret_keys(output: &str) -> Vec<GpgKey> {
 }
 
 /// 列出本机 GPG 私钥（T6.8；`gpg` 不可用时返回明确错误）。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn gpg_list_secret_keys() -> AppResult<Vec<GpgKey>> {
     let output = std::process::Command::new("gpg")
+        .no_console_window()
         .args(["--list-secret-keys", "--with-colons"])
         .output()
         .map_err(|error| AppError::new(ErrorCode::NotFound, format!("gpg client: {error}")))?;
@@ -382,13 +386,14 @@ pub fn gpg_list_secret_keys() -> AppResult<Vec<GpgKey>> {
 
 /// GPG 签名自检（T6.8）：对一段固定测试文本做 clearsign 并立即验证。
 /// 返回成功与否 + 验证输出摘要（失败时给出可读原因，如"密钥已过期"）。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn gpg_test_sign(key_id: Option<String>) -> AppResult<ConnectivityResult> {
     use std::io::Write;
     use std::process::Stdio;
 
     let started = Instant::now();
     let mut sign = std::process::Command::new("gpg")
+        .no_console_window()
         .args(["--batch", "--yes", "--clearsign"])
         .args(
             key_id

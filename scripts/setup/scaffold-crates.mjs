@@ -40,7 +40,10 @@ const CRATES = [
     name: 'forgedesk-git-engine',
     doc: 'Git 引擎抽象层：GitEngine trait 与 CLI / libgit2 双实现。',
     deps: ['serde', 'thiserror', 'tracing', 'tokio', 'tokio-util'],
-    internal: ['forgedesk-domain'],
+    // forgedesk-platform：只为了 subprocess::NoConsoleWindow——GUI 构建没有控制台，
+    // 不抑制 CREATE_NO_WINDOW 时每条 git 命令都会闪一个黑框（见该模块说明）。
+    // 方向合法：platform 只依赖 domain / diagnostics，不反向依赖本 crate。
+    internal: ['forgedesk-domain', 'forgedesk-platform'],
   },
   {
     dir: 'storage',

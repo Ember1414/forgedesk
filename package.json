@@ -35,6 +35,7 @@
     "check:contrast": "node scripts/design/check-contrast.mjs",
     "check:colors": "node scripts/design/scan-color-literals.mjs",
     "check:workflows": "node scripts/ci/validate-workflows.mjs",
+    "check:ipc": "node scripts/ci/check-ipc-args.mjs",
     "check:repo": "node scripts/ci/validate-repo.mjs",
     "check:docs": "node scripts/ci/check-docs-links.mjs",
     "//check:site": "官网落地页自检：用 jsdom 跑一遍页面脚本，断言「有/无发布清单」两种状态下的下载入口",

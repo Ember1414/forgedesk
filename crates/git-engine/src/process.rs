@@ -29,6 +29,7 @@ use std::time::{Duration, Instant};
 
 use forgedesk_diagnostics::sanitize_log;
 use forgedesk_domain::{AppError, AppResult, ErrorCode};
+use forgedesk_platform::NoConsoleWindow;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
 use tokio::process::{Child, Command};
 use tokio::task::JoinHandle;
@@ -374,6 +375,9 @@ impl GitProcess {
         command
             .args(args)
             .current_dir(&opts.cwd)
+            // 发布构建是 GUI 子系统（没有控制台），不抑制的话每条 git 命令都会
+            // 在屏幕上闪一个黑框——而"打开仓库"一次要跑十几条（2026-10-08 实测）。
+            .no_console_window()
             .stdin(if opts.stdin.is_some() {
                 Stdio::piped()
             } else {

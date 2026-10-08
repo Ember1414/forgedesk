@@ -23,7 +23,7 @@ use crate::state::AppState;
 /// 最近一次限流快照。能力等级：`ReadOnly`。
 ///
 /// 从未见过带限流头的响应（本次会话还没发过请求）为 `None`。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn repo_rate_limit_state(state: State<'_, AppState>) -> AppResult<Option<RateLimitState>> {
     Ok(state.host_repos.rate_limit_snapshot())
 }

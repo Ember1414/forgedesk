@@ -240,6 +240,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 safe_mode,
             )?;
 
+            // 内置示例插件的首次安装（幂等）：全新安装的插件面板不该是空的。
+            // 只装不禁用、不预授权——启用与授权仍走面板上的逐项确认（零信任）。
+            // 放在这里是因为此时 `plugin_manager` 还没被移进 AppState；
+            // 失败只写日志，不让启动失败。
+            let seeded =
+                forgedesk_commands::plugins::seed_builtin_examples(app.handle(), &plugin_manager, &database);
+            if seeded > 0 {
+                info!(count = seeded, "已安装内置示例插件（初始禁用）");
+            }
+
             // T7.5：重启前结束会话的能力。会话标记由 RuntimeHandles 独占持有，
             // 这里只提供一个"取走并删除"的闭包给命令层用（见 SessionEnder 的说明）。
             let session_handle = app.handle().clone();

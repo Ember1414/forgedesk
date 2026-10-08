@@ -72,6 +72,56 @@ describe('外观设置页 · 主题画廊', () => {
     });
   });
 
+  it('激活内置的 Sandstone Dawn 真的应用它的色板，并移动"使用中"标记', async () => {
+    settingsAllMock.mockResolvedValue({});
+    const sandbox = BUILTIN_THEMES.find((theme) => theme.id === 'sandstone-dawn');
+    expect(sandbox).toBeDefined();
+    const canvas = sandbox?.colors['canvas'] ?? '';
+    expect(canvas).not.toBe('');
+
+    render(<AppearanceSettingsPage />);
+    const card = await screen.findByTestId('theme-card-sandstone-dawn');
+
+    fireEvent.click(within(card).getByRole('button', { name: '使用此主题' }));
+
+    // 色板必须落到 <html> 的 CSS 变量上——只切 data-theme 不算生效
+    // （旧实现只把"自定义主题"上色，内置带色主题被当成"清空覆盖"处理，
+    //  于是四种内置主题里只有两种能用）
+    await waitFor(() => {
+      expect(document.documentElement.style.getPropertyValue('--fd-canvas')).toBe(canvas);
+    });
+    // 标记跟着走：否则用户点了看不到反馈
+    await waitFor(() => {
+      expect(
+        within(screen.getByTestId('theme-card-sandstone-dawn')).getByText('使用中'),
+      ).toBeInTheDocument();
+    });
+    expect(
+      within(screen.getByTestId('theme-card-forgedesk-light')).queryByText('使用中'),
+    ).not.toBeInTheDocument();
+  });
+
+  it('从带色内置主题切回 ForgeDesk Light 时清掉自定义变量', async () => {
+    settingsAllMock.mockResolvedValue({});
+
+    render(<AppearanceSettingsPage />);
+    const sandstone = await screen.findByTestId('theme-card-sandstone-dawn');
+    fireEvent.click(within(sandstone).getByRole('button', { name: '使用此主题' }));
+    await waitFor(() => {
+      expect(document.documentElement.style.getPropertyValue('--fd-canvas')).not.toBe('');
+    });
+
+    const light = screen.getByTestId('theme-card-forgedesk-light');
+    fireEvent.click(within(light).getByRole('button', { name: '使用此主题' }));
+
+    await waitFor(() => {
+      expect(document.documentElement.style.getPropertyValue('--fd-canvas')).toBe('');
+    });
+    expect(
+      within(screen.getByTestId('theme-card-forgedesk-light')).getByText('使用中'),
+    ).toBeInTheDocument();
+  });
+
   it('自定义主题卡片带删除入口，确认后从列表移除并写入后端', async () => {
     // IPC 直接返回已存储的自定义主题（页面的加载会以 IPC 结果为准）；
     // 色值取自内置主题定义，避免在非主题文件里出现颜色字面量（check:colors 会拦）

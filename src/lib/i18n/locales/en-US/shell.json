@@ -16,11 +16,15 @@
     },
     "account": {
       "label": "Account",
-      "signedOut": "Not signed in"
+      "signedOut": "Not signed in",
+      "signedOutHint": "No hosting account signed in — click to open the hosting accounts settings",
+      "signedInHint": "Signed in as {{login}} — click to manage accounts"
     },
     "update": {
       "label": "Update status",
-      "latest": "Up to date"
+      "latest": "Up to date",
+      "localBuild": "Local build (no update source configured)",
+      "available": "Update available: {{version}}"
     }
   },
   "nav": {

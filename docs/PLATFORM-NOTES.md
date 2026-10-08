@@ -13,6 +13,7 @@
 | 路径比较 | `path_normalizer` | 大小写折叠 + 长路径前缀剥离 | NFC 归一化 | 原样（敏感） |
 | Shell 解析 | `shell_resolver` | pwsh/powershell/cmd/Git Bash | zsh/bash/pwsh | 同左 |
 | 系统集成 | `system_integration` + `shell` | explorer / `start` / HKCU Run | open / LaunchAgent | xdg-open / XDG autostart |
+| 子进程窗口 | `subprocess` | `CREATE_NO_WINDOW`（见下） | 不适用（无控制台窗口概念） | 不适用 |
 | 通知 | `notify` | **日志兜底**（真实 Toast 随 T7.1 落地，需要安装器注册 AUMID） | 同左 | 同左 |
 | 无图形检测 | `platform_checks` | 不适用 | 不适用 | DISPLAY + WAYLAND_DISPLAY 全空 → 明确报错 |
 
@@ -34,6 +35,17 @@
   空标题占位符不可省（含空格路径会被当成标题）。
 - **Toast 通知（待 T7）**：未打包（便携版）场景没有 AUMID，系统 Toast 不可用；
   T7.1 打包器注册开始菜单快捷方式后才有 AUMID，便携版走 fallback（应用内提醒）。
+- **控制台子进程会闪黑框**（2026-10-08 修复）：发布构建是
+  `windows_subsystem = "windows"`（进程**没有**控制台）。此时启动一个控制台程序
+  （`git.exe` / `ssh.exe` / `gpg.exe`）会让 Windows 为它**新建一个控制台窗口**并在
+  屏幕上闪一下——"打开仓库"一次要跑十几条 git 命令，用户看到的就是连续的黑框闪烁，
+  同时创建/销毁控制台窗口本身也拖慢整机观感。
+  统一在 `forgedesk-platform::subprocess` 里用 `CREATE_NO_WINDOW` 抑制：
+  子进程照样拿到标准句柄（我们的管道读写不受影响），只是没有窗口。
+  调用点：`git-engine` 的 `GitProcess`（所有 git 调用）、`commands` 的 ssh / gpg。
+  **不适用**：终端页的 PTY（它就是给用户的终端，弹窗即功能）、以及
+  `explorer` / `open` / `xdg-open` 这类 GUI 程序（它们本来就没有控制台）。
+  开发构建（debug）有控制台，子进程继承它，因此**这个问题在 dev 下看不到**。
 
 ### macOS
 

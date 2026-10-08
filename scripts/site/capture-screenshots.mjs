@@ -180,8 +180,10 @@ try {
       deviceScaleFactor: 2,
       locale: 'zh-CN',
     });
+    // 这个回调在**页面上下文**里执行（Playwright 会把它序列化后注入），
+    // 所以 `window` 在这里合法；写成 `globalThis` 是为了过 lint 的 node 环境检查。
     await context.addInitScript(() => {
-      window.localStorage.setItem('forgedesk.language', 'zh-CN');
+      globalThis.localStorage.setItem('forgedesk.language', 'zh-CN');
     });
     await context.addInitScript(
       `window.localStorage.setItem('forgedesk.theme', '${scene.theme}');`,

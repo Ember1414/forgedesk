@@ -222,6 +222,16 @@ export function explainGitCommand(line: string): GitExplain | null {
 /** 字典页条目：命令级条目 + 其全部子级。 */
 export interface DictionaryEntry {
   readonly category: string;
+  /**
+   * 命令名（如 `reset`）。
+   *
+   * 单独一个字段而不是塞进 `command.name`：`ExplainEntry.name` 的语义是
+   * **子命令/参数名**（命令级条目为 null，解释卡片据此判断"命中到哪一层"）。
+   * 字典页此前没有这个字段，于是命令名在整个页面上**从未被渲染**——
+   * 只有分类、风险与说明，用户看到的是"命令词典里没有命令"
+   * （2026-10-08 用户反馈）。
+   */
+  readonly commandName: string;
   readonly command: ExplainEntry;
   /** 子命令 / 关键参数条目（按知识库顺序）。 */
   readonly subs: readonly ExplainEntry[];
@@ -231,6 +241,7 @@ export interface DictionaryEntry {
 export const EXPLAIN_DICTIONARY: readonly DictionaryEntry[] = (parsed.commands ?? []).map(
   (raw) => ({
     category: raw.category ?? '',
+    commandName: raw.command ?? '',
     command: toEntry(raw),
     subs: (raw.subcommands ?? []).map(toSubEntry),
   }),

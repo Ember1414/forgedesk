@@ -567,7 +567,7 @@ fn parse_permission(raw: &str) -> Result<Permission, AppError> {
 }
 
 /// 列出已安装插件。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn plugin_list(state: tauri::State<'_, PluginManager>) -> AppResult<Vec<PluginSummary>> {
     Ok(state.list())
 }
@@ -663,7 +663,7 @@ fn builtin_example_ids(dir: &std::path::Path) -> Vec<String> {
 }
 
 /// 列出随应用分发的示例插件（含"是否已安装"，供前端隐藏已装条目的入口）。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn plugin_builtin_examples(
     app: tauri::AppHandle,
     state: tauri::State<'_, PluginManager>,
@@ -674,8 +674,73 @@ pub fn plugin_builtin_examples(
         .unwrap_or_default())
 }
 
+/// "内置示例已首次安装"的标记（设置 KV，跨启动幂等）。
+pub const BUILTIN_SEEDED_KEY: &str = "plugins.builtinExamplesSeeded";
+
+/// 首次运行时把随应用分发的示例插件装进来（幂等；返回本次装了几个）。
+///
+/// # 为什么需要它（2026-10-08 的用户反馈）
+///
+/// 全新安装的插件面板里**一个插件都没有**——示例虽列在面板上、也有一键安装的
+/// 入口，但"打开插件面板是空的"读起来就是"这个功能没做完"。内置插件是随应用
+/// 分发的第一方插件，默认装上；**但保持禁用、且不预授任何权限**——启用与逐项
+/// 授权仍然由用户在面板里点（零信任模型不因为"是自家的"而松）。
+///
+/// 卸载过的内置插件**不会被塞回来**：标记一旦写下就不再自动安装（一个删不掉的
+/// 自带插件比空面板更糟）。标记只在真正扫到示例目录后才写，因此开发模式（没有
+/// 资源目录）不会把"没装成"记成"装过了"。
+pub fn seed_builtin_examples(
+    app: &tauri::AppHandle,
+    manager: &PluginManager,
+    database: &Database,
+) -> usize {
+    let settings = SettingsRepository::new(database);
+    let already_seeded = settings
+        .get(&Scope::Global, BUILTIN_SEEDED_KEY)
+        .ok()
+        .flatten()
+        .as_deref()
+        == Some("true");
+    if already_seeded {
+        return 0;
+    }
+
+    let Some(dir) = builtin_examples_dir(app) else {
+        tracing::info!("安装目录里没有内置示例插件，跳过首次安装");
+        return 0;
+    };
+
+    let installed: Vec<String> = manager.list().into_iter().map(|plugin| plugin.id).collect();
+    let mut count = 0;
+    for example in builtin_example_dtos(&dir, &installed) {
+        if example.installed {
+            continue;
+        }
+        match manager.install_copied(&dir.join(&example.dir_name)) {
+            Ok(report) => {
+                count += 1;
+                tracing::info!(
+                    plugin = %report.id,
+                    name = %report.name,
+                    version = %report.version,
+                    "已安装内置示例插件（初始禁用，权限待用户逐项授予）"
+                );
+            }
+            // 单个插件装不上不影响其它插件与启动流程
+            Err(error) => {
+                tracing::warn!(dir = %example.dir_name, error = %error, "内置示例插件安装失败");
+            }
+        }
+    }
+
+    if let Err(error) = settings.set(&Scope::Global, BUILTIN_SEEDED_KEY, "true") {
+        tracing::warn!(error = %error.message, "写入内置插件安装标记失败（下次启动会重试）");
+    }
+    count
+}
+
 /// 安装一个随应用分发的示例插件（复制进插件目录后注册，初始禁用）。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn plugin_install_builtin(
     app: tauri::AppHandle,
     state: tauri::State<'_, PluginManager>,
@@ -771,7 +836,7 @@ pub fn plugin_reload(state: tauri::State<'_, PluginManager>, id: String) -> AppR
 }
 
 /// 插件日志（运行中的实例）。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn plugin_logs(
     state: tauri::State<'_, PluginManager>,
     id: String,
@@ -781,7 +846,7 @@ pub fn plugin_logs(
 }
 
 /// 渲染插件面板（返回已校验的 DSL JSON）。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn plugin_render_panel(
     state: tauri::State<'_, PluginManager>,
     id: String,
@@ -791,7 +856,7 @@ pub fn plugin_render_panel(
 }
 
 /// 执行插件命令（命令面板与面板按钮的执行入口）。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn plugin_invoke_command(
     state: tauri::State<'_, PluginManager>,
     id: String,
@@ -804,7 +869,7 @@ pub fn plugin_invoke_command(
 }
 
 /// 已注册的贡献点（命令面板 / 面板挂载）。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn plugin_registrations(
     state: tauri::State<'_, AppHostServices>,
 ) -> AppResult<Vec<RegistrationDto>> {

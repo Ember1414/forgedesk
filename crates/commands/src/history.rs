@@ -43,7 +43,7 @@ pub fn git_log_page(
 }
 
 /// 列出分支（T2.3 的分支多选下拉）。能力等级：`ReadOnly`。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn git_branch_list(
     state: State<'_, AppState>,
     repo_id: i64,
@@ -57,7 +57,7 @@ pub fn git_branch_list(
 /// 列出仓库作者（T2.3 的作者筛选下拉）。能力等级：`ReadOnly`。
 ///
 /// 按邮箱去重、提交数降序；范围与 `--all` 一致（作者筛选作用于全仓库）。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn git_log_authors(state: State<'_, AppState>, repo_id: i64) -> AppResult<Vec<AuthorSummary>> {
     state.history_service().authors(repo_id)
 }

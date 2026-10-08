@@ -83,7 +83,7 @@ export type IssueListRequest = {
 
 /** 列出 Issue（不含 PR）。 */
 export function repoIssueList(request: IssueListRequest): Promise<IssuePage> {
-  return invokeCommand<IssuePage>('repo_issue_list', request);
+  return invokeCommand<IssuePage>('repo_issue_list', { request });
 }
 
 /** Issue 详情（描述已消毒）。 */
@@ -129,7 +129,7 @@ export function repoIssueCreate(request: {
   readonly body?: string;
   readonly repoId?: number;
 }): Promise<IssueDetail> {
-  return invokeCommand<IssueDetail>('repo_issue_create', request);
+  return invokeCommand<IssueDetail>('repo_issue_create', { request });
 }
 
 /** 编辑标题/描述（null 字段不动）。 */
@@ -142,7 +142,7 @@ export function repoIssueEdit(request: {
   readonly body?: string;
   readonly repoId?: number;
 }): Promise<IssueDetail> {
-  return invokeCommand<IssueDetail>('repo_issue_edit', request);
+  return invokeCommand<IssueDetail>('repo_issue_edit', { request });
 }
 
 /** 关闭 / 重新开启。 */
@@ -154,7 +154,7 @@ export function repoIssueStateSet(request: {
   readonly open: boolean;
   readonly repoId?: number;
 }): Promise<IssueDetail> {
-  return invokeCommand<IssueDetail>('repo_issue_state_set', request);
+  return invokeCommand<IssueDetail>('repo_issue_state_set', { request });
 }
 
 /** 整体替换指派人（空数组 = 全部取消）。 */
@@ -166,7 +166,7 @@ export function repoIssueAssigneesSet(request: {
   readonly assignees: readonly string[];
   readonly repoId?: number;
 }): Promise<IssueDetail> {
-  return invokeCommand<IssueDetail>('repo_issue_assignees_set', request);
+  return invokeCommand<IssueDetail>('repo_issue_assignees_set', { request });
 }
 
 /** Issue 评论列表。 */

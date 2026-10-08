@@ -46,10 +46,14 @@ export function gitBlame(
   path: string,
   options?: BlameOptions,
 ): Promise<BlameLine[]> {
+  // 后端签名是 `git_blame(state, request: GitBlameRequest)`：Tauri 按形参名取值，
+  // 平铺会得到 `invalid args request`（只在真机暴露，2026-10-08）
   return invokeCommand<BlameLine[]>('git_blame', {
-    repoId,
-    path,
-    ...(options === undefined ? {} : options),
+    request: {
+      repoId,
+      path,
+      ...(options === undefined ? {} : options),
+    },
   });
 }
 
@@ -60,11 +64,13 @@ export function gitFileHistory(
   options?: { readonly follow?: boolean; readonly limit?: number; readonly cursor?: number },
 ): Promise<FileHistoryPage> {
   return invokeCommand<FileHistoryPage>('git_file_history', {
-    repoId,
-    path,
-    ...(options?.follow === undefined ? {} : { follow: options.follow }),
-    ...(options?.limit === undefined ? {} : { limit: options.limit }),
-    ...(options?.cursor === undefined ? {} : { cursor: options.cursor }),
+    request: {
+      repoId,
+      path,
+      ...(options?.follow === undefined ? {} : { follow: options.follow }),
+      ...(options?.limit === undefined ? {} : { limit: options.limit }),
+      ...(options?.cursor === undefined ? {} : { cursor: options.cursor }),
+    },
   });
 }
 

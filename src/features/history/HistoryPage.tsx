@@ -354,8 +354,16 @@ export function HistoryPage() {
     );
   } else {
     body = (
-      <div className="flex min-h-0 flex-1 flex-col gap-2">
-        <div className="min-h-0 flex-1">
+      <div className="flex flex-1 flex-col gap-2">
+        {/*
+          图画布给它一个**最低高度**（而不是只写 `min-h-0 flex-1`）。
+          原因（2026-10-08 实测）：本页容器是 `h-full`，等于视口高；当头部工具栏
+          与历史操作面板加起来超过它时，`flex-1 + min-h-0` 的画布会被压到 0 高度
+          ——用户看到"提交加载了、图上空空如也，而且滚不动"（没有溢出可滚）。
+          给出下限后，空间不够时页面会**溢出**外层滚动容器（AppShell 的 main），
+          宁可让用户滚一下，也不能让主内容消失。
+        */}
+        <div className="min-h-[22rem] flex-1">
           {viewMode === 'graph' ? (
             <GraphOverlay
               model={graph.model}
@@ -397,7 +405,9 @@ export function HistoryPage() {
 
   return (
     <section
-      className="flex h-full min-h-0 flex-col gap-3"
+      // min-h-full 而不是 h-full：内容（工具栏 + 操作面板 + 图）超过视口时
+      // 让外层的 `overflow-auto` 接管滚动，见上面 body 的说明
+      className="flex min-h-full flex-col gap-3"
       data-testid="history-page"
       aria-label={t('history.title')}
     >

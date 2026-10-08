@@ -11,6 +11,7 @@
 
 import { currentResolvedTheme, onResolvedThemeChange } from '@/app/theme';
 
+import { findBuiltinTheme } from './builtinThemes';
 import {
   applyCustomThemeColors,
   readCachedCustomTheme,
@@ -20,7 +21,13 @@ import type { ThemeDefinition } from './themeModel';
 
 let activeTheme: ThemeDefinition | null = null;
 
-/** 当前激活的自定义主题（null = 使用内置主题）。 */
+/**
+ * 当前激活的"带色主题"（null = 内置的两套基础配色）。
+ *
+ * 注意语义：内置的 Sandstone Dawn / Pine Nocturne **也**从这里进出——它们与
+ * 导入主题的差别只是"随应用分发"，落到 DOM 上完全一样（都是 CSS 变量覆盖）。
+ * 只有 ForgeDesk Light/Dark 用 null 表示，因为它们的"覆盖"就是空集。
+ */
 export function currentActiveCustomTheme(): ThemeDefinition | null {
   return activeTheme;
 }
@@ -30,11 +37,39 @@ function reapply(): void {
   applyCustomThemeColors(activeTheme, currentResolvedTheme());
 }
 
-/** 激活（或取消激活）自定义主题：同步缓存 + 立即上色。 */
+type ActiveThemeListener = () => void;
+const activeThemeListeners = new Set<ActiveThemeListener>();
+
+/**
+ * 订阅"当前激活主题"的变化（设置页的画廊据此移动"使用中"标记）。
+ *
+ * 为什么需要它：激活动作只改模块级变量与 DOM 变量，**不会**触发任何 React 更新，
+ * 于是页面上的"使用中"徽标纹丝不动——用户点了"使用此主题"却看不到任何反馈，
+ * 与"这个按钮没接上"无法区分（2026-10-08 反馈的"四种主题只能用两种"里，
+ * 有一半正是这个：色板生效了，但界面拒绝承认）。
+ *
+ * 返回退订函数；与 `app/theme.ts` 的 resolved 订阅各管一件事，刻意不合并——
+ * 那个管"亮/暗解析结果"，这个管"用户选了哪个主题"。
+ */
+export function subscribeActiveTheme(listener: ActiveThemeListener): () => void {
+  activeThemeListeners.add(listener);
+  return () => {
+    activeThemeListeners.delete(listener);
+  };
+}
+
+function notifyActiveTheme(): void {
+  for (const listener of activeThemeListeners) {
+    listener();
+  }
+}
+
+/** 激活（或取消激活）自定义主题：同步缓存 + 立即上色 + 通知订阅者。 */
 export function setActiveCustomTheme(theme: ThemeDefinition | null): void {
   activeTheme = theme;
   writeCachedCustomTheme(theme);
   reapply();
+  notifyActiveTheme();
 }
 
 /**
@@ -44,15 +79,26 @@ export function setActiveCustomTheme(theme: ThemeDefinition | null): void {
 export function applyCachedCustomTheme(): ThemeDefinition | null {
   activeTheme = readCachedCustomTheme();
   reapply();
+  notifyActiveTheme();
   return activeTheme;
 }
 
 /**
- * 设置存储加载后的对账：缓存指向的主题若已不在自定义列表中（被删除/清空），
- * 自动取消激活。内置主题不经过这里（它们没有自定义变量可套用）。
+ * 设置存储加载后的对账：缓存指向的主题若既不在自定义列表、也不是内置主题
+ * （被删除 / 被清空 / id 拼错），自动取消激活。
+ *
+ * 内置主题必须一并认账：Sandstone Dawn / Pine Nocturne 走的就是这条上色路径，
+ * 若把它们当作"不在列表里"清掉，用户选了内置配色重启后会静默回落到
+ * ForgeDesk Light（2026-10-08：四种内置主题里两种"点了没反应、重启就丢"）。
  */
 export function reconcileActiveCustomTheme(customs: readonly ThemeDefinition[]): void {
-  if (activeTheme !== null && !customs.some((theme) => theme.id === activeTheme?.id)) {
+  if (activeTheme === null) {
+    return;
+  }
+  const known =
+    findBuiltinTheme(activeTheme.id) !== undefined ||
+    customs.some((theme) => theme.id === activeTheme?.id);
+  if (!known) {
     setActiveCustomTheme(null);
   }
 }

@@ -179,7 +179,7 @@ pub fn account_device_flow_wait(
 }
 
 /// 列出已登录账号。能力等级：`ReadOnly`。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn account_list(state: State<'_, AppState>) -> AppResult<Vec<AccountDto>> {
     Ok(state
         .accounts

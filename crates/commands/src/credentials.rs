@@ -88,7 +88,7 @@ pub fn credentials_delete(
 }
 
 /// 列出已保存的凭据（**不含**密文）。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn credentials_list(state: tauri::State<'_, AppState>) -> AppResult<Vec<CredentialMeta>> {
     state.credentials_service().list()
 }
@@ -106,7 +106,7 @@ pub fn credentials_list(state: tauri::State<'_, AppState>) -> AppResult<Vec<Cred
 ///
 /// **不读私钥内容**：扫描只对私钥文件做 `is_file()`（存在性），只有公钥读首行
 /// 取类型与注释。私钥路径会返回给界面（用户需要知道是哪个文件），但那不是秘密。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn credentials_ssh_inventory(state: tauri::State<'_, AppState>) -> AppResult<SshInventory> {
     let agent = match state.engines.write().probe_ssh_agent() {
         Ok(output) => parse_agent_listing(&output.stdout, output.exit_code),
@@ -133,7 +133,7 @@ pub struct RemoteProbeDto {
 /// 入参二选一：`url`（手填地址）或 `repoId`（+ 可选 `remote`，缺省当前分支的上游
 /// 远端 → `origin`）。失败时错误码来自 stderr 分类：SSH 主机指纹未信任、
 /// SSH 公钥被拒、证书校验失败、代理失败各自成码，界面据此给出不同的建议。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn credential_test_remote(
     state: tauri::State<'_, AppState>,
     repo_id: Option<i64>,
@@ -173,7 +173,7 @@ pub struct CredentialsStatusDto {
 ///
 /// 为什么要主动探测凭据库：Linux 上没有 Secret Service 时，用户要等**第一次保存**
 /// 才知道不可用——那时他已经填完表单了。这里提前告诉他，并给出回退方向。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn credentials_status(state: tauri::State<'_, AppState>) -> AppResult<CredentialsStatusDto> {
     let service = state.credentials_service();
     let status = service.status()?;

@@ -294,7 +294,7 @@ pub struct SnapshotEstimateDto {
 }
 
 /// 快照列表。能力等级：`ReadOnly`。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn snapshot_list(
     state: State<'_, AppState>,
     repo_id: i64,
@@ -311,7 +311,7 @@ pub fn snapshot_list(
 }
 
 /// 快照与当前状态的差异。能力等级：`ReadOnly`。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn snapshot_diff(
     state: State<'_, AppState>,
     repo_id: i64,
@@ -470,7 +470,7 @@ pub fn snapshot_create(
 }
 
 /// 快照磁盘占用与配额。能力等级：`ReadOnly`。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn snapshot_usage(state: State<'_, AppState>, repo_id: i64) -> AppResult<SnapshotUsageDto> {
     ensure_repo_id(repo_id)?;
     state
@@ -484,7 +484,7 @@ pub fn snapshot_usage(state: State<'_, AppState>, repo_id: i64) -> AppResult<Sna
 ///
 /// 危险操作对话框用它提前告诉用户"这次打点会跳过 N 个未跟踪文件（X MB）"，
 /// 而不是等操作执行完才发现快照里没有它们。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn snapshot_estimate(
     state: State<'_, AppState>,
     repo_id: i64,
@@ -502,7 +502,7 @@ pub fn snapshot_estimate(
 /// 宿主启动或打开仓库时查询：有值 = 上一次回滚**没走完**（应用被强杀），
 /// 界面据此提示"继续 / 查看详情 / 放弃"——继续就是再调一次
 /// [`snapshot_restore`]（幂等），详情看快照 ID 与停在哪一步。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn snapshot_restore_pending(
     state: State<'_, AppState>,
     repo_id: i64,

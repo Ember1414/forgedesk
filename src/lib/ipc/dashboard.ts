@@ -47,5 +47,6 @@ export function repoDashboard(request: {
   readonly targets: readonly { owner: string; repo: string }[];
   readonly repoId?: number;
 }): Promise<{ readonly repos: readonly RepoDashboard[] }> {
-  return invokeCommand<{ readonly repos: readonly RepoDashboard[] }>('repo_dashboard', request);
+  // 结构体参数必须包在与其同名的键里（Tauri 按形参名取值，见 fs.ts 的说明）
+  return invokeCommand<{ readonly repos: readonly RepoDashboard[] }>('repo_dashboard', { request });
 }

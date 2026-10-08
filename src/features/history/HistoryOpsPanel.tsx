@@ -13,11 +13,19 @@
  * `remote.notOnRemote`（有多少提交**远端也没有**）与将被丢弃的改动清单。
  * 确认词来自后端（`confirmationWord`），前端不自己编——执行闸门属于后端，
  * 前端只负责把要求展示出来。
+ *
+ * # 为什么整块压缩成一行 + reflog 默认折叠（2026-10-08）
+ *
+ * 这是历史的**次要**面板，主内容是上面的提交图。此前它是"标题 + 提示 + 控件行 +
+ * 20 条 reflog"的竖排堆叠（≈650px），在 768/900 高的窗口里会把 `flex-1` 的图画布
+ * 挤到 0 高度：用户看到"提交加载了但图上什么都没有，也滚不动"（外层是 h-full，
+ * 没有溢出可以滚动）。现在标题/提示/控件在同一行（窄窗口自然换行），reflog 折叠
+ * 且展开时自带 max-h 滚动，面板不再参与"抢高度"。
  */
 import { useState } from 'react';
 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { RotateCcw, Scissors, Undo2 } from 'lucide-react';
+import { ChevronDown, RotateCcw, Scissors, Undo2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useParams } from 'react-router-dom';
 
@@ -25,6 +33,7 @@ import { useAppError } from '@/lib/errors';
 import { gitCherryPick, gitResetExecute, gitResetPrepare, gitRevert } from '@/lib/ipc';
 import type { ResetPlan } from '@/lib/ipc';
 import { logKeyPrefix, reflogKey } from '@/lib/queryKeys';
+import { cn } from '@/lib/utils';
 
 import { useGraphSelectionStore } from '@/features/history/graphSelectionStore';
 import { ReflogList } from '@/features/history/ReflogList';
@@ -57,6 +66,8 @@ export function HistoryOpsPanel() {
   const [plan, setPlan] = useState<ResetPlan | null>(null);
   const [mode, setMode] = useState<ResetMode>('mixed');
   const [confirmation, setConfirmation] = useState('');
+  /** reflog 列表默认折叠（见文件头"为什么整块压缩成一行"）。 */
+  const [reflogOpen, setReflogOpen] = useState(false);
 
   const invalidate = () => {
     // 重置/拣选/反转之后：历史、状态、详情都要重新看
@@ -103,16 +114,18 @@ export function HistoryOpsPanel() {
   const busy = pick.isPending || undo.isPending || prepare.isPending || execute.isPending;
 
   return (
-    <section className="flex flex-col gap-2" data-testid="history-ops">
-      <h2 className="text-16 font-semibold tracking-tight">{t('historyOps.title')}</h2>
-
-      <p className="text-12 text-fg-subtle">
-        {detailOid === null
-          ? t('historyOps.pickHint')
-          : t('historyOps.selectedHint', { oid: detailOid.slice(0, 7) })}
-      </p>
-
+    <section className="flex shrink-0 flex-col gap-2" data-testid="history-ops">
       <div className="flex flex-wrap items-center gap-2">
+        <h2 className="text-16 font-semibold tracking-tight">{t('historyOps.title')}</h2>
+
+        <p className="text-12 text-fg-subtle">
+          {detailOid === null
+            ? t('historyOps.pickHint')
+            : t('historyOps.selectedHint', { oid: detailOid.slice(0, 7) })}
+        </p>
+
+        <span className="flex-1" />
+
         <ToggleGroup
           label={t('historyOps.mode.label')}
           value={mode}
@@ -153,9 +166,29 @@ export function HistoryOpsPanel() {
           <Undo2 aria-hidden="true" className="size-4" />
           {t('historyOps.revert')}
         </Button>
+
+        {/* reflog 默认折叠：它是"找回误删"的备用路径，不该常驻占掉半屏高度。
+            折叠用 CSS 隐藏而不是卸载——`ReflogList` 里的查询与订阅保持在位，
+            展开时不需要再等一次往返。 */}
+        <Button
+          variant="ghost"
+          size="sm"
+          aria-expanded={reflogOpen}
+          aria-controls="history-ops-reflog"
+          onClick={() => setReflogOpen((open) => !open)}
+          data-testid="history-ops-reflog-toggle"
+        >
+          <ChevronDown
+            aria-hidden="true"
+            className={cn('size-4 fd-transition', reflogOpen && 'rotate-180')}
+          />
+          {t('historyOps.reflog.title')}
+        </Button>
       </div>
 
-      <ReflogList />
+      <div id="history-ops-reflog" className={cn(reflogOpen ? 'max-h-40 overflow-auto' : 'hidden')}>
+        <ReflogList />
+      </div>
 
       {/* 重置计划：把将被丢弃的东西摊开，hard 还要输入确认词 */}
       <AlertDialog

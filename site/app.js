@@ -398,11 +398,12 @@
      * 因此每一步都要能安全跳过——jsdom（官网自检）没有 IntersectionObserver、
      * 没有 matchMedia，也不该因为这些缺失而让自检报错。
      */
-    var reduceMotion = false;
+    var reduceMotion;
     try {
       reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    } catch (error) {
-      reduceMotion = false;
+    } catch {
+      // 取不到偏好画像（旧浏览器 / 受限环境）：按"不做动效"处理
+      reduceMotion = true;
     }
 
     if (!reduceMotion && typeof window.IntersectionObserver === 'function') {

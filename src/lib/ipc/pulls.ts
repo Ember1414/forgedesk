@@ -161,7 +161,7 @@ export type PullListRequest = {
 
 /** 列出 PR。 */
 export function repoPullList(request: PullListRequest): Promise<PullPage> {
-  return invokeCommand<PullPage>('repo_pull_list', request);
+  return invokeCommand<PullPage>('repo_pull_list', { request });
 }
 
 /** PR 详情（描述已消毒）。 */
@@ -245,13 +245,15 @@ export function repoPullReviewSubmit(
   repoId?: number,
 ): Promise<void> {
   return invokeCommand<void>('repo_pull_review_submit', {
-    host,
-    owner,
-    repo,
-    number,
-    event,
-    ...(body === undefined ? {} : { body }),
-    ...(repoId === undefined ? {} : { repoId }),
+    request: {
+      host,
+      owner,
+      repo,
+      number,
+      event,
+      ...(body === undefined ? {} : { body }),
+      ...(repoId === undefined ? {} : { repoId }),
+    },
   });
 }
 
@@ -269,7 +271,7 @@ export function repoPullMerge(request: {
   readonly deleteBranch?: boolean;
   readonly headBranch?: string;
 }): Promise<PullMergeOutcome> {
-  return invokeCommand<PullMergeOutcome>('repo_pull_merge', request);
+  return invokeCommand<PullMergeOutcome>('repo_pull_merge', { request });
 }
 
 /** PR 变更文件列表（含行级 diff）。 */
@@ -282,7 +284,7 @@ export function repoPullFiles(request: {
   readonly page?: number;
   readonly perPage?: number;
 }): Promise<PullFilePage> {
-  return invokeCommand<PullFilePage>('repo_pull_files', request);
+  return invokeCommand<PullFilePage>('repo_pull_files', { request });
 }
 
 /** 行内（锚定 diff 行）评论列表。 */
@@ -316,7 +318,7 @@ export function repoPullReviewCommentCreate(request: {
   readonly body: string;
   readonly repoId?: number;
 }): Promise<PullReviewComment> {
-  return invokeCommand<PullReviewComment>('repo_pull_review_comment_create', request);
+  return invokeCommand<PullReviewComment>('repo_pull_review_comment_create', { request });
 }
 
 /** 回复一条行内评论（位置沿用被回复评论）。 */
@@ -329,5 +331,5 @@ export function repoPullReviewCommentReply(request: {
   readonly body: string;
   readonly repoId?: number;
 }): Promise<PullReviewComment> {
-  return invokeCommand<PullReviewComment>('repo_pull_review_comment_reply', request);
+  return invokeCommand<PullReviewComment>('repo_pull_review_comment_reply', { request });
 }

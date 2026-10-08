@@ -22,7 +22,7 @@ use crate::state::AppState;
 ///
 /// `parent_index`：合并提交的对比父（0 = 第一父，缺省；1 = 第二父）。
 /// 非合并提交传非零值、或任意提交越界时返回 `VALIDATION`。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn git_commit_detail(
     state: State<'_, AppState>,
     repo_id: i64,

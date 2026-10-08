@@ -124,6 +124,13 @@ jobs:
       - name: Design token contrast (WCAG AA)
         run: pnpm check:contrast
 
+      # IPC 参数形状：Tauri 按**形参名**从 payload 取值（结构体参数必须包在同名键里）。
+      # 这条规则单测与 e2e 都覆盖不到——两侧都 mock 掉了 invoke，mock 不关心宿主能否
+      # 反序列化。2026-10-08 一次性查出 19 处调用点全废（编辑器文件树恒空、新建文件必失败、
+      # GitHub 议题/PR 与仪表盘整页失效）而测试全绿，因此提升为门禁。
+      - name: IPC argument shape
+        run: pnpm check:ipc
+
       - name: Workflow YAML validation
         run: pnpm check:workflows
 

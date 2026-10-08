@@ -637,7 +637,7 @@ fn discard_args(scope: &DiscardScope) -> AuditArgs {
 
 /// 在系统文件管理器中显示文件（打开其所在目录）。能力等级：ReadOnly。
 /// 状态面板行内操作里唯一需要新命令的一项；编辑器打开属于 M5。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn workspace_reveal(state: State<'_, AppState>, repo_id: i64, path: String) -> AppResult<()> {
     let workdir = state.workspace_service().resolve_workdir(repo_id)?;
     let target = workdir.join(&path);
@@ -1166,7 +1166,7 @@ impl DiffReportDto {
 }
 
 /// 读取 diff（行级内容）。能力等级：`ReadOnly`。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn workspace_diff(
     state: State<'_, AppState>,
     repo_id: i64,
@@ -1179,7 +1179,7 @@ pub fn workspace_diff(
 
 /// 生成原始补丁字节（复制 / 导出 .patch）。能力等级：`ReadOnly`。
 /// 返回原始字节：补丁里的路径与内容都可能是非 UTF-8。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn workspace_diff_patch(
     state: State<'_, AppState>,
     repo_id: i64,

@@ -22,6 +22,8 @@ import {
   AlertDialogCancel,
   AlertDialogContent,
   AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
   AlertDialogTitle,
 } from '@/ui/components/alert-dialog';
 import { Button } from '@/ui/components/button';
@@ -186,18 +188,24 @@ export function FileTreePanel({ repoId, onOpenFile }: FileTreePanelProps) {
                 : t('editor.tree.promptImpact')
             }
           >
-            <AlertDialogTitle>
-              {prompt.kind === 'newFile'
-                ? t('editor.tree.newFile')
-                : prompt.kind === 'newDir'
-                  ? t('editor.tree.newDir')
-                  : prompt.kind === 'rename'
-                    ? t('editor.tree.rename')
-                    : t('editor.tree.deleteTitle')}
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {prompt.kind === 'delete' ? prompt.path : t('editor.tree.promptName')}
-            </AlertDialogDescription>
+            {/* 标题/描述与按钮必须各自成组：`AlertDialogHeader` / `Footer` 提供
+                垂直间距与右对齐（Footer 的 mt-5 就是输入框与按钮之间那道缝）。
+                此前直接平铺在 Content 里，输入框与"确认/取消"贴在一起——
+                用户反馈的"确认取消框与名称框有细微重叠"（2026-10-08）。 */}
+            <AlertDialogHeader>
+              <AlertDialogTitle>
+                {prompt.kind === 'newFile'
+                  ? t('editor.tree.newFile')
+                  : prompt.kind === 'newDir'
+                    ? t('editor.tree.newDir')
+                    : prompt.kind === 'rename'
+                      ? t('editor.tree.rename')
+                      : t('editor.tree.deleteTitle')}
+              </AlertDialogTitle>
+              <AlertDialogDescription>
+                {prompt.kind === 'delete' ? prompt.path : t('editor.tree.promptName')}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
             {prompt.kind !== 'delete' ? (
               <Input
                 srLabel={t('editor.tree.promptName')}
@@ -211,20 +219,26 @@ export function FileTreePanel({ repoId, onOpenFile }: FileTreePanelProps) {
                 }}
               />
             ) : null}
-            <AlertDialogAction
-              onClick={() => void runPrompt()}
-              disabled={prompt.kind !== 'delete' && promptText.trim() === ''}
-            >
-              {t('editor.tree.promptConfirm')}
-            </AlertDialogAction>
-            <AlertDialogCancel
-              onClick={() => {
-                setPrompt(null);
-                setPromptText('');
-              }}
-            >
-              {t('editor.tree.promptCancel')}
-            </AlertDialogCancel>
+            <AlertDialogFooter>
+              {/* 取消在左、确认在右（与全站其它确认框一致）；焦点默认落在取消上 ——
+                  删除是不可撤销的，默认动作不该是它。 */}
+              <AlertDialogCancel
+                onClick={() => {
+                  setPrompt(null);
+                  setPromptText('');
+                }}
+              >
+                {t('editor.tree.promptCancel')}
+              </AlertDialogCancel>
+              <AlertDialogAction
+                // 只有删除是破坏性操作：新建/重命名的确认按钮不该长成危险红色
+                destructive={prompt.kind === 'delete'}
+                onClick={() => void runPrompt()}
+                disabled={prompt.kind !== 'delete' && promptText.trim() === ''}
+              >
+                {t('editor.tree.promptConfirm')}
+              </AlertDialogAction>
+            </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
       ) : null}

@@ -79,7 +79,7 @@ export function repoActionsRunsList(request: {
   readonly page?: number;
   readonly perPage?: number;
 }): Promise<RunPage> {
-  return invokeCommand<RunPage>('repo_actions_runs_list', request);
+  return invokeCommand<RunPage>('repo_actions_runs_list', { request });
 }
 
 /** 一个 run 的 job 列表。 */
