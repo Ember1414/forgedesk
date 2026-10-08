@@ -24,7 +24,9 @@
       "label": "更新状态",
       "latest": "已是最新版本",
       "localBuild": "本地构建（未配置更新源）",
-      "available": "可更新到 {{version}}"
+      "available": "可更新到 {{version}}",
+      "checkFailed": "检查失败",
+      "recheck": "点击重新检查更新"
     }
   },
   "nav": {

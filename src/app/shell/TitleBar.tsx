@@ -65,10 +65,18 @@ export function TitleBar() {
     enabled: canCheckUpdate,
     staleTime: Number.POSITIVE_INFINITY,
     retry: 0,
+    // 长驻应用也要周期复查：启动那一刻还没有新版、半小时后发了新版，
+    // 不复查就永远看不到（2026-10-08 "明明发了 1.1.1 却没有提示"的场景之一）
+    refetchInterval: 30 * 60 * 1000,
   });
 
   const updateBadge = (() => {
     const data = updateQuery.data;
+    // 检查失败此前是"徽标直接消失"——用户无从分辨"没新版"和"没查成"。
+    // 现在显式给出失败态，并且徽标可点击重新检查
+    if (updateQuery.isError) {
+      return { text: t('titleBar.update.checkFailed'), tone: 'danger' as const };
+    }
     if (data === undefined) {
       return null;
     }
@@ -104,17 +112,25 @@ export function TitleBar() {
 
       <div className="flex shrink-0 items-center gap-1">
         {updateBadge === null ? null : (
-          <span
+          <button
+            type="button"
             className={cn(
-              'hidden items-center gap-1.5 rounded-sm px-2 py-1 text-12 lg:flex',
-              updateBadge.tone === 'brand' ? 'text-brand' : 'text-fg-subtle',
+              'fd-transition hidden items-center gap-1.5 rounded-sm px-2 py-1 text-12 lg:flex',
+              'hover:bg-surface-sunken',
+              updateBadge.tone === 'brand' && 'text-brand',
+              updateBadge.tone === 'danger' && 'text-danger',
+              updateBadge.tone === 'muted' && 'text-fg-subtle',
             )}
-            title={t('titleBar.update.label')}
+            title={t('titleBar.update.recheck')}
             data-testid="titlebar-update-badge"
+            onClick={() => void updateQuery.refetch()}
           >
-            <RefreshCw aria-hidden="true" className="size-3.5" />
+            <RefreshCw
+              aria-hidden="true"
+              className={cn('size-3.5', updateQuery.isFetching && 'animate-spin')}
+            />
             {updateBadge.text}
-          </span>
+          </button>
         )}
 
         <button

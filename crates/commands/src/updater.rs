@@ -96,10 +96,17 @@ pub async fn update_check(app: AppHandle) -> AppResult<UpdateCheckDto> {
         }
     };
 
-    let update = updater
-        .check()
-        .await
-        .map_err(|error| updater_error(ErrorCode::Network, "the update check failed", &error))?;
+    let update = updater.check().await.map_err(|error| {
+        // 检查失败此前完全静默：后端不记日志、前端把错误态画成"没有提示"——
+        // 用户只会觉得"没有更新提示"，而原因（网络/清单/签名）无从知晓
+        tracing::warn!(error = %error, "更新检查失败");
+        updater_error(ErrorCode::Network, "the update check failed", &error)
+    })?;
+
+    match &update {
+        Some(next) => tracing::info!(version = %next.version, "发现新版本"),
+        None => tracing::debug!("当前已是最新版本"),
+    }
 
     Ok(UpdateCheckDto {
         configured: true,

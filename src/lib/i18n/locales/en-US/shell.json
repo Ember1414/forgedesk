@@ -24,7 +24,9 @@
       "label": "Update status",
       "latest": "Up to date",
       "localBuild": "Local build (no update source configured)",
-      "available": "Update available: {{version}}"
+      "available": "Update available: {{version}}",
+      "checkFailed": "Check failed",
+      "recheck": "Click to re-check for updates"
     }
   },
   "nav": {
