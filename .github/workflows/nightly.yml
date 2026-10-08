@@ -103,10 +103,13 @@ jobs:
             cat "target/perf/results/$fixture.json"
           done
 
+      # 脚本只接受**一个**参数（结果目录）：基线路径是脚本内部的常量
+      # （`scripts/perf/baseline-ci.json`）。这里此前多传了一个参数，于是
+      # 脚本把基线文件当成结果目录去 readdir → 抛异常 → 步骤以退出码 1 失败：
+      # 这条门禁从落地起**从没跑通过**（2026-10-08 定位）。
       - name: Check regression against baseline
         run: |
-          node scripts/perf/check-regression.mjs \
-            scripts/perf/baseline-ci.json target/perf/results
+          node scripts/perf/check-regression.mjs target/perf/results
 
       - name: Upload results
         if: always()

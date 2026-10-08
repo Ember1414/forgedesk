@@ -16,7 +16,14 @@
  * 阈值为什么是 10%：任务书 T2.9 的约定。CI runner 是共享资源，绝对值会漂，
  * 但同一 runner 池的相对波动通常远小于 10%（夹具与口径都是确定的）。
  */
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { join, resolve } from 'node:path';
 
 const BASELINE_PATH = resolve('scripts/perf/baseline-ci.json');
@@ -25,6 +32,14 @@ const THRESHOLD = 0.1;
 const resultsDir = process.argv[2];
 if (resultsDir === undefined) {
   process.stderr.write('用法：node scripts/perf/check-regression.mjs <results-dir>\n');
+  process.exit(2);
+}
+// 结果目录必须真的存在：此前不存在时 readdirSync 抛未捕获异常，堆栈里只有
+// ENOENT，看不出"是路径写错了"还是"探针没产出"（2026-10-08 的 Nightly 失败）
+if (!existsSync(resultsDir) || !statSync(resultsDir).isDirectory()) {
+  const message = `结果目录不存在或不是目录：${resultsDir}`;
+  process.stderr.write(`${message}\n`);
+  process.stdout.write(`::error title=性能门禁::${message}\n`);
   process.exit(2);
 }
 
@@ -86,6 +101,12 @@ if (regressions.length > 0) {
   process.stderr.write('性能回归门禁失败：\n');
   for (const line of regressions) {
     process.stderr.write(`  - ${line}\n`);
+  }
+  // 同时发成 GitHub 注解：**日志 API 不允许匿名读取**，而注解可以。
+  // 否则"哪个指标退化了、退化多少"永远只有登录 GitHub 的人能看到
+  // （2026-10-08 的 Nightly 失败就是这样被卡住的）。
+  for (const line of regressions) {
+    process.stdout.write(`::error title=性能回归::${line}\n`);
   }
   process.exit(1);
 }
