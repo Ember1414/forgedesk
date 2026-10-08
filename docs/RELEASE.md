@@ -138,11 +138,18 @@ git push origin main --follow-tags
 
 1. 质量门禁（与上表同一组）；
 2. **Windows 构建**：NSIS(`.exe`) + MSI(`.msi`) + `pnpm portable:win` 便携版 zip；
-3. 归一化命名（`scripts/ci/rename-bundles.mjs`）+ 汇总 `SHA256SUMS`；
-4. GPG 签名 → `SHA256SUMS.asc`；
-5. 创建 GitHub Release（`draft=false`），附全部产物、`SHA256SUMS`、`SHA256SUMS.asc`；
-6. 生成 updater 清单（含签名）并发布到 Pages 的 `updates/<渠道>/<target>.json`（如 `updates/stable/windows-x86_64.json`）；
-7. Release Notes 按 Conventional Commits 分类生成。
+3. **macOS 构建**：universal（`--target universal-apple-darwin`）dmg + `.app.tar.gz`（更新包）；
+4. 归一化命名（`scripts/ci/rename-bundles.mjs`）→ 两个平台产物合并后**重算一份** `SHA256SUMS`；
+5. GPG 签名 → `SHA256SUMS.asc`（覆盖全部平台产物）；
+6. 创建 GitHub Release（`draft=false`），附全部产物、`SHA256SUMS`、`SHA256SUMS.asc`；
+7. 生成 updater 清单（含签名）并发布到 Pages 的 `updates/<渠道>/<target>.json`
+   （Windows `windows-x86_64.json`；macOS **两份**：`darwin-aarch64.json` / `darwin-x86_64.json`，指向同一个 universal 产物）；
+8. Release Notes 按 Conventional Commits 分类生成。
+
+> **平台范围**：Windows + macOS（macOS 自 2026-10-08 起进入发布矩阵）。Linux 仍暂缓——
+> 它需要 AppImage/deb/rpm 三种打包链与各自的真机验证，见 `docs/adr/ADR-005`。
+> macOS 走 **ad-hoc 签名**（红线 R5：不购买 Apple Developer 证书、不做公证），
+> 用户首次打开的系统提示说明见下载页与 `docs/install/macos.md`。
 
 **约束**：所有 action 固定到 commit SHA；失败时**不发布残缺 Release**（先全部构建成功再发布）；
 CI **不**自动向第三方仓库（winget/homebrew/flathub…）推送，只生成清单并开 PR（见 PLAN §M8.2）。
@@ -159,12 +166,14 @@ CI **不**自动向第三方仓库（winget/homebrew/flathub…）推送，只�
 | 作业 | 运行环境 | 职责 |
 | --- | --- | --- |
 | `preflight` | ubuntu-22.04 | 三处版本号一致 + **tag ↔ 版本号一致**（打错 tag 是本流程唯一无法自愈的错误）；探测发布凭据 |
-| `build-windows` | windows-latest | 注入更新源/公钥 → `tauri build`（msi + nsis + `.sig`）→ 归一化命名 → 便携版 zip → 合并 `SHA256SUMS` → GPG 签名（可选）→ Release Notes → updater 清单 |
-| `publish` | ubuntu-22.04 | 创建 Release（`--verify-tag`；`needs` 保证先全部构建成功再发布）→ 组装 `site/` + `updates/`（含 `SHA256SUMS`）后部署到 Pages |
+| `build-windows` | windows-latest | 注入更新源/公钥 → `tauri build`（msi + nsis + `.sig`）→ 归一化命名 → 便携版 zip → Release Notes → updater 清单 |
+| `build-macos` | macos-latest | 注入更新源/公钥 → `tauri build --target universal-apple-darwin`（dmg + `.app.tar.gz` + `.sig`）→ 归一化命名（`--arch universal`）→ **两份** darwin 清单 |
+| `publish` | ubuntu-22.04 | 合并两平台产物 → **重算并 GPG 签名一份覆盖全部平台的 `SHA256SUMS`** → 创建 Release（`--verify-tag`；`needs` 保证先全部构建成功再发布）→ 组装 `site/` + `updates/` 部署到 Pages |
 
 > 站点与清单同宿主（ADR-003 的 Direct Upload）：Pages 发布是目录**快照**，因此发布作业把
-> `site/`、`updates/<渠道>/windows-x86_64.json` 与 `updates/<渠道>/SHA256SUMS`（有签名时含 `.asc`）
-> 组装到同一个目录再上传，并**拉回另一渠道已有的文件**（否则 stable 发布会把 beta 用户断更）。
+> `site/`、`updates/<渠道>/<target>.json`（Windows 一份 + macOS 两份）与
+> `updates/<渠道>/SHA256SUMS`（有签名时含 `.asc`）组装到同一个目录再上传，
+> 并**拉回另一渠道已有的文件**（否则 stable 发布会把 beta 用户断更）。
 > 拉回时按 `Content-Type` 排除 Pages 的 **HTML 兜底页**：该宿主对不存在的路径返回
 > `200 + text/html`（而非 404），只看 HTTP 状态会把首页当成清单/校验和部署上去。
 > 校验和放到同源，是为了让下载页能直接显示数值 —— GitHub 的 Release 附件不返回 CORS 头。
@@ -194,9 +203,15 @@ beta 走 `workflow_dispatch` 且版本号需自带预发布后缀（如 `1.0.0-b
 1. `.sig` 的落点：流水线优先取 `*-setup.exe.sig`（NSIS 安装器的签名），取不到才回退到任意 `.sig`。
    首次发布后请确认 `latest.json` 里 `url` 指向的包正是被签名的那一个；
    （注意：`rename-bundles.mjs` 会把 `…-setup.exe` 归一化成 `…_windows_x64.exe`，
-   因此清单里的 `url` 与 Release 附件名都是归一化后的名字——`pnpm release:rehearse` 已把这条形状钉住）
-2. 更新清单的 URL 能匿名访问（`curl -fsS https://forgedesk.pages.dev/updates/stable/windows-x86_64.json`），
-   并核对里面的 `version` 与 `signature` 与 Release 附件一致。
+   因此清单里的 `url` 与 Release 附件名都是归一化后的名字——`pnpm release:rehearse` 已把这条形状钉住）。
+   macOS 同理：清单 URL 指向 `ForgeDesk_<版本>_macos_universal.app.tar.gz`（**更新包**，
+   不是用户手动下载的 `.dmg`），签名取自该文件的 `.sig`。
+2. 更新清单的 URL 能匿名访问，并核对里面的 `version` 与 `signature` 与 Release 附件一致：
+
+   ```bash
+   curl -fsS https://forgedesk.pages.dev/updates/stable/windows-x86_64.json
+   curl -fsS https://forgedesk.pages.dev/updates/stable/darwin-aarch64.json   # macOS（= darwin-x86_64 内容）
+   ```
 
 **本地演练（不需要任何凭据）**
 

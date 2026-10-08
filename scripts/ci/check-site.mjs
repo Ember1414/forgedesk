@@ -464,6 +464,72 @@ console.log('状态 5：托管方 HTML 兜底（Pages 对缺失路径返回 200 
   downloadDom.window.close();
 }
 
+// ---- 状态 6：macOS（universal 清单） ---------------------------------------
+// macOS 与 Windows 的差别不只是文件名：产物是 universal（一个 .app.tar.gz 覆盖
+// Apple Silicon 与 Intel），页面对 macOS 用户展示的是更新包 + 从清单 URL 推导出的
+// .dmg 行。这一块此前完全没有覆盖——正因如此"官网 macOS 没有 release"才会一直
+// 只在人工看页面时才发现。
+console.log('状态 6：macOS 用户（universal 清单）');
+{
+  const macTarget = 'darwin-aarch64';
+  const macManifestPath = join(work, 'darwin-aarch64.json');
+  runScript('make-updater-manifest.mjs', [
+    '--version',
+    version,
+    '--target',
+    macTarget,
+    '--signature',
+    signaturePath,
+    '--url',
+    `https://github.com/Ember1414/forgedesk/releases/download/v${version}/ForgeDesk_${version}_macos_universal.app.tar.gz`,
+    '--pub-date',
+    '2026-10-08T00:00:00Z',
+    '--out',
+    macManifestPath,
+  ]);
+  const macManifest = JSON.parse(readFileSync(macManifestPath, 'utf8'));
+  const macRoutes = { [`/updates/stable/${macTarget}.json`]: { json: macManifest } };
+
+  const dom = await loadPage('index.html', macRoutes, {
+    path: '/',
+    userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)',
+  });
+  const cta = dom.window.document.getElementById('download-cta');
+  const ctaLink = cta.querySelector('a.btn.primary');
+  assert(
+    ctaLink !== null && ctaLink.getAttribute('href') === macManifest.platforms[macTarget].url,
+    'macOS 用户的主按钮指向清单里的 universal 更新包',
+  );
+  assert(cta.textContent.includes('下载 macOS 版'), '按钮文案标明平台（不是笼统的"下载"）');
+  assert(
+    dom.window.document.getElementById('status').textContent.includes(`v${version}`),
+    'macOS 用户同样看到最新版本号',
+  );
+  dom.window.close();
+
+  const downloadDom = await loadPage(
+    'download.html',
+    { ...macRoutes, [CHECKSUMS_URL]: { text: checksums } },
+    { path: '/download.html' },
+  );
+  const rows = [...downloadDom.window.document.querySelectorAll('#matrix-wrap tbody tr')];
+  assert(rows.length === 2, `只有 macOS 清单时矩阵 2 行（dmg + 更新包，实际 ${rows.length}）`);
+  assert(
+    rows.some((row) => row.textContent.includes('macOS universal')),
+    '矩阵含 macOS universal 行',
+  );
+  const dmgRow = rows.find((row) => row.textContent.includes('.dmg'));
+  assert(
+    dmgRow !== undefined &&
+      dmgRow
+        .querySelector('a')
+        .getAttribute('href')
+        .endsWith(`ForgeDesk_${version}_macos_universal.dmg`),
+    '.dmg 行按命名约定（ForgeDesk_<版本>_macos_universal.dmg）拼出下载地址',
+  );
+  downloadDom.window.close();
+}
+
 rmSync(work, { recursive: true, force: true });
 
 if (failures > 0) {
@@ -471,5 +537,5 @@ if (failures > 0) {
   process.exit(1);
 }
 console.log(
-  '\n官网自检通过（静态结构 / 无清单 / 有清单无校验和 / 有清单有校验和 / HTML 兜底 / 更新日志）。',
+  '\n官网自检通过（静态结构 / 无清单 / 有清单无校验和 / 有清单有校验和 / HTML 兜底 / 更新日志 / macOS universal）。',
 );

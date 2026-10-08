@@ -23,11 +23,21 @@
   var RELEASES_URL = 'https://github.com/Ember1414/forgedesk/releases';
   var API_RELEASES_URL = 'https://api.github.com/repos/Ember1414/forgedesk/releases';
 
+  /*
+   * 平台 → updater target 名（与发布流水线写出的清单名逐个对应）。
+   *
+   * macOS 是 **universal 构建**：同一个 .app.tar.gz 同时给 Apple Silicon 与 Intel，
+   * 因此 aarch64 / x86_64 两份清单内容相同；页面向用户展示时只用 aarch64 那一份
+   * （否则矩阵里会出现两行一模一样的 macOS 条目）。
+   */
   var OS_META = {
-    windows: { label: 'Windows', targets: ['windows-x86_64', 'windows-aarch64'] },
-    macos: { label: 'macOS', targets: [] },
-    linux: { label: 'Linux', targets: [] },
+    windows: { label: 'Windows', primary: 'windows-x86_64' },
+    macos: { label: 'macOS', primary: 'darwin-aarch64' },
+    linux: { label: 'Linux', primary: null },
   };
+
+  /** 会去尝试拉取的全部清单：矩阵要把"这个版本有哪些平台"完整展示出来。 */
+  var MANIFEST_TARGETS = ['windows-x86_64', 'windows-aarch64', 'darwin-aarch64', 'darwin-x86_64'];
 
   /*
    * 托管方（Cloudflare Pages）对**不存在的路径**返回的是 `200 + 首页 HTML` 兜底，
@@ -83,9 +93,8 @@
 
   /* 清单里的 platforms 按 target 合并成一个 release 视图；取不到就是 null。 */
   function loadRelease() {
-    var targets = ['windows-x86_64', 'windows-aarch64'];
     return Promise.all(
-      targets.map(function (target) {
+      MANIFEST_TARGETS.map(function (target) {
         return fetch(CHANNEL + '/' + target + '.json', { cache: 'no-store' }).then(
           function (response) {
             // 未发布时这里是 404，也可能被托管方返回 HTML 兜底页——都按"没有清单"处理
@@ -98,7 +107,7 @@
       var release = null;
       manifests.forEach(function (manifest, index) {
         if (!manifest || !manifest.version) return;
-        var target = targets[index];
+        var target = MANIFEST_TARGETS[index];
         var entry = (manifest.platforms || {})[target];
         if (!entry || !entry.url) return;
         if (!release) {
@@ -128,12 +137,15 @@
       : '状态：尚无可用版本';
   }
 
+  /** 平台 → 主推产物的说明文案（扩展名与平台的安装习惯一致）。 */
+  var PRIMARY_FORMAT = { windows: '安装器 .exe', macos: '磁盘映像 .dmg' };
+
   /** 主下载按钮：识别到的平台有产物就给按钮，否则如实引导到 Releases。 */
   function renderCta(container, release) {
     if (!container) return;
     var os = currentOS();
     container.textContent = '';
-    var target = os === 'windows' ? 'windows-x86_64' : null;
+    var target = OS_META[os].primary;
     var entry = target && release ? release.targets[target] : null;
 
     if (entry) {
@@ -141,10 +153,11 @@
       button.className = 'btn primary';
       button.href = entry.url;
       var label = document.createElement('span');
-      label.textContent = '下载 Windows 版';
+      label.textContent = '下载 ' + OS_META[os].label + ' 版';
       var sub = document.createElement('span');
       sub.className = 'sub';
-      sub.textContent = 'v' + release.version + ' · 安装器 .exe';
+      var format = urlExtension(entry.url);
+      sub.textContent = 'v' + release.version + ' · ' + (format || PRIMARY_FORMAT[os] || '');
       button.appendChild(label);
       button.appendChild(sub);
       container.appendChild(button);
@@ -164,12 +177,44 @@
     container.appendChild(secondary);
   }
 
+  /** 从 URL 取扩展名（忽略查询串），用于展示"这一行是什么格式"。 */
+  function urlExtension(url) {
+    var clean = String(url).split(/[?#]/)[0];
+    var dot = clean.lastIndexOf('.');
+    return dot === -1 ? '' : clean.slice(dot + 1);
+  }
+
   function artifactRows(release) {
     var rows = [];
     if (!release) return rows;
     Object.keys(release.targets).forEach(function (target) {
       var entry = release.targets[target];
       var base = entry.url.replace(/\/[^/]+$/, '');
+
+      if (target === 'darwin-x86_64') {
+        // universal 构建：x86_64 与 aarch64 清单指向同一个产物，矩阵只展示一行
+        return;
+      }
+
+      if (target.indexOf('darwin') === 0) {
+        var macPrefix = 'ForgeDesk_' + release.version + '_macos_universal';
+        rows.push({
+          platform: 'macOS universal',
+          format: '磁盘映像 .dmg',
+          size: null,
+          url: base + '/' + macPrefix + '.dmg',
+          checksumName: macPrefix + '.dmg',
+        });
+        rows.push({
+          platform: 'macOS universal',
+          format: '更新包 .app.tar.gz',
+          size: formatSize(entry.size),
+          url: entry.url,
+          checksumName: macPrefix + '.app.tar.gz',
+        });
+        return;
+      }
+
       var arch = target === 'windows-aarch64' ? 'arm64' : 'x64';
       var prefix = 'ForgeDesk_' + release.version + '_windows_' + arch;
       var platformLabel = 'Windows ' + arch;

@@ -1,6 +1,6 @@
 ﻿﻿# ADR-005: 三平台构建与验收降级为"按需触发"
 
-- 状态：已接受（维护者决定）
+- 状态：已接受（维护者决定）；**2026-10-08 部分修订**——仓库转公开后 macOS 进入发布矩阵（见「执行记录」）
 - 日期：2026-09-23
 - 关联：ADR-002（两阶段 CI 配额策略）、PLAN §7.0（DoD）、PLAN §15.3（发布前检查清单）、`docs/acceptance/M0.md`
 
@@ -47,3 +47,15 @@ PLAN §7.0 的通用出口标准（DoD）要求每个里程碑"三平台 CI 构�
 
 - 2026-09-23：维护者确认"先降低对 Linux/macOS 的验证，等最终视需求再验收"；
   M0 收口报告中对应条目已改为"⏸ 延后"。
+- 2026-10-08：**本 ADR 的第一条理由（配额）已因转公开而消失**（公共仓库的 Actions 额度不受限，
+  macOS runner 的 10x 计费不再构成约束），维护者要求把 macOS 补进发布链路。据此做的修订：
+  1. `release.yml` 新增 `build-macos`（macos-latest，`--target universal-apple-darwin`，
+     一份 dmg + 一份 `.app.tar.gz` 覆盖 Apple Silicon 与 Intel），updater 清单写
+     `darwin-aarch64` 与 `darwin-x86_64` 两份指向同一产物；
+  2. 校验和与 GPG 签名**上移**到 `publish`：两平台产物合并后只签一份 `SHA256SUMS`；
+  3. 官网按平台渲染（macOS 用户拿到 `.dmg` 按钮与 macOS 矩阵行），`pnpm check:site` 增加
+     macOS universal 用例；
+  4. macOS 仍走 **ad-hoc 签名**（红线 R5：不购买 Apple Developer 证书、不做公证）——
+     "首次打开要多点一次"属已知现象，说明见下载页与 `docs/install/macos.md`。
+  **仍然延后**：Linux（AppImage/deb/rpm 三套打包链 + 各自的真机验证），
+  以及 macOS 的**真机安装与自动更新实测**（需要一台 Mac；首版无更旧版本可升级，随下一版补做）。

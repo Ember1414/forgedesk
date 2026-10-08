@@ -300,8 +300,8 @@ jobs:
       - name: Upload release artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: forgedesk-release
-          # 产物 + 校验和 + 说明 + 清单：发布作业只依赖这一个 artifact，
+          name: forgedesk-release-windows
+          # 产物 + 校验和 + 说明 + 清单：发布作业只依赖这些 artifact，
           # 避免"发布用到的文件来自另一个 job 的另一次下载"这类不可复现
           path: |
             releases/*
@@ -311,16 +311,138 @@ jobs:
           retention-days: 7
 
   # ------------------------------------------------------------------
-  # 发布：创建 Release 并把清单部署到 Pages。
+  # macOS 构建与打包（universal：一份 dmg / .app.tar.gz 覆盖 Apple Silicon 与 Intel）。
   #
-  # 只有 tag 触发 + 构建成功 + 非演练时才运行；`needs` 保证了"先全部构建成功
-  # 再发布"（绝不产生残缺 Release，见 docs/RELEASE.md §4 的约束）。
+  # 与 Windows 作业同构，三处平台差异：
+  #   1. 目标三元组 `universal-apple-darwin`（需要两个 rust target 都装）；
+  #   2. bundle 目录在 `target/<triple>/release/bundle` —— 显式传给 rename-bundles；
+  #   3. updater 清单要写 **两份**（`darwin-aarch64` / `darwin-x86_64`），指向同一个
+  #      universal 产物——插件按运行时架构选 target，只写一份会让另一半用户断更。
+  #
+  # 代码签名：仓库红线 R5 是零成本，不购买 Apple Developer 证书，因此构建走
+  # Tauri 的 ad-hoc 签名（Apple Silicon 上必需）。用户首次打开的系统提示在
+  # 下载页与 docs/install/macos.md 有说明——那不是"未签名所以可疑"，而是
+  # 没有付费公证时的正常现象。
+  # ------------------------------------------------------------------
+  build-macos:
+    name: build (macOS universal)
+    needs: preflight
+    if: needs.preflight.outputs.updater == 'true'
+    runs-on: macos-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
+        with:
+          # universal 需要两个 target 同时存在，缺一个 tauri build 会直接报错
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - name: Cache Rust artifacts
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+
+      - name: Install JS dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate updater build config
+        shell: bash
+        env:
+          UPDATER_PUBKEY: ${{ vars.TAURI_UPDATER_PUBKEY }}
+        run: |
+          set -eu
+          node scripts/ci/make-build-config.mjs \
+            --pubkey "${UPDATER_PUBKEY}" \
+            --channel "${{ needs.preflight.outputs.channel }}" \
+            --out release-config.json
+
+      - name: Build installers (tauri build, universal)
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: pnpm tauri build --config release-config.json --target universal-apple-darwin
+
+      - name: Normalize bundle names
+        shell: bash
+        run: |
+          set -eu
+          node scripts/ci/rename-bundles.mjs \
+            --out releases \
+            --arch universal \
+            --bundle-dir target/universal-apple-darwin/release/bundle
+
+      # 清单写两份：插件在运行时按本机架构取 `darwin-aarch64` / `darwin-x86_64`，
+      # 二者指向**同一个** universal 产物（同 url 同签名）
+      - name: Assemble updater manifests
+        shell: bash
+        env:
+          VERSION: ${{ needs.preflight.outputs.version }}
+          CHANNEL: ${{ needs.preflight.outputs.channel }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -eu
+          signature=$(find target/universal-apple-darwin -type f -name '*.app.tar.gz.sig' | head -n 1)
+          if [[ -z "${signature}" ]]; then
+            echo "::error title=缺少 updater 签名::没找到 .app.tar.gz.sig —— createUpdaterArtifacts 未生效（检查 release-config.json）。"
+            exit 1
+          fi
+          artifact=$(ls releases/*_macos_universal.app.tar.gz 2>/dev/null | head -n 1 || true)
+          if [[ -z "${artifact}" ]]; then
+            echo "::error title=缺少更新包::releases/ 下没有 ForgeDesk_<版本>_macos_universal.app.tar.gz。"
+            exit 1
+          fi
+          asset=$(basename "${artifact}")
+
+          for target in darwin-aarch64 darwin-x86_64; do
+            mkdir -p "updates/${CHANNEL}"
+            node scripts/ci/make-updater-manifest.mjs \
+              --version "${VERSION}" \
+              --target "${target}" \
+              --signature "${signature}" \
+              --url "https://github.com/${REPO}/releases/download/v${VERSION}/${asset}" \
+              --pub-date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+              --out "updates/${CHANNEL}/${target}.json"
+          done
+          echo "清单指向：${asset}（darwin-aarch64 + darwin-x86_64）"
+
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: forgedesk-release-macos
+          path: |
+            releases/*
+            updates/**
+          if-no-files-found: error
+          retention-days: 7
+
+  # ------------------------------------------------------------------
+  # 发布：合并各平台产物 → 重算并签名一份 SHA256SUMS → 创建 Release → 部署清单。
+  #
+  # 只有 tag 触发 + **所有**构建成功 + 非演练时才运行；`needs` 保证了
+  # "先全部构建成功再发布"（绝不产生残缺 Release，见 docs/RELEASE.md §4 的约束）。
+  #
+  # 校验和与签名放在这里而不是各构建作业里：两个平台各自签一份 SHA256SUMS
+  # 会让用户面对"该看哪一份"，也让 .asc 与最终附件集合对不上。
   # ------------------------------------------------------------------
   publish:
     name: publish
-    needs: [preflight, build-windows]
+    needs: [preflight, build-windows, build-macos]
     if: >-
       needs.build-windows.result == 'success' &&
+      needs.build-macos.result == 'success' &&
       startsWith(github.ref, 'refs/tags/v') &&
       inputs.dry_run != true
     runs-on: ubuntu-22.04
@@ -332,10 +454,51 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - name: Download artifacts
+      - name: Download Windows artifacts
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
-          name: forgedesk-release
+          name: forgedesk-release-windows
+          path: win
+
+      - name: Download macOS artifacts
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: forgedesk-release-macos
+          path: mac
+
+      - name: Merge platform artifacts
+        shell: bash
+        run: |
+          set -eu
+          mkdir -p releases updates
+          for src in win mac; do
+            if [[ -d "${src}/releases" ]]; then cp -r "${src}/releases/." releases/; fi
+            if [[ -d "${src}/updates" ]]; then cp -r "${src}/updates/." updates/; fi
+          done
+          cp win/notes.md notes.md
+          # 各构建作业产生过自己的 SHA256SUMS（甚至签过名）；合并后一律作废重来：
+          # 一份 SHA256SUMS 覆盖全部平台的产物
+          rm -f releases/SHA256SUMS releases/SHA256SUMS.asc
+          node scripts/ci/make-checksums.mjs --dir releases
+          echo "合并后的产物清单："
+          ls -1 releases
+
+      - name: Sign checksums (GPG)
+        if: needs.preflight.outputs.gpg == 'true'
+        shell: bash
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        run: |
+          set -eu
+          printf '%s' "${GPG_PRIVATE_KEY}" | gpg --batch --import
+          if [[ -n "${GPG_PASSPHRASE}" ]]; then
+            gpg --batch --pinentry-mode loopback --passphrase "${GPG_PASSPHRASE}" \
+              --detach-sign --armor --output releases/SHA256SUMS.asc releases/SHA256SUMS
+          else
+            gpg --batch --detach-sign --armor --output releases/SHA256SUMS.asc releases/SHA256SUMS
+          fi
+          gpg --verify releases/SHA256SUMS.asc releases/SHA256SUMS
 
       - name: Create release
         shell: bash

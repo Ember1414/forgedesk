@@ -18,7 +18,11 @@
  *   ForgeDesk_<version>_<target>_<arch>.<ext>
  *
  *   target ∈ windows | macos | linux   （按包类型判定，与文件名拼写无关）
- *   arch   ∈ x64 | arm64 | x86         （从文件名推断，推断不出用 --arch 兜底）
+ *   arch   ∈ x64 | arm64 | x86 | universal（从文件名推断，推断不出用 --arch 兜底）
+ *
+ * macOS 走 **universal**（`tauri build --target universal-apple-darwin`）：一份 dmg /
+ * .app.tar.gz 同时覆盖 Apple Silicon 与 Intel，用户不必猜自己该下哪个。
+ * 代价是体积约翻倍——对 ~8 MB 量级的应用可以接受。
  *
  * # SHA256SUMS
  *
@@ -91,8 +95,8 @@ function parseArgs(argv) {
     console.error('缺少 --out <目录>（归一化产物的输出目录）。');
     process.exit(2);
   }
-  if (options.arch !== undefined && !['x64', 'arm64', 'x86'].includes(options.arch)) {
-    console.error(`--arch 只支持 x64 | arm64 | x86，收到：${options.arch}`);
+  if (options.arch !== undefined && !['x64', 'arm64', 'x86', 'universal'].includes(options.arch)) {
+    console.error(`--arch 只支持 x64 | arm64 | x86 | universal，收到：${options.arch}`);
     process.exit(2);
   }
   return options;

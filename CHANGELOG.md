@@ -10,6 +10,14 @@
 
 ### 新增
 
+- **macOS 进入发布矩阵**：`release.yml` 新增 `build-macos`（`universal-apple-darwin`，一份
+  dmg + 一份 `.app.tar.gz` 同时覆盖 Apple Silicon 与 Intel）；updater 清单写
+  `darwin-aarch64` / `darwin-x86_64` 两份指向同一产物；官网按平台渲染（macOS 用户拿到
+  `.dmg` 按钮与 macOS 矩阵行），`pnpm check:site` 增加 macOS universal 用例。
+  签名走 ad-hoc（不购 Apple Developer 证书，见红线 R5）；Linux 仍暂缓（ADR-005 已补记）
+- 校验和与 GPG 签名**上移到 `publish` 作业**：两平台产物合并后只签一份 `SHA256SUMS`，
+  避免"该看哪一份"与".asc 与最终附件集对不上"
+
 - 官网升级：首页主视觉（纯 CSS/SVG 界面示意 + 「三步开始」+ 真实数字条）、下载页顶部推荐卡与
   GPG 指纹复制；导航毛玻璃、键盘焦点可见性、尊重系统「减少动态效果」
 - **GPG 公钥随站发布**：`build-site.mjs` 把 `docs/keys/forgedesk-release.pub` 复制为站点路径
