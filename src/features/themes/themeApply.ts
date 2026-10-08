@@ -129,18 +129,25 @@ export function resolveAppearancePalette(appearance: 'light' | 'dark'): Record<s
   return palette;
 }
 
+/** 跨源样式表读不到规则；同源（Tauri 自定义协议）都能读。 */
+function readStyleRules(sheet: CSSStyleSheet): CSSRuleList | null {
+  try {
+    return sheet.cssRules;
+  } catch {
+    return null;
+  }
+}
+
 /** 直接读 CSSOM：只取定义该外观的规则里的 `--fd-*`。 */
 function paletteFromStyleSheets(appearance: 'light' | 'dark'): Record<string, string> {
   const wanted = appearance === 'dark' ? ["[data-theme='dark']", '[data-theme="dark"]'] : [':root'];
   const palette: Record<string, string> = {};
   for (const sheet of Array.from(document.styleSheets)) {
-    let rules: CSSRuleList | null = null;
-    try {
-      rules = sheet.cssRules;
-    } catch {
-      continue; // 跨源样式表读不到规则：跳过（Tauri 下同源，正常都能读）
+    const rules = readStyleRules(sheet);
+    if (rules === null) {
+      continue;
     }
-    for (const rule of Array.from(rules ?? [])) {
+    for (const rule of Array.from(rules)) {
       if (!(rule instanceof CSSStyleRule)) {
         continue;
       }
