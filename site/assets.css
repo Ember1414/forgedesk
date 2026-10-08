@@ -520,101 +520,49 @@ summary:focus-visible {
   flex: none;
 }
 
-/* 界面示意：窗口框 + 泳道图 + 提交行。整体 aria-hidden（装饰性），
- * 下方小字如实说明"示意图，非真实截图" */
-.hero-visual {
-  position: relative;
+/* ---------- 真实界面截图 ----------
+ *
+ * 图由 `pnpm site:screenshots` 采集（注入演示数据跑真界面，见
+ * scripts/site/capture-screenshots.mjs）。尺寸属性写死 1600×1000，
+ * 浏览器在图片到达前就能留出正确高度（无布局跳动）。 */
+.hero-shot {
+  margin: 0;
 }
-.window {
+.hero-shot img,
+.gallery img {
+  display: block;
+  width: 100%;
+  height: auto;
   border: 1px solid var(--line);
   border-radius: 14px;
   background: var(--surface);
-  box-shadow: 0 18px 48px -28px rgb(15 17 21 / 45%);
-  overflow: hidden;
+  box-shadow: 0 22px 60px -34px rgb(15 17 21 / 55%);
 }
-.win-bar {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 9px 12px;
-  border-bottom: 1px solid var(--line);
-  background: var(--surface-sunken);
-}
-.win-bar .dot {
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  background: var(--line);
-  flex: none;
-}
-.win-bar .win-title {
-  margin-left: 8px;
-  font-size: 11.5px;
-  color: var(--fg-muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.win-body {
+.gallery {
   display: grid;
-  grid-template-columns: 84px 1fr;
-  min-height: 232px;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 18px;
+  margin-top: 16px;
 }
-.win-body .graph {
-  border-right: 1px solid var(--line);
-  background: var(--surface-sunken);
-  padding: 10px 0;
-}
-.commit-list {
-  list-style: none;
+.gallery figure {
   margin: 0;
-  padding: 4px 0;
+}
+.gallery figcaption {
+  margin-top: 8px;
   font-size: 12.5px;
-}
-.commit-list li {
-  padding: 9px 14px 9px 26px;
-  position: relative;
-  border-bottom: 1px solid var(--line);
-}
-.commit-list li:last-child {
-  border-bottom: none;
-}
-/* 节点连线：与左侧泳道图的圆点对齐（视觉隐喻，非交互元素） */
-.commit-list li::before {
-  content: '';
-  position: absolute;
-  left: 8px;
-  top: 14px;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--brand);
-}
-.commit-list li::after {
-  content: '';
-  position: absolute;
-  left: 11px;
-  top: 22px;
-  bottom: -6px;
-  width: 2px;
-  background: var(--line);
-}
-.commit-list li:last-child::after {
-  display: none;
-}
-.commit-list b {
-  display: block;
-  font-weight: 600;
-}
-.commit-list span {
   color: var(--fg-muted);
-  font-size: 11.5px;
 }
-.visual-caption {
-  margin: 10px 2px 0;
-  font-size: 12px;
-  color: var(--fg-muted);
-  text-align: right;
+@media (prefers-reduced-motion: no-preference) {
+  .gallery img,
+  .hero-shot img {
+    transition:
+      transform 0.2s ease-out,
+      box-shadow 0.2s ease-out;
+  }
+  .gallery img:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 26px 70px -32px rgb(15 17 21 / 60%);
+  }
 }
 
 /* （"三步开始"已由「快速开始」的三张命令卡取代；对应的 .steps 规则随之删除，

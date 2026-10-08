@@ -9,12 +9,13 @@
 ![License](https://img.shields.io/badge/license-Apache--2.0-blue)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
 
-> **项目状态**：里程碑 M0–M6 已完成（本地 Git 闭环 → 历史 DAG → 冲突/rebase/快照 →
-> 代码托管集成 → 终端/诊断/编辑器 → 插件/主题/多平台/i18n）。
-> **M7 进行中**：自动更新、安装包与发布流水线、文档与官网。
-> 发布策略为 **Windows 优先**；macOS / Linux 真机验证按
-> [`docs/adr/ADR-005`](docs/adr/ADR-005-defer-cross-platform-verification.md) 暂缓。
-> 进度与计划见 [`docs/M7-PLAN.md`](docs/M7-PLAN.md)，逐版本变更见 [`CHANGELOG.md`](CHANGELOG.md)。
+> **项目状态**：M0–M7 已完成，**v1.0.0 已发布**（2026-10-08）。
+> 自动更新、CI、打包与发布流水线全部跑通：[下载页](https://forgedesk.pages.dev/download)
+> 与 [Releases](https://github.com/Ember1414/forgedesk/releases) 提供
+> **Windows**（NSIS / MSI / 便携版 zip）与 **macOS universal**（dmg，Apple Silicon 与 Intel 共用一个包）
+> 产物，附 `SHA256SUMS` 与 GPG 签名。Linux 暂缓（AppImage/deb/rpm 三套打包链与真机验证未完成），
+> 见 [`docs/adr/ADR-005`](docs/adr/ADR-005-defer-cross-platform-verification.md)。
+> 下一阶段计划见 [`docs/M8-PLAN.md`](docs/M8-PLAN.md)，逐版本变更见 [`CHANGELOG.md`](CHANGELOG.md)。
 
 ---
 
@@ -68,7 +69,7 @@ cd forgedesk
 pnpm install
 pnpm dev              # 浏览器预览前端（含设计系统页 /#/__dev__/design）
 pnpm tauri dev        # 完整桌面应用
-pnpm tauri build      # 打包（本机平台；产物在 src-tauri/target/release/bundle）
+pnpm tauri build      # 打包（本机平台；产物在仓库根的 target/release/bundle）
 ```
 
 依赖与三平台差异见 [`docs/DEV-ENV.md`](docs/DEV-ENV.md)（含 Windows 工具链脚本、国内镜像、常见陷阱）。
@@ -77,16 +78,17 @@ pnpm tauri build      # 打包（本机平台；产物在 src-tauri/target/relea
 
 ## 安装
 
-**预编译发布版尚未提供**（M7 进行中，目标 Windows 首发）。届时会有两处入口：
+预编译版本从 **v1.0.0**（2026-10-08）起提供，两个入口都指向同一次发布：
 
-- **下载页**：<https://forgedesk.pages.dev> —— 显示当前版本与 NSIS / MSI / 便携版三个入口及
-  SHA256 校验和（版本信息取自发布清单，与实际发布同源）；没有发布时它**如实显示"尚无可用版本"**，
-  不给任何虚假下载入口；
-- **GitHub Releases**：全部历史版本、`SHA256SUMS`（发布带了 GPG 签名时还有 `.asc`）。
+- **下载页**：<https://forgedesk.pages.dev/download> —— 版本矩阵（平台 × 格式 × 大小 × SHA256）、
+  三平台校验命令、GPG 验证与安装指引；版本信息取自发布清单，与应用内自动更新同源；
+- **GitHub Releases**：全部历史版本、`SHA256SUMS` 与 `SHA256SUMS.asc`（GPG 分离签名）。
 
-随之提供：Windows 安装包（NSIS/MSI）与**便携版 zip**；Scoop / Winget 与 macOS / Linux 分发随 M8 推进。
+产物：Windows（NSIS `.exe` / MSI / **便携版 zip**）与 **macOS universal**（`.dmg`，Apple Silicon
+与 Intel 共用一个包）。Scoop / Winget / Homebrew 等包管理器分发随 M8 推进。
 
-已提供的说明：[`docs/install/windows.md`](docs/install/windows.md)（含产物命名、校验命令与 SmartScreen 指引）。
+安装说明：[`docs/install/windows.md`](docs/install/windows.md)（产物命名、校验命令、SmartScreen 指引）、
+[`docs/install/macos.md`](docs/install/macos.md)（去隔离、Gatekeeper 提示、校验）。
 
 ---
 
@@ -95,7 +97,8 @@ pnpm tauri build      # 打包（本机平台；产物在 src-tauri/target/relea
 | 文档                                                 | 内容                                 |
 | ---------------------------------------------------- | ------------------------------------ |
 | [`docs/PLAN.md`](docs/PLAN.md)                       | 项目计划书（范围、里程碑、验收标准） |
-| [`docs/M7-PLAN.md`](docs/M7-PLAN.md)                 | M7 启动准备（Windows 优先）          |
+| [`docs/M7-PLAN.md`](docs/M7-PLAN.md)                 | M7 启动准备与进度记录（已完成）      |
+| [`docs/M8-PLAN.md`](docs/M8-PLAN.md)                 | M8 计划（信任加固 / 分发 / 社区）    |
 | [`docs/manual/README.md`](docs/manual/README.md)     | 用户手册（核心工作流）               |
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)       | 分层架构与依赖规则                   |
 | [`docs/API.md`](docs/API.md)                         | 前后端 IPC 契约（命令与事件）        |

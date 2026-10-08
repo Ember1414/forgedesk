@@ -341,6 +341,15 @@ test('页面加载出图：工具条可见 + 图模式渲染 + __errs 为空', a
   // 确认已加载行数
   await expect(page.getByTestId('history-loaded-count')).toContainText('15');
 
+  // 回归（2026-10-08）：文本列的可见行窗口不能只在滚动回调里更新。
+  //
+  // 没有滚动条时（首屏、小仓库、或内容不足一屏）滚动事件永远不会来，窗口停在
+  // `{ first: 0, last: -1 }`——画布照常画出泳道与 ref 标签，但一条提交信息都不显示，
+  // 页面看起来像"只有图的半成品"。这条断言**不滚动**，直接检查文字在不在；
+  // 之前没有任何测试盯住文字层，所以这个缺陷一直没被自动化发现。
+  await expect(page.locator('[data-oid]').first()).toBeVisible();
+  await expect(page.locator('[data-oid]').first()).toContainText('feat: commit message');
+
   // 视觉截图：图模式全景
   await page
     .getByTestId('history-page')

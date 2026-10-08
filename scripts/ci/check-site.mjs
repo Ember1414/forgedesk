@@ -196,8 +196,28 @@ console.log('静态结构（多页导航 / 平台识别 / 三平台命令 / og �
     (index.match(/<li>\s*<div class="cap-icon"/g) ?? []).length === 4,
     '四点核心能力（配原创插图）',
   );
-  assert(index.includes('property="og:image"'), '首页带 og:image（原创分享图）');
-  assert(existsSync(join(repoRoot, 'site', 'og.png')), 'og 分享图文件存在');
+  // og:image 必须指向**真实存在**的文件：它坏了不会有任何页面表现（只有分享预览变空），
+  // 因此最适合在这里检。（2026-10-08 起 og 图改为主界面截图，同时校验目标存在性。）
+  assert(index.includes('property="og:image"'), '首页带 og:image（分享预览图）');
+  const ogImage = /property="og:image"\s+content="https:\/\/forgedesk\.pages\.dev\/([^"]+)"/.exec(
+    index,
+  );
+  assert(ogImage !== null, 'og:image 指向本站路径（便于存在性检查）');
+  if (ogImage !== null) {
+    assert(
+      existsSync(join(repoRoot, 'site', ogImage[1])),
+      `og:image 指向的文件存在：${ogImage[1]}`,
+    );
+  }
+
+  // 界面截图：页面上引用的每一张图都必须存在（图是外部工具的产物，
+  // 重命名/漏提交时页面只会"看起来少了一块"，不会报错）
+  const shots = [...index.matchAll(/src="(images\/[^"]+)"/g)].map((match) => match[1]);
+  assert(shots.length >= 4, `首页至少引用 4 张界面截图（实际 ${shots.length}）`);
+  for (const shot of shots) {
+    assert(existsSync(join(repoRoot, 'site', shot)), `界面截图存在：${shot}`);
+  }
+  assert(index.includes('images/history.webp'), '主视觉使用提交历史截图');
 
   // 快速开始：三条命令卡 + 可复制的初始化命令（复制按钮指向真实存在的元素）
   assert(index.includes('class="quickstart"'), '首页有「快速开始」命令卡');

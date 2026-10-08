@@ -17,7 +17,7 @@
       property="og:description"
       content="开源、跨平台的 Git 与 GitHub 桌面工作台：把易错的 Git 操作变成可视化界面、向导与可交互图表；破坏性操作自动打快照。无 AI、无遥测。"
     />
-    <meta property="og:image" content="https://forgedesk.pages.dev/og.png" />
+    <meta property="og:image" content="https://forgedesk.pages.dev/images/history.webp" />
     <meta name="twitter:card" content="summary_large_image" />
     <link rel="icon" href="/favicon.png" />
     <link rel="stylesheet" href="/assets.css" />
@@ -84,63 +84,17 @@
           </ul>
         </div>
 
-        <!-- 界面示意：纯 CSS + SVG 绘制（不是截图，也不含任何竞品素材）。
-             左侧泳道图与右侧提交行只是"提交历史长什么样"的视觉隐喻 -->
-        <div class="hero-visual" aria-hidden="true" data-reveal>
-          <div class="window">
-            <div class="win-bar">
-              <span class="dot"></span><span class="dot"></span><span class="dot"></span>
-              <span class="win-title">ForgeDesk — 提交历史与快照</span>
-            </div>
-            <div class="win-body">
-              <div class="graph">
-                <svg width="84" height="232" viewBox="0 0 84 232" fill="none">
-                  <path
-                    d="M28 26 C 28 60, 44 62, 44 92"
-                    stroke="var(--line)"
-                    stroke-width="3"
-                    stroke-linecap="round"
-                  />
-                  <path
-                    d="M44 92 C 44 122, 28 124, 28 154"
-                    stroke="var(--line)"
-                    stroke-width="3"
-                    stroke-linecap="round"
-                  />
-                  <path
-                    d="M28 154 C 28 188, 52 190, 52 214"
-                    stroke="var(--line)"
-                    stroke-width="3"
-                    stroke-linecap="round"
-                  />
-                  <circle cx="28" cy="26" r="7" fill="var(--brand)" />
-                  <circle cx="44" cy="92" r="7" fill="var(--brand-2)" />
-                  <circle cx="28" cy="154" r="7" fill="var(--brand)" />
-                  <circle cx="52" cy="214" r="7" fill="var(--brand)" />
-                </svg>
-              </div>
-              <ul class="commit-list">
-                <li>
-                  <b>feat: 提交历史泳道图</b>
-                  <span>刚刚 · main · 点选即看详情</span>
-                </li>
-                <li>
-                  <b>snapshot: 变基前自动快照</b>
-                  <span>2 分钟前 · 可随时回滚</span>
-                </li>
-                <li>
-                  <b>fix: 冲突面板逐块解决</b>
-                  <span>昨天 · 已合并</span>
-                </li>
-                <li>
-                  <b>chore: 只允许 force-with-lease</b>
-                  <span>3 天前 · 安全网</span>
-                </li>
-              </ul>
-            </div>
-          </div>
-          <p class="visual-caption">界面示意（非真实截图）</p>
-        </div>
+        <!-- 真实界面截图：由 pnpm site:screenshots 生成（注入演示数据跑真界面），
+             不是手绘示意图——改界面后重跑一次即可刷新 -->
+        <figure class="hero-shot" data-reveal>
+          <img
+            src="images/history.webp"
+            width="1600"
+            height="1000"
+            alt="ForgeDesk 的提交历史界面：左侧是分支泳道图与提交列表，右侧是选中提交的详情与文件变更"
+            decoding="async"
+          />
+        </figure>
       </section>
 
       <!-- 四点核心能力（T7.9）：配原创 SVG 插图——几何图形为本项目自绘，不使用任何竞品素材 -->
@@ -231,6 +185,43 @@
         </li>
       </ul>
 
+      <h2>界面一览</h2>
+      <div class="gallery" data-reveal>
+        <figure>
+          <img
+            src="images/dashboard.webp"
+            width="1600"
+            height="1000"
+            alt="仪表盘：从路径、URL 打开或克隆仓库，并列出最近仓库"
+            loading="lazy"
+            decoding="async"
+          />
+          <figcaption>仪表盘 · 打开、克隆与最近仓库</figcaption>
+        </figure>
+        <figure>
+          <img
+            src="images/status.webp"
+            width="1600"
+            height="1000"
+            alt="工作区：已暂存、未暂存与未跟踪文件的分组列表，可逐块暂存或放弃"
+            loading="lazy"
+            decoding="async"
+          />
+          <figcaption>工作区 · 暂存、放弃与提交</figcaption>
+        </figure>
+        <figure>
+          <img
+            src="images/history-dark.webp"
+            width="1600"
+            height="1000"
+            alt="提交历史的暗色主题：同一页面在系统深色模式下自动切换"
+            loading="lazy"
+            decoding="async"
+          />
+          <figcaption>暗色主题 · 跟随系统设置</figcaption>
+        </figure>
+      </div>
+
       <h2>快速开始</h2>
       <div class="quickstart" data-reveal>
         <div class="qs-card">
@@ -247,8 +238,7 @@
           <h3>2 · 安装并打开<span class="qs-badge">首次提示有说明</span></h3>
           <p class="note">
             本项目不购买付费代码签名证书（零成本原则），因此 SmartScreen / Gatekeeper
-            可能多问一次。这不是木马特征，逐步说明见
-            <a href="download.html">下载页</a>的「安装与信任说明」。
+            可能多问一次，逐步说明见 <a href="download.html">下载页</a>的「安装与信任说明」。
           </p>
         </div>
         <div class="qs-card">
@@ -262,7 +252,7 @@ git init</code></pre>
         </div>
       </div>
 
-      <h2>一些不吹牛的数字</h2>
+      <h2>实测数据</h2>
       <ul class="stats" data-reveal>
         <li>
           <span class="figure">301 ms</span>
@@ -284,8 +274,8 @@ git init</code></pre>
 
       <h2>文档与手册</h2>
       <p class="lede">
-        手册只写**已经能用**的功能，每篇都是任务导向的：从打开第一个仓库到处理一次真实的冲突。
-        站点上的文档与仓库里的 <code>docs/</code> 同源渲染，不会出现"网站说的和实际不一样"。
+        手册按任务组织：从打开第一个仓库，到处理一次真实的冲突。站点上的文档与仓库里的
+        <code>docs/</code> 同源渲染。
       </p>
       <ul class="docs-grid" data-reveal>
         <li>
@@ -336,7 +326,7 @@ git init</code></pre>
             对外的网络请求只有你主动触发的那些（GitHub 操作、更新检查）。 完整清单见<a
               href="privacy.html"
               >隐私说明</a
-            >——它不是承诺，是逐条列出的字段与域名。
+            >。
           </p>
         </details>
         <details>
@@ -413,10 +403,6 @@ git init</code></pre>
 
     <footer class="site-footer">
       <div class="inner">
-        <p>
-          本站的版本信息来自发布清单（与应用内自动更新同一份数据）。尚无发布时如实显示"无可用版本"，
-          不提供任何虚假下载入口。
-        </p>
         <p>
           <a href="download.html">下载</a> · <a href="changelog.html">更新日志</a> ·
           <a href="docs/index.html">用户手册</a> ·

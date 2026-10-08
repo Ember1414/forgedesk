@@ -681,6 +681,32 @@ function GraphCanvasInner(props: GraphCanvasProps): ReactNode {
     };
   }, []);
 
+  // 首屏与尺寸/数据变化时也要给出可见行窗口。
+  //
+  // 为什么不能只靠 `handleScroll`：文本列的行是按 `rowWindow` 窗口渲染的，而窗口
+  // 只在滚动回调里更新。于是**内容不足一屏（没有滚动条）时永远收不到滚动事件**，
+  // 窗口停在下限 `{ first: 0, last: -1 }`——历史页上只剩泳道图与 ref 标签，一条
+  // 提交信息都不显示；提交多到能滚动时，也要等用户先滚一下文字才出现。
+  // 2026-10-08 由官网截图流程暴露（截图里 15 条提交的页面没有任何提交文字）。
+  //
+  // 这里复刻 `handleScroll` 的同一段计算（同参数、同 overscan），保证"挂载即等价
+  // 于滚到当前位置"，不引入第二套窗口语义。
+  useEffect(() => {
+    const container = containerRef.current;
+    const height = container === null ? viewport.height : container.clientHeight;
+    if (height <= 0) {
+      return;
+    }
+    const range = visibleRowRange(
+      metrics,
+      container === null ? 0 : container.scrollTop,
+      height,
+      model.rowCount,
+      DOM_OVERSCAN_ROWS,
+    );
+    setRowWindow((prev) => (prev.first === range.first && prev.last === range.last ? prev : range));
+  }, [metrics, model.rowCount, viewport.height]);
+
   // canvas 后备缓冲区 = CSS 尺寸 × DPR。少了这一步，高分屏上整张图都是糊的。
   useLayoutEffect(() => {
     const width = Math.max(1, Math.round(viewport.width * dpr));

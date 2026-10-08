@@ -17,13 +17,16 @@
 **不含。** 不做模型推理，不生成提交信息，不自动解决冲突。开发过程使用 AI 辅助编码，但产品本身零 AI、可完全离线工作。
 
 **5. 支持哪些平台？**
-Windows / macOS / Linux 同源构建。当前发布策略为 **Windows 优先**；macOS 与 Linux 真机验证按 [`adr/ADR-005-defer-cross-platform-verification.md`](adr/ADR-005-defer-cross-platform-verification.md) 暂缓。
+**Windows 与 macOS 已发布**（v1.0.0 起）：Windows 10 1809+（依赖 WebView2，Win11 已内置），macOS 10.15+（universal 构建，Apple Silicon 与 Intel 共用一个包）。**Linux 暂缓**——AppImage/deb/rpm 三套打包链与各自的真机验证尚未完成，仓库保留配置与 CI 骨架，见 [`adr/ADR-005-defer-cross-platform-verification.md`](adr/ADR-005-defer-cross-platform-verification.md)。
 
 **6. 会不会把我的代码或使用数据上传？**
 不会。代码内容不上传、无遥测 SDK；详见 [`PRIVACY.md`](PRIVACY.md)。
 
 **7. 现在能下载安装包吗？**
-M7 正在推进安装包与发布流水线，**预编译版本尚未提供**。目前可从源码构建（见 [`../README.md`](../README.md)）。
+可以。从 **v1.0.0**（2026-10-08）起提供预编译版本：[下载页](https://forgedesk.pages.dev/download)或
+[GitHub Releases](https://github.com/Ember1414/forgedesk/releases)。Windows 有 NSIS `.exe` / MSI / 便携版 zip，
+macOS 是 universal `.dmg`；每次发布都附 `SHA256SUMS`（以及 GPG 分离签名 `SHA256SUMS.asc`）。
+安装说明见 [`install/windows.md`](install/windows.md) 与 [`install/macos.md`](install/macos.md)。
 
 ## 日常使用
 
