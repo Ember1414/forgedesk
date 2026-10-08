@@ -114,10 +114,55 @@ export function resolveAppearancePalette(appearance: 'light' | 'dark'): Record<s
   if (cached !== undefined) {
     return cached;
   }
-  const palette: Record<string, string> = {};
   if (typeof document === 'undefined') {
-    return palette;
+    return {};
   }
+  // 优先从样式表读：`tokens.css` 的 `:root` / `[data-theme='dark']` 规则是真相源。
+  // 这很重要——自定义主题的变量是 inline 挂在 <html> 上的，离屏探测元素会**继承**
+  // 到它们，于是"基础主题"的卡片会显示成自定义主题的颜色（预览与实际不符）。
+  const fromSheets = paletteFromStyleSheets(appearance);
+  const palette =
+    Object.keys(fromSheets).length >= PREVIEW_TOKENS.length
+      ? fromSheets
+      : { ...paletteFromProbe(appearance), ...fromSheets };
+  paletteCache.set(appearance, palette);
+  return palette;
+}
+
+/** 直接读 CSSOM：只取定义该外观的规则里的 `--fd-*`。 */
+function paletteFromStyleSheets(appearance: 'light' | 'dark'): Record<string, string> {
+  const wanted = appearance === 'dark' ? ["[data-theme='dark']", '[data-theme="dark"]'] : [':root'];
+  const palette: Record<string, string> = {};
+  for (const sheet of Array.from(document.styleSheets)) {
+    let rules: CSSRuleList | null = null;
+    try {
+      rules = sheet.cssRules;
+    } catch {
+      continue; // 跨源样式表读不到规则：跳过（Tauri 下同源，正常都能读）
+    }
+    for (const rule of Array.from(rules ?? [])) {
+      if (!(rule instanceof CSSStyleRule)) {
+        continue;
+      }
+      if (!wanted.some((selector) => rule.selectorText.includes(selector))) {
+        continue;
+      }
+      for (const property of Array.from(rule.style)) {
+        if (property.startsWith('--fd-')) {
+          palette[property.slice('--fd-'.length)] = rule.style.getPropertyValue(property).trim();
+        }
+      }
+    }
+  }
+  return palette;
+}
+
+/**
+ * 离屏探测：让 CSS 自己算出该外观的令牌值（CSSOM 拿不到足够令牌时的兜底，
+ * 例如样式由 JS 动态注入且规则不可枚举的场景）。
+ */
+function paletteFromProbe(appearance: 'light' | 'dark'): Record<string, string> {
+  const palette: Record<string, string> = {};
   const probe = document.createElement('div');
   probe.setAttribute('data-theme', appearance);
   probe.setAttribute('aria-hidden', 'true');
@@ -129,7 +174,6 @@ export function resolveAppearancePalette(appearance: 'light' | 'dark'): Record<s
     palette[token] = styles.getPropertyValue(cssVarName(token)).trim();
   }
   probe.remove();
-  paletteCache.set(appearance, palette);
   return palette;
 }
 
