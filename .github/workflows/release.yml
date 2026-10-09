@@ -475,8 +475,9 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 20
     permissions:
-      # 只有这一步需要写：创建 Release 与上传附件
+      # 只有这一步需要写：创建 Release 与上传附件、开清单同步 PR
       contents: write
+      pull-requests: write
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -606,3 +607,34 @@ jobs:
         if: needs.preflight.outputs.pages != 'true'
         run: |
           echo "::warning title=更新清单未发布::未配置 CLOUDFLARE_API_TOKEN。Release 已创建，但 updater 拿不到清单，用户不会收到这个版本。配置方法见 docs/adr/ADR-003-cloudflare-instead-of-github-pages.md。"
+
+      # 包管理器清单跟着发布走（M8 / T8.3–T8.5）：把 Scoop / Winget / Homebrew 的
+      # 版本与 SHA256 对齐到本次发布，在**自有仓库**开 PR 等人类合并。
+      # 绝不向第三方仓库（winget-pkgs、homebrew-cask）推送——那是人类的动作（见 packaging/*/README）。
+      #
+      # 为什么 continue-on-error：发布本体（Release + 站点 + 更新清单）此时已成功，
+      # 清单 PR 只是"顺手开一个"；它失败不该把一次成功的发布标记成失败（会掩盖真实结果）。
+      - name: Open packaging manifest PR
+        if: needs.preflight.outputs.channel == 'stable'
+        continue-on-error: true
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.preflight.outputs.version }}
+        run: |
+          set -eu
+          node scripts/ci/update-packaging.mjs --sums releases/SHA256SUMS
+          if git diff --quiet -- packaging; then
+            echo "包管理器清单已是最新，无需 PR。"
+            exit 0
+          fi
+          branch="chore/packaging-v${VERSION}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "${branch}"
+          git add packaging
+          git commit -m "chore(packaging): sync manifests to v${VERSION}"
+          git push -u origin "${branch}"
+          gh pr create --base main --head "${branch}" \
+            --title "chore(packaging): sync manifests to v${VERSION}" \
+            --body "由 release.yml 自动生成：把 Scoop / Winget / Homebrew 清单更新到 v${VERSION}（版本与 SHA256 取自本次发布的 SHA256SUMS）。合并前请按各渠道目录下 README/PUBLISH 的说明完成人工核对；向第三方仓库的提交仍由人类执行。"

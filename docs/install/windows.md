@@ -15,7 +15,22 @@ Windows SmartScreen 可能提示"未知发布者"，这是正常现象——**�
 | NSIS 安装器（`.exe`） | 大多数用户 | 双击安装，支持当前用户安装，可静默安装 |
 | MSI（`.msi`） | 企业/批量部署 | 支持组策略与静默部署 |
 | 便携版 zip | 不想安装 / 无管理员权限 | 解压即用，**最不容易触发 SmartScreen** |
-| Scoop / Winget | 习惯包管理器的用户 | 来源更可信，审核由包管理器承担（随 M8 上线） |
+| **Scoop**（`forgedesk`） | 习惯包管理器的用户 | 来源更可信、哈希由包管理器校验；清单见 [`packaging/scoop/`](../../packaging/scoop/README.md) |
+| Winget（`ForgeDesk.ForgeDesk`） | 同上 | 清单已起草（[`packaging/winget/`](../../packaging/winget/PUBLISH.md)），待收录进 `microsoft/winget-pkgs` |
+
+用 Scoop 安装（安装的是便携版，不经安装器、不触发 SmartScreen）：
+
+```powershell
+# 自有 bucket 上线后（推荐）：
+scoop bucket add forgedesk https://github.com/Ember1414/scoop-bucket
+scoop install forgedesk
+
+# bucket 上线前，可直接从仓库内的清单安装（同一条下载/校验/解压链路）：
+scoop install .\packaging\scoop\forgedesk.json
+```
+
+安装后 `forgedesk` 命令与开始菜单快捷方式指向同一份程序；`scoop uninstall forgedesk` 卸载
+（应用数据目录不受影响，见 §5）。清单的更新与验证方式见 `packaging/scoop/README.md`。
 
 下载地址有两种，内容一致：
 

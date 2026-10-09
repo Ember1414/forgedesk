@@ -1,0 +1,28 @@
+# winget 中文语言清单（zh-CN）
+PackageIdentifier: ForgeDesk.ForgeDesk
+PackageVersion: 1.1.3
+PackageLocale: zh-CN
+Publisher: ForgeDesk contributors
+PublisherUrl: https://forgedesk.pages.dev/
+PublisherSupportUrl: https://github.com/Ember1414/forgedesk/issues
+Author: ForgeDesk contributors
+PackageName: ForgeDesk
+PackageUrl: https://forgedesk.pages.dev/
+License: Apache-2.0
+LicenseUrl: https://github.com/Ember1414/forgedesk/blob/main/LICENSE
+Copyright: Copyright (c) ForgeDesk contributors
+ShortDescription: 一个 Git 图形化桌面工作台。
+Description: |-
+  ForgeDesk 是一个开源、跨平台的 Git 桌面工作台：把复杂的 Git 操作变成可视化流程与
+  向导，破坏性操作一律先预览计划并自动快照、可随时回滚；凭据只存系统钥匙串；
+  无遥测、无 AI 推理功能，所有数据保存在本地。
+Moniker: forgedesk
+Tags:
+  - git
+  - 版本控制
+  - 开发者工具
+  - diff
+  - 合并
+ReleaseNotesUrl: https://github.com/Ember1414/forgedesk/releases/tag/v1.1.3
+ManifestType: locale
+ManifestVersion: 1.10.0
