@@ -9,13 +9,17 @@
 ![License](https://img.shields.io/badge/license-Apache--2.0-blue)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
 
-> **项目状态**：M0–M7 已完成，**v1.0.0 已发布**（2026-10-08）。
-> 自动更新、CI、打包与发布流水线全部跑通：[下载页](https://forgedesk.pages.dev/download)
+> **项目状态**：**M0–M7 已验收完成；M8（最后一个里程碑）的工程交付已全部完成**——
+> 发布渠道清单、文档与社区材料就绪，剩余为需要人类账号/真机执行的事项
+> （逐条清单见 [`docs/acceptance/M8.md`](docs/acceptance/M8.md) §4）。
+> 线上最新版本 **v1.1.3**（2026-10-09）：[下载页](https://forgedesk.pages.dev/download)
 > 与 [Releases](https://github.com/Ember1414/forgedesk/releases) 提供
 > **Windows**（NSIS / MSI / 便携版 zip）与 **macOS universal**（dmg，Apple Silicon 与 Intel 共用一个包）
-> 产物，附 `SHA256SUMS` 与 GPG 签名。Linux 暂缓（AppImage/deb/rpm 三套打包链与真机验证未完成），
+> 产物，附 `SHA256SUMS` 与 GPG 签名；包管理器渠道（Scoop / Winget / Homebrew）清单见
+> [`packaging/`](packaging/README.md)。Linux 暂缓（AppImage/deb/rpm 三套打包链与真机验证未完成），
 > 见 [`docs/adr/ADR-005`](docs/adr/ADR-005-defer-cross-platform-verification.md)。
-> 下一阶段计划见 [`docs/M8-PLAN.md`](docs/M8-PLAN.md)，逐版本变更见 [`CHANGELOG.md`](CHANGELOG.md)。
+> 里程碑计划与验收见 [`docs/PLAN.md`](docs/PLAN.md) 与 [`docs/acceptance/`](docs/acceptance/M8.md)，
+> 逐版本变更见 [`CHANGELOG.md`](CHANGELOG.md)。
 
 ---
 
@@ -30,11 +34,12 @@ ForgeDesk 的重点不是把命令排成按钮，而是**把 Git 的内部状态
 - **可理解**：冲突、rebase、历史以图形与向导呈现，而不是一堆报错文本。
 
 技术栈：**Tauri 2 + Rust**（后端）· **React + TypeScript + Vite + Tailwind**（前端）。
-三平台（Windows / macOS / Linux）同源构建，**零付费服务依赖**。
+同一套源码构建三平台：Windows 与 macOS 已正式发布，Linux 打包按
+[`ADR-005`](docs/adr/ADR-005-defer-cross-platform-verification.md) 暂缓。**零付费服务依赖**。
 
 ---
 
-## 功能概览（M0–M7 已实现，当前版本 1.1.x）
+## 功能概览（当前版本 1.1.3）
 
 | 领域          | 能力                                                                                                                                                                            |
 | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -56,9 +61,12 @@ ForgeDesk 的重点不是把命令排成按钮，而是**把 Git 的内部状态
 
 ## 截图
 
-<!-- 原创截图占位：完整的界面截图将在 M7 打包发布时补齐，此处引用我们自己的原创图标。 -->
+| 工作区状态                             | 提交历史（DAG）                       |
+| -------------------------------------- | ------------------------------------- |
+| ![工作区状态](site/images/status.webp) | ![提交历史](site/images/history.webp) |
 
-![ForgeDesk 应用图标（原创设计）](docs/brand/icon-1024.png)
+更多界面见[官网](https://forgedesk.pages.dev/)（仪表盘、暗色历史等）；应用图标为 100% 原创设计
+（[`docs/brand/`](docs/brand/icon-1024.png)）。
 
 ---
 
@@ -79,14 +87,19 @@ pnpm tauri build      # 打包（本机平台；产物在仓库根的 target/rel
 
 ## 安装
 
-预编译版本从 **v1.0.0**（2026-10-08）起提供，两个入口都指向同一次发布：
+预编译版本从 **v1.0.0**（2026-10-08）起提供（**当前最新 v1.1.3**），两个入口都指向同一次发布：
 
 - **下载页**：<https://forgedesk.pages.dev/download> —— 版本矩阵（平台 × 格式 × 大小 × SHA256）、
   三平台校验命令、GPG 验证与安装指引；版本信息取自发布清单，与应用内自动更新同源；
 - **GitHub Releases**：全部历史版本、`SHA256SUMS` 与 `SHA256SUMS.asc`（GPG 分离签名）。
 
 产物：Windows（NSIS `.exe` / MSI / **便携版 zip**）与 **macOS universal**（`.dmg`，Apple Silicon
-与 Intel 共用一个包）。Scoop / Winget / Homebrew 等包管理器分发随 M8 推进。
+与 Intel 共用一个包）。包管理器渠道清单已就绪（[`packaging/`](packaging/README.md)）：
+
+- **Scoop**（`forgedesk`）：清单 + 本机安装实测完成，bucket 仓库上线后 `scoop install forgedesk` 即用；
+  也可先从仓库内清单安装：`scoop install .\packaging\scoop\forgedesk.json`；
+- **Winget**（`ForgeDesk.ForgeDesk`）/ **Homebrew Cask**（`forgedesk`）：草稿与提交流程齐备，
+  待收录与真机验证（见 [`packaging/README.md`](packaging/README.md)）。
 
 安装说明：[`docs/install/windows.md`](docs/install/windows.md)（产物命名、校验命令、SmartScreen 指引）、
 [`docs/install/macos.md`](docs/install/macos.md)（去隔离、Gatekeeper 提示、校验）。
@@ -95,21 +108,28 @@ pnpm tauri build      # 打包（本机平台；产物在仓库根的 target/rel
 
 ## 文档
 
-| 文档                                                 | 内容                                 |
-| ---------------------------------------------------- | ------------------------------------ |
-| [`docs/PLAN.md`](docs/PLAN.md)                       | 项目计划书（范围、里程碑、验收标准） |
-| [`docs/M7-PLAN.md`](docs/M7-PLAN.md)                 | M7 启动准备与进度记录（已完成）      |
-| [`docs/M8-PLAN.md`](docs/M8-PLAN.md)                 | M8 计划（信任加固 / 分发 / 社区）    |
-| [`docs/manual/README.md`](docs/manual/README.md)     | 用户手册（核心工作流）               |
-| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)       | 分层架构与依赖规则                   |
-| [`docs/API.md`](docs/API.md)                         | 前后端 IPC 契约（命令与事件）        |
-| [`docs/CODING_STYLE.md`](docs/CODING_STYLE.md)       | 编码风格                             |
-| [`docs/PLUGIN-API.md`](docs/PLUGIN-API.md)           | 插件清单、权限与宿主 API             |
-| [`docs/FAQ.md`](docs/FAQ.md)                         | 常见问题                             |
-| [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md) | 故障排查                             |
-| [`docs/PRIVACY.md`](docs/PRIVACY.md)                 | 隐私政策与数据清单                   |
-| [`docs/RELEASE.md`](docs/RELEASE.md)                 | 发布流程（密钥、步骤、回滚）         |
-| [`docs/SIGNING.md`](docs/SIGNING.md)                 | 提交签名与验证                       |
+| 文档                                                     | 内容                                               |
+| -------------------------------------------------------- | -------------------------------------------------- |
+| [`docs/PLAN.md`](docs/PLAN.md)                           | 项目计划书（范围、里程碑、验收标准）               |
+| [`docs/acceptance/M8.md`](docs/acceptance/M8.md)         | M8 验收报告（逐条证据 + 剩余人类项）               |
+| [`docs/M8-PLAN.md`](docs/M8-PLAN.md)                     | M8 计划（信任加固 / 分发 / 社区，按现状修订）      |
+| [`docs/M7-PLAN.md`](docs/M7-PLAN.md)                     | M7 启动准备与进度记录（已完成）                    |
+| [`docs/manual/README.md`](docs/manual/README.md)         | 用户手册（核心工作流）                             |
+| [`docs/install/windows.md`](docs/install/windows.md)     | Windows 安装与校验（含 SmartScreen 指引）          |
+| [`docs/install/macos.md`](docs/install/macos.md)         | macOS 安装与校验（去隔离、Gatekeeper 提示）        |
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)           | 分层架构与依赖规则                                 |
+| [`docs/API.md`](docs/API.md)                             | 前后端 IPC 契约（命令与事件）                      |
+| [`docs/CODING_STYLE.md`](docs/CODING_STYLE.md)           | 编码风格                                           |
+| [`docs/PLUGIN-API.md`](docs/PLUGIN-API.md)               | 插件清单、权限与宿主 API                           |
+| [`docs/DEV-ENV.md`](docs/DEV-ENV.md)                     | 开发环境与三平台差异                               |
+| [`docs/FAQ.md`](docs/FAQ.md)                             | 常见问题                                           |
+| [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md)     | 故障排查                                           |
+| [`docs/PRIVACY.md`](docs/PRIVACY.md)                     | 隐私政策与数据清单                                 |
+| [`docs/RELEASE.md`](docs/RELEASE.md)                     | 发布流程（密钥、步骤、回滚）                       |
+| [`docs/SIGNING.md`](docs/SIGNING.md)                     | 提交签名与验证                                     |
+| [`packaging/README.md`](packaging/README.md)             | 包管理器分发清单（Scoop / Winget / Homebrew）      |
+| [`docs/GOOD-FIRST-ISSUES.md`](docs/GOOD-FIRST-ISSUES.md) | 15 个新手任务（背景、步骤、验收、如何跑测试）      |
+| [`docs/COMMUNITY.md`](docs/COMMUNITY.md)                 | 社区规范（渠道分工、响应 SLA、标签体系、回复模板） |
 
 ---
 
@@ -126,7 +146,10 @@ pnpm tauri build      # 打包（本机平台；产物在仓库根的 target/rel
 
 ## 参与
 
+- **第一次参与？** [`docs/GOOD-FIRST-ISSUES.md`](docs/GOOD-FIRST-ISSUES.md) 有 15 个带完整引导的任务
+  （背景、步骤、涉及文件、验收标准、如何跑测试）；
 - 贡献方式、提交规范与 PR 流程：[`CONTRIBUTING.md`](CONTRIBUTING.md)
+- 社区渠道、响应 SLA 与标签体系：[`docs/COMMUNITY.md`](docs/COMMUNITY.md)
 - 行为准则：[`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md)
 - 安全策略与漏洞报告：[`SECURITY.md`](SECURITY.md)
 - 架构与分层规则：[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
