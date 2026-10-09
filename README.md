@@ -108,28 +108,30 @@ pnpm tauri build      # 打包（本机平台；产物在仓库根的 target/rel
 
 ## 文档
 
-| 文档                                                     | 内容                                               |
-| -------------------------------------------------------- | -------------------------------------------------- |
-| [`docs/PLAN.md`](docs/PLAN.md)                           | 项目计划书（范围、里程碑、验收标准）               |
-| [`docs/acceptance/M8.md`](docs/acceptance/M8.md)         | M8 验收报告（逐条证据 + 剩余人类项）               |
-| [`docs/M8-PLAN.md`](docs/M8-PLAN.md)                     | M8 计划（信任加固 / 分发 / 社区，按现状修订）      |
-| [`docs/M7-PLAN.md`](docs/M7-PLAN.md)                     | M7 启动准备与进度记录（已完成）                    |
-| [`docs/manual/README.md`](docs/manual/README.md)         | 用户手册（核心工作流）                             |
-| [`docs/install/windows.md`](docs/install/windows.md)     | Windows 安装与校验（含 SmartScreen 指引）          |
-| [`docs/install/macos.md`](docs/install/macos.md)         | macOS 安装与校验（去隔离、Gatekeeper 提示）        |
-| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)           | 分层架构与依赖规则                                 |
-| [`docs/API.md`](docs/API.md)                             | 前后端 IPC 契约（命令与事件）                      |
-| [`docs/CODING_STYLE.md`](docs/CODING_STYLE.md)           | 编码风格                                           |
-| [`docs/PLUGIN-API.md`](docs/PLUGIN-API.md)               | 插件清单、权限与宿主 API                           |
-| [`docs/DEV-ENV.md`](docs/DEV-ENV.md)                     | 开发环境与三平台差异                               |
-| [`docs/FAQ.md`](docs/FAQ.md)                             | 常见问题                                           |
-| [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md)     | 故障排查                                           |
-| [`docs/PRIVACY.md`](docs/PRIVACY.md)                     | 隐私政策与数据清单                                 |
-| [`docs/RELEASE.md`](docs/RELEASE.md)                     | 发布流程（密钥、步骤、回滚）                       |
-| [`docs/SIGNING.md`](docs/SIGNING.md)                     | 提交签名与验证                                     |
-| [`packaging/README.md`](packaging/README.md)             | 包管理器分发清单（Scoop / Winget / Homebrew）      |
-| [`docs/GOOD-FIRST-ISSUES.md`](docs/GOOD-FIRST-ISSUES.md) | 15 个新手任务（背景、步骤、验收、如何跑测试）      |
-| [`docs/COMMUNITY.md`](docs/COMMUNITY.md)                 | 社区规范（渠道分工、响应 SLA、标签体系、回复模板） |
+| 文档                                                               | 内容                                               |
+| ------------------------------------------------------------------ | -------------------------------------------------- |
+| [`docs/PLAN.md`](docs/PLAN.md)                                     | 项目计划书（范围、里程碑、验收标准）               |
+| [`docs/acceptance/M8.md`](docs/acceptance/M8.md)                   | M8 验收报告（逐条证据 + 剩余人类项）               |
+| [`docs/M8-PLAN.md`](docs/M8-PLAN.md)                               | M8 计划（信任加固 / 分发 / 社区，按现状修订）      |
+| [`docs/M7-PLAN.md`](docs/M7-PLAN.md)                               | M7 启动准备与进度记录（已完成）                    |
+| [`docs/manual/README.md`](docs/manual/README.md)                   | 用户手册（核心工作流）                             |
+| [`docs/install/windows.md`](docs/install/windows.md)               | Windows 安装与校验（含 SmartScreen 指引）          |
+| [`docs/install/macos.md`](docs/install/macos.md)                   | macOS 安装与校验（去隔离、Gatekeeper 提示）        |
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)                     | 分层架构与依赖规则                                 |
+| [`docs/API.md`](docs/API.md)                                       | 前后端 IPC 契约（命令与事件）                      |
+| [`docs/CODING_STYLE.md`](docs/CODING_STYLE.md)                     | 编码风格                                           |
+| [`docs/PLUGIN-API.md`](docs/PLUGIN-API.md)                         | 插件清单、权限与宿主 API                           |
+| [`docs/DEV-ENV.md`](docs/DEV-ENV.md)                               | 开发环境与三平台差异                               |
+| [`docs/FAQ.md`](docs/FAQ.md)                                       | 常见问题                                           |
+| [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md)               | 故障排查                                           |
+| [`docs/PRIVACY.md`](docs/PRIVACY.md)                               | 隐私政策与数据清单                                 |
+| [`docs/RELEASE.md`](docs/RELEASE.md)                               | 发布流程（密钥、步骤、回滚）                       |
+| [`docs/SIGNING.md`](docs/SIGNING.md)                               | 提交签名与验证                                     |
+| [`docs/SECURITY-AUDIT.md`](docs/SECURITY-AUDIT.md)                 | 依赖安全审计与已知例外（cargo audit / pnpm audit） |
+| [`docs/QUALITY-REVIEW-2026-10.md`](docs/QUALITY-REVIEW-2026-10.md) | 质量与风险审查（已修复 / 待处理 / 复现方法）       |
+| [`packaging/README.md`](packaging/README.md)                       | 包管理器分发清单（Scoop / Winget / Homebrew）      |
+| [`docs/GOOD-FIRST-ISSUES.md`](docs/GOOD-FIRST-ISSUES.md)           | 15 个新手任务（背景、步骤、验收、如何跑测试）      |
+| [`docs/COMMUNITY.md`](docs/COMMUNITY.md)                           | 社区规范（渠道分工、响应 SLA、标签体系、回复模板） |
 
 ---
 
