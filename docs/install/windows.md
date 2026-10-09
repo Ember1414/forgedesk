@@ -1,6 +1,6 @@
 # 在 Windows 上安装 ForgeDesk
 
-> 适用版本：v1.0 及以后（M7 目标平台）。发布前本文件描述的下载地址尚未生效。
+> 适用版本：v1.0 及以后（**当前最新 1.1.3**，2026-10-09）。
 
 ForgeDesk 采用**零成本信任方案**：不使用付费代码签名证书。因此首次运行时
 Windows SmartScreen 可能提示"未知发布者"，这是正常现象——**安装前请先用下面第 2 节
@@ -34,7 +34,7 @@ scoop install .\packaging\scoop\forgedesk.json
 
 下载地址有两种，内容一致：
 
-- **下载页**：<https://forgedesk.pages.dev>（显示当前版本、四个下载入口与校验和；Pages 部署后生效）
+- **下载页**：<https://forgedesk.pages.dev>（显示当前版本、各下载入口与校验和）
 - **Releases 页面**：`Ember1414/forgedesk` 的 Releases（含全部历史版本）
 
 > **产物命名约定**（认清文件名可避免下错东西）：

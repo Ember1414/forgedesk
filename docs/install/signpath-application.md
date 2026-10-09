@@ -31,7 +31,7 @@
 | 项目主页 | <https://forgedesk.pages.dev/> |
 | 公共仓库 | <https://github.com/Ember1414/forgedesk> |
 | 许可证 | Apache-2.0（仓库根 `LICENSE`，SPDX 头见各源文件） |
-| 构建与发布流程 | GitHub Actions 全自动：打 `v*` tag → 三平台构建 → `SHA256SUMS` + GPG 签名 → GitHub Release → 官网与更新清单（详见 `docs/RELEASE.md`） |
+| 构建与发布流程 | GitHub Actions 全自动：打 `v*` tag → Windows + macOS（universal）构建 → `SHA256SUMS` + GPG 签名 → GitHub Release → 官网与更新清单（详见 `docs/RELEASE.md`） |
 | 产物分发方式 | GitHub Releases（主渠道）+ Cloudflare Pages 官网 + Scoop/Winget（包管理器清单见 `packaging/`） |
 | 维护者信息 | **占位：由申请人填写真实姓名/邮箱/所在地**（多数计划要求签署人身份可核验） |
 | 是否接受源码审计 | 是。全部源码公开；CI 门禁与依赖许可审计（`pnpm compliance`、`docs/LICENSE-AUDIT.md`）可复现 |

@@ -3,6 +3,10 @@
 > 日期：2026-10-06
 > 依据：`docs/PLAN.md` §M7、`docs/OPEN-SOURCE-READINESS.md`、`AGENTS.md`
 > 范围决策：**以 Windows 为首发目标**；macOS 与 Linux 用户少、真机验证成本高，**暂缓**（保留代码与 CI 骨架，不阻塞 v1.0 for Windows）。
+>
+> **后续修订**：macOS 已于 2026-10-08 进入发布矩阵（universal dmg），
+> 见 [`adr/ADR-005`](./adr/ADR-005-defer-cross-platform-verification.md) 的部分修订；Linux 仍暂缓。
+> 本文件其余内容为当时的启动准备记录，保持原文。
 
 ---
 
@@ -56,7 +60,8 @@
 | `bug_report.yml` 版本占位符 `0.0.1` → `0.7.0` | ✅ 完成 |
 | 门禁 | check:docs（49 文档 / 189 链接）、compliance（含 PRIVACY 免责声明断言）、check:repo、check:workflows、format:check 全绿 |
 
-> 尚未完成：`docs/RELEASE.md`（发布流程与密钥）、`docs/install/macos.md`（M8）。
+> ~~尚未完成：`docs/RELEASE.md`（发布流程与密钥）、`docs/install/macos.md`（M8）。~~
+> **修订（2026-10-09）**：两者均已交付（`RELEASE.md` 已随发布流程投入使用，`install/macos.md` 已就绪）。
 > 遗留审批项 C（`target/debug` 71.8 GB）、D（工作区外残留）、E（历史右键菜单接线）、F（更新密钥/CI Secrets）仍待人类决定。
 
 ### 2026-10-07（续）：CI 文案门禁 + 用户手册

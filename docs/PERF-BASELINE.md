@@ -263,8 +263,8 @@ PERF_BENCH=1 npx playwright test e2e/graph-bench.spec.ts
 入库基线 `scripts/perf/baseline-ci.json` 比较，任一指标退化 > 10% 失败；
 无基线时本次结果成为基线（入 artifact，维护者拷入仓库提交后门禁生效）。
 
-**cron 处于注释状态**：ADR-002 决定私有阶段不启用夜间任务（免费配额），
-转公开阶段（T7.2）取消注释即可；当前可用 workflow_dispatch 手动跑。
+**nightly 已启用**：ADR-002 决定私有阶段不启用夜间任务（免费配额），转公开（2026-10-07）后
+`nightly.yml` 的 `schedule` 已取消注释并生效；也可用 workflow_dispatch 手动触发。
 基线数字是 CI Linux runner 的口径，与本文件 Windows 数字不可互相比较。
 
 ### 5.8 主线程占用的其余清理（2026-10-08）

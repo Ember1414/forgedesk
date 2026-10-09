@@ -1,7 +1,7 @@
 # ForgeDesk 开发环境说明
 
 > 面向所有执行本项目的编码代理与人类贡献者。**开工前请先读本文件。**
-> 最后更新：2026-09-23（M1 / T1.1 阶段）
+> 最后更新：2026-10-09（M8 收尾；§1–§5 的环境说明长期有效，§6 为里程碑总览）
 >
 > 本文档已做**脱敏处理**（使用 `%USERPROFILE%`、`<repo-root>` 等占位符，不含任何本机绝对路径），
 > 可直接随仓库公开。涉及具体机器与 IDE 的细节请勿写入本文。
@@ -27,7 +27,7 @@ macOS / Linux 的等价环境未在本机验证，但 `scripts/setup/` 下的脚
 
 ## 2. ⚠️ 环境陷阱清单（务必遵守）
 
-以下 7 条都是在真实开发中踩过并修复的问题。它们中的多数只在特定环境出现，
+以下 16 条都是在真实开发中踩过并修复的问题。它们中的多数只在特定环境出现，
 但一旦踩到会浪费大量时间，因此固化在此。
 
 ### 陷阱 1：`NODE_OPTIONS` 被注入 `safe-delete` 垫片，导致 pnpm 安装中断
@@ -386,29 +386,27 @@ where link.exe
 
 ---
 
-## 6. 当前进度快照
+## 6. 里程碑总览
 
-| 里程碑 / 任务 | 状态 |
-| --- | --- |
-| M0 / T0.1 前端脚手架 | ✅ typecheck + lint + build 全绿 |
-| M0 / T0.1 Tauri 宿主 + IPC 通路 | ✅ 构建并实际启动成功（窗口标题 ForgeDesk） |
-| M0 / T0.2 Rust workspace（12 个 crate） | ✅ check / test / fmt / clippy 全绿 |
-| M0 / T0.3 设计 token + 预览页 + 原创图标 | ✅ 34 项对比度通过；17 个图标文件 |
-| M0 / T0.10 CI 两阶段工作流 + 校验器 | ✅ 本地校验通过 |
-| M0 / T0.4 应用外壳与路由 | ✅ 20 条路由可跳转；外壳交互测试 13 项 + 路由表 23 项 |
-| M0 / T0.5 基础组件库 | ✅ 29 个组件（Radix 原语）+ 85 项组件测试；展示页 `/__dev__/components` |
-| M0 / T0.6 错误模型 + i18n + 错误展示 | ✅ 错误分类/脱敏（Rust 单测）+ `normalizeError`/ErrorToast + `pnpm i18n:lint` 门禁 |
-| M0 / T0.7 SQLite + 迁移 + 设置持久化 | ✅ 7 张表 + 版本化迁移（含备份/回滚）+ 设置读写命令 + 界面密度落库 |
-| M0 / T0.8 日志与日志查看 | ✅ 文件日志（JSON+脱敏）+ 按天/10MB 轮转 + panic 留档 + 会话标记 + `logs_open`/`logs_tail` |
-| M0 / T0.9 规范文档五件套 | ✅ ARCHITECTURE / API（含事件表）/ CODING_STYLE / CONTRIBUTING / README + PR 与 Issue 模板 + `pnpm check:docs` |
-| M0 / T0.11 打包配置与产物命名 | ✅ bundle 完善（wix 语言/NSIS perUser+forgedesk:// 钩子）+ 归一化命名脚本 + SHA256SUMS + Linux 冒烟（tag 构建触发） |
-| M0 / T0.12 合规检查 | ✅ `pnpm compliance`（名称/免责声明/图标/许可审计/AI 依赖）+ compliance.yml + LICENSE-AUDIT.md |
-| M0 / OPS-6 + OPS-7 收口验收 | ✅ `docs/acceptance/M0.md`（三态结论）+ `M0-interaction.md`（E2E 11/11 通过）；三平台验证与盲测按维护者决定延后（ADR-005） |
-| M1 / T1.1 `GitProcess` + 输出解析器 | ✅ 86 个测试（48 单测 + 26 fixture 表驱动 + 12 进程行为）；23 份真实 git 输出样本见 `crates/git-engine/tests/fixtures/` |
-| M1 / T1.2 `GitEngine` 双实现 + 差分测试 | ✅ 308 个测试（全 workspace）；六类仓库 + 空仓库的 status/diff/log 全部一致，1 处已知差异见 `docs/GIT-ENGINE-DIFF.md` |
-| 审批 | ✅ T0.4 主界面布局已确认（红线 R3）；⏳ T0.9 的 AGENTS.md 与 README 免责声明待确认 |
+各里程碑的逐条验收证据（含"部分通过"的具体原因与剩余人类项）在 [`acceptance/`](./acceptance/M8.md)；
+这里只给总览，避免本文件与验收文档出现两份互相漂移的进度表。
 
-补充说明（T0.4 顺带落地的两项前置能力，后续任务直接复用）：
+| 里程碑 | 状态 | 验收文档 |
+| --- | --- | --- |
+| M0 地基（脚手架 / 设计系统 / 首个安装包） | ✅ 完成 | [`acceptance/M0.md`](./acceptance/M0.md)、[`M0-interaction.md`](./acceptance/M0-interaction.md) |
+| M1 Git 核心闭环 | ✅ 完成 | [`acceptance/M1.md`](./acceptance/M1.md) |
+| M2 历史 DAG / 分支 / 远端同步 | ✅ 完成 | [`acceptance/M2.md`](./acceptance/M2.md) |
+| M3 冲突 / rebase 可视化 / 快照回滚 | ✅ 完成（无独立验收文档：T3.11 收口时已并入 M4 报告，说明见 [`acceptance/M4.md`](./acceptance/M4.md)） | — |
+| M4 GitHub 集成 | ✅ 完成 | [`acceptance/M4.md`](./acceptance/M4.md) |
+| M5 终端 / 诊断 / 编辑器 | ✅ 完成 | [`acceptance/M5.md`](./acceptance/M5.md) |
+| M6 插件 / 主题 / 多平台适配 | ✅ 完成 | [`acceptance/M6.md`](./acceptance/M6.md) |
+| M7 发布（v1.0.0 起） | ✅ 完成（2 条真机项待人类，见文档） | [`acceptance/M7.md`](./acceptance/M7.md) |
+| M8 信任加固 / 分发 / 社区 | 🟡 工程交付完成；人类项见文档 §4 | [`acceptance/M8.md`](./acceptance/M8.md) |
+
+线上最新版本随发布递增（当前 **v1.1.3**，2026-10-09）；仓库内的版本号以
+`src-tauri/tauri.conf.json` 的 `version` 为单一真相源（`pnpm version:check` 校验三处一致）。
+
+补充说明（早期落地、后续一直复用的两项基础能力）：
 
 - **i18n 骨架已就位**（`src/lib/i18n`，命名空间 `common` / `shell`）。
   组件文案一律 `t('key')`，中英 key 一致性由 `i18n.test.ts` 断言。

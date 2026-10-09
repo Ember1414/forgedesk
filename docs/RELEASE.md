@@ -27,19 +27,19 @@ pnpm version:check          # 只校验三处一致（CI 门禁用）
 
 ## 2. 发布渠道
 
-| 渠道 | 版本形态 | 用途 | 检查频率 |
+| 渠道 | 版本形态（示例为当前） | 用途 | 检查频率 |
 | --- | --- | --- | --- |
-| `stable` | `1.0.0` | 所有用户 | 启动后 60s + 每 24h（可关） |
-| `beta` | `1.0.0-beta.N` | 提前 1–2 周验证 | 同上 |
+| `stable` | `1.1.3` | 所有用户 | 启动后 60s + 每 24h（可关） |
+| `beta` | `1.1.3-beta.N` | 提前 1–2 周验证 | 同上 |
 
 更新清单托管在 Cloudflare Pages（见 `ADR-003`），路径为
 `https://forgedesk.pages.dev/updates/<渠道>/<target>.json`（例如 `updates/stable/windows-x86_64.json`）。
 
-> **应用侧已就绪（T7.1）**：`update_check` / `update_install` 命令（见 `docs/API.md`）与状态栏横幅。
-> 尚缺的只有**发布配置**：`plugins.updater.{pubkey, endpoints}` 与 §3 的两套密钥——
-> 配置缺一即被视为"未配置"，命令返回 `configured: false`，界面不打扰用户。
-> **这两项刻意不写进仓库**：发布流水线在构建时用 `scripts/ci/make-build-config.mjs --pubkey … --channel …`
-> 注入（理由见 §4.1）。写进仓库的代价是开发构建会从"静默无更新源"变成"每次检查都网络失败"。
+> **应用侧与发布侧均已就绪**（T7.1 起，v1.0.0 之后经多次发布验证）：`update_check` / `update_install`
+> 命令（见 `docs/API.md`）与状态栏横幅；`plugins.updater.{pubkey, endpoints}` 由发布流水线在构建时用
+> `scripts/ci/make-build-config.mjs --pubkey … --channel …` 注入（理由见 §4.1）——
+> **这两项刻意不写进仓库**：配置缺一即被视为"未配置"，命令返回 `configured: false`，界面不打扰用户；
+> 写进仓库的代价是开发构建会从"静默无更新源"变成"每次检查都网络失败"。
 > 渠道（stable / beta）在 v1 通过**各渠道各自构建**体现；同一次构建不切换渠道（应用内文案亦如此说明）。
 
 ---
@@ -116,10 +116,10 @@ pnpm tauri signer generate -w ~/.tauri/forgedesk.key
 前置：`main` 全绿（lint / typecheck / test / cargo fmt+clippy+test / compliance / check:docs）。
 
 ```bash
-# 1) 定版本并同步三处
-pnpm version:sync 1.0.0
+# 1) 定版本并同步三处（把 1.1.4 换成你要发的版本）
+pnpm version:sync 1.1.4
 
-# 2) 更新 CHANGELOG.md（把 [0.7.0] - 未发布 改为 [1.0.0] - <日期>，并补 M7 条目）
+# 2) 更新 CHANGELOG.md（把开发中的条目整理为 [<新版本>] - <日期>，补齐该版本的全部变更）
 
 # 3) 本地跑一遍门禁（与 CI 同组）
 pnpm lint && pnpm i18n:lint && pnpm typecheck && pnpm test

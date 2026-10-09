@@ -72,8 +72,8 @@ cargo test --workspace --all-features
   Tauri 按**形参名**从 payload 取值，结构体参数平铺传会得到 `invalid args`。
   这条规则单测与 e2e 都测不到（两侧都 mock 掉了 `invoke`，mock 不关心宿主
   能不能反序列化）。真实事故：2026-10-08 一次性查出 19 处调用点全废——
-  编辑器文件树恒空、新建文件必失败、GitHub 议题/PR 与仪表盘整页失效，而 902 个
-  单测全绿。
+  编辑器文件树恒空、新建文件必失败、GitHub 议题/PR 与仪表盘整页失效，而**当时**的
+  902 个单测（该时点数字）全绿。
 - **改动任何依赖清单（`Cargo.toml`、`Cargo.lock`、`package.json`、`pnpm-lock.yaml`）后
   必须运行 `pnpm compliance`**：它会重新生成 `docs/LICENSE-AUDIT.md`，与仓库内版本不一致时
   失败并就地更新，提交新版本即可转绿。
@@ -151,7 +151,11 @@ cargo test --workspace --all-features
 | macOS 信任 | ad-hoc 签名 + 去隔离指引 + 首次启动引导 | Apple Developer Program 公证 |
 | Windows 信任 | SHA256 + GPG + 便携版 + 包管理器分发 + 申请 OSS 免费签名计划 | OV/EV 付费证书 |
 | 域名 | `*.github.io` / `*.pages.dev` | 付费域名（除非人类另行决定） |
-| 更新 | 自签名 Ed25519（minisign）清单托管在 Pages | 付费更新服务 |
+| 更新 | 自签名 Ed25519（minisign）清单托管在 Cloudflare Pages | 付费更新服务 |
+
+> 注（2026-10-09）：官网与更新清单**实际托管在 Cloudflare Pages**（[`ADR-003`](docs/adr/ADR-003-cloudflare-instead-of-github-pages.md)），
+> 不使用 GitHub Pages；Linux 渠道（Flathub/Snap/AUR）按
+> [`ADR-005`](docs/adr/ADR-005-defer-cross-platform-verification.md) 暂缓——属"允许但暂不做"，不是禁止。
 
 ---
 

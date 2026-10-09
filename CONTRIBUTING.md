@@ -9,13 +9,15 @@
 
 设计说明（**阅读顺序建议**）：
 
-| 想了解                                 | 看这份                                           |
-| -------------------------------------- | ------------------------------------------------ |
-| 为什么做、做什么、做到哪一步           | [`docs/PLAN.md`](./docs/PLAN.md)                 |
-| 代码怎么分层、数据怎么流动、在哪里扩展 | [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) |
-| 代码风格（Rust / TS-React / 提交信息） | [`docs/CODING_STYLE.md`](./docs/CODING_STYLE.md) |
-| 前后端契约（命令与事件登记表）         | [`docs/API.md`](./docs/API.md)                   |
-| 本地怎么跑起来、踩过的坑               | [`docs/DEV-ENV.md`](./docs/DEV-ENV.md)           |
+| 想了解                                 | 看这份                                                     |
+| -------------------------------------- | ---------------------------------------------------------- |
+| 从哪里开始（新手任务清单，含完整引导） | [`docs/GOOD-FIRST-ISSUES.md`](./docs/GOOD-FIRST-ISSUES.md) |
+| 社区渠道、响应 SLA 与标签体系          | [`docs/COMMUNITY.md`](./docs/COMMUNITY.md)                 |
+| 为什么做、做什么、做到哪一步           | [`docs/PLAN.md`](./docs/PLAN.md)                           |
+| 代码怎么分层、数据怎么流动、在哪里扩展 | [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md)           |
+| 代码风格（Rust / TS-React / 提交信息） | [`docs/CODING_STYLE.md`](./docs/CODING_STYLE.md)           |
+| 前后端契约（命令与事件登记表）         | [`docs/API.md`](./docs/API.md)                             |
+| 本地怎么跑起来、踩过的坑               | [`docs/DEV-ENV.md`](./docs/DEV-ENV.md)                     |
 
 ---
 
@@ -180,9 +182,8 @@ reports a problem: the window is closed and the evidence is gone.
 
 ## 6. 行为准则与许可
 
-- 参与本项目即表示你同意遵守 `CODE_OF_CONDUCT.md`（Contributor Covenant v2.1，随转公开阶段一并加入仓库）；
-  在那之前，请保持基本的专业与尊重。
+- 参与本项目即表示你同意遵守 [`CODE_OF_CONDUCT.md`](./CODE_OF_CONDUCT.md)（Contributor Covenant v2.1）。
 - 本项目采用 **Apache-2.0**（见 [`LICENSE`](./LICENSE)）。提交代码即表示你同意以同一许可证授权，
   **不需要签署 CLA**。
-- 安全问题请**不要**公开提 issue，走 GitHub 的私密漏洞报告（Security → Report a vulnerability）；
-  `SECURITY.md` 会在后续里程碑补齐。
+- 安全问题请**不要**公开提 issue，按 [`SECURITY.md`](./SECURITY.md) 的私密渠道报告
+  （GitHub Security → Report a vulnerability；默认 90 天协调披露）。
