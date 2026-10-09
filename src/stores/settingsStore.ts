@@ -99,6 +99,17 @@ export const UPDATE_SKIPPED_VERSION_KEY = 'update.skippedVersion';
 /** 自动检查更新的缺省值。 */
 export const DEFAULT_UPDATE_AUTO_CHECK = true;
 
+/**
+ * 是否已关闭"安装可信性"提示（M8 / T8.2）。
+ *
+ * 首次启动展示一次，用户点「我知道了」后写入 true，此后不再出现；
+ * 设置 → 隐私 里的「重新显示」写回 false。缺省 false（未关闭 = 要显示）。
+ */
+export const TRUST_HINT_DISMISSED_KEY = 'trustHint.dismissed';
+
+/** "安装可信性"提示的缺省值。 */
+export const DEFAULT_TRUST_HINT_DISMISSED = false;
+
 const DEFAULT_DENSITY: Density = 'comfortable';
 
 /**

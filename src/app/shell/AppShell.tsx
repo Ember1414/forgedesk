@@ -9,6 +9,7 @@ import { StatusBar } from '@/app/shell/StatusBar';
 import { TitleBar } from '@/app/shell/TitleBar';
 import { useIsNarrowViewport } from '@/app/shell/useIsNarrowViewport';
 import { ShortcutManagerWithPalette } from '@/features/commands/ShortcutManager';
+import { FirstRunTrustHint } from '@/features/system/FirstRunTrustHint';
 import { StartupRecoveryNotice } from '@/features/system/StartupRecoveryNotice';
 import { UpdateBanner } from '@/features/system/UpdateBanner';
 import { useUiStore } from '@/stores/uiStore';
@@ -76,6 +77,9 @@ export function AppShell() {
 
       {/* T7.1：有新版本时的提示横幅（未配置更新源或无更新时不渲染） */}
       <UpdateBanner />
+
+      {/* T8.2：首次启动的安装可信性提示（点「我知道了」后不再出现） */}
+      <FirstRunTrustHint />
 
       <div className="flex min-h-0 flex-1">
         <SideNav collapsed={collapsed} autoCollapsed={autoCollapsed} />

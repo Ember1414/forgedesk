@@ -2,6 +2,7 @@ import { useTranslation } from 'react-i18next';
 
 import { systemOpenUrl } from '@/lib/ipc';
 import { useAppError } from '@/lib/errors';
+import { TRUST_HINT_DISMISSED_KEY, useSettingsStore } from '@/stores/settingsStore';
 import { Button } from '@/ui/components/button';
 
 /**
@@ -35,6 +36,7 @@ const SECTIONS = [
 export function PrivacySettingsPage() {
   const { t } = useTranslation('shell');
   const { show } = useAppError();
+  const setJson = useSettingsStore((state) => state.setJson);
 
   return (
     <section className="flex flex-col gap-4">
@@ -65,6 +67,24 @@ export function PrivacySettingsPage() {
         >
           {t('settings.privacy.openPolicy')}
         </Button>
+      </div>
+
+      {/* 安装安全提示的重置入口（M8 / T8.2）：误关后不必重装即可让它回来 */}
+      <div className="rounded-lg border border-line bg-surface p-4">
+        <h2 className="text-14 font-medium">{t('settings.privacy.trustHintTitle')}</h2>
+        <p className="mt-1 text-13 text-fg-muted">{t('settings.privacy.trustHintBody')}</p>
+        <div className="mt-3">
+          <Button
+            variant="secondary"
+            onClick={() => {
+              // 写回 false：AppShell 顶部的 FirstRunTrustHint 通过 selector 订阅同一键，
+              // 乐观更新会让它立刻重新出现（不需要刷新）
+              void setJson(TRUST_HINT_DISMISSED_KEY, false).catch(show);
+            }}
+          >
+            {t('settings.privacy.trustHintShow')}
+          </Button>
+        </div>
       </div>
     </section>
   );
