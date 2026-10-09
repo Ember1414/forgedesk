@@ -6,6 +6,16 @@
 > 说明：M0–M6 在开发期未逐一打 tag，下方日期对应各里程碑的**验收日期**
 > （见 `docs/acceptance/`）。正式对外分发从 M7（v1.0）开始。
 
+## [1.1.3] - 2026-10-09
+
+### 修复
+
+- **检测更新永远失败（根因）**：客户端请求的清单名是 `updates/stable/windows.json`
+  （不带架构后缀），而发布侧只写了 `windows-x86_64.json` —— 404，于是"检测更新"
+  永远失败（用户日志实测）。发布侧现在**同时写出两个别名**（Windows：
+  `windows.json` + `windows-x86_64.json`；macOS：`darwin.json` + `darwin-aarch64` /
+  `darwin-x86_64`），无论插件如何解析 {{target}} 都能命中
+
 ## [1.1.2] - 2026-10-08
 
 ### 修复

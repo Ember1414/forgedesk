@@ -294,6 +294,11 @@ jobs:
             --notes notes.md \
             --pub-date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
             --out "updates/${CHANNEL}/windows-x86_64.json"
+          # 同一份清单再写一份**别名**。客户端日志实测：插件在 Windows 上请求的是
+          # `/updates/stable/windows.json`（不带架构后缀），而这里只发布了
+          # `windows-x86_64.json` —— 404 于是"检测更新永远失败"。两个名字都发，
+          # 无论插件怎么解析 {{target}} 都能命中（幂等，不影响任何现有行为）。
+          cp "updates/${CHANNEL}/windows-x86_64.json" "updates/${CHANNEL}/windows.json"
 
           echo "清单指向：${asset}"
 
@@ -436,6 +441,8 @@ jobs:
               --pub-date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
               --out "updates/${CHANNEL}/${target}.json"
           done
+          # 与 Windows 同一原因：再发一份不带架构的 `darwin.json` 别名
+          cp "updates/${CHANNEL}/darwin-aarch64.json" "updates/${CHANNEL}/darwin.json"
           echo "清单指向：${asset}（darwin-aarch64 + darwin-x86_64）"
 
       - name: Upload release artifacts
