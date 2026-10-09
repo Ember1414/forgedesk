@@ -78,11 +78,19 @@ jobs:
         if: steps.creds.outputs.available == 'true'
         run: node scripts/ci/build-site.mjs
 
+      # 关键：Pages 的 Direct Upload 是**目录快照**，而站点与更新清单同属一个项目。
+      # 直接部署 site/ 会把线上 updates/**（所有客户端的更新通道）整体删掉——
+      # 因此必须先把线上清单拉回 staging（scripts/ci/stage-pages.mjs 会在拉取
+      # 失败时中止部署，而不是删除）。
+      - name: Stage deploy directory (site + preserved update manifests)
+        if: steps.creds.outputs.available == 'true'
+        run: node scripts/ci/stage-pages.mjs --out pages-staging
+
       # 使用 npx 而非 pnpm dlx：pnpm 遇到需要构建的依赖（esbuild/workerd）时会弹出
       # 交互式选择框，且 dlx 的隔离环境不读取项目配置，在 CI 中会卡住。
       - name: Deploy
         if: steps.creds.outputs.available == 'true'
-        run: npx --yes wrangler@4 pages deploy site --project-name=forgedesk --branch=main
+        run: npx --yes wrangler@4 pages deploy pages-staging --project-name=forgedesk --branch=main
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

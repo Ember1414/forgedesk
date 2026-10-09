@@ -29,7 +29,11 @@ import { fileURLToPath } from 'node:url';
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
 function parseArgs(argv) {
-  const options = { sums: join(repoRoot, 'releases', 'SHA256SUMS'), check: false };
+  const options = {
+    sums: join(repoRoot, 'releases', 'SHA256SUMS'),
+    check: false,
+    allowPartial: false,
+  };
   for (let index = 0; index < argv.length; index += 1) {
     const key = argv[index];
     switch (key) {
@@ -39,6 +43,10 @@ function parseArgs(argv) {
         break;
       case '--check':
         options.check = true;
+        break;
+      case '--allow-partial':
+        // 部分平台发布时才有意义；--check 默认要求产物齐全（缺产物=无法确认漂移）
+        options.allowPartial = true;
         break;
       default:
         console.error(`未知参数：${key}`);
@@ -107,8 +115,11 @@ function buildTargets(version, sums, today) {
         { label: 'version', pattern: /("version":\s*")[^"]+(")/, replacement: `$1${version}$2` },
         {
           label: 'portable url',
-          pattern: /releases\/download\/v[^/]+\/ForgeDesk_[^"]+_windows_x64_portable\.zip/,
-          replacement: `releases/download/v${version}/${portableName}`,
+          // 锚到 "url" 键并排除 `$`（autoupdate 段里有一个形近的 `v$version` URL）：
+          // 旧规则靠"这是文件里第一次出现"来选中，一旦有人重排 JSON 就会改坏 autoupdate
+          pattern:
+            /("url":\s*")https:\/\/github\.com\/Ember1414\/forgedesk\/releases\/download\/v[^"$]+\/ForgeDesk_[^"$]+_windows_x64_portable\.zip(")/,
+          replacement: `$1https://github.com/Ember1414/forgedesk/releases/download/v${version}/${portableName}$2`,
         },
         {
           label: 'portable hash',
@@ -215,54 +226,84 @@ const sums = parseSums(options.sums);
 const version = detectVersion([...sums.keys()]);
 const today = new Date().toISOString().slice(0, 10);
 
-let drifted = false;
+/**
+ * 先扫描全部渠道、再统一落盘。
+ *
+ * 为什么必须两阶段：如果边扫描边写，某个渠道的规则"没命中"时，前面的文件可能已经
+ * 写了一半（版本更新了、hash 还是旧的）——那正是最坏的中间态。任何**必须命中**的
+ * 规则没命中都直接中止，什么都不写。
+ */
+const plans = [];
+const skips = [];
+const misses = [];
+
 for (const target of buildTargets(version, sums, today)) {
   const relative = target.path.slice(repoRoot.length + 1);
   const missing = target.requires.filter((name) => !sums.has(name));
   if (missing.length > 0) {
-    console.warn(`⚠ ${relative}：缺少产物（${missing.join('、')}），跳过该渠道`);
+    skips.push(`${relative} 缺少产物（${missing.join('、')}）`);
     continue;
   }
 
   const original = readFileSync(target.path, 'utf8');
   let updated = original;
   const changed = [];
-  const checkDiffs = [];
 
   for (const rule of target.rules) {
     if (!rule.pattern.test(updated)) {
+      // label 为 null 的规则（如 ReleaseDate）允许不存在；其余"未命中"是真实异常：
+      // 文件被改成了脚本认不出的形态（例如有人在 hash 行尾加了注释）——静默跳过会
+      // 造成"版本更新了但 hash 还是旧的"，所有用户下载校验失败。
       if (rule.label !== null) {
-        checkDiffs.push(`${rule.label}（未找到可替换内容）`);
+        misses.push(`${relative}：找不到「${rule.label}」对应的内容`);
       }
       continue;
     }
     const next = updated.replace(rule.pattern, rule.replacement);
-    if (next === updated) {
-      continue;
+    if (next !== updated) {
+      changed.push(rule.label ?? 'release date');
+      updated = next;
     }
-    changed.push(rule.label ?? 'release date');
-    if (rule.label !== null) {
-      checkDiffs.push(rule.label);
-    }
-    updated = next;
   }
 
+  plans.push({ path: target.path, relative, updated, changed });
+}
+
+for (const skip of skips) {
+  if (options.check && !options.allowPartial) {
+    misses.push(`${skip} —— --check 需要完整产物才能确认漂移（部分平台发布时加 --allow-partial）`);
+  } else {
+    console.warn(`⚠ ${skip}，跳过该渠道`);
+  }
+}
+
+if (misses.length > 0) {
+  console.error('清单更新已中止（未写入任何文件）：');
+  for (const miss of misses) {
+    console.error(`  ✗ ${miss}`);
+  }
+  console.error('\n请人工核对上述文件：脚本认不出的格式意味着"改一半"的风险。');
+  process.exit(1);
+}
+
+let drifted = false;
+for (const plan of plans) {
   if (options.check) {
-    if (checkDiffs.length > 0) {
+    if (plan.changed.length > 0) {
       drifted = true;
-      console.error(`✗ ${relative} 与发布不一致：${checkDiffs.join('；')}`);
+      console.error(`✗ ${plan.relative} 与发布不一致：${plan.changed.join('；')}`);
     } else {
-      console.log(`✓ ${relative} 已对齐 v${version}`);
+      console.log(`✓ ${plan.relative} 已对齐 v${version}`);
     }
     continue;
   }
 
-  if (changed.length === 0) {
-    console.log(`✓ ${relative} 已对齐 v${version}`);
+  if (plan.changed.length === 0) {
+    console.log(`✓ ${plan.relative} 已对齐 v${version}`);
     continue;
   }
-  writeFileSync(target.path, updated);
-  console.log(`↑ ${relative} 已更新（${changed.join('、')}） → v${version}`);
+  writeFileSync(plan.path, plan.updated);
+  console.log(`↑ ${plan.relative} 已更新（${plan.changed.join('、')}） → v${version}`);
 }
 
 if (options.check && drifted) {

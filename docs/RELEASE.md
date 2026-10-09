@@ -201,7 +201,7 @@ beta 走 `workflow_dispatch` 且版本号需自带预发布后缀（如 `1.0.0-b
 **首次发布时必须核对的两件事**
 
 1. `.sig` 的落点：流水线优先取 `*-setup.exe.sig`（NSIS 安装器的签名），取不到才回退到任意 `.sig`。
-   首次发布后请确认 `latest.json` 里 `url` 指向的包正是被签名的那一个；
+   首次发布后请确认更新清单（`updates/<渠道>/<target>.json`）里 `url` 指向的包正是被签名的那一个；
    （注意：`rename-bundles.mjs` 会把 `…-setup.exe` 归一化成 `…_windows_x64.exe`，
    因此清单里的 `url` 与 Release 附件名都是归一化后的名字——`pnpm release:rehearse` 已把这条形状钉住）。
    macOS 同理：清单 URL 指向 `ForgeDesk_<版本>_macos_universal.app.tar.gz`（**更新包**，
@@ -253,13 +253,25 @@ pnpm release:rehearse
 
 ## 6. 回滚
 
-三种情形，处理方式不同：
+**先明确一个事实**：本项目**不提供"降级安装"路径**——更新清单里的版本必须高于当前版本
+才会被客户端接受（未启用 `allowDowngrades`，见 `CHANGELOG.md` 的"不提供跳过校验的降级路径"）。
+因此"把清单指回旧版本"**对已经升级的用户无效**，回滚只能按下面三档处理：
 
-| 情形 | 做法 | 注意 |
-| --- | --- | --- |
-| 用户升级后出问题，需要回旧版 | 把 updater 清单**指回**旧版本（`latest.json` 里写旧版本号与旧签名包），或让用户到 Releases 下载旧版 | 仅严重事故时用；同时发公告 |
-| 发布产物本身有问题（缺文件/命名错） | 删除该 Release 并重新构建**同一 tag** 的产物 | **不要**重写已推送的 tag；改产物可以，改提交历史不行 |
-| 代码有缺陷 | 在 `main` 修复 → `pnpm version:sync <下个补丁版本>` → 新 tag 发布 | 优先走这条；前两条是应急 |
+| 档 | 情形 | 做法 | 注意 |
+| --- | --- | --- | --- |
+| ① 首选 | 代码有缺陷 | 在 `main` 修复 → `pnpm version:sync <下个补丁版本>` → 新 tag 发布（更新链路的天然"回滚"就是发一个更高的版本） | 用户侧自动生效，无需干预 |
+| ② 应急 | 发布**产物**本身有问题（缺文件/命名错） | `gh release delete v<版本>` → 在 Actions 里重跑同一 tag 的 `release.yml`（`gh release create --verify-tag` 要求 Release 尚不存在） | **不要**重写已推送的 tag；改产物可以，改提交历史不行。重跑会重新生成清单 PR（workflow 已按幂等处理） |
+| ③ 严重事故 | 用户已升级且存在数据风险 | 三件事同时做：① 站点公告 + 引导用户到 Releases **手动下载旧版安装器**（Windows MSI 需先卸载再装旧版）；② 在 Cloudflare Pages 控制台的**部署历史**里回滚到上一个部署（站点与清单一起回退）；③ 准备 ① 的补丁版本 | 用户**不会**自动退回旧版——必须公告 |
+
+**恢复材料从哪来**（这也是"指回旧版本"难以执行的原因）：
+
+- 更新清单在站点上按渠道**同名覆盖**（`updates/<渠道>/<target>.json`），旧版本内容已被覆盖；
+- `.sig` 不进 Release 附件（`make-checksums.mjs` 有意排除），签名只内联在清单 JSON 里；
+- 因此**唯一可靠的旧清单来源是 Cloudflare Pages 的部署历史**（每次部署是一个完整快照，
+  可下载或回滚）；本地则依赖 7 天内的 Actions artifact（`retention-days: 7`）。
+
+> 待改进（尚未实现）：把 `updates/<渠道>/v<版本>/` 作为归档一并部署，让每个版本的清单与
+> 签名长期可追溯。已登记在 [`acceptance/M8.md`](./acceptance/M8.md) 的后续项里。
 
 **绝不**：force push 已发布的 tag、删除 tag 后重打、用 `--force` 覆盖远端（与 AGENTS 红线 R7 一致）。
 
@@ -282,7 +294,7 @@ pnpm release:rehearse
 - [ ] `CHANGELOG.md` 已更新且日期正确
 - [ ] 全部门禁本地通过（§4 第 3 步）
 - [ ] tag 已推送，`release.yml` 全绿
-- [ ] Release 含：安装器、便携版 zip、`SHA256SUMS`、`SHA256SUMS.asc`
+- [ ] Release 含：安装器、便携版 zip、`SHA256SUMS`（配置了 GPG 密钥时还应含 `SHA256SUMS.asc`——preflight 缺密钥只警告不失败）
 - [ ] updater 清单已发布且签名校验通过
 - [ ] 用旧版本实测自动更新成功；篡改包被拒
 - [ ] 下载页与 Release 说明一致
