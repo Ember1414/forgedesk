@@ -858,6 +858,7 @@
       "conflictMark": "冲突",
       "recording": "按下新的快捷键组合（Esc 取消）…",
       "clickToRecord": "点击录制新快捷键",
+      "recordAria": "为「{{action}}」录制快捷键",
       "reset": "恢复默认"
     },
     "layout": {

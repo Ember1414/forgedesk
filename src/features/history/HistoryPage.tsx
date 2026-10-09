@@ -105,6 +105,14 @@ export function HistoryPage() {
   // 引用 / 大量变更时按类别失效历史页（`refs` 与 `large` 已覆盖 `[LOG_QUERY_KEY, repoId]` 前缀）
   useRepoChangeInvalidation(repoId);
 
+  // 切换仓库时清掉与旧仓库绑定的视图状态：选中集 / 锚点 / 详情 / 比较基准 / 待处理的
+  // 整理请求里持有的都是旧仓库的 oid，留在新仓库里没有意义——最坏情况是被送进
+  // cherry-pick / rebase 入口。提交数据本身由 queryKey 隔离，这里只管 UI 状态；
+  // 与仓库无关的视图偏好（图/列表、缩放）由 store 保留。
+  useEffect(() => {
+    useGraphSelectionStore.getState().resetForRepoSwitch();
+  }, [repoId]);
+
   // 作者与分支列表（筛选下拉的数据源；低频数据，60s 新鲜期足够）
   const authorsQuery = useQuery({
     queryKey: [AUTHORS_QUERY_KEY, repoId],

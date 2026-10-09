@@ -858,6 +858,7 @@
       "conflictMark": "Conflict",
       "recording": "Press the new key combination (Esc to cancel)…",
       "clickToRecord": "Click to record a new shortcut",
+      "recordAria": "Record a new shortcut for {{action}}",
       "reset": "Reset"
     },
     "layout": {

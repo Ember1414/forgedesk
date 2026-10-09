@@ -5,7 +5,7 @@
  * 写入前用 detectConflicts 检查——同 when 上下文重复键**阻止保存**。
  * "导出 Markdown"复制到剪贴板（帮助页入口在本页顶部）。
  */
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 import { useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
@@ -81,12 +81,27 @@ export function ShortcutsSettingsPage() {
   const startRecording = (id: string) => {
     setRecording(id);
     setBlocked(null);
+  };
+
+  /**
+   * 录制中的全局按键监听。
+   *
+   * 为什么在 effect 里而不是 onClick 处理器里：旧实现把监听加在点录制时、只在
+   * "按下一次键"后移除——如果用户点了录制又切走页面，capture 阶段的监听会留在
+   * window 上，`preventDefault + stopPropagation` 把后续**所有**按键吞掉
+   * （连命令面板都打不开）。effect 的 cleanup 保证"录制结束 / 组件卸载 / 依赖变化"
+   * 都会摘掉监听。
+   */
+  useEffect(() => {
+    if (recording === null) {
+      return;
+    }
+    const targetId = recording;
     const handler = (event: KeyboardEvent): void => {
       event.preventDefault();
       event.stopPropagation();
-      window.removeEventListener('keydown', handler, true);
-      setRecording(null);
       if (event.key === 'Escape') {
+        setRecording(null);
         return;
       }
       const parts: string[] = [];
@@ -105,22 +120,26 @@ export function ShortcutsSettingsPage() {
       const candidateConflicts = detectConflicts(
         effective.map(({ command, normalized }) => ({
           id: command.id,
-          normalizedKey: command.id === id ? candidate : normalized,
+          normalizedKey: command.id === targetId ? candidate : normalized,
           when: command.when,
         })),
-      ).filter((conflict) => conflict.firstId === id || conflict.secondId === id);
+      ).filter((conflict) => conflict.firstId === targetId || conflict.secondId === targetId);
+      setRecording(null);
       if (candidateConflicts.length > 0) {
         setBlocked(
           t('settings.shortcuts.conflictBlocked', { other: candidateConflicts[0]?.secondId ?? '' }),
         );
         return;
       }
-      void setJson(`${SHORTCUT_OVERRIDE_PREFIX}${id}`, candidate).then(() => {
+      void setJson(`${SHORTCUT_OVERRIDE_PREFIX}${targetId}`, candidate).then(() => {
         void queryClient.invalidateQueries({ queryKey: ['shortcuts'] });
       });
     };
     window.addEventListener('keydown', handler, true);
-  };
+    return () => {
+      window.removeEventListener('keydown', handler, true);
+    };
+  }, [recording, effective, queryClient, setJson, t]);
 
   const reset = (id: string) => {
     void useSettingsStore.getState().setJson(`${SHORTCUT_OVERRIDE_PREFIX}${id}`, null);
@@ -191,15 +210,17 @@ export function ShortcutsSettingsPage() {
               {recording === command.id ? (
                 <span className="text-warning text-12">…</span>
               ) : (
-                <kbd
+                <button
+                  type="button"
                   className={cn(
                     'border-line bg-surface-sunken text-fg-muted cursor-pointer rounded border px-1.5 py-0.5 font-mono text-11',
                   )}
                   onClick={() => startRecording(command.id)}
+                  aria-label={t('settings.shortcuts.recordAria', { action: t(command.titleKey) })}
                   title={t('settings.shortcuts.clickToRecord')}
                 >
                   {normalized === null ? '—' : displayShortcut(normalized)}
-                </kbd>
+                </button>
               )}
               <Button
                 size="sm"
