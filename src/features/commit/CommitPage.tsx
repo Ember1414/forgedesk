@@ -197,6 +197,11 @@ export function CommitPage() {
         tone: 'success',
         title: t('commit.success', { subject: outcome.subject }),
       });
+      // 快照失败时明确告知"这次提交没有回滚点"。后端"失败不阻断"是有意为之
+      // （快照不可用不该拦住提交），但不能静默——用户可能正指望能回滚（红线 R7 的语义边界）。
+      if (outcome.snapshotId === null) {
+        pushToast({ tone: 'warning', title: t('commit.snapshotMissing') });
+      }
       setPreviewOpen(false);
       setPlan(null);
       setFailure(null);

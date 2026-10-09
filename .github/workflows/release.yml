@@ -581,7 +581,8 @@ jobs:
             --channel "${CHANNEL}" \
             --local-updates updates
 
-          npx --yes wrangler@4 pages deploy pages-staging --project-name=forgedesk --branch=main
+          # wrangler 固定到精确版本（见 package.json 的 //pages:pin）：这一步持有 Pages 写权限
+          npx --yes wrangler@4.148.0 pages deploy pages-staging --project-name=forgedesk --branch=main
 
       - name: Publish skipped (no Pages token)
         if: needs.preflight.outputs.pages != 'true'
@@ -604,6 +605,9 @@ jobs:
         run: |
           set -eu
           node scripts/ci/update-packaging.mjs --sums releases/SHA256SUMS
+          # 写入后立即自校验：确保落盘的清单与本次发布的 SHA256 逐项一致
+          # （脚本是两阶段的，这一步防的是"未来某次改动让写入与校验口径漂移"）
+          node scripts/ci/update-packaging.mjs --check --sums releases/SHA256SUMS
           if git diff --quiet -- packaging; then
             echo "包管理器清单已是最新，无需 PR。" | tee -a "$GITHUB_STEP_SUMMARY"
             exit 0

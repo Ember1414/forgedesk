@@ -68,7 +68,7 @@ jobs:
       - name: Ensure Pages project exists
         if: steps.creds.outputs.available == 'true'
         continue-on-error: true
-        run: npx --yes wrangler@4 pages project create forgedesk --production-branch=main
+        run: npx --yes wrangler@4.148.0 pages project create forgedesk --production-branch=main
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -90,7 +90,9 @@ jobs:
       # 交互式选择框，且 dlx 的隔离环境不读取项目配置，在 CI 中会卡住。
       - name: Deploy
         if: steps.creds.outputs.available == 'true'
-        run: npx --yes wrangler@4 pages deploy pages-staging --project-name=forgedesk --branch=main
+        # wrangler 固定到精确版本：这一步持有 Pages 写权限，浮动版本等于让未审计的代码
+        # 进入发布链路。升级时同步改这里与 package.json 的 pages:* 与 release.yml。
+        run: npx --yes wrangler@4.148.0 pages deploy pages-staging --project-name=forgedesk --branch=main
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

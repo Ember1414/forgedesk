@@ -1057,6 +1057,7 @@
     "shortcut": "Ctrl / Cmd + Enter",
     "disabledNothingStaged": "Stage something first",
     "success": "Committed: {{subject}}",
+    "snapshotMissing": "Committed, but the safety snapshot could not be created — this commit has no rollback point",
     "loading": "Reading commit hints…",
     "previewTitle": "Confirm this commit",
     "previewDescription": "This is exactly what will happen; it runs as soon as you confirm.",
@@ -1226,7 +1227,8 @@
       "previewUnavailable": "The local git is too old to preview conflicts; if any appear, the merge will stop at the conflict state.",
       "messageLabel": "Merge message (used when a merge commit is created)",
       "equivalent": "Equivalent command",
-      "done": "Merge completed"
+      "done": "Merge completed",
+      "snapshotMissing": "Merge completed, but the safety snapshot could not be created — this merge has no rollback point"
     }
   },
   "sync": {

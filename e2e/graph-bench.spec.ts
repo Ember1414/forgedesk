@@ -150,5 +150,9 @@ for (const size of SIZES) {
     // 存在性断言：数字不进门禁，但"基准页面能用"必须成立
     expect(warmMs).toBeGreaterThan(0);
     expect(framesIdle).toBeGreaterThan(0);
+    // 数万节点的场景最容易把异常吞进渲染循环（rAF 回调里 throw 不会冒泡到调用方），
+    // 因此这里与其余 e2e 一样断言 __errs 为空——性能场景不该用"没有断言"换稳定
+    const errors = await page.evaluate(() => window.__errs ?? []);
+    expect(errors, JSON.stringify(errors)).toEqual([]);
   });
 }

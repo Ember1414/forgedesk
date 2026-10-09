@@ -1057,6 +1057,7 @@
     "shortcut": "Ctrl / Cmd + Enter",
     "disabledNothingStaged": "先暂存一些改动",
     "success": "已提交：{{subject}}",
+    "snapshotMissing": "已提交，但安全快照未能创建——这次提交没有回滚点",
     "loading": "正在读取提交信息…",
     "previewTitle": "确认这次提交",
     "previewDescription": "下面就是将要发生的事情；确认后立即执行。",
@@ -1226,7 +1227,8 @@
       "previewUnavailable": "本机 git 版本过旧，无法预检冲突；执行时如遇冲突会直接停在冲突状态。",
       "messageLabel": "合并信息（产生合并提交时使用）",
       "equivalent": "等价命令",
-      "done": "合并完成"
+      "done": "合并完成",
+      "snapshotMissing": "合并完成，但安全快照未能创建——这次合并没有回滚点"
     }
   },
   "sync": {
