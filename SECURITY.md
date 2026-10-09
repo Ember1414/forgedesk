@@ -53,6 +53,9 @@
 
 ## 依赖与供应链
 
-- 禁止 GPL/AGPL（libgit2 链接例外）依赖；`cargo-deny` 与许可证审计在 CI 强制；
+- 禁止 GPL/AGPL（libgit2 链接例外）依赖；许可证审计在 CI 强制（`pnpm compliance`，
+  产物见 [`docs/LICENSE-AUDIT.md`](docs/LICENSE-AUDIT.md)）；
 - 锁定 `Cargo.lock` / `pnpm-lock.yaml`；CI 中的 Action 固定到 commit SHA；
-- 依赖漏洞扫描（`cargo audit` / `pnpm audit`）随 CI 执行。
+- 依赖漏洞扫描由 [`.github/workflows/audit.yml`](.github/workflows/audit.yml) 执行
+  （每日 + 依赖清单变更时；`cargo audit` + `pnpm audit`）；
+  已知例外与复查条件记录在 [`docs/SECURITY-AUDIT.md`](docs/SECURITY-AUDIT.md)。

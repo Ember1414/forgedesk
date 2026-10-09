@@ -168,7 +168,7 @@ impl RefDecorations {
         };
         for reference in references {
             let Ok(reference) = reference else { continue };
-            let Some(full) = reference.name() else {
+            let Ok(full) = reference.name() else {
                 continue;
             };
             // 只装饰 git 默认装饰的三类命名空间（refs/stash 等与 git 行为一致，不装饰）
@@ -199,7 +199,7 @@ impl RefDecorations {
         // refs/heads/x 的直接引用（symbolic_target 为 None），分离 HEAD 则仍叫
         // "HEAD"——用引用名区分两种形态，别用 symbolic_target 判断。
         if let Ok(head) = repository.head() {
-            if let Some(name) = head.name() {
+            if let Ok(name) = head.name() {
                 if let Ok(commit) = head.peel_to_commit() {
                     if let Some(branch) = name.strip_prefix("refs/heads/") {
                         by_oid
@@ -291,7 +291,7 @@ impl GitEngine for Libgit2Engine {
         } else {
             repo.head()
                 .ok()
-                .and_then(|reference| reference.shorthand().map(str::to_owned))
+                .and_then(|reference| reference.shorthand().ok().map(str::to_owned))
         };
         let head_oid = repo
             .head()
@@ -687,7 +687,7 @@ impl GitEngine for Libgit2Engine {
         let head = repository
             .head()
             .ok()
-            .and_then(|reference| reference.shorthand().map(str::to_owned));
+            .and_then(|reference| reference.shorthand().ok().map(str::to_owned));
 
         let branches = repository
             .branches(None)
@@ -743,7 +743,10 @@ impl GitEngine for Libgit2Engine {
             .map_err(|error| map_error(&error, "tag_names"))?;
 
         let mut out = Vec::new();
-        for name in names.iter().flatten() {
+        // 两层 flatten：第一层剥掉 git2 的 Result（个别条目读失败就跳过，不放弃整表），
+        // 第二层剥掉 Option（非 UTF-8 的引用名）。0.21 起 Iter 的 Item 是
+        // `Result<Option<&str>, Error>`（旧版是 `Option<&str>`）。
+        for name in names.iter().flatten().flatten() {
             let Ok(object) = repository.revparse_single(&format!("refs/tags/{name}")) else {
                 continue;
             };
@@ -757,6 +760,8 @@ impl GitEngine for Libgit2Engine {
             let (message, created_at) = match object.into_tag() {
                 Ok(tag) => (
                     tag.message()
+                        .ok()
+                        .flatten()
                         .map(|message| message.lines().next().unwrap_or_default().to_owned())
                         .filter(|message| !message.is_empty()),
                     tag.tagger().map(|tagger| tagger.when().seconds()),
@@ -784,13 +789,16 @@ impl GitEngine for Libgit2Engine {
             .map_err(|error| map_error(&error, "remotes"))?;
 
         let mut out = Vec::new();
-        for name in names.iter().flatten() {
+        // 同 tag_list：0.21 起 Iter 的 Item 是 `Result<Option<&str>, Error>`，需要两层 flatten
+        for name in names.iter().flatten().flatten() {
             let Ok(remote) = repository.find_remote(name) else {
                 continue;
             };
             let fetch_url = remote.url().unwrap_or_default().to_owned();
             let push_url = remote
                 .pushurl()
+                .ok()
+                .flatten()
                 .filter(|url| *url != fetch_url)
                 .map(str::to_owned);
 
@@ -848,7 +856,7 @@ impl GitEngine for Libgit2Engine {
 
         let mut out = Vec::new();
         for (position, entry) in reflog.iter().enumerate().take(limit) {
-            let message = entry.message().unwrap_or_default();
+            let message = entry.message().ok().flatten().unwrap_or_default();
             let (action, detail) = match message.split_once(": ") {
                 Some((action, detail)) => (action.to_owned(), detail.to_owned()),
                 None => (message.to_owned(), String::new()),
@@ -1318,7 +1326,8 @@ impl GitEngine for Libgit2Engine {
 /// `origin/HEAD` 比"当前分支"更能代表默认分支。
 fn origin_head_branch(repo: &git2::Repository) -> Option<String> {
     let reference = repo.find_reference("refs/remotes/origin/HEAD").ok()?;
-    let target = reference.symbolic_target()?;
+    // 0.21 起 symbolic_target() 返回 Result<Option<&str>>（旧版是 Option<&str>）
+    let target = reference.symbolic_target().ok().flatten()?;
     target
         .strip_prefix("refs/remotes/origin/")
         .map(str::to_owned)
@@ -1376,7 +1385,7 @@ fn branch_info(repository: &git2::Repository) -> AppResult<BranchInfo> {
 
     let head = repository.head().ok();
     if let Some(reference) = head.as_ref() {
-        info.head = reference.shorthand().map(str::to_owned);
+        info.head = reference.shorthand().ok().map(str::to_owned);
         info.oid = reference.target().map(|oid| oid.to_string());
     }
     // 空仓库没有 oid：`head()` 会以 UnbornBranch 失败，但保险起见再判一次
@@ -1388,9 +1397,10 @@ fn branch_info(repository: &git2::Repository) -> AppResult<BranchInfo> {
     // 上游与领先/落后。`Branch::wrap` 是 unsafe 的（我们 forbid(unsafe_code)），
     // 因此走 `branch_upstream_name` + `refname_to_id` 这条等价路径
     if let Some(reference) = head.as_ref() {
-        if let (Some(name), Some(local)) = (reference.name(), info.oid.clone()) {
+        // name() 0.21 起返回 Result（旧版 Option）；as_str() 同理
+        if let (Ok(name), Some(local)) = (reference.name(), info.oid.clone()) {
             if let Ok(upstream_ref) = repository.branch_upstream_name(name) {
-                if let Some(upstream_name) = upstream_ref.as_str() {
+                if let Ok(upstream_name) = upstream_ref.as_str() {
                     info.upstream =
                         Some(upstream_name.trim_start_matches("refs/remotes/").to_owned());
                     if let (Ok(local_oid), Ok(upstream_oid)) = (
