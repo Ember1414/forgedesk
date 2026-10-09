@@ -173,9 +173,19 @@ function ResizeHandle({
       onPointerCancel={onPointerUp}
       onKeyDown={onKeyDown}
       className={cn(
-        'fd-transition shrink-0 bg-line hover:bg-brand',
-        isHorizontal ? 'w-1 cursor-col-resize' : 'h-1 cursor-row-resize',
+        // 命中区 8px、可见部分 1px：4px 的实心条在实测里"几乎抓不住"
+        // （用户反馈"拖不动"），而加宽命中区不影响视觉——分隔线看起来仍是 1px
+        'fd-transition group flex shrink-0 items-center justify-center bg-transparent',
+        isHorizontal ? 'w-2 cursor-col-resize' : 'h-2 cursor-row-resize',
       )}
-    />
+    >
+      <span
+        aria-hidden="true"
+        className={cn(
+          'block bg-line group-hover:bg-brand',
+          isHorizontal ? 'h-full w-px' : 'h-px w-full',
+        )}
+      />
+    </div>
   );
 }
