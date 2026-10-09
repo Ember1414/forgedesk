@@ -137,8 +137,18 @@ pub async fn git_file_history(
 
     let output = GitProcess::new().run(&args, GitRunOpts::new(root)).await?;
     if output.exit_code != Some(0) {
-        return Err(AppError::new(ErrorCode::Internal, "git log failed")
-            .with_detail(String::from_utf8_lossy(&output.stderr).into_owned()));
+        let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+        // 仓库还没有任何提交（刚 init）：git log 以 128 退出并报
+        // "your current branch 'x' does not have any commits yet"。
+        // 这是**正常状态**，不是错误——用户看到一句"加载失败"会以为功能坏了，
+        // 而真相是"这个文件还没有历史"（2026-10-09 实测：用户在 test1/test2 上撞到）。
+        if stderr.contains("does not have any commits") || stderr.contains("no commits yet") {
+            return Ok(FileHistoryPage {
+                items: Vec::new(),
+                next_cursor: None,
+            });
+        }
+        return Err(AppError::new(ErrorCode::Internal, "git log failed").with_detail(stderr));
     }
     let text = if output.stdout_is_utf8 {
         String::from_utf8(output.stdout).unwrap_or_default()

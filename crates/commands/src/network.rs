@@ -19,6 +19,50 @@ use forgedesk_provider::{ApiRequest, GitHubHttp, HttpConfig};
 use forgedesk_storage::{Database, Scope, SettingsRepository};
 use serde::{Deserialize, Serialize};
 
+/// 解析外部工具（ssh / gpg）的执行路径。
+///
+/// # 为什么要这一步
+///
+/// Windows 上 `ssh.exe` / `gpg.exe` **常常不在 PATH 里**——Git for Windows 把它们的
+/// 副本放在 `<Git>\usr\bin`，只有 Git Bash 的会话才会把它们加进 PATH。而装了
+/// ForgeDesk 的用户必然装了 Git，于是"网络与密钥自检"里的 SSH / GPG 测试在没有
+/// 配置 PATH 的机器上**必然失败**，看起来像应用坏了（2026-10-09 实测：用户机器
+/// `gpg` / `ssh` 都不在 PATH，而 `C:\Program Files\Git\usr\bin` 下有）。
+///
+/// 顺序：PATH → Git 安装目录的 `usr/bin` → 原名兜底（让 spawn 如实报"找不到"）。
+fn aux_tool(name: &str) -> std::ffi::OsString {
+    let file_name = format!("{name}{}", std::env::consts::EXE_SUFFIX);
+
+    if let Ok(path) = std::env::var("PATH") {
+        for dir in std::env::split_paths(&path) {
+            let candidate = dir.join(&file_name);
+            if candidate.is_file() {
+                return candidate.into_os_string();
+            }
+        }
+    }
+
+    // `git --exec-path` 形如 `<Git>\mingw64\libexec\git-core`：
+    // 往上三层就是 Git 安装根，`usr/bin` 下有 git 自带的 ssh / gpg。
+    if let Ok(output) = std::process::Command::new("git")
+        .arg("--exec-path")
+        .no_console_window()
+        .output()
+    {
+        if output.status.success() {
+            let exec_path = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+            if let Some(root) = std::path::Path::new(&exec_path).ancestors().nth(3) {
+                let candidate = root.join("usr").join("bin").join(&file_name);
+                if candidate.is_file() {
+                    return candidate.into_os_string();
+                }
+            }
+        }
+    }
+
+    name.into()
+}
+
 /// 设置键（全局 KV；前端设置页直接读写同键）。
 /// 代理模式设置键（`none`/`system`/`manual`）。
 pub const KEY_PROXY_MODE: &str = "network.proxyMode";
@@ -264,7 +308,7 @@ pub fn ssh_test_connection(host: String) -> AppResult<ConnectivityResult> {
     }
     let started = Instant::now();
     // no_console_window：GUI 构建没有控制台，不抑制会闪一个黑框（见 platform::subprocess）
-    let output = Command::new("ssh")
+    let output = Command::new(aux_tool("ssh"))
         .no_console_window()
         .args([
             "-o",
@@ -368,7 +412,7 @@ fn parse_gpg_secret_keys(output: &str) -> Vec<GpgKey> {
 /// 列出本机 GPG 私钥（T6.8；`gpg` 不可用时返回明确错误）。
 #[tauri::command(async)]
 pub fn gpg_list_secret_keys() -> AppResult<Vec<GpgKey>> {
-    let output = std::process::Command::new("gpg")
+    let output = std::process::Command::new(aux_tool("gpg"))
         .no_console_window()
         .args(["--list-secret-keys", "--with-colons"])
         .output()
@@ -392,7 +436,7 @@ pub fn gpg_test_sign(key_id: Option<String>) -> AppResult<ConnectivityResult> {
     use std::process::Stdio;
 
     let started = Instant::now();
-    let mut sign = std::process::Command::new("gpg")
+    let mut sign = std::process::Command::new(aux_tool("gpg"))
         .no_console_window()
         .args(["--batch", "--yes", "--clearsign"])
         .args(
