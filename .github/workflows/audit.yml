@@ -81,9 +81,7 @@ jobs:
       - name: Install cargo-audit
         run: cargo install cargo-audit --locked
 
-      # RUSTSEC-2023-0071（rsa / Marvin Attack）：**无修复版本**的已知例外，
-      # 理由与复查条件见 docs/SECURITY-AUDIT.md（依赖链 octocrab → jsonwebtoken → rsa，
-      # 实际不存在 RSA 解密路径；攻击面评估为不可达）。
+      # JWT 复用已有 aws-lc 后端后，rsa 及其历史例外已移除（2026-11-20）。
       # 其余 unmaintained/unsound 警告不阻断（cargo audit 默认只对 vulnerability 失败）。
       - name: Audit Rust dependencies
-        run: cargo audit --ignore RUSTSEC-2023-0071
+        run: cargo audit

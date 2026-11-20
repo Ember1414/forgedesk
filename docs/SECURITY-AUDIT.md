@@ -29,7 +29,23 @@ Zod 4.6.5 与 jsdom 的传递依赖 Undici 8.11.0；另有 Vitest mocker 的中�
 Zod 的替代方案是逐处手写输入校验，既增加维护成本也不能修复原依赖；因此沿用现有库的修复版。
 
 本机 npm 复查结果：0 high / 0 critical，剩 1 moderate（minimatch，修复需跨主版本，属于开发工具链）。
-Rust 继续沿用下述唯一漏洞例外，未增加新的安全例外；GitHub Rust 审计结果以本次 PR 检查为准。
+
+随后 Rust 审计发现 22 条 vulnerability。本次升级 `ammonia` 4.2.5、`libsqlite3-sys` 0.39.1
+（`rusqlite` 0.41.1）、`libz-sys` 1.1.33、`pulldown-cmark` 0.13.6、`rustls` 0.23.46、
+`rustls-webpki` 0.103.17、`webpki-root-certs` 1.0.12；同时更新 `rustix` 1.1.6 与 `tokio` 1.54.1。
+SQLite 修复要求 Rust 1.89；结合已有 Tauri 与构建依赖的要求，将 workspace 最低版本声明更正为 1.91，
+见 [开发环境](./DEV-ENV.md)。这些更新沿用现有库与存储格式。
+
+两条传递依赖链通过关闭不需要的功能移除：
+
+- `octocrab` 的 JWT 从默认 RustCrypto 改用依赖树中已有的 aws-lc 后端，移除存在时序问题的
+  `crypto-bigint` / `rsa` 等依赖；没有新增密码算法或认证方式。
+- Tauri updater 关闭仅用于 Tauri 1 压缩包的 `zip` 兼容功能，移除旧 `zip` 依赖。
+  ForgeDesk 的 Tauri 2 Windows 原生安装器与 macOS `.app.tar.gz` 更新包继续使用原有安装路径。
+
+相较于自行维护加密库或旧 ZIP 的补丁，这两个选项减少维护面与依赖数；新增传递依赖仅 `untrusted` 0.7.1，
+来自 aws-lc 的 JWT 支持。最终安装包体积差异未单独测量。
+历史 RSA 忽略项已从工作流删除，Rust 门禁执行不带 `--ignore` 的 `cargo audit`；最终扫描结果见本次发布的 GitHub 检查。
 
 ## 历史全量审计（2026-10-09，本机 Windows）
 
@@ -43,31 +59,29 @@ Rust 继续沿用下述唯一漏洞例外，未增加新的安全例外；GitHub
 | `serde_yml` 0.0.12 unsound + unmaintained（RUSTSEC-2025-0068，无修复版本，官方建议迁移） | 换成 `serde_norway`（serde_yaml 的维护 fork，底层 libyaml 同样在维护） |
 | `git2` 0.20.4 两个 unsound 警告（RUSTSEC-2026-0183 `Remote::list`、RUSTSEC-2026-0184 `BlameHunk`，官方标注 `patched >= 0.21.0`） | 升级到 `git2` 0.21，并按 0.21 的 API 变化（`name()` / `shorthand()` / `symbolic_target()` 等从 `Option` 改为 `Result`）调整 16 处调用 |
 
-## 已知例外（必须随审查复查）
+## 历史例外与剩余警告
 
-### E-1：`RUSTSEC-2023-0071` — rsa 0.9.10（Marvin Attack，medium 5.9）
+### E-1（已移除）：`RUSTSEC-2023-0071` — rsa 0.9.10（Marvin Attack，medium 5.9）
 
 - **依赖链**：`octocrab → jsonwebtoken → rsa`（GitHub API 客户端）。
-- **为什么不修**：RustSec 标注**无 patched 版本**（rsa crate 至今未修复）。
-- **为什么可接受**：
+- **历史处置**：当时 RustSec 标注无 patched 版本，因此评估为可接受的例外：
   1. Marvin Attack 针对 **RSA 解密**（PKCS#1 v1.5 decryption）的时序侧信道；
   2. 本应用对该依赖的唯一用法是 GitHub App 风格的 JWT **签名**（sign），
      不调用解密接口；
   3. 攻击模型要求攻击者能对同一密钥反复发起解密并测量高精度时序——
      桌面应用内不存在这个入口。
-- **复查触发条件**（满足任一即重新评估，必要时临时移除 `--ignore` 观察）：
-  - `jsonwebtoken` / `octocrab` 升级（可能换掉 rsa 依赖）；
-  - `rsa` 发布修复版本；
-  - 应用新增任何使用 RSA 私钥**解密**的功能（当前没有）。
-- **记录位置**：`.github/workflows/audit.yml` 的 `--ignore RUSTSEC-2023-0071`。
+- **2026-11-20 复查**：JWT 改用 aws-lc，锁文件不再包含 `rsa`，工作流移除对应 `--ignore`。
+  当前没有 vulnerability 忽略项；将来更换 JWT 后端时仍须检查传递依赖。
 
 ### E-2：其余审计警告（不阻断，仅跟踪）
 
 | 条目 | 性质 | 现状与去向 |
 | --- | --- | --- |
+| `chrono` 0.4.45 unmaintained | 由上游引入的日期库 | 当前无修复升级；业务代码沿用 `time`，跟踪上游迁移 |
 | `proc-macro-error` unmaintained | 构建期宏依赖 | 由生态上游（如 `clap` 旧链）引入；等上游迁移，无运行时影响 |
 | `glib` 0.18.5 unsound | Tauri 的 Linux/GTK 栈 | 修复版本 `>= 0.20`，但需要 Tauri/tauri-runtime-wry 升级联动；跟随 Tauri 上游版本处理 |
 | `yoke-derive` yanked | 被撤回的版本 | 依赖锁定结果；下次 `cargo update` 时自然替换 |
+| `wasmi` / `wasmi_core` 2.0.0 yanked | 被撤回的版本 | 暂保留已验证的插件运行时；升级时需重测文档中记录的 Windows dev 优化崩溃 |
 
 ## 维护约定
 

@@ -1,7 +1,7 @@
 # ForgeDesk 开发环境说明
 
 > 面向所有执行本项目的编码代理与人类贡献者。**开工前请先读本文件。**
-> 最后更新：2026-10-09（M8 收尾；§1–§5 的环境说明长期有效，§6 为里程碑总览）
+> 最后更新：2026-11-20（更新最低 Rust 版本；§6 为历史里程碑总览）
 >
 > 本文档已做**脱敏处理**（使用 `%USERPROFILE%`、`<repo-root>` 等占位符，不含任何本机绝对路径），
 > 可直接随仓库公开。涉及具体机器与 IDE 的细节请勿写入本文。
@@ -17,11 +17,16 @@
 | pnpm | 11.7.0 | 与 `packageManager` 字段一致 |
 | npm | 11.12.1 | 仅用于查询包版本 |
 | git | 2.54.0.windows.1 | |
-| Rust | stable 1.98.1（`x86_64-pc-windows-msvc`） | 含 rustfmt 1.9.0、clippy 0.1.98 |
+| Rust | stable 1.99.0（`x86_64-pc-windows-msvc`） | 含 rustfmt 1.10.0、clippy 0.1.99 |
 | MSVC | Visual Studio 2022 Build Tools 17.14（MSVC 14.44） | Tauri 在 Windows 编译必需 |
 | winget | 可用 | 用于安装缺失组件 |
 
 macOS / Linux 的等价环境未在本机验证，但 `scripts/setup/` 下的脚本与 CI 工作流已按三平台编写。
+
+最低 Rust 版本声明为 **1.91**（以 workspace 的 `rust-version` 为准）：锁定的 Tauri 依赖要求 1.90，
+`cargo-platform` 要求 1.91，不能只按 `rusqlite` 0.41.1 的 1.89 要求配置。CI 使用 stable；
+Tauri updater 锁定已验证的 2.12.0，升级时需重测安装与签名链。
+贡献者无需沿用上表的精确工具链补丁版本；本轮验证使用 stable，未单独运行 1.91 工具链矩阵。
 
 ---
 

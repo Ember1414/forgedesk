@@ -188,7 +188,7 @@ pub fn lfs_paths_from_check_attr(output: &[u8]) -> Vec<Vec<u8>> {
     let fields: Vec<&[u8]> = output.split(|byte| *byte == 0).collect();
     let mut lfs = Vec::new();
 
-    for triple in fields.chunks_exact(3) {
+    for triple in fields.as_chunks::<3>().0 {
         let (path, attribute, value) = (triple[0], triple[1], triple[2]);
         if attribute == b"filter" && value == b"lfs" {
             lfs.push(path.to_vec());
