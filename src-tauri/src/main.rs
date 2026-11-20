@@ -18,7 +18,6 @@ use forgedesk_platform::session::{
 };
 use forgedesk_platform::watcher::NotifyFileWatcher;
 use forgedesk_platform::{install_panic_hook, non_blocking_writer, LogFlushGuard, LogPolicy};
-use forgedesk_provider::{GitHubHttp, HttpConfig};
 use forgedesk_services::repository::OpenRepoRegistry;
 use forgedesk_services::terminal::TerminalRegistry;
 use forgedesk_services::{
@@ -209,8 +208,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             // 账号服务（T4.3/T4.4）与远端仓库服务（T4.5）：令牌密文进凭据库
             // （与上面共享同一存储实例），账号元数据进 accounts 表。
             // 两者共享同一个 HTTP 底座（同一条限流快照与连接池）；
-            // HTTP 底座目前跟随系统代理，M6 的代理设置落地后改为从设置读取。
-            let provider_http = GitHubHttp::new(HttpConfig::default())?;
+            // 启动时加载持久化代理；设置更新会替换所有克隆共享的传输层。
+            let provider_http = forgedesk_commands::network::apply_proxy_settings(&engines, &database)?;
             let accounts = Arc::new(AccountService::new(
                 Arc::clone(&database),
                 credentials.shared(),

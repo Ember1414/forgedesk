@@ -20,6 +20,7 @@
     <link rel="stylesheet" href="/assets.css" />
   </head>
   <body data-page="about">
+    <a class="skip-link" href="#main-content">跳到正文</a>
     <header class="site-nav">
       <a class="brand" href="index.html">
         <span class="mark" aria-hidden="true">
@@ -48,7 +49,7 @@
       </a>
     </header>
 
-    <main class="page">
+    <main class="page" id="main-content" tabindex="-1">
       <div class="hero">
         <div class="icon" aria-hidden="true">
           <svg width="52" height="52" viewBox="0 0 1024 1024" fill="#ffffff">
@@ -70,15 +71,15 @@
       <p>
         ForgeDesk 是一个<strong>开源、跨平台、可自由分发</strong>的 Git 与 GitHub
         图形化桌面工作台：把终端里易错的 Git 操作变成可视化界面、向导与可交互图表。 基于 Tauri 2 +
-        Rust 构建，Windows / macOS / Linux 三平台。
+        Rust 构建，正式安装包支持 Windows x64 与 macOS universal；Linux 打包与真机验收暂缓。
       </p>
 
       <h2>两条硬承诺</h2>
       <ul>
         <li>
           <strong>不含任何 AI / 机器学习推理功能。</strong>
-          没有"AI 生成提交信息"，也没有任何模型推理服务；数据不出你的机器 （联网行为仅有你主动发起的
-          GitHub 操作与应用更新检查，详见
+          没有"AI 生成提交信息"，也没有任何模型推理服务。Git 远端、GitHub API、更新检查与连通性测试
+          会按功能需要联网；本地日志不自动上传，详见
           <a href="privacy.html">隐私说明</a>）。
         </li>
         <li>
@@ -92,11 +93,11 @@
 
       <h2>安全网</h2>
       <p>
-        所有破坏性 Git 操作（重置、变基、强推等）一律经过 "计划预览 → 快照 → 执行 → 可回滚"；<code
-          >push --force</code
-        >
-        在产品里不可用，只允许更安全的 <code>--force-with-lease</code>。
-        这不是营销话术，是写进架构约束的红线。
+        图形化操作提供计划预览、快照与恢复入口，覆盖推送使用 <code>--force-with-lease</code>。
+        快照不能代替备份，内嵌终端及外部工具的命令也不保证有回滚点。 具体保护范围见<a
+          href="docs/03-conflicts-rebase-safety-net.html"
+          >安全网手册</a
+        >。
       </p>
 
       <h2>参与与反馈</h2>

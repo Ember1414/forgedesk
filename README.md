@@ -1,164 +1,118 @@
 # ForgeDesk
 
-**ForgeDesk — A Git client**（可写作 **ForgeDesk for Git**）
+**ForgeDesk — A Git client**
 
-一个开源、跨平台、可自由分发的 Git 图形化桌面工作台：把复杂的 Git 与 GitHub 终端操作
-变成可视化界面、向导与可交互图表。
+开源的 Git 与 GitHub 桌面工作台。查看提交图、审查文件差异、逐行暂存、解决冲突，
+在同一个窗口里使用终端、编辑器和拉取请求审查。
+
+[下载 Windows / macOS 版](https://forgedesk.pages.dev/download) ·
+[用户手册](https://forgedesk.pages.dev/docs/) ·
+[更新日志](CHANGELOG.md) ·
+[问题反馈](https://github.com/Ember1414/forgedesk/issues)
 
 [![CI](https://github.com/Ember1414/forgedesk/actions/workflows/ci.yml/badge.svg)](https://github.com/Ember1414/forgedesk/actions/workflows/ci.yml)
-![License](https://img.shields.io/badge/license-Apache--2.0-blue)
-![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 
-> **项目状态**：M0–M7 已完成，**v1.0.0 已发布**（2026-10-08）。
-> 自动更新、CI、打包与发布流水线全部跑通：[下载页](https://forgedesk.pages.dev/download)
-> 与 [Releases](https://github.com/Ember1414/forgedesk/releases) 提供
-> **Windows**（NSIS / MSI / 便携版 zip）与 **macOS universal**（dmg，Apple Silicon 与 Intel 共用一个包）
-> 产物，附 `SHA256SUMS` 与 GPG 签名。Linux 暂缓（AppImage/deb/rpm 三套打包链与真机验证未完成），
-> 见 [`docs/adr/ADR-005`](docs/adr/ADR-005-defer-cross-platform-verification.md)。
-> 下一阶段计划见 [`docs/M8-PLAN.md`](docs/M8-PLAN.md)，逐版本变更见 [`CHANGELOG.md`](CHANGELOG.md)。
+![ForgeDesk 提交历史与详情，演示数据](site/images/history.webp)
 
----
+## 下载与安装
 
-## 一句话价值
+正式安装包以 [GitHub 最新 Release](https://github.com/Ember1414/forgedesk/releases/latest) 为准。
+[官网下载页](https://forgedesk.pages.dev/download)提供平台选择、校验和与安装指引。
 
-Git 的命令行能力很强，但**理解**成本很高：为什么这个提交不见了？这次 `rebase` 到底改了什么？
+| 平台        | 下载格式                             | 要求与说明                                                                                    |
+| ----------- | ------------------------------------ | --------------------------------------------------------------------------------------------- |
+| Windows x64 | `.exe` 安装器、`.msi`、便携版 `.zip` | Windows 10 1809+，需要 WebView2；便携版解压后启动                                             |
+| macOS       | universal `.dmg`                     | macOS 10.15+，Apple Silicon / Intel 共用安装包                                                |
+| Linux       | 暂无官方安装包                       | 源码保留平台支持，打包与真机验收[暂缓](docs/adr/ADR-005-defer-cross-platform-verification.md) |
 
-ForgeDesk 的重点不是把命令排成按钮，而是**把 Git 的内部状态变成可看、可推演、可回滚的东西**：
+本机需安装 **Git** 并让它出现在 `PATH` 中。安装后可在终端运行 `git --version` 检查。
+本地仓库操作不需要 GitHub 账号；访问私有仓库、同步远端或使用 GitHub 功能时再配置凭据。
 
-- **可推演**：破坏性操作先给计划预览与等价命令，再执行；
-- **可回滚**：写操作前自动快照，失败可一键还原；
-- **可理解**：冲突、rebase、历史以图形与向导呈现，而不是一堆报错文本。
+安装包未购买商业代码签名，macOS 未做 Apple 公证，首次运行可能出现 SmartScreen / Gatekeeper 提示。
+请先核对同次 Release 的 `SHA256SUMS`；GPG 签名与公钥的验证步骤见下载页及
+[Windows 安装指南](docs/install/windows.md) / [macOS 安装指南](docs/install/macos.md)。
+macOS 手动安装请下载 `.dmg`，`.app.tar.gz` 是应用自动更新包。
 
-技术栈：**Tauri 2 + Rust**（后端）· **React + TypeScript + Vite + Tailwind**（前端）。
-三平台（Windows / macOS / Linux）同源构建，**零付费服务依赖**。
+Scoop、Winget、Homebrew 的[分发清单](packaging/README.md)供维护和本地验证，
+尚未全部完成官方渠道收录；不要把清单就绪理解为可直接从官方源安装。
 
----
+## 第一次使用
 
-## 功能概览（M0–M7 已实现，当前版本 1.1.x）
+1. 在首页打开已有仓库，或选择克隆 / 初始化。
+2. 在“工作区”点选文件查看差异，按文件、块或行暂存修改。
+3. 在“提交”填写说明，检查预览后执行；在“历史”查看提交图与详情。
+4. 需要同步时配置远端与认证，再获取、拉取或推送。覆盖远端使用 `--force-with-lease`。
 
-| 领域          | 能力                                                                                                                                                                            |
-| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 仓库与工作区  | 打开 / 克隆 / 初始化（目标目录不存在时自动创建）、最近仓库、状态分组（已暂存/未暂存/未跟踪）、树与平铺视图、批量操作、万行虚拟列表                                              |
-| Diff 与暂存   | 统一 / 并排 diff、hunk 折叠、行级与块级暂存（结果与 `git diff --cached` 逐字节一致）                                                                                            |
-| 提交          | 两段式提交（预览 + 等价 git 命令 + 索引指纹防串改）、amend、钩子清单与拒绝时可跳过重试、提交前自动快照                                                                          |
-| 历史          | DAG 提交图（Canvas、分支泳道、命中检测、性能面板）、提交详情、筛选与搜索、迷你地图                                                                                              |
-| 分支与同步    | 分支 / 标签管理、远端管理、fetch / pull / push（被拒走 `--force-with-lease`，**无裸 `--force`**）                                                                               |
-| 高级操作      | stash、cherry-pick、revert、reset（含计划预览）、reflog 恢复                                                                                                                    |
-| 冲突与 rebase | 三栏冲突解决向导（逐块采用/自定义）、拖拽式交互 rebase（reword/squash/fixup/drop/edit）                                                                                         |
-| 安全网        | 操作快照 v2（含未跟踪文件备份）、一键回滚与回滚校验、操作历史时间线、破坏性操作安全测试矩阵                                                                                     |
-| 代码托管      | OAuth Device Flow 与 PAT 登录、多账号、仓库面板、拉取请求审查与合并、议题、流水线日志、限流降级                                                                                 |
-| 终端与编辑器  | 内嵌终端（xterm.js）、危险命令拦截、Git 命令解释词典（69 条命令）、错误诊断引擎、Monaco 编辑器（主题跟随应用、34 种语言高亮）、文件级历史与 blame、命令面板与自定义快捷键       |
-| 扩展与外观    | 插件沙箱（wasmi + 权限白名单，**自带三个示例插件**、首次启动即装但初始禁用）、插件管理页与面板页、主题导入导出（4 套内置主题，含字体与动效维度）、中英双语、代理与 SSH/GPG 设置 |
-| 发布与更新    | 自动更新（签名校验，**不提供跳过验签的路径**）、多平台打包（Windows NSIS/MSI/便携版 + macOS universal）、SHA256SUMS 与 GPG 签名                                                 |
-| 工程底座      | 统一错误模型、SQLite + 版本化迁移、脱敏文件日志、i18n、明暗主题与 WCAG AA 对比度门禁、IPC 契约门禁（`pnpm check:ipc`）                                                          |
+详细流程见[用户手册](docs/manual/README.md)。首次使用建议先在测试仓库熟悉快照与恢复操作。
 
----
+## 能做什么
 
-## 截图
+| 工作流       | 功能                                                                          |
+| ------------ | ----------------------------------------------------------------------------- |
+| 日常提交     | 状态分组、统一 / 并排 diff、行与块级暂存、提交预览、amend、Git hooks          |
+| 历史与分支   | Canvas 提交图、筛选与搜索、提交详情、分支 / 标签 / 远端管理                   |
+| 同步与整理   | fetch / pull / push、stash、cherry-pick、revert、reset、reflog、交互式 rebase |
+| 冲突与恢复   | 三栏冲突编辑、逐块采用、操作快照、恢复校验、操作历史                          |
+| GitHub       | OAuth Device Flow / PAT、多账号、仓库、PR 审查与合并、Issue、Actions 日志     |
+| 终端与编辑器 | 内嵌终端、Monaco 多标签、文件历史与 blame、命令面板、自定义快捷键             |
+| 外观与扩展   | 明暗主题、主题导入导出、中英双语、插件权限管理、代理与 SSH/GPG 设置           |
+| 更新与分发   | 签名验证的自动更新、Windows 安装器与便携版、macOS universal 安装包            |
 
-<!-- 原创截图占位：完整的界面截图将在 M7 打包发布时补齐，此处引用我们自己的原创图标。 -->
+![ForgeDesk 工作区与文件差异，演示数据](site/images/status.webp)
 
-![ForgeDesk 应用图标（原创设计）](docs/brand/icon-1024.png)
+## 使用边界
 
----
+- 快照是恢复手段，不能代替远端备份。大文件、未跟踪文件及外部工具操作的保护范围以
+  [安全网手册](docs/manual/03-conflicts-rebase-safety-net.md)与界面提示为准。
+- 内嵌终端执行的是系统命令，不能保证每条命令都有操作预览或可回滚快照。
+- 编辑器草稿在当前进程内跨页面保留，尚不提供崩溃恢复；终端重开视图回放最近最多 1 MiB 输出。
+- 全局跨仓库搜索尚未完成；提交搜索使用历史页，命令查找使用命令面板。
+- [维护清单](docs/MAINTENANCE.md)记录尚未完成的性能、可访问性和平台验收事项。
 
-## 快速开始（从源码构建）
+## 隐私与安全
+
+应用不含 AI / 机器学习推理功能，不接入第三方遥测或分析 SDK，不自动上传本地日志。
+Git 远端、GitHub API、更新检查和连通性测试会按功能需要联网。
+
+凭据优先存入系统凭据库，也支持用户解锁的本地加密保险库；不会因系统库不可用而静默写入明文文件。
+使用方式见[账号与工具手册](docs/manual/04-github-and-tools.md)。日志与错误详情统一脱敏。
+完整数据说明见[隐私政策](docs/PRIVACY.md)，漏洞报告请遵循[安全策略](SECURITY.md)。
+
+## 从源码运行
+
+技术栈：Tauri 2 + Rust，React + TypeScript + Vite + Tailwind。
+需 Node.js、pnpm、Rust、Git 及对应平台的 Tauri 系统依赖，具体版本与安装步骤见
+[开发环境](docs/DEV-ENV.md)。
 
 ```bash
 git clone https://github.com/Ember1414/forgedesk.git
 cd forgedesk
-pnpm install
-pnpm dev              # 浏览器预览前端（含设计系统页 /#/__dev__/design）
-pnpm tauri dev        # 完整桌面应用
-pnpm tauri build      # 打包（本机平台；产物在仓库根的 target/release/bundle）
+pnpm install --frozen-lockfile
+pnpm tauri dev
 ```
 
-依赖与三平台差异见 [`docs/DEV-ENV.md`](docs/DEV-ENV.md)（含 Windows 工具链脚本、国内镜像、常见陷阱）。
+`pnpm dev` 仅提供浏览器前端预览，文件系统和 Git 操作需要桌面宿主；
+`pnpm tauri build` 构建本机安装包，产物位于 `target/release/bundle/`。
 
----
+## 文档与贡献
 
-## 安装
+- [文档索引](docs/README.md)：安装、手册、故障排查与开发资料。
+- [贡献指南](CONTRIBUTING.md)：本地检查、提交规范与 PR 流程。
+- [架构](docs/ARCHITECTURE.md) / [IPC API](docs/API.md) / [编码风格](docs/CODING_STYLE.md)。
+- [发布流程](docs/RELEASE.md) / [依赖安全审计](docs/SECURITY-AUDIT.md) / [许可证清单](docs/LICENSE-AUDIT.md)。
+- [社区说明](docs/COMMUNITY.md) / [入门任务](docs/GOOD-FIRST-ISSUES.md) / [行为准则](CODE_OF_CONDUCT.md)。
 
-预编译版本从 **v1.0.0**（2026-10-08）起提供，两个入口都指向同一次发布：
-
-- **下载页**：<https://forgedesk.pages.dev/download> —— 版本矩阵（平台 × 格式 × 大小 × SHA256）、
-  三平台校验命令、GPG 验证与安装指引；版本信息取自发布清单，与应用内自动更新同源；
-- **GitHub Releases**：全部历史版本、`SHA256SUMS` 与 `SHA256SUMS.asc`（GPG 分离签名）。
-
-产物：Windows（NSIS `.exe` / MSI / **便携版 zip**）与 **macOS universal**（`.dmg`，Apple Silicon
-与 Intel 共用一个包）。Scoop / Winget / Homebrew 等包管理器分发随 M8 推进。
-
-安装说明：[`docs/install/windows.md`](docs/install/windows.md)（产物命名、校验命令、SmartScreen 指引）、
-[`docs/install/macos.md`](docs/install/macos.md)（去隔离、Gatekeeper 提示、校验）。
-
----
-
-## 文档
-
-| 文档                                                 | 内容                                 |
-| ---------------------------------------------------- | ------------------------------------ |
-| [`docs/PLAN.md`](docs/PLAN.md)                       | 项目计划书（范围、里程碑、验收标准） |
-| [`docs/M7-PLAN.md`](docs/M7-PLAN.md)                 | M7 启动准备与进度记录（已完成）      |
-| [`docs/M8-PLAN.md`](docs/M8-PLAN.md)                 | M8 计划（信任加固 / 分发 / 社区）    |
-| [`docs/manual/README.md`](docs/manual/README.md)     | 用户手册（核心工作流）               |
-| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)       | 分层架构与依赖规则                   |
-| [`docs/API.md`](docs/API.md)                         | 前后端 IPC 契约（命令与事件）        |
-| [`docs/CODING_STYLE.md`](docs/CODING_STYLE.md)       | 编码风格                             |
-| [`docs/PLUGIN-API.md`](docs/PLUGIN-API.md)           | 插件清单、权限与宿主 API             |
-| [`docs/FAQ.md`](docs/FAQ.md)                         | 常见问题                             |
-| [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md) | 故障排查                             |
-| [`docs/PRIVACY.md`](docs/PRIVACY.md)                 | 隐私政策与数据清单                   |
-| [`docs/RELEASE.md`](docs/RELEASE.md)                 | 发布流程（密钥、步骤、回滚）         |
-| [`docs/SIGNING.md`](docs/SIGNING.md)                 | 提交签名与验证                       |
-
----
-
-## 隐私
-
-- **无 AI 功能**：应用不做任何模型推理，也不需要联网即可处理本地 Git 操作。
-- **无遥测 SDK**：当前版本不收集、不上传任何使用数据。
-- **凭据**：只存系统钥匙串（keyring），明文永不落盘；日志与错误详情在**写出前**统一脱敏。
-- **日志**：本地文件，用户可随时打开目录查看或删除；绝不自动上传。
-
-完整说明（数据清单、对外请求、用户权利）见 [`docs/PRIVACY.md`](docs/PRIVACY.md)。
-
----
-
-## 参与
-
-- 贡献方式、提交规范与 PR 流程：[`CONTRIBUTING.md`](CONTRIBUTING.md)
-- 行为准则：[`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md)
-- 安全策略与漏洞报告：[`SECURITY.md`](SECURITY.md)
-- 架构与分层规则：[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
-- 编码风格：[`docs/CODING_STYLE.md`](docs/CODING_STYLE.md)
-- 前后端契约：[`docs/API.md`](docs/API.md)
-- 代理/自动化约定（本仓库的工程红线与质量门禁）：[`AGENTS.md`](AGENTS.md)
-
-本项目规模较大，**由人类维护者负责方向与审批、AI 编码代理负责执行**；
-欢迎以 issue（Bug / 功能建议 / RFC / 插件问题）形式参与讨论。
-
----
-
-## 许可证
-
-[Apache License 2.0](LICENSE)。第三方依赖的许可证清单与合规策略见
-[`docs/PLAN.md`](docs/PLAN.md) §9.4（`cargo-deny` 与许可证审计会在 CI 中强制执行）。
-
----
+按 [Apache License 2.0](LICENSE) 开源，可自由使用、修改与分发。
 
 ## Disclaimer / 免责声明
 
-ForgeDesk is an independent, community-driven project. It is **not affiliated with,
-endorsed by, or sponsored by** the Git project, the Software Freedom Conservancy,
-GitHub, Inc., or the Tauri project.
+ForgeDesk is an independent project. It is **not affiliated with, endorsed by, or sponsored by**
+the Git project, the Software Freedom Conservancy, GitHub, Inc., or the Tauri project.
 
-- "Git" is a trademark of the Software Freedom Conservancy. ForgeDesk for Git is an
-  independent Git client and is not produced or endorsed by the Git project.
-- "GitHub" and the Octocat are trademarks of GitHub, Inc. ForgeDesk integrates with
-  GitHub but is not affiliated with GitHub, Inc.
-- "Tauri" is a project of the Tauri Programme within The Commons Conservancy.
-  ForgeDesk is built with Tauri but is an independent project.
+- Git is a trademark of the Software Freedom Conservancy.
+- GitHub and the Octocat are trademarks of GitHub, Inc.
+- Tauri is a project of the Tauri Programme within The Commons Conservancy.
 
-ForgeDesk contains **no AI features**. All code in this repository is developed with
-AI-assisted tooling, but the shipped application performs no machine-learning
-inference and works fully offline for local Git operations.
+The application contains **no AI features** and performs no machine-learning inference.
+AI-assisted tools are used during development. Local Git operations work offline.

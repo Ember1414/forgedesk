@@ -29,9 +29,9 @@ members = [
 ]
 
 [workspace.package]
-version = "1.1.3"
+version = "1.1.4"
 edition = "2021"
-rust-version = "1.85"
+rust-version = "1.91"
 license = "Apache-2.0"
 repository = "https://github.com/Ember1414/forgedesk"
 authors = ["ForgeDesk contributors"]
@@ -63,8 +63,8 @@ schemars = "1"
 # wasmi 仅 +0.74MB（release/lto/opt-level=s 实测）；UI 胶水类插件对解释器
 # 性能足够，日后可经 PluginEngine trait 无痛切换引擎。审批结论 2026-10-05。
 wasmi = "2"
-# sha2：插件 wasm 文件的 SHA256（T6.4 管理页展示供用户核对；0.10 已在
-# 依赖树中——octocrab → jsonwebtoken 带入，直接复用零新增 crate）。
+# sha2：插件 wasm 文件的 SHA256（T6.4 管理页供用户核对），以及认证缓存
+# 的身份摘要；仅保存摘要，避免缓存键包含明文凭据。
 sha2 = "0.10"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "time", "json"] }
@@ -94,16 +94,16 @@ unicode-normalization = "0.1"
 # 三平台（Windows/macOS/Linux 各发行版）自带的 SQLite 版本与编译选项差异很大，
 # "在开发机上能跑、在用户机上打开数据库失败"是这类项目最难排查的问题之一；
 # 代价是首次编译慢一点（此后走缓存）。
-rusqlite = { version = "0.40", features = ["bundled"] }
+rusqlite = { version = "0.41.1", features = ["bundled"] }
 
 # ---- Tauri ----
 # 版本策略：跟随 2.x 最新补丁（Tauri 2 在 2.x 内保持向后兼容）
 tauri = { version = "2", features = [] }
 # 自动更新（T7.1）：签名校验 + 下载 + 安装/重启。宿主注册插件，命令在 crates/commands。
-# 为什么用 `=` 精确锁定：2.13.x 起要求 rustc 1.90，而本仓库声明的 MSRV 是 1.85；
-# caret 会让 CI 与贡献者机器拉到不满足 MSRV 的版本。升级本依赖时应一并评估是否上调
-# rust-version（见 docs/DEV-ENV.md）。
-tauri-plugin-updater = "=2.12.0"
+# 用 `=` 保持已验证的更新器行为；升级时需重测安装链与签名校验，并检查
+# 完整依赖树的 MSRV（见 docs/DEV-ENV.md），不能只看此插件的要求。
+# ForgeDesk 只发布 Tauri 2 的原生安装器，不启用 Tauri 1 ZIP 更新兼容层。
+tauri-plugin-updater = { version = "=2.12.0", default-features = false, features = ["rustls-tls", "system-proxy"] }
 
 [workspace.lints.rust]
 unsafe_code = "deny"

@@ -243,6 +243,7 @@ function shell({ title, description, path, body, dataPage, prefix }) {
     <link rel="stylesheet" href="/assets.css" />
   </head>
   <body data-page="${dataPage}">
+    <a class="skip-link" href="#main-content">跳到正文</a>
     <header class="site-nav">
       <a class="brand" href="${prefix}index.html">
         <span class="mark" aria-hidden="true">${MARK_SVG}</span>
@@ -255,7 +256,7 @@ function shell({ title, description, path, body, dataPage, prefix }) {
       ${star}
     </header>
 
-    <main class="page doc-body">
+    <main class="page doc-body" id="main-content" tabindex="-1">
 ${body}
     </main>
 

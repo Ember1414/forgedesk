@@ -27,6 +27,7 @@ const EDITOR_MOCK = `
     transformCallback: function (callback) { const id = nextCallbackId; nextCallbackId += 1; callbacks[id] = callback; return id; },
     unregisterListener: function () {},
     invoke: function (command, args) {
+      args = args && args.request ? args.request : (args || {});
       if (command === "plugin:event|listen") { eventOf[args.handler] = args.event; return Promise.resolve(nextCallbackId); }
       if (command === "plugin:event|unlisten") return Promise.resolve(null);
       if (command === "repo_recent_list") return Promise.resolve([{ record: { id: 1, path: "/tmp/repo", name: "repo" }, isOpen: true }]);
@@ -65,7 +66,7 @@ const EDITOR_MOCK = `
         return Promise.resolve({ content: file.disk, eol: file.eol, hasBom: file.hasBom, size: file.disk.length, isBinary: false, truncated: false });
       }
       if (command === "fs_write") {
-        window.__fsWrites.push({ path: args.path, content: args.content, eol: args.eol, hasBom: args.hasBom });
+        window.__fsWrites.push({ repoId: args.repoId, path: args.path, content: args.content, eol: args.eol, hasBom: args.hasBom });
         files[args.path].disk = args.content;
         setTimeout(function () {
           window.__emitRepoChanged([args.path], "workspace");
@@ -137,10 +138,13 @@ test('外部修改 → 三选一出现（绝不静默覆盖）', async ({ page }
   await page.evaluate(() => {
     const internals = window.__TAURI_INTERNALS__;
     void internals?.invoke('fs_write', {
-      path: 'src/main.rs',
-      content: 'fn external() {}\\n',
-      eol: 'lf',
-      hasBom: false,
+      request: {
+        repoId: 1,
+        path: 'src/main.rs',
+        content: 'fn external() {}\n',
+        eol: 'lf',
+        hasBom: false,
+      },
     });
   });
 
@@ -162,6 +166,32 @@ async function expectNoPageErrors(page: Page): Promise<void> {
   expect(errors, JSON.stringify(errors)).toEqual([]);
 }
 
+test('保存失败反馈权限错误并保留草稿，无未捕获拒绝', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('forgedesk.language', 'zh-CN'));
+  await page.addInitScript(EDITOR_MOCK);
+  await openEditor(page);
+  await expandSrcAndOpenMain(page);
+  await expect.poll(() => page.evaluate(() => window.__forgedeskEditor !== undefined)).toBe(true);
+  await page.evaluate(() => {
+    window.__forgedeskEditor?.getModel?.()?.setValue('keep draft after failed save');
+    const internals = window.__TAURI_INTERNALS__;
+    if (!internals) throw new Error('mock host is missing');
+    const invoke = internals.invoke;
+    Object.defineProperty(internals, 'invoke', {
+      value: (command: string, args?: Record<string, unknown>) =>
+        command === 'fs_write'
+          ? Promise.reject({ code: 'PERMISSION_DENIED', message: 'the file is read-only' })
+          : invoke(command, args),
+    });
+  });
+  await page.getByRole('button', { name: '保存', exact: true }).click();
+  await expect(page.getByText('权限不足', { exact: true })).toBeVisible();
+  await expect
+    .poll(() => page.evaluate(() => window.__forgedeskEditor?.getModel?.()?.getValue()))
+    .toBe('keep draft after failed save');
+  await expectNoPageErrors(page);
+});
+
 test('T5.8 blame：开启后显示色条装饰（未提交行单独标记）', async ({ page }) => {
   await page.addInitScript(() => {
     window.localStorage.setItem('forgedesk.language', 'zh-CN');
@@ -182,5 +212,47 @@ test('T5.8 blame：开启后显示色条装饰（未提交行单独标记）', a
     .poll(() => page.evaluate(() => document.querySelectorAll('.fd-blame-uncommitted').length))
     .toBeGreaterThan(0);
 
+  await expectNoPageErrors(page);
+});
+
+test('草稿跨页面保留，同名文档跨仓库隔离，关闭草稿需要确认', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('forgedesk.language', 'zh-CN'));
+  await page.addInitScript(EDITOR_MOCK);
+  await openEditor(page);
+  await expandSrcAndOpenMain(page);
+  await expect.poll(() => page.evaluate(() => window.__forgedeskEditor !== undefined)).toBe(true);
+  await page.evaluate(() =>
+    window.__forgedeskEditor?.getModel?.()?.setValue('repository one draft'),
+  );
+  await page.getByRole('link', { name: '工作区', exact: true }).first().click();
+  await page.getByRole('link', { name: '编辑器', exact: true }).click();
+  await expect
+    .poll(() => page.evaluate(() => window.__forgedeskEditor?.getModel?.()?.getValue()))
+    .toBe('repository one draft');
+  await page.evaluate(() => {
+    location.hash = '#/repo/2/editor';
+  });
+  await expect(page.getByRole('tab', { name: /main.rs/ })).toHaveCount(0);
+  await expandSrcAndOpenMain(page);
+  await expect
+    .poll(() => page.evaluate(() => window.__forgedeskEditor?.getModel?.()?.getValue()))
+    .toBe('fn main() {}\n');
+  await page.evaluate(() =>
+    window.__forgedeskEditor?.getModel?.()?.setValue('repository two draft'),
+  );
+  await page.getByRole('button', { name: '保存', exact: true }).click();
+  await expect
+    .poll(() => page.evaluate(() => window.__fsWrites?.at(-1)))
+    .toMatchObject({ repoId: 2, content: 'repository two draft' });
+  await page.evaluate(() => {
+    location.hash = '#/repo/1/editor';
+  });
+  await expect
+    .poll(() => page.evaluate(() => window.__forgedeskEditor?.getModel?.()?.getValue()))
+    .toBe('repository one draft');
+  await page.getByRole('button', { name: '关闭', exact: true }).click();
+  await expect(page.getByRole('alertdialog')).toBeVisible();
+  await page.getByRole('button', { name: '取消', exact: true }).click();
+  await expect(page.getByRole('tab', { name: /main.rs/ })).toBeVisible();
   await expectNoPageErrors(page);
 });

@@ -8,7 +8,8 @@
 | main 分支                    | ✅ 修复会先进入 main |
 | 更早的版本                   | ❌ 请先升级          |
 
-> 项目仍在 1.0 之前的开发期（M7 进行中），尚未提供正式发布版；此期间以 `main` 为准。
+> 正式发布自 **v1.0.0**（2026-10-08）开始，当前最新 **v1.1.3**；安全修复会同时进入
+> `main` 与最新发布版（并在 `CHANGELOG.md` 的「安全」小节记录）。
 
 ## 报告漏洞
 
@@ -52,6 +53,9 @@
 
 ## 依赖与供应链
 
-- 禁止 GPL/AGPL（libgit2 链接例外）依赖；`cargo-deny` 与许可证审计在 CI 强制；
+- 禁止 GPL/AGPL（libgit2 链接例外）依赖；许可证审计在 CI 强制（`pnpm compliance`，
+  产物见 [`docs/LICENSE-AUDIT.md`](docs/LICENSE-AUDIT.md)）；
 - 锁定 `Cargo.lock` / `pnpm-lock.yaml`；CI 中的 Action 固定到 commit SHA；
-- 依赖漏洞扫描（`cargo audit` / `pnpm audit`）随 CI 执行。
+- 依赖漏洞扫描由 [`.github/workflows/audit.yml`](.github/workflows/audit.yml) 执行
+  （每日 + 依赖清单变更时；`cargo audit` + `pnpm audit`）；
+  已知例外与复查条件记录在 [`docs/SECURITY-AUDIT.md`](docs/SECURITY-AUDIT.md)。

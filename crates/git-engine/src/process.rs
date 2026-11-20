@@ -406,16 +406,18 @@ impl GitProcess {
         let stdout_task = tokio::spawn(drain(child.stdout.take(), None));
         let stderr_task = tokio::spawn(drain(child.stderr.take(), opts.on_stderr_line));
 
-        if let Some(input) = opts.stdin.as_ref() {
-            write_stdin(&mut child, input).await;
-        }
-
         let outcome = tokio::select! {
             // biased：取消优先于超时，超时优先于正常结束——用户点了取消就该立刻停
             biased;
             () = wait_for_cancel(opts.cancel.clone()) => Outcome::Cancelled,
             () = tokio::time::sleep(opts.timeout) => Outcome::TimedOut,
-            status = child.wait() => Outcome::Exited(status),
+            status = async {
+                // stdin 也可能受反压阻塞，必须纳入相同的取消与截止时间。
+                if let Some(input) = opts.stdin.as_ref() {
+                    write_stdin(&mut child, input).await;
+                }
+                child.wait().await
+            } => Outcome::Exited(status),
         };
 
         let duration = started.elapsed();

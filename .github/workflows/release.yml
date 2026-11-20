@@ -7,10 +7,8 @@ name: Release
 #   · push tag（`v<版本>`）→ 正式发布，渠道 stable；
 #   · workflow_dispatch    → 演练或 beta：可选渠道、可"只构建不发布"（默认就是）。
 #
-# 为什么没有 macOS / Linux 矩阵：ADR-005 决策**Windows 优先**，macOS/Linux 暂缓
-# （用户少、真机验证成本高）。本文件不塞半成品矩阵——将来要做时把 build-windows
-# 复制成 build-macos / build-linux，各自上传自己那一段清单即可：清单按
-# `<渠道>/<target>.json` 分段，互不覆盖（make-updater-manifest.mjs 已按此设计）。
+# 平台范围：Windows x64 + macOS universal。Linux 打包与真机验收仍按 ADR-005 暂缓。
+# 各平台分别上传产物与更新清单，再由 publish 合并、校验与部署。
 #
 # 未配置发布密钥时的行为（与 pages.yml 同一约定）：
 #   缺 TAURI_SIGNING_PRIVATE_KEY / TAURI_UPDATER_PUBKEY → **警告并跳过构建**，
@@ -475,8 +473,9 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 20
     permissions:
-      # 只有这一步需要写：创建 Release 与上传附件
+      # 只有这一步需要写：创建 Release 与上传附件、开清单同步 PR
       contents: write
+      pull-requests: write
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -548,6 +547,10 @@ jobs:
       # 清单与官网**同宿主**（ADR-003 的 Direct Upload）：Pages 的发布是目录**快照**，
       # 因此必须把 site/ 与 updates/ 组装到同一个目录再上传——只传 updates/ 会把
       # 官网覆盖掉，只传 site/ 会把清单抹掉。
+      #
+      # 组装规则已收口到 scripts/ci/stage-pages.mjs（站点部署 pages.yml 走同一脚本）：
+      # 跨渠道保留的是**全部 7 个已知文件名**（旧实现只列了 3 个，会删掉客户端实测
+      # 真正请求的 windows.json / darwin*.json），且拉取失败一律中止部署而不是删除。
       - name: Build generated site pages (docs / privacy / license)
         if: needs.preflight.outputs.pages == 'true'
         run: node scripts/ci/build-site.mjs
@@ -561,48 +564,103 @@ jobs:
           CHANNEL: ${{ needs.preflight.outputs.channel }}
         run: |
           set -eu
-          staging=pages-staging
-          mkdir -p "${staging}"
-          cp -r site/. "${staging}/"
-          cp -r updates "${staging}/"
 
           # 校验和也放到**同宿主**：GitHub 的 Release 附件不返回 CORS 头，页面无法跨域取；
-          # 放到 Pages（同源）之后，下载页就能把 SHA256 数值直接渲染出来，用户不必先下载
-          # 附件再自己比对（.asc 可选：没有 GPG 签名时它不存在）
-          mkdir -p "${staging}/updates/${CHANNEL}"
-          cp releases/SHA256SUMS "${staging}/updates/${CHANNEL}/SHA256SUMS"
+          # 放到更新目录（同源）之后，下载页就能把 SHA256 数值直接渲染出来，用户不必先
+          # 下载附件再自己比对（.asc 可选：没有 GPG 签名时它不存在）
+          mkdir -p "updates/${CHANNEL}"
+          cp releases/SHA256SUMS "updates/${CHANNEL}/SHA256SUMS"
           if [[ -f releases/SHA256SUMS.asc ]]; then
-            cp releases/SHA256SUMS.asc "${staging}/updates/${CHANNEL}/SHA256SUMS.asc"
+            cp releases/SHA256SUMS.asc "updates/${CHANNEL}/SHA256SUMS.asc"
           fi
 
-          # 另一个渠道的文件要**保留**：快照式发布会把没带上的文件删掉，
-          # 而 stable 发布不该让 beta 用户失去更新通道（反之亦然）。
-          #
-          # 关键：站点宿主是 Cloudflare Pages，它对**不存在的路径**返回的是
-          # `200 + 首页 HTML` 兜底，而不是 404（实测）。因此只用 `curl -f` 判断
-          # "文件存在"会把首页当成清单写进另一个渠道 —— 必须再看 Content-Type。
-          for other in stable beta; do
-            if [[ "${other}" == "${CHANNEL}" ]]; then continue; fi
-            mkdir -p "${staging}/updates/${other}"
-            for file in windows-x86_64.json SHA256SUMS SHA256SUMS.asc; do
-              url="https://forgedesk.pages.dev/updates/${other}/${file}"
-              tmp=$(mktemp)
-              ctype=$(curl -fsS -o "${tmp}" -w '%{content_type}' "${url}" 2>/dev/null || echo "")
-              if [[ -z "${ctype}" || "${ctype}" == text/html* ]]; then
-                # HTML 兜底 / 请求失败：这个文件其实不存在。清掉临时文件，
-                # 否则会把一个 0 字节或首页文件当成清单部署上去。
-                rm -f "${tmp}"
-                echo "（${url} 尚不存在：托管方返回 HTML 兜底，跳过）"
-              else
-                mv "${tmp}" "${staging}/updates/${other}/${file}"
-                echo "保留已有文件：${url}（${ctype}）"
-              fi
-            done
-          done
+          node scripts/ci/stage-pages.mjs \
+            --out pages-staging \
+            --channel "${CHANNEL}" \
+            --local-updates updates
 
-          npx --yes wrangler@4 pages deploy "${staging}" --project-name=forgedesk --branch=main
+          # wrangler 固定到精确版本（见 package.json 的 //pages:pin）：这一步持有 Pages 写权限
+          npx --yes wrangler@4.148.0 pages deploy pages-staging --project-name=forgedesk --branch=main
 
       - name: Publish skipped (no Pages token)
         if: needs.preflight.outputs.pages != 'true'
         run: |
           echo "::warning title=更新清单未发布::未配置 CLOUDFLARE_API_TOKEN。Release 已创建，但 updater 拿不到清单，用户不会收到这个版本。配置方法见 docs/adr/ADR-003-cloudflare-instead-of-github-pages.md。"
+
+      # 包管理器清单跟着发布走（M8 / T8.3–T8.5）：把 Scoop / Winget / Homebrew 的
+      # 版本与 SHA256 对齐到本次发布，在**自有仓库**开 PR 等人类合并。
+      # 绝不向第三方仓库（winget-pkgs、homebrew-cask）推送——那是人类的动作（见 packaging/*/README）。
+      #
+      # 为什么 continue-on-error：发布本体（Release + 站点 + 更新清单）此时已成功，
+      # 清单 PR 只是"顺手开一个"；它失败不该把一次成功的发布标记成失败（会掩盖真实结果）。
+      - name: Open packaging manifest PR
+        if: needs.preflight.outputs.channel == 'stable'
+        continue-on-error: true
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.preflight.outputs.version }}
+        run: |
+          set -eu
+          node scripts/ci/update-packaging.mjs --sums releases/SHA256SUMS
+          # 写入后立即自校验：确保落盘的清单与本次发布的 SHA256 逐项一致
+          # （脚本是两阶段的，这一步防的是"未来某次改动让写入与校验口径漂移"）
+          node scripts/ci/update-packaging.mjs --check --sums releases/SHA256SUMS
+          if git diff --quiet -- packaging; then
+            echo "包管理器清单已是最新，无需 PR。" | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          # 把"对齐到本次发布"的改动导出为 patch，稍后在 main 基线上重放。
+          # 注意：只覆盖已跟踪文件的修改（update-packaging 不会新增文件）。
+          patch="${RUNNER_TEMP}/packaging.patch"
+          git diff -- packaging > "${patch}"
+
+          # 分支基于 **origin/main** 而不是 tag commit：tag 之后 main 可能已经前进，
+          # 基于 tag 的 PR 会把 main 上的 packaging 回退到 tag 时刻的内容。
+          branch="chore/packaging-v${VERSION}"
+          git fetch --depth=1 origin main
+          git checkout -B "${branch}" FETCH_HEAD
+
+          if ! git apply --3way "${patch}"; then
+            {
+              echo "### ⚠️ 包管理器清单 PR 未生成"
+              echo ""
+              echo "main 上的 \`packaging/\` 与本次发布无法自动合并（patch 重放失败）。"
+              echo "请人工同步：\`node scripts/ci/update-packaging.mjs --sums <本次 SHA256SUMS>\`"
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add packaging
+          git commit -m "chore(packaging): sync manifests to v${VERSION}"
+
+          # 幂等：重跑同一 tag（发布抢救路径）时远端分支已存在 → 覆盖**机器人自己的分支**；
+          # 首次推送则直接建分支。--force-with-lease 的期望值来自上面 fetch 的 tracking ref。
+          if git ls-remote --exit-code --heads origin "${branch}" >/dev/null 2>&1; then
+            git fetch --depth=1 origin "+refs/heads/${branch}:refs/remotes/origin/${branch}"
+            if ! git push --force-with-lease="refs/heads/${branch}" origin "${branch}"; then
+              echo "::warning title=清单分支推送被拒::远端 ${branch} 已被改动，请人工核对后再同步清单。"
+              exit 0
+            fi
+          else
+            git push -u origin "${branch}"
+          fi
+
+          {
+            echo "### 包管理器清单 PR 已更新"
+            echo ""
+            echo "- 分支：\`${branch}\`"
+            echo "- 注意：该分支由 GITHUB_TOKEN 推送，**不会触发 CI**（GitHub 有意抑制）。"
+            echo "- 合并前请在本地跑：\`node scripts/ci/update-packaging.mjs --check --sums <本次 SHA256SUMS>\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if gh pr view "${branch}" --json number >/dev/null 2>&1; then
+            gh pr comment "${branch}" --body "清单已随重跑更新到 v${VERSION} 的 SHA256（以本分支最新提交为准）。"
+          else
+            gh pr create --base main --head "${branch}" \
+              --title "chore(packaging): sync manifests to v${VERSION}" \
+              --body "由 release.yml 自动生成：把 Scoop / Winget / Homebrew 清单更新到 v${VERSION}（版本与 SHA256 取自本次发布的 SHA256SUMS）。**合并前请确认**：① 本地跑 \`node scripts/ci/update-packaging.mjs --check --sums <本次发布的 SHA256SUMS>\` 全绿；② 该 PR 由 GITHUB_TOKEN 创建，**不会触发 CI**，请勿只看状态灯；③ 向第三方仓库（\`microsoft/winget-pkgs\`、\`homebrew/cask\`）的提交仍由人类按 packaging/*/README 执行。"
+          fi

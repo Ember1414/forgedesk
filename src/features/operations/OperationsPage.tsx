@@ -40,7 +40,6 @@ import {
   SNAPSHOTS_QUERY_KEY,
   STATUS_QUERY_KEY,
 } from '@/lib/queryKeys';
-import { useRepoChangeInvalidation } from '@/lib/repoChanged';
 import { pushToast } from '@/stores/toastStore';
 import {
   AlertDialog,
@@ -175,7 +174,6 @@ export function OperationsPage() {
   });
 
   // 外部提交、终端里的操作同样会写审计：列表要跟着更新
-  useRepoChangeInvalidation(repoId);
 
   const requestRollback = async (entry: OperationHistoryEntry): Promise<void> => {
     if (entry.snapshotId === null) {

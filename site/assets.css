@@ -63,6 +63,27 @@ body {
 a {
   color: var(--link);
 }
+:focus-visible {
+  outline: 2px solid var(--link);
+  outline-offset: 3px;
+}
+html {
+  scroll-padding-top: 80px;
+}
+.skip-link {
+  position: fixed;
+  top: 8px;
+  left: 12px;
+  z-index: 20;
+  padding: 8px 14px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  transform: translateY(-160%);
+}
+.skip-link:focus {
+  transform: translateY(0);
+}
 code {
   font-family: ui-monospace, SFMono-Regular, Consolas, 'Liberation Mono', monospace;
   font-size: 0.92em;
@@ -130,6 +151,27 @@ pre code {
 }
 .site-nav .star:hover {
   border-color: var(--brand);
+}
+@media (max-width: 560px) {
+  .site-nav {
+    flex-wrap: wrap;
+    gap: 6px 14px;
+    padding: 10px 16px;
+  }
+  .site-nav .brand {
+    flex: 1 1 calc(100% - 90px);
+  }
+  .site-nav .star {
+    order: 1;
+  }
+  .site-nav a.item {
+    order: 2;
+    padding: 5px 2px;
+    white-space: nowrap;
+  }
+  html {
+    scroll-padding-top: 110px;
+  }
 }
 
 /* ---------- 主体 ---------- */
@@ -727,6 +769,12 @@ summary:focus-visible {
 .hero > * {
   position: relative;
   z-index: 1;
+}
+@media (max-width: 560px) {
+  .hero::before {
+    left: -20px;
+    right: -20px;
+  }
 }
 
 /* ---------- h2 体系：小装饰条 + 流式字号 ---------- */

@@ -23,6 +23,23 @@ afterEach(() => {
 });
 
 describe('布局解析（parseLayout）', () => {
+  it('底部面板的小高度重载后保持，预设应用实际布局', () => {
+    expect(
+      parseLayout(JSON.stringify({ detailPanel: 'bottom', detailSize: 112 })).layout.detailSize,
+    ).toBe(112);
+    useLayoutStore.getState().setPreset('review');
+    expect(useLayoutStore.getState().layout).toMatchObject({
+      detailPanel: 'bottom',
+      detailSize: 240,
+    });
+    useLayoutStore.getState().setPreset('editor');
+    expect(useLayoutStore.getState().layout).toMatchObject({
+      detailPanel: 'hidden',
+      treeWidth: 224,
+    });
+    useLayoutStore.getState().setDetailPanel('right');
+    expect(useLayoutStore.getState().layout.detailPanel).toBe('right');
+  });
   it('空值与 undefined 回到默认布局', () => {
     expect(parseLayout(undefined)).toEqual({ layout: { ...DEFAULT_LAYOUT }, error: null });
     expect(parseLayout('')).toEqual({ layout: { ...DEFAULT_LAYOUT }, error: null });

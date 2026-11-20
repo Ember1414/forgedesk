@@ -27,3 +27,5 @@ onlyBuiltDependencies:
 overrides:
   ansi-regex@<5.0.1: 5.0.1
   source-map-js@<1.2.2: 1.2.2
+  # jsdom 的 HTTP 客户端：修复重定向、TLS 校验及拒绝服务公告，仅用于测试。
+  undici@<8.12.2: 8.12.2

@@ -5,7 +5,7 @@
  * （fs_read → 标签装配）；保存走 fs_write（EOL/BOM 保留）；保存后
  * 刷新仓库状态（工作区"修改"计数随之变化）。
  */
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
@@ -28,6 +28,18 @@ export function RepoEditorPage() {
   const setTreeWidth = useLayoutStore((state) => state.setTreeWidth);
   const { show } = useAppError();
   const [treeOpen, setTreeOpen] = useState(true);
+  const workspaceRef = useRef<HTMLDivElement>(null);
+  const [width, setWidth] = useState(800);
+  useEffect(() => {
+    const element = workspaceRef.current;
+    if (!element) return;
+    const observer = new ResizeObserver(([entry]) => {
+      if (entry) setWidth(entry.contentRect.width);
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+  const maxTreeWidth = Math.max(200, Math.min(480, width - 320));
 
   const openFile = useCallback(
     (path: string) => {
@@ -55,16 +67,16 @@ export function RepoEditorPage() {
           {t('editor.toggleTree')}
         </Button>
       </div>
-      <div className="flex min-h-0 flex-1 gap-2">
+      <div ref={workspaceRef} className="flex min-h-0 min-w-0 flex-1 gap-2">
         {treeOpen ? (
           // 树宽可直接拖拽（edge="end"：把手在树右缘，拖右变宽），也仍可在
           // 布局设置页用滑杆调——两者写同一个 layoutStore，天然保持一致
           <Resizable
             edge="end"
             orientation="horizontal"
-            size={treeWidth}
+            size={Math.min(treeWidth, maxTreeWidth)}
             minSize={200}
-            maxSize={480}
+            maxSize={maxTreeWidth}
             onSizeChange={setTreeWidth}
             handleLabel={t('editor.resizeTree')}
             className="shrink-0"

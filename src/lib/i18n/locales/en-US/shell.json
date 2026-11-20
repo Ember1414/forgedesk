@@ -109,6 +109,12 @@
     "installingPhase": "Installing — the app will restart when it finishes",
     "skip": "Skip this version"
   },
+  "trustHint": {
+    "title": "About installation security warnings",
+    "body": "ForgeDesk is a zero-budget open-source project without a paid code-signing certificate. If your system warns about an unknown publisher or an unidentified developer, that is the default gatekeeping for unsigned apps — it does not mean the package was tampered with. You can verify the SHA256 checksum and GPG signature to confirm the download comes from this project.",
+    "verifyGuide": "How to verify",
+    "gotIt": "Got it"
+  },
   "notFound": {
     "title": "Page not found",
     "description": "No screen matches this address; the link may be outdated or mistyped.",
@@ -641,7 +647,10 @@
       "requestsBody": "Only when you use them: your Git remotes, the hosting API you configured, the update manifest address, and proxy connectivity tests you start yourself. Request headers carry no identity information beyond what authentication requires.",
       "dataTitle": "Local data and deletion",
       "dataBody": "Repository list, settings, audit records and snapshot metadata live in a database inside the app data directory. Uninstalling or clearing that directory removes them; your repositories are untouched.",
-      "openPolicy": "Read the full privacy policy"
+      "openPolicy": "Read the full privacy policy",
+      "trustHintTitle": "Installation security notice",
+      "trustHintBody": "The first-run \"About installation security warnings\" notice was dismissed. It only explains the missing paid code signature and how to verify a download; it collects nothing. You can show it again at the top of the window.",
+      "trustHintShow": "Show the notice again"
     },
     "update": {
       "title": "Updates",
@@ -849,6 +858,7 @@
       "conflictMark": "Conflict",
       "recording": "Press the new key combination (Esc to cancel)…",
       "clickToRecord": "Click to record a new shortcut",
+      "recordAria": "Record a new shortcut for {{action}}",
       "reset": "Reset"
     },
     "layout": {
@@ -1047,6 +1057,7 @@
     "shortcut": "Ctrl / Cmd + Enter",
     "disabledNothingStaged": "Stage something first",
     "success": "Committed: {{subject}}",
+    "snapshotMissing": "Committed, but the safety snapshot could not be created — this commit has no rollback point",
     "loading": "Reading commit hints…",
     "previewTitle": "Confirm this commit",
     "previewDescription": "This is exactly what will happen; it runs as soon as you confirm.",
@@ -1216,7 +1227,8 @@
       "previewUnavailable": "The local git is too old to preview conflicts; if any appear, the merge will stop at the conflict state.",
       "messageLabel": "Merge message (used when a merge commit is created)",
       "equivalent": "Equivalent command",
-      "done": "Merge completed"
+      "done": "Merge completed",
+      "snapshotMissing": "Merge completed, but the safety snapshot could not be created — this merge has no rollback point"
     }
   },
   "sync": {
@@ -2160,6 +2172,11 @@
       "loadMore": "Load more",
       "listError": "Could not load file history.",
       "retry": "Retry"
+    },
+    "unsaved": {
+      "title": "Close unsaved file?",
+      "description": "Unsaved edits will be discarded.",
+      "discard": "Discard edits and close"
     }
   },
   "commands": {

@@ -203,6 +203,35 @@ describe('clearSelection', () => {
   });
 });
 
+// ------------------------------------------------------- resetForRepoSwitch
+
+describe('resetForRepoSwitch（切换仓库）', () => {
+  it('清掉所有与旧仓库绑定的状态，保留与仓库无关的视图偏好', () => {
+    const store = useGraphSelectionStore.getState();
+    store.select('oid-a', NO_MODIFIERS, ORDER);
+    store.setCompareBase('oid-b');
+    store.setHoverOid('oid-c');
+    store.setDetailOid('oid-d');
+    store.requestRebase({ oids: ['oid-a'], preset: null });
+    store.setScale(2);
+    store.setViewMode('list');
+
+    useGraphSelectionStore.getState().resetForRepoSwitch();
+
+    const state = useGraphSelectionStore.getState();
+    // 旧仓库的 oid 一律清掉（否则会被送进新仓库的 cherry-pick / rebase 入口）
+    expect(state.selectedOids).toEqual([]);
+    expect(state.anchorOid).toBeNull();
+    expect(state.compareBaseOid).toBeNull();
+    expect(state.hoverOid).toBeNull();
+    expect(state.detailOid).toBeNull();
+    expect(state.rebaseRequest).toBeNull();
+    // 视图偏好跟着用户走，不随仓库重置
+    expect(state.scale).toBe(2);
+    expect(state.viewMode).toBe('list');
+  });
+});
+
 // ---------------------------------------------------------------- compareBase
 
 describe('比较基准', () => {

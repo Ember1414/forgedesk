@@ -14,12 +14,14 @@ import type { EditorTab } from '@/stores/editorStore';
 export async function openEditorFile(repoId: number, path: string): Promise<EditorTab> {
   const content = await fsRead(repoId, path);
   return {
+    repoId,
     path,
     name: path.split('/').pop() ?? path,
     eol: content.eol,
     hasBom: content.hasBom,
     isBinary: content.isBinary,
     baseline: content.content ?? null,
+    draft: content.content ?? null,
     dirtyDisk: false,
   };
 }
@@ -39,8 +41,8 @@ export function watchExternalChanges(
     if (payload.repoId !== repoId) {
       return;
     }
-    if (payload.kind === 'workspace' || payload.kind === 'large') {
-      if (payload.kind === 'large' || payload.paths.some((changed) => changed === path)) {
+    if (payload.kind === 'workspace' || payload.kind === 'large' || payload.kind === 'refs') {
+      if (payload.kind !== 'workspace' || payload.paths.some((changed) => changed === path)) {
         onExternal();
       }
     }

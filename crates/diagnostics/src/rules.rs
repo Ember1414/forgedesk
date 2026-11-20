@@ -293,7 +293,7 @@ const EMBEDDED_RULE_FILES: &[&str] = &[
 /// 解析一段 YAML（规则数组）；解析失败返回错误（内嵌文件失败 = 构建期缺陷，
 /// 运行时覆盖文件失败由调用方记警告并跳过）。
 pub fn parse_rules(yaml: &str) -> Result<Vec<Rule>, String> {
-    serde_yml::from_str::<Vec<Rule>>(yaml).map_err(|error| error.to_string())
+    serde_norway::from_str::<Vec<Rule>>(yaml).map_err(|error| error.to_string())
 }
 
 /// 校验一批规则的结构约束；返回警告（重复 id / 空匹配块等，不阻塞）。

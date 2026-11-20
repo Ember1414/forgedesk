@@ -80,6 +80,9 @@ const SIGNATURE_FIELDS = [
   'firstParentOnly',
   'followRenames',
   'collapseMergedBranches',
+  'caseInsensitive',
+  'mergesOnly',
+  'myCommitsOnly',
 ] as const satisfies readonly (keyof HistoryFilters)[];
 
 /** 把每页行数夹到 `[1, MAX_PAGE_SIZE]`。 */
@@ -114,6 +117,8 @@ export function filtersSignature(filters: HistoryFilters, pageSize: number): str
   }
   const paths = filters.paths ?? [];
   parts.push(`paths=${[...paths].sort().join('\u0000')}`);
+  if (filters.revisions?.length)
+    parts.push(`revisions=${JSON.stringify([...filters.revisions].sort())}`);
   return parts.join('&');
 }
 
@@ -341,12 +346,13 @@ export function useGraphQuery(
 ): GraphQueryResult {
   const pageSize = clampPageSize(options.pageSize ?? DEFAULT_PAGE_SIZE);
   const signature = filtersSignature(filters, pageSize);
+  const pagingKey = `${repoId}:${signature}`;
   const enabled = (options.enabled ?? true) && Number.isFinite(repoId);
 
   // 选择器返回的必须是稳定引用：这里要么是 store 里那个数组，要么是模块级常量。
   // 若写成 `?? [FIRST_CURSOR]`，每次渲染都会新建数组 → Zustand 认为状态变了 → 无限重渲染。
   const cursors = useGraphPagingStore(
-    (state) => state.cursorsBySignature[signature] ?? FIRST_PAGE_CURSORS,
+    (state) => state.cursorsBySignature[pagingKey] ?? FIRST_PAGE_CURSORS,
   );
 
   const combined = useQueries({
@@ -368,7 +374,7 @@ export function useGraphQuery(
 
   const loadMore = useCallback((): boolean => {
     const store = useGraphPagingStore.getState();
-    const loaded = store.cursorsFor(signature);
+    const loaded = store.cursorsFor(pagingKey);
     const lastCursor = loaded[loaded.length - 1] ?? FIRST_CURSOR;
     // 直接问缓存要 nextCursor，而不是在渲染期把它抄进 ref：
     // 后者会被 `react-hooks/refs` 判为渲染期读写 ref（本仓库开了这条 error 规则）。
@@ -377,8 +383,8 @@ export function useGraphQuery(
     if (next === null) {
       return false;
     }
-    return store.appendCursor(signature, next);
-  }, [queryClient, repoId, signature]);
+    return store.appendCursor(pagingKey, next);
+  }, [queryClient, repoId, signature, pagingKey]);
 
   const refresh = useCallback((): void => {
     void queryClient.invalidateQueries({ queryKey: logKeyPrefix(repoId) });

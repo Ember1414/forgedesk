@@ -38,7 +38,11 @@ tokio-util.workspace = true
 # 许可：`git2` 是 MIT/Apache-2.0；`libgit2` 本体是 GPL-2.0 **WITH linking exception**，
 # 这是 AGENTS.md §8 明确允许的唯一 GPL 例外，`pnpm compliance` 的
 # LINKING_EXCEPTIONS 已登记（libgit2 / libgit2-sys / git2）。
-git2 = { version = "0.20", default-features = false, features = ["vendored-libgit2"] }
+#
+# 版本下限 0.21：0.20.x 有两个 "unsound" 级别的 RustSec 警告
+# （RUSTSEC-2026-0183 Remote::list、RUSTSEC-2026-0184 BlameHunk Signature），
+# 官方标注 patched = ">= 0.21.0"。
+git2 = { version = "0.21", default-features = false, features = ["vendored-libgit2"] }
 
 [lints]
 workspace = true

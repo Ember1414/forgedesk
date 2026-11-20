@@ -67,8 +67,14 @@ codesign -dv --verbose=2 /Applications/ForgeDesk.app
 应用内会自动检查更新（设置里可关闭或切到 beta 渠道）。更新包经过签名校验，
 **校验失败直接拒绝安装**，没有"跳过校验"的降级路径。
 
-> 首版（v1.0.0）之前没有更旧的已发布版本，因此"旧版本 → 新版本"的端到端升级要等下一次发布才会被真实覆盖；
-> 相关演练记录见 [`../acceptance/M7.md`](../acceptance/M7.md) 与 [`../RELEASE.md`](../RELEASE.md) §6。
+> 升级链路已被真实覆盖：v1.0.0 → v1.1.0 → v1.1.3 的连续发布中，用户实际走通了
+> "检测 → 下载 → 校验 → 重启"全流程（期间修复的清单 404、检查失败不可见等问题见
+> [`CHANGELOG.md`](../../CHANGELOG.md)）；完整的升级 + 回滚**演练留档**见
+> [`../acceptance/M8.md`](../acceptance/M8.md) §4。
+>
+> **包管理器安装（可选）**：Homebrew Cask 清单已就绪
+> （[`../../packaging/homebrew/README.md`](../../packaging/homebrew/README.md)）——tap 仓库创建后
+> 即可 `brew install --cask forgedesk`；本机暂无 Mac，真机验证待补（见该 README §7）。
 
 ## 6. 卸载
 

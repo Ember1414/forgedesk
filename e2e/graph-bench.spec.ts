@@ -83,14 +83,19 @@ function buildFixture(total: number): string {
 }
 
 /** 在页面上用 rAF 数 2 秒帧（作为真函数传入 evaluate；传字符串会拿到函数本身）。 */
-async function countFrames(page: Page): Promise<number> {
+async function countFrames(page: Page, scrolling = false): Promise<number> {
   return page.evaluate(
-    () =>
+    (scrolling) =>
       new Promise<number>((resolve) => {
         let count = 0;
         const start = performance.now();
+        const scroll = document.querySelector('[data-testid="graph-hit-layer"]')?.parentElement
+          ?.parentElement?.parentElement;
         function tick() {
           count += 1;
+          if (scrolling && scroll)
+            scroll.scrollTop =
+              (count * 100) % Math.max(1, scroll.scrollHeight - scroll.clientHeight);
           if (performance.now() - start < 2000) {
             requestAnimationFrame(tick);
           } else {
@@ -99,6 +104,7 @@ async function countFrames(page: Page): Promise<number> {
         }
         requestAnimationFrame(tick);
       }),
+    scrolling,
   );
 }
 
@@ -121,6 +127,15 @@ for (const size of SIZES) {
     await expect(page.getByTestId('graph-overlay')).toBeVisible();
     await expect(page.getByTestId('history-loaded-count')).toContainText('已加载');
     const warmMs = Date.now() - warmStart;
+    // 总行数不能再撑大视口；5 万/10 万条都只保留可视区与 overscan。
+    expect(await page.getByRole('option').count()).toBeLessThan(100);
+    const viewport = await page.getByTestId('graph-overlay').evaluate((element) => ({
+      height: element.clientHeight,
+      canvasHeight: element.querySelector('canvas')?.height ?? 0,
+      limit: innerHeight * devicePixelRatio,
+    }));
+    expect(viewport.height).toBeGreaterThan(100);
+    expect(viewport.canvasHeight).toBeLessThanOrEqual(viewport.limit);
 
     // 打开 dev 性能面板读取绘制指标（面板自身口径偏保守的 fps 也一并记录）
     await page.getByTestId('history-perf-toggle').click();
@@ -138,7 +153,7 @@ for (const size of SIZES) {
     for (let i = 0; i < 30; i += 1) {
       await page.mouse.wheel(0, -120);
     }
-    const framesScrolled = await countFrames(page);
+    const framesScrolled = await countFrames(page, true);
 
     const panelText = await page.getByTestId('graph-perf-panel').innerText();
     console.log(`[BENCH ${size}] coldMs=${coldMs} warmMs=${warmMs}`);
@@ -150,5 +165,9 @@ for (const size of SIZES) {
     // 存在性断言：数字不进门禁，但"基准页面能用"必须成立
     expect(warmMs).toBeGreaterThan(0);
     expect(framesIdle).toBeGreaterThan(0);
+    // 数万节点的场景最容易把异常吞进渲染循环（rAF 回调里 throw 不会冒泡到调用方），
+    // 因此这里与其余 e2e 一样断言 __errs 为空——性能场景不该用"没有断言"换稳定
+    const errors = await page.evaluate(() => window.__errs ?? []);
+    expect(errors, JSON.stringify(errors)).toEqual([]);
   });
 }

@@ -28,7 +28,6 @@ import { Terminal } from '@xterm/xterm';
 
 import {
   applyFontToAll,
-  dropLineTracker,
   findTerminalInstance,
   getLastCommand,
   getLineTracker,
@@ -318,7 +317,6 @@ export function TerminalView({
       observer.disconnect();
       dataSubscription.dispose();
       unregisterTerminal(tab.termId);
-      dropLineTracker(tab.termId);
       term.dispose();
     };
     // 建立一次；fontSize/active 的变化走下面的 options 更新路径，

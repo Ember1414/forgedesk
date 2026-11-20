@@ -1,0 +1,87 @@
+name: Dependency audit
+
+# ===========================================================================
+# 依赖漏洞扫描（cargo audit + pnpm audit）——M8 质量加固。
+#
+# 为什么要有独立工作流：`pnpm compliance` 只查**许可证、名称与 AI 依赖**，
+# 不查 CVE；而 SECURITY.md 长期声称"依赖漏洞扫描随 CI 执行"——2026-10-09 的
+# 质量审查发现这条承诺从未落地（历史上查出的 2 个 high 是人工在本地跑的）。
+#
+# 触发：
+#   - 每日一次：advisory 库每天更新，漏洞是"随时间出现"的，光靠 PR 触发不够；
+#   - 依赖清单变更的 PR / push：把"带已知 CVE 的新依赖"挡在合入之前；
+#   - 手动触发。
+#
+# 失败策略：npm 侧 --audit-level high（low/moderate 只提示——前端依赖树很大，
+# 低危条目会把门禁变成噪音）；Rust 侧用 cargo-audit 默认口径。
+# 本工作流只发现问题，**不自动升级依赖**：依赖是发布物的一部分，升级要人工
+# 评估影响（见 CONTRIBUTING.md §5.5）。
+# ===========================================================================
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 4 * * *'
+  push:
+    branches: [main]
+    paths:
+      - 'Cargo.lock'
+      - 'pnpm-lock.yaml'
+      - '**/Cargo.toml'
+      - 'package.json'
+      - '.github/workflows/audit.yml'
+  pull_request:
+    paths:
+      - 'Cargo.lock'
+      - 'pnpm-lock.yaml'
+      - '**/Cargo.toml'
+      - 'package.json'
+      - '.github/workflows/audit.yml'
+
+concurrency:
+  group: audit-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: audit (rust + npm)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
+
+      - name: Cache Rust artifacts
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          shared-key: audit
+
+      # 显式指向官方 registry：国内镜像（npmmirror 等）没有实现 audit 端点，
+      # 会直接报 ERR_PNPM_AUDIT_ENDPOINT_NOT_EXISTS（本机实测）。
+      - name: Audit npm dependencies
+        run: pnpm audit --audit-level high --registry=https://registry.npmjs.org/
+
+      # cargo-audit 不随 toolchain 提供，需要现装；rust-cache 会缓存它的构建产物。
+      # 不 pin 版本：它是扫描工具而不是发布物；但用 --locked 保证源码构建可复现。
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+
+      # JWT 复用已有 aws-lc 后端后，rsa 及其历史例外已移除（2026-11-20）。
+      # 其余 unmaintained/unsound 警告不阻断（cargo audit 默认只对 vulnerability 失败）。
+      - name: Audit Rust dependencies
+        run: cargo audit

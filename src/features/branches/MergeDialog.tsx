@@ -109,6 +109,10 @@ export function MergeDialog({
       }
       if (outcome.kind !== 'alreadyUpToDate') {
         pushToast({ tone: 'success', title: t('branches.merge.done') });
+        // 快照失败 → 本次合并没有回滚点（与提交路径同一取舍：不阻断但必须可见）
+        if (outcome.snapshotId === null) {
+          pushToast({ tone: 'warning', title: t('branches.merge.snapshotMissing') });
+        }
       }
     },
     onError: appError.show,

@@ -1,7 +1,7 @@
 {
   "name": "forgedesk",
   "private": true,
-  "version": "1.1.3",
+  "version": "1.1.4",
   "type": "module",
   "description": "ForgeDesk — A Git client for everyone",
   "license": "Apache-2.0",
@@ -47,12 +47,15 @@
     "version:check": "node scripts/setup/sync-version.mjs --check",
     "//release:rehearse": "本地演练发布脚本链（假产物），不需要任何凭据；覆盖脚本之间的接口与顺序，不覆盖 tauri build / 签名 / Release / Pages",
     "release:rehearse": "node scripts/ci/rehearse-release.mjs",
+    "//check:packaging": "校验 packaging/ 的清单与 releases/SHA256SUMS 一致；发布环境（或本地跑过 rehearse 后）才有该文件，普通 CI 不调用。",
+    "check:packaging": "node scripts/ci/update-packaging.mjs --check",
     "site:screenshots": "node scripts/site/capture-screenshots.mjs",
     "//pages": "使用 npx 而非 pnpm dlx：pnpm 在遇到需要构建的依赖（esbuild/workerd）时会弹出交互式选择框，且 dlx 的隔离环境不读取项目的 pnpm 配置，脚本化场景下会直接卡住。",
-    "pages:preview": "npx --yes wrangler@4 pages dev site",
-    "pages:deploy": "npx --yes wrangler@4 pages deploy site --project-name=forgedesk",
+    "//pages:pin": "wrangler 固定到**精确版本**（不是 @4）：它运行在持有 Pages 写权限的发布进程里，浮动版本等于让未审计的代码进入发布链路。升级时同步改这里与 .github/workflows/{pages,release}.yml 的调用点。",
+    "pages:preview": "npx --yes wrangler@4.148.0 pages dev site",
+    "pages:deploy": "node scripts/ci/build-site.mjs && node scripts/ci/stage-pages.mjs --out pages-staging && npx --yes wrangler@4.148.0 pages deploy pages-staging --project-name=forgedesk",
     "//pages:create": "一次性引导步骤：项目 forgedesk 已于 2026-09-23 创建，重复执行会以 code 8000002（already exists）失败——那是预期结果，不是故障。保留此脚本是为了让流程能在全新账号上自举。",
-    "pages:create": "npx --yes wrangler@4 pages project create forgedesk --production-branch=main",
+    "pages:create": "npx --yes wrangler@4.148.0 pages project create forgedesk --production-branch=main",
     "tauri": "tauri"
   },
   "packageManager": "pnpm@11.7.0",
@@ -92,7 +95,7 @@
     "react-i18next": "^17.0.15",
     "react-router-dom": "^7.18.4",
     "tailwind-merge": "^3.7.0",
-    "zod": "^4.6.5",
+    "zod": "^4.6.6",
     "zustand": "^5.0.15"
   },
   "devDependencies": {
@@ -106,7 +109,7 @@
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.1",
-    "@vitest/coverage-v8": "^5.0.1",
+    "@vitest/coverage-v8": "^5.0.3",
     "eslint": "^10.11.0",
     "eslint-plugin-react-hooks": "^7.1.1",
     "globals": "^17.12.0",
@@ -116,8 +119,8 @@
     "tailwindcss": "^4.3.3",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.70.1",
-    "vite": "^8.3.0",
-    "vitest": "^5.0.1",
+    "vite": "^8.3.3",
+    "vitest": "^5.0.3",
     "yaml": "^2.9.1"
   }
 }

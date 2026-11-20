@@ -1,0 +1,27 @@
+# winget 安装清单（installer manifest）
+#
+# 只提交 NSIS（.exe）安装器：tauri.conf.json 的 `nsis.installMode = currentUser`，
+# 对应 `Scope: user`，与普通用户双击安装的行为一致。
+# MSI（WiX）面向企业批量部署，且 Scope 需要与 WiX 配置核对后才敢声明；
+# 如将来需要，另加一条 `InstallerType: wix` 条目（见 PUBLISH.md §5）。
+PackageIdentifier: ForgeDesk.ForgeDesk
+PackageVersion: 1.1.3
+Platform:
+  - Windows.Desktop
+MinimumOSVersion: 10.0.17763.0
+InstallModes:
+  - interactive
+  - silent
+  - silentWithProgress
+UpgradeBehavior: install
+ReleaseDate: 2026-10-09
+Installers:
+  - Architecture: x64
+    InstallerType: nullsoft
+    Scope: user
+    InstallerUrl: https://github.com/Ember1414/forgedesk/releases/download/v1.1.3/ForgeDesk_1.1.3_windows_x64.exe
+    InstallerSha256: 17098AC42D6882E0F3C6DDD08414B9E698F703192E93A7159A6F082CB358DF38
+    AppsAndFeaturesEntries:
+      - DisplayName: ForgeDesk
+ManifestType: installer
+ManifestVersion: 1.10.0

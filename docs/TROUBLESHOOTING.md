@@ -34,7 +34,7 @@
 
 **6. 打开应用提示"已损坏，无法打开"**
 原因：从网络下载的未公证应用带 quarantine 隔离属性。
-处理：`xattr -dr com.apple.quarantine /Applications/ForgeDesk.app`，或右键 → 打开。详见 `install/macos.md`（随 M8 提供）。
+处理：`xattr -dr com.apple.quarantine /Applications/ForgeDesk.app`，或右键 → 打开。详见 [`install/macos.md`](./install/macos.md)。
 
 **7. 提示"无法验证开发者"**
 处理：系统设置 → 隐私与安全性 → **仍要打开**。

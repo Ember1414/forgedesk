@@ -1,0 +1,7 @@
+# winget 版本清单（version manifest）
+# 真相源：packaging/winget/；由 scripts/ci/update-packaging.mjs 更新版本号。
+PackageIdentifier: ForgeDesk.ForgeDesk
+PackageVersion: 1.1.3
+DefaultLocale: en-US
+ManifestType: version
+ManifestVersion: 1.10.0

@@ -102,6 +102,15 @@ export interface GraphSelectionState {
   /** 选中一批（Ctrl+A 全选；同样按 `order` 归一化顺序）。 */
   selectMany(oids: readonly string[], order: readonly string[]): void;
   clearSelection(): void;
+  /**
+   * 切换仓库时重置与"具体仓库内容"绑定的视图状态（M8 质量加固）。
+   *
+   * 选中集、锚点、比较基准、详情、待处理的整理请求持有的都是**某个仓库里的 oid**；
+   * 换仓库后这些 oid 在新仓库里没有意义——最坏情况是旧 oid 被送进新仓库的
+   * cherry-pick / rebase 入口（后端会报错，但"能选中不存在的东西"本身就是缺陷）。
+   * 与仓库无关的视图偏好（图/列表、缩放、迷你地图）**保留**：它们是用户的浏览习惯。
+   */
+  resetForRepoSwitch(): void;
   setHoverOid(oid: string | null): void;
   setCompareBase(oid: string | null): void;
   setDetailOid(oid: string | null): void;
@@ -214,6 +223,17 @@ export const useGraphSelectionStore = create<GraphSelectionState>()((set, get) =
 
   clearSelection: () => {
     set({ selectedOids: [], anchorOid: null });
+  },
+
+  resetForRepoSwitch: () => {
+    set({
+      selectedOids: [],
+      anchorOid: null,
+      compareBaseOid: null,
+      hoverOid: null,
+      detailOid: null,
+      rebaseRequest: null,
+    });
   },
 
   setHoverOid: (oid) => {

@@ -71,6 +71,7 @@ export function queryKeysForChange(
         [STATUS_QUERY_KEY, repoId],
         [STASH_QUERY_KEY, repoId],
         [CONFLICT_QUERY_KEY, repoId],
+        ['fs-tree', repoId],
       ];
     case 'refs':
       return [
@@ -87,6 +88,7 @@ export function queryKeysForChange(
         [REFLOG_QUERY_KEY, repoId],
         // continue / abort 会移动 HEAD，冲突状态随之结束或推进
         [CONFLICT_QUERY_KEY, repoId],
+        ['fs-tree', repoId],
       ];
     case 'large':
       return [
@@ -101,6 +103,7 @@ export function queryKeysForChange(
         [STASH_QUERY_KEY, repoId],
         [REFLOG_QUERY_KEY, repoId],
         [CONFLICT_QUERY_KEY, repoId],
+        ['fs-tree', repoId],
       ];
     default:
       // 认不出的类别（例如载荷来自更早的版本）按"大量变更"处理：
@@ -117,6 +120,7 @@ export function queryKeysForChange(
         [STASH_QUERY_KEY, repoId],
         [REFLOG_QUERY_KEY, repoId],
         [CONFLICT_QUERY_KEY, repoId],
+        ['fs-tree', repoId],
       ];
   }
 }
@@ -156,6 +160,7 @@ export function createRepoChangeInvalidator(
   const now = options.now ?? (() => Date.now());
   const lastRunAt = new Map<number, number>();
   const pending = new Map<number, ReturnType<typeof setTimeout>>();
+  const changes = new Map<number, { kind: RepoChangeKind; paths: Set<string> }>();
 
   const run = (repoId: number, kind: RepoChangeKind, paths: readonly string[]): void => {
     lastRunAt.set(repoId, now());
@@ -166,17 +171,30 @@ export function createRepoChangeInvalidator(
     for (const queryKey of options.extraKeys ?? []) {
       void queryClient.invalidateQueries({ queryKey });
     }
+    for (const key of ['commit-hint', 'commit-hooks']) {
+      void queryClient.invalidateQueries({ queryKey: [key, repoId] });
+    }
 
-    if (kind !== 'large' && paths.length > 0) {
+    if (kind !== 'large' && (paths.length > 0 || kind === 'refs')) {
       void queryClient.invalidateQueries({
         queryKey: [DIFF_QUERY_KEY, repoId],
-        predicate: (query) => paths.includes(String(query.queryKey[DIFF_KEY_PATH_INDEX] ?? '')),
+        predicate: (query) =>
+          kind === 'refs' || paths.includes(String(query.queryKey[DIFF_KEY_PATH_INDEX] ?? '')),
       });
     }
   };
 
   return {
     invalidate: (repoId, kind, paths = []) => {
+      const prior = changes.get(repoId);
+      const mergedKind =
+        prior?.kind === 'large' || kind === 'large'
+          ? 'large'
+          : prior?.kind === 'refs' || kind === 'refs'
+            ? 'refs'
+            : kind;
+      const mergedPaths = new Set([...(prior?.paths ?? []), ...paths]);
+      changes.set(repoId, { kind: mergedKind, paths: mergedPaths });
       const elapsed = now() - (lastRunAt.get(repoId) ?? Number.NEGATIVE_INFINITY);
 
       if (elapsed >= throttleMs) {
@@ -186,11 +204,12 @@ export function createRepoChangeInvalidator(
           clearTimeout(scheduled);
           pending.delete(repoId);
         }
-        run(repoId, kind, paths);
+        changes.delete(repoId);
+        run(repoId, mergedKind, [...mergedPaths]);
         return;
       }
 
-      // 窗口内：挂一个尾随调用，用**最后一次**的类别与路径
+      // 窗口内：累计类别与路径，尾随调用处理窗口内所有变化
       const scheduled = pending.get(repoId);
       if (scheduled !== undefined) {
         clearTimeout(scheduled);
@@ -199,7 +218,9 @@ export function createRepoChangeInvalidator(
         repoId,
         setTimeout(() => {
           pending.delete(repoId);
-          run(repoId, kind, paths);
+          const change = changes.get(repoId);
+          changes.delete(repoId);
+          if (change) run(repoId, change.kind, [...change.paths]);
         }, throttleMs - elapsed),
       );
     },
@@ -208,6 +229,7 @@ export function createRepoChangeInvalidator(
         clearTimeout(scheduled);
       }
       pending.clear();
+      changes.clear();
     },
   };
 }
@@ -257,13 +279,17 @@ export function useRepoChangeInvalidation(
       if (payload.kind === 'large') {
         optionsRef.current.onLargeChange?.();
       }
-    }).then((fn) => {
-      if (cancelled) {
-        fn();
-      } else {
-        unlisten = fn;
-      }
-    });
+    })
+      .then((fn) => {
+        if (cancelled) {
+          fn();
+        } else {
+          unlisten = fn;
+        }
+      })
+      .catch(() => {
+        /* 宿主退出或监听注册失败时不产生未捕获拒绝。 */
+      });
 
     return () => {
       cancelled = true;

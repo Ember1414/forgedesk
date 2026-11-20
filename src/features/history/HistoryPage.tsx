@@ -36,7 +36,6 @@ import { normalizeError } from '@/lib/errors';
 import { settingsGet, settingsSet } from '@/lib/ipc';
 import { gitBranchList, gitLogAuthors } from '@/lib/ipc';
 import { PERFORMANCE_PAGE_SIZE, usePerformanceMode } from '@/lib/performanceMode';
-import { useRepoChangeInvalidation } from '@/lib/repoChanged';
 import { AUTHORS_QUERY_KEY, BRANCHES_QUERY_KEY } from '@/lib/queryKeys';
 import { cn } from '@/lib/utils';
 
@@ -103,7 +102,14 @@ export function HistoryPage() {
   const perfMode = usePerformanceMode(repoId);
   const graph = useGraphQuery(repoId, filters, perfMode ? { pageSize: PERFORMANCE_PAGE_SIZE } : {});
   // 引用 / 大量变更时按类别失效历史页（`refs` 与 `large` 已覆盖 `[LOG_QUERY_KEY, repoId]` 前缀）
-  useRepoChangeInvalidation(repoId);
+
+  // 切换仓库时清掉与旧仓库绑定的视图状态：选中集 / 锚点 / 详情 / 比较基准 / 待处理的
+  // 整理请求里持有的都是旧仓库的 oid，留在新仓库里没有意义——最坏情况是被送进
+  // cherry-pick / rebase 入口。提交数据本身由 queryKey 隔离，这里只管 UI 状态；
+  // 与仓库无关的视图偏好（图/列表、缩放）由 store 保留。
+  useEffect(() => {
+    useGraphSelectionStore.getState().resetForRepoSwitch();
+  }, [repoId]);
 
   // 作者与分支列表（筛选下拉的数据源；低频数据，60s 新鲜期足够）
   const authorsQuery = useQuery({
@@ -354,16 +360,9 @@ export function HistoryPage() {
     );
   } else {
     body = (
-      <div className="flex flex-1 flex-col gap-2">
-        {/*
-          图画布给它一个**最低高度**（而不是只写 `min-h-0 flex-1`）。
-          原因（2026-10-08 实测）：本页容器是 `h-full`，等于视口高；当头部工具栏
-          与历史操作面板加起来超过它时，`flex-1 + min-h-0` 的画布会被压到 0 高度
-          ——用户看到"提交加载了、图上空空如也，而且滚不动"（没有溢出可滚）。
-          给出下限后，空间不够时页面会**溢出**外层滚动容器（AppShell 的 main），
-          宁可让用户滚一下，也不能让主内容消失。
-        */}
-        <div className="min-h-[22rem] flex-1">
+      <div className="flex min-h-0 flex-1 flex-col gap-2">
+        {/* 高度沿 flex 链约束到实际视口，不能让内容总行数撑大 Canvas。 */}
+        <div className="min-h-0 flex-1 overflow-hidden">
           {viewMode === 'graph' ? (
             <GraphOverlay
               model={graph.model}
@@ -405,187 +404,188 @@ export function HistoryPage() {
 
   return (
     <section
-      // min-h-full 而不是 h-full：内容（工具栏 + 操作面板 + 图）超过视口时
-      // 让外层的 `overflow-auto` 接管滚动，见上面 body 的说明
-      className="flex min-h-full flex-col gap-3"
+      className="flex h-full min-h-0 flex-col gap-3 overflow-hidden"
       data-testid="history-page"
       aria-label={t('history.title')}
     >
-      <header className="flex flex-wrap items-center justify-between gap-2">
-        <h1 className="text-20 font-semibold tracking-tight">{t('history.title')}</h1>
+      {/* 最小窗口下让控制区滚动，保留图的视口，不允许工具栏把它挤到零高。 */}
+      <div className="flex max-h-[calc(100%_-_10rem)] shrink-0 flex-col gap-3 overflow-y-auto">
+        <header className="flex flex-wrap items-center justify-between gap-2">
+          <h1 className="text-20 font-semibold tracking-tight">{t('history.title')}</h1>
 
-        {showToolbar ? (
-          <div className="flex flex-wrap items-center gap-2" data-testid="history-toolbar">
-            {/* 视图模式：图 / 列表（无障碍等价路径，AGENTS.md 要求）。用 aria-pressed
+          {showToolbar ? (
+            <div className="flex flex-wrap items-center gap-2" data-testid="history-toolbar">
+              {/* 视图模式：图 / 列表（无障碍等价路径，AGENTS.md 要求）。用 aria-pressed
                 而不是 radio 语义：两个按钮各自表达"当前是否处于该模式"。
                 激活态必须有可见样式——默认就是图模式，若按钮长得一模一样，
                 用户再点"图"时会觉得"点了没反应"（实测反馈）。 */}
-            <div
-              role="group"
-              aria-label={t('history.mode.label')}
-              className="flex items-center gap-1"
-            >
-              <Button
-                size="sm"
-                variant="secondary"
-                aria-pressed={viewMode === 'graph'}
-                className={viewMode === 'graph' ? 'bg-brand-subtle text-brand' : undefined}
-                onClick={() => {
-                  setViewMode('graph');
-                }}
-                data-testid="history-mode-graph"
-              >
-                <Network aria-hidden="true" className="size-3.5" />
-                {t('history.mode.graph')}
-              </Button>
-              <Button
-                size="sm"
-                variant="secondary"
-                aria-pressed={viewMode === 'list'}
-                className={viewMode === 'list' ? 'bg-brand-subtle text-brand' : undefined}
-                onClick={() => {
-                  setViewMode('list');
-                }}
-                data-testid="history-mode-list"
-              >
-                <List aria-hidden="true" className="size-3.5" />
-                {t('history.mode.list')}
-              </Button>
-            </div>
-
-            {/* 缩放（仅图模式有意义；列表模式是定高表格，缩放对它无影响） */}
-            <div
-              role="group"
-              aria-label={t('history.zoom.label')}
-              className={cn(
-                'flex items-center gap-1',
-                viewMode === 'list' ? 'opacity-50' : undefined,
-              )}
-            >
-              <IconButton
-                label={t('history.zoom.out')}
-                size="sm"
-                disabled={viewMode === 'list'}
-                onClick={() => {
-                  zoomBy(1 / ZOOM_STEP);
-                }}
-                data-testid="history-zoom-out"
-              >
-                <ZoomOut aria-hidden="true" className="size-4" />
-              </IconButton>
-              <span
-                className="min-w-12 text-center font-mono text-12 text-fg-subtle"
-                data-testid="history-zoom-level"
-              >
-                {t('history.zoom.level', { percent: Math.round(scale * 100) })}
-              </span>
-              <IconButton
-                label={t('history.zoom.in')}
-                size="sm"
-                disabled={viewMode === 'list'}
-                onClick={() => {
-                  zoomBy(ZOOM_STEP);
-                }}
-                data-testid="history-zoom-in"
-              >
-                <ZoomIn aria-hidden="true" className="size-4" />
-              </IconButton>
-              <IconButton
-                label={t('history.zoom.reset')}
-                size="sm"
-                onClick={resetView}
-                data-testid="history-zoom-reset"
-              >
-                <Maximize2 aria-hidden="true" className="size-4" />
-              </IconButton>
-            </div>
-
-            {/* 迷你地图开关（仅图模式渲染迷你地图） */}
-            <IconButton
-              label={minimapOpen ? t('history.minimap.close') : t('history.minimap.open')}
-              size="sm"
-              aria-pressed={minimapOpen}
-              disabled={viewMode === 'list'}
-              onClick={toggleMinimap}
-              data-testid="history-minimap-toggle"
-            >
-              <Map aria-hidden="true" className="size-4" />
-            </IconButton>
-
-            {/* 搜索导航：有关键词时提供"上一处 / 下一处"跳转（T2.3） */}
-            {keyword !== '' ? (
               <div
                 role="group"
-                aria-label={t('history.filter.searchNav')}
+                aria-label={t('history.mode.label')}
                 className="flex items-center gap-1"
-                data-testid="history-search-nav"
               >
-                <span
-                  className="min-w-14 text-center font-mono text-11 text-fg-subtle"
-                  data-testid="history-search-count"
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  aria-pressed={viewMode === 'graph'}
+                  className={viewMode === 'graph' ? 'bg-brand-subtle text-brand' : undefined}
+                  onClick={() => {
+                    setViewMode('graph');
+                  }}
+                  data-testid="history-mode-graph"
                 >
-                  {t('history.filter.matchCount', {
-                    current:
-                      matchOrder.indexOf(jumpOid ?? '') + 1 > 0
-                        ? matchOrder.indexOf(jumpOid ?? '') + 1
-                        : 0,
-                    total: matchOrder.length,
-                  })}
+                  <Network aria-hidden="true" className="size-3.5" />
+                  {t('history.mode.graph')}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  aria-pressed={viewMode === 'list'}
+                  className={viewMode === 'list' ? 'bg-brand-subtle text-brand' : undefined}
+                  onClick={() => {
+                    setViewMode('list');
+                  }}
+                  data-testid="history-mode-list"
+                >
+                  <List aria-hidden="true" className="size-3.5" />
+                  {t('history.mode.list')}
+                </Button>
+              </div>
+
+              {/* 缩放（仅图模式有意义；列表模式是定高表格，缩放对它无影响） */}
+              <div
+                role="group"
+                aria-label={t('history.zoom.label')}
+                className={cn(
+                  'flex items-center gap-1',
+                  viewMode === 'list' ? 'opacity-50' : undefined,
+                )}
+              >
+                <IconButton
+                  label={t('history.zoom.out')}
+                  size="sm"
+                  disabled={viewMode === 'list'}
+                  onClick={() => {
+                    zoomBy(1 / ZOOM_STEP);
+                  }}
+                  data-testid="history-zoom-out"
+                >
+                  <ZoomOut aria-hidden="true" className="size-4" />
+                </IconButton>
+                <span
+                  className="min-w-12 text-center font-mono text-12 text-fg-subtle"
+                  data-testid="history-zoom-level"
+                >
+                  {t('history.zoom.level', { percent: Math.round(scale * 100) })}
                 </span>
                 <IconButton
-                  label={t('history.filter.prevMatch')}
+                  label={t('history.zoom.in')}
                   size="sm"
-                  disabled={matchOrder.length === 0}
+                  disabled={viewMode === 'list'}
                   onClick={() => {
-                    jumpToMatch(-1);
+                    zoomBy(ZOOM_STEP);
                   }}
-                  data-testid="history-search-prev"
+                  data-testid="history-zoom-in"
                 >
-                  <ChevronUp aria-hidden="true" className="size-4" />
+                  <ZoomIn aria-hidden="true" className="size-4" />
                 </IconButton>
                 <IconButton
-                  label={t('history.filter.nextMatch')}
+                  label={t('history.zoom.reset')}
                   size="sm"
-                  disabled={matchOrder.length === 0}
-                  onClick={() => {
-                    jumpToMatch(1);
-                  }}
-                  data-testid="history-search-next"
+                  onClick={resetView}
+                  data-testid="history-zoom-reset"
                 >
-                  <ChevronDown aria-hidden="true" className="size-4" />
+                  <Maximize2 aria-hidden="true" className="size-4" />
                 </IconButton>
               </div>
-            ) : null}
 
-            {/* 筛选栏（T2.3）：关键词搜索 + 分支多选 / 作者 / 时间 / 开关 */}
-            <HistoryFilterBar
-              state={filterState}
-              onChange={applyFilters}
-              authors={authorsQuery.data ?? []}
-              branches={branchesQuery.data ?? []}
-            />
-
-            {/* dev 性能面板开关（生产构建里这个分支被静态替换掉） */}
-            {import.meta.env.DEV ? (
+              {/* 迷你地图开关（仅图模式渲染迷你地图） */}
               <IconButton
-                label={t('history.perf.toggle')}
+                label={minimapOpen ? t('history.minimap.close') : t('history.minimap.open')}
                 size="sm"
-                aria-pressed={perfEnabled}
-                onClick={togglePerf}
-                data-testid="history-perf-toggle"
+                aria-pressed={minimapOpen}
+                disabled={viewMode === 'list'}
+                onClick={toggleMinimap}
+                data-testid="history-minimap-toggle"
               >
-                <Activity aria-hidden="true" className="size-4" />
+                <Map aria-hidden="true" className="size-4" />
               </IconButton>
-            ) : null}
-          </div>
-        ) : null}
-      </header>
 
-      {/*
+              {/* 搜索导航：有关键词时提供"上一处 / 下一处"跳转（T2.3） */}
+              {keyword !== '' ? (
+                <div
+                  role="group"
+                  aria-label={t('history.filter.searchNav')}
+                  className="flex items-center gap-1"
+                  data-testid="history-search-nav"
+                >
+                  <span
+                    className="min-w-14 text-center font-mono text-11 text-fg-subtle"
+                    data-testid="history-search-count"
+                  >
+                    {t('history.filter.matchCount', {
+                      current:
+                        matchOrder.indexOf(jumpOid ?? '') + 1 > 0
+                          ? matchOrder.indexOf(jumpOid ?? '') + 1
+                          : 0,
+                      total: matchOrder.length,
+                    })}
+                  </span>
+                  <IconButton
+                    label={t('history.filter.prevMatch')}
+                    size="sm"
+                    disabled={matchOrder.length === 0}
+                    onClick={() => {
+                      jumpToMatch(-1);
+                    }}
+                    data-testid="history-search-prev"
+                  >
+                    <ChevronUp aria-hidden="true" className="size-4" />
+                  </IconButton>
+                  <IconButton
+                    label={t('history.filter.nextMatch')}
+                    size="sm"
+                    disabled={matchOrder.length === 0}
+                    onClick={() => {
+                      jumpToMatch(1);
+                    }}
+                    data-testid="history-search-next"
+                  >
+                    <ChevronDown aria-hidden="true" className="size-4" />
+                  </IconButton>
+                </div>
+              ) : null}
+
+              {/* 筛选栏（T2.3）：关键词搜索 + 分支多选 / 作者 / 时间 / 开关 */}
+              <HistoryFilterBar
+                state={filterState}
+                onChange={applyFilters}
+                authors={authorsQuery.data ?? []}
+                branches={branchesQuery.data ?? []}
+              />
+
+              {/* dev 性能面板开关（生产构建里这个分支被静态替换掉） */}
+              {import.meta.env.DEV ? (
+                <IconButton
+                  label={t('history.perf.toggle')}
+                  size="sm"
+                  aria-pressed={perfEnabled}
+                  onClick={togglePerf}
+                  data-testid="history-perf-toggle"
+                >
+                  <Activity aria-hidden="true" className="size-4" />
+                </IconButton>
+              ) : null}
+            </div>
+          ) : null}
+        </header>
+
+        {/*
         历史操作（T2.8）：拣选 / 反转 / 重置到选中提交，以及 reflog 恢复。
         动作作用于"当前选中的提交"（图上点选的那一个），因此放在历史页同屏。
       */}
-      <HistoryOpsPanel />
+        <HistoryOpsPanel />
+      </div>
 
       {body}
 

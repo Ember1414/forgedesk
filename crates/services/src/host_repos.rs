@@ -60,6 +60,10 @@ impl std::fmt::Debug for HostRepoService {
 }
 
 impl HostRepoService {
+    /// 账号服务与本服务共享 HTTP 传输层，代理变更从下一次请求起生效。
+    pub fn replace_http_transport(&self, configured: &GitHubHttp) {
+        self.http.replace_transport(configured);
+    }
     /// 用给定 HTTP 底座构造（限流捕获、代理与账号服务共享同一套）。
     pub fn new(database: Arc<Database>, credentials: SharedStore, http: GitHubHttp) -> Self {
         Self::with_factory(database, credentials, http.clone(), {

@@ -19,8 +19,11 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 # regex（T5.5 诊断规则引擎）：规则的 match.regex 需要；Apache-2.0/MIT 双许可。
 regex = "1"
-# yaml 解析（T5.5）：规则文件是 YAML；serde_yml 是 serde_yaml 的维护续作（Apache-2.0）。
-serde_yml = "0.0.12"
+# yaml 解析（T5.5）：规则文件是 YAML。
+# 用 serde_norway 而不是 serde_yml：后者被 RustSec 标记为 unsound + unmaintained
+# （RUSTSEC-2025-0068，无修复版本，官方建议迁移）；serde_norway 是 serde_yaml 的维护
+# fork，底层 unsafe-libyaml-norway 同样在维护（Apache-2.0/MIT）。
+serde_norway = "0.9"
 
 
 [dev-dependencies]

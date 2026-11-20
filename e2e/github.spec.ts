@@ -215,7 +215,9 @@ test('登录状态 → 仓库列表 → 打开 PR → 查看 diff → 行内评�
     (window.__githubCalls ?? []).filter((call) => call.command === 'repo_pull_list').at(-1),
   );
   expect(listCall).toMatchObject({
-    args: { host: 'github.com', owner: 'octo', repo: 'demo', stateFilter: 'open', page: 1 },
+    args: {
+      request: { host: 'github.com', owner: 'octo', repo: 'demo', stateFilter: 'open', page: 1 },
+    },
   });
 
   // 4) 打开详情：合并条件、评审结论、时间线评论都要能读到
@@ -254,14 +256,16 @@ test('登录状态 → 仓库列表 → 打开 PR → 查看 diff → 行内评�
   );
   expect(inlineCall).toMatchObject({
     args: {
-      host: 'github.com',
-      owner: 'octo',
-      repo: 'demo',
-      number: 7,
-      path: 'src/app.ts',
-      side: 'RIGHT',
-      line: 11,
-      body: '这行建议加注释',
+      request: {
+        host: 'github.com',
+        owner: 'octo',
+        repo: 'demo',
+        number: 7,
+        path: 'src/app.ts',
+        side: 'RIGHT',
+        line: 11,
+        body: '这行建议加注释',
+      },
     },
   });
 
@@ -286,7 +290,9 @@ test('登录状态 → 仓库列表 → 打开 PR → 查看 diff → 行内评�
       .filter((call) => call.command === 'repo_pull_review_submit')
       .at(-1),
   );
-  expect(reviewCall).toMatchObject({ args: { number: 7, event: 'APPROVE', body: 'LGTM' } });
+  expect(reviewCall).toMatchObject({
+    args: { request: { number: 7, event: 'APPROVE', body: 'LGTM' } },
+  });
 
   const errs = await page.evaluate(() => window.__errs ?? []);
   expect(errs, JSON.stringify(errs)).toEqual([]);

@@ -244,6 +244,8 @@ declare global {
     __forgedeskEditor?: {
       getModel?: () => {
         getFullModelRange: () => unknown;
+        getValue: () => string;
+        setValue: (value: string) => void;
         applyEdits: (edits: unknown) => void;
       } | null;
     };
@@ -253,6 +255,7 @@ declare global {
     __layoutSettings?: Record<string, string>;
     /** 编辑器 e2e：mock 记录的 fs_write 请求（T5.7）。 */
     __fsWrites?: readonly {
+      readonly repoId?: number;
       readonly path: string;
       readonly content: string;
       readonly eol: string;

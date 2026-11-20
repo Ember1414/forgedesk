@@ -41,7 +41,6 @@ import {
 import type { AmendContext, AmendMode, CommitPlan, CommitSignMode } from '@/lib/ipc/commit';
 import { workspaceStatus } from '@/lib/ipc/workspace';
 import { STATUS_QUERY_KEY, statusKey } from '@/lib/queryKeys';
-import { useRepoChangeInvalidation } from '@/lib/repoChanged';
 import { pushToast } from '@/stores/toastStore';
 import { Button } from '@/ui/components/button';
 import { Checkbox } from '@/ui/components/checkbox';
@@ -118,12 +117,6 @@ export function CommitPage() {
   // 用户在别处（状态面板、终端）暂存、改文件或提交之后，本页的"已暂存 N 个文件"
   // 与"最近提交提示"都要跟着变。通用类别由 `lib/repoChanged` 统一处理，
   // 风格提示与钩子清单是本页自己的查询，作为额外键交给它一并失效。
-  useRepoChangeInvalidation(repoId, {
-    extraKeys: [
-      [HINT_QUERY_KEY, repoId],
-      [HOOKS_QUERY_KEY, repoId],
-    ],
-  });
 
   const stagedCount = statusQuery.data ? countsOf(groupsOf(statusQuery.data)).staged : 0;
   const subjectChars = subject.trim().length;
@@ -197,6 +190,11 @@ export function CommitPage() {
         tone: 'success',
         title: t('commit.success', { subject: outcome.subject }),
       });
+      // 快照失败时明确告知"这次提交没有回滚点"。后端"失败不阻断"是有意为之
+      // （快照不可用不该拦住提交），但不能静默——用户可能正指望能回滚（红线 R7 的语义边界）。
+      if (outcome.snapshotId === null) {
+        pushToast({ tone: 'warning', title: t('commit.snapshotMissing') });
+      }
       setPreviewOpen(false);
       setPlan(null);
       setFailure(null);

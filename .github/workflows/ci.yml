@@ -299,7 +299,8 @@ jobs:
         platform:
           - ubuntu-22.04
           - windows-latest
-          - macos-14
+          # macos-14 的 runner 配置已下线；与发布流水线采用相同的受支持镜像。
+          - macos-latest
     runs-on: ${{ matrix.platform }}
     timeout-minutes: 45
     steps:

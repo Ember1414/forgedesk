@@ -24,6 +24,7 @@ import { initialToastState, useToastStore } from '@/stores/toastStore';
  * job:done 结束加载态。
  */
 vi.mock('@/lib/ipc', () => ({
+  cancelJob: vi.fn(async () => true),
   repoActionsRunsList: vi.fn(),
   repoActionsRunJobs: vi.fn(),
   repoActionsRunCancel: vi.fn(),
@@ -171,6 +172,21 @@ describe('GitHubActionsPage — 运行列表', () => {
 });
 
 describe('GitHubActionsPage — 日志流式加载', () => {
+  it('关闭并重新打开日志会话时不复用旧行，并取消之前的任务', async () => {
+    await openRun(10);
+    fireEvent.click(screen.getByTestId('actions-log-open-100'));
+    await waitFor(() => expect(logsMock).toHaveBeenCalled());
+    bus.chunks.forEach((handler) =>
+      handler({ jobId: 'job-stream-1', text: 'old-session-line\n', totalLines: 1 }),
+    );
+    expect(await screen.findByText('old-session-line')).toBeInTheDocument();
+    const dialog = screen.getByRole('dialog', { name: /日志/ });
+    fireEvent.keyDown(dialog, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByText('old-session-line')).not.toBeInTheDocument());
+    fireEvent.click(screen.getByTestId('actions-log-open-100'));
+    await waitFor(() => expect(logsMock).toHaveBeenCalledTimes(2));
+    expect(screen.queryByText('old-session-line')).not.toBeInTheDocument();
+  });
   it('分块事件按 jobId 过滤并拼成行，job:done 结束加载', async () => {
     await openRun(10);
     fireEvent.click(screen.getByTestId('actions-log-open-100'));
@@ -194,6 +210,22 @@ describe('GitHubActionsPage — 日志流式加载', () => {
     bus.done.forEach((handler) => handler({ jobId: 'job-stream-1' }));
     await waitFor(() =>
       expect(screen.getByTestId('actions-log-status')).toHaveTextContent('共 2 行'),
+    );
+  });
+
+  it('任务身份返回前已发出的日志与完成事件也能接收', async () => {
+    logsMock.mockImplementationOnce(async () => {
+      bus.chunks.forEach((handler) =>
+        handler({ jobId: 'fast-job', text: 'fast output\n', totalLines: 1 }),
+      );
+      bus.done.forEach((handler) => handler({ jobId: 'fast-job' }));
+      return { jobId: 'fast-job' };
+    });
+    await openRun(10);
+    fireEvent.click(screen.getByTestId('actions-log-open-100'));
+    expect(await screen.findByText('fast output')).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByTestId('actions-log-status')).toHaveTextContent('共 1 行'),
     );
   });
 

@@ -77,7 +77,7 @@ export function TitleBar() {
     if (updateQuery.isError) {
       return { text: t('titleBar.update.checkFailed'), tone: 'danger' as const };
     }
-    if (data === undefined) {
+    if (data == null) {
       return null;
     }
     if (!data.configured) {

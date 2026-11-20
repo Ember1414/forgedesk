@@ -56,6 +56,32 @@ describe('queryKeysForChange', () => {
 });
 
 describe('createRepoChangeInvalidator', () => {
+  it('后续文件事件不覆盖先前 refs 事件，所有路径都会失效', () => {
+    const client = createTestQueryClient();
+    const invalidate = vi.spyOn(client, 'invalidateQueries');
+    const invalidator = createRepoChangeInvalidator(client);
+    invalidator.invalidate(1, 'workspace', ['seed']);
+    invalidate.mockClear();
+    invalidator.invalidate(1, 'refs', ['a']);
+    invalidator.invalidate(1, 'workspace', ['b']);
+    vi.advanceTimersByTime(THROTTLE_MS);
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['log', 1] });
+    invalidator.dispose();
+  });
+  it('连续工作区事件合并路径而非只保留最后一份', () => {
+    const client = createTestQueryClient();
+    const invalidate = vi.spyOn(client, 'invalidateQueries');
+    const invalidator = createRepoChangeInvalidator(client);
+    invalidator.invalidate(1, 'workspace', []);
+    invalidate.mockClear();
+    invalidator.invalidate(1, 'workspace', ['a']);
+    invalidator.invalidate(1, 'workspace', ['b']);
+    vi.advanceTimersByTime(THROTTLE_MS);
+    const predicate = invalidate.mock.calls.find(([options]) => options?.predicate)?.[0]?.predicate;
+    expect(predicate?.({ queryKey: ['diff', 1, 'unstaged', 'a'] } as never)).toBe(true);
+    expect(predicate?.({ queryKey: ['diff', 1, 'unstaged', 'b'] } as never)).toBe(true);
+    invalidator.dispose();
+  });
   it('窗口外的变化立刻失效', () => {
     const queryClient = createTestQueryClient();
     const invalidate = vi.spyOn(queryClient, 'invalidateQueries');

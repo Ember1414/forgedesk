@@ -81,6 +81,7 @@ pub struct CliGitEngine {
     process: GitProcess,
     /// 每次 CLI 调用前置的 `-c key=value`（T6.8 代理注入；空 = 默认）。
     extra_config: parking_lot::RwLock<Vec<(String, String)>>,
+    proxy_bypass: parking_lot::RwLock<Option<String>>,
     bridge: super::BlockingBridge,
 }
 
@@ -109,6 +110,7 @@ impl CliGitEngine {
             process,
             bridge: super::BlockingBridge::new()?,
             extra_config: parking_lot::RwLock::new(Vec::new()),
+            proxy_bypass: parking_lot::RwLock::new(None),
         })
     }
 
@@ -125,6 +127,29 @@ impl CliGitEngine {
     /// 授权（parking_lot 写锁会等待在途调用结束），设置变更天然串行。
     pub fn set_extra_config(&self, config: Vec<(String, String)>) {
         *self.extra_config.write() = config;
+    }
+
+    /// 覆盖当前调用的 NO_PROXY；None 保留系统环境，空串禁用系统绕过项。
+    pub fn set_proxy_bypass(&self, exclusions: Option<String>) {
+        *self.proxy_bypass.write() = exclusions;
+    }
+
+    fn configured_args(&self, args: &[String]) -> Vec<String> {
+        let mut configured: Vec<String> = self
+            .extra_config
+            .read()
+            .iter()
+            .flat_map(|(key, value)| ["-c".to_owned(), format!("{key}={value}")])
+            .collect();
+        configured.extend_from_slice(args);
+        configured
+    }
+
+    fn configured_environment(&self, opts: GitRunOpts) -> GitRunOpts {
+        match self.proxy_bypass.read().as_ref() {
+            Some(value) => opts.with_env("NO_PROXY", value).with_env("no_proxy", value),
+            None => opts,
+        }
     }
 
     /// 系统 git 的版本（`git --version`）。
@@ -313,9 +338,10 @@ impl CliGitEngine {
         if let Some(program) = &auth.askpass_program {
             opts = opts.with_askpass(program.clone());
         }
-        let output = self
-            .bridge
-            .block_on(self.process.run(&invocation.args, opts))??;
+        let output = self.bridge.block_on(self.process.run(
+            &self.configured_args(&invocation.args),
+            self.configured_environment(opts),
+        ))??;
         Ok(output)
     }
 
@@ -345,7 +371,10 @@ impl CliGitEngine {
         // `--` 把 URL 与选项隔开：远端 URL 来自用户输入，不加分隔符时
         // 一个 `--upload-pack=...` 形状的"URL"会被 git 当成选项执行
         let args = vec!["ls-remote".to_owned(), "--".to_owned(), url.to_owned()];
-        let output = self.bridge.block_on(self.process.run(&args, opts))??;
+        let args = self.configured_args(&args);
+        let output = self
+            .bridge
+            .block_on(self.process.run(&args, self.configured_environment(opts)))??;
 
         if !output.success() {
             // 按 stderr 分类：SSH 主机指纹 / 公钥被拒 / 证书 / 代理各自成码（T2.7）
@@ -422,14 +451,10 @@ impl CliGitEngine {
 
         // T6.8：全局 `-c` 配置（如 http.proxy）前置到参数数组最前——
         // `git -c k=v <子命令>` 与配置文件等价，但不落盘、不污染用户配置。
-        let extra = self.extra_config.read().clone();
-        let mut args: Vec<String> = extra
-            .iter()
-            .flat_map(|(key, value)| ["-c".to_owned(), format!("{key}={value}")])
-            .collect();
-        args.extend(invocation.args.iter().cloned());
-
-        self.bridge.block_on(self.process.run(&args, opts))?
+        self.bridge.block_on(self.process.run(
+            &self.configured_args(&invocation.args),
+            self.configured_environment(opts),
+        ))?
     }
 }
 
@@ -813,9 +838,39 @@ impl GitEngine for CliGitEngine {
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
-    use super::{truncate, RunKind};
-    use crate::process::GitOutput;
+    use super::{args, truncate, CliGitEngine, RunKind};
+    use crate::engine::ProgressSink;
+    use crate::process::{GitOutput, NetworkAuth};
     use std::time::Duration;
+
+    #[test]
+    fn network_and_local_invocations_both_receive_the_proxy_configuration() {
+        let engine = CliGitEngine::new().unwrap();
+        let proxy = "http://127.0.0.1:9";
+        engine.set_extra_config(vec![("http.proxy".to_owned(), proxy.to_owned())]);
+        let invocation = || {
+            args::GitInvocation::new(vec![
+                "config".to_owned(),
+                "--get".to_owned(),
+                "http.proxy".to_owned(),
+            ])
+        };
+        let cwd = std::env::temp_dir();
+        let local = engine.run_at(&cwd, invocation(), RunKind::Read).unwrap();
+        let network = engine
+            .run_network_raw(
+                &cwd,
+                invocation(),
+                &ProgressSink::none(),
+                &tokio_util::sync::CancellationToken::new(),
+                &NetworkAuth::default(),
+            )
+            .unwrap();
+        for output in [local, network] {
+            assert!(output.success());
+            assert_eq!(output.stdout_lossy().trim(), proxy);
+        }
+    }
 
     #[test]
     fn only_write_commands_are_allowed_to_take_optional_locks() {

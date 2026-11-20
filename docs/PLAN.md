@@ -5,6 +5,13 @@
 > 状态：待评审
 > 文档性质：面向人类维护者 + AI 编码代理的可执行工程计划
 > 适用对象：项目负责人、架构师、前端/后端/Rust 工程师、AI 编码代理（Coding Agent）
+>
+> **修订说明（2026-10-09）**：本计划书是立项基线，正文（尤其 §7 里程碑与 §15.4 验收清单）
+> 保持原文不改；执行中的范围修订一律记录在对应文档，**阅读时以修订文档为准**：
+> ① 官网与更新清单托管：GitHub Pages → **Cloudflare Pages**（[`adr/ADR-003`](./adr/ADR-003-cloudflare-instead-of-github-pages.md)）；
+> ② 平台范围：Linux 打包暂缓（[`adr/ADR-005`](./adr/ADR-005-defer-cross-platform-verification.md)）；
+> ③ M8 的执行细目与既有豁免（Flathub/Snap/AUR 等）归并到 [`acceptance/M8.md`](./acceptance/M8.md)，
+> 验收结论见 [`acceptance/M8.md`](./acceptance/M8.md)。
 
 ---
 

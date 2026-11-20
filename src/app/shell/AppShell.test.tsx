@@ -1,3 +1,4 @@
+import { useLayoutStore, initialLayoutState } from '@/stores/layoutStore';
 import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -38,6 +39,7 @@ beforeEach(() => {
   window.localStorage.clear();
   document.documentElement.removeAttribute('data-theme');
   useUiStore.setState(initialUiState);
+  useLayoutStore.setState(initialLayoutState);
   vi.mocked(repoRecentList).mockResolvedValue([RECENT_REPO]);
 });
 
@@ -47,6 +49,7 @@ afterEach(() => {
   // （表现为一串 "not wrapped in act" 警告），噪音会掩盖真正的失败。
   cleanup();
   useUiStore.setState(initialUiState);
+  useLayoutStore.setState(initialLayoutState);
 });
 
 /**
@@ -204,11 +207,11 @@ describe('详情面板位置', () => {
 
     // ToggleGroup 的单选项是 radio 语义（radigroup + radio），不是 button
     fireEvent.click(screen.getByRole('radio', { name: '底部' }));
-    expect(useUiStore.getState().detailPanel).toBe('bottom');
+    expect(useLayoutStore.getState().layout.detailPanel).toBe('bottom');
     expect(panel()).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('radio', { name: '隐藏' }));
-    expect(useUiStore.getState().detailPanel).toBe('hidden');
+    expect(useLayoutStore.getState().layout.detailPanel).toBe('hidden');
     expect(panel()).not.toBeInTheDocument();
   });
 });

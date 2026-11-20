@@ -1,10 +1,11 @@
 # ForgeDesk 用户手册
 
-本手册面向使用者，覆盖 M0–M6 已实现的功能。每个页面都只描述**已经能用**的东西，
-不把"计划做的"写成"已经有的"。
+本手册面向使用者，覆盖当前已交付的功能（M0–M8 的全部用户可见能力）。
+每个页面都只描述**已经能用**的东西，不把"计划做的"写成"已经有的"。
 
 > 遇到问题先看 [`../FAQ.md`](../FAQ.md) 与 [`../TROUBLESHOOTING.md`](../TROUBLESHOOTING.md)；
-> 安装见 [`../install/windows.md`](../install/windows.md)。
+> 安装见 [`../install/windows.md`](../install/windows.md)（Windows）与
+> [`../install/macos.md`](../install/macos.md)（macOS）。
 
 ## 阅读路径
 

@@ -11,21 +11,15 @@ import { create } from 'zustand';
 import { applyThemeMode, readThemeMode, writeThemeMode } from '@/app/theme';
 import type { ThemeMode } from '@/app/theme';
 
-/** 详情面板位置：右侧 / 底部 / 隐藏（repo 相关页面共用）。 */
-export const DETAIL_PANEL_POSITIONS = ['right', 'bottom', 'hidden'] as const;
-export type DetailPanelPosition = (typeof DETAIL_PANEL_POSITIONS)[number];
-
 export interface UiState {
   /** 用户手工折叠的侧栏（与"窗口过窄"导致的自动折叠相互独立）。 */
   readonly sidebarCollapsed: boolean;
-  readonly detailPanel: DetailPanelPosition;
   readonly themeMode: ThemeMode;
   /** 当前打开的仓库 id；null 表示未打开任何仓库。 */
   readonly currentRepoId: string | null;
 
   toggleSidebar(): void;
   setSidebarCollapsed(collapsed: boolean): void;
-  setDetailPanel(position: DetailPanelPosition): void;
   setThemeMode(mode: ThemeMode): void;
   setCurrentRepoId(repoId: string | null): void;
 }
@@ -38,10 +32,9 @@ export interface UiState {
  */
 export const initialUiState = {
   sidebarCollapsed: false,
-  detailPanel: 'right' as DetailPanelPosition,
   themeMode: readThemeMode(),
   currentRepoId: null,
-} satisfies Pick<UiState, 'sidebarCollapsed' | 'detailPanel' | 'themeMode' | 'currentRepoId'>;
+} satisfies Pick<UiState, 'sidebarCollapsed' | 'themeMode' | 'currentRepoId'>;
 
 export const useUiStore = create<UiState>()((set) => ({
   ...initialUiState,
@@ -51,9 +44,6 @@ export const useUiStore = create<UiState>()((set) => ({
   },
   setSidebarCollapsed: (collapsed) => {
     set({ sidebarCollapsed: collapsed });
-  },
-  setDetailPanel: (position) => {
-    set({ detailPanel: position });
   },
   setThemeMode: (mode) => {
     // 先落盘与写 DOM，再更新 store：这样即使 React 尚未渲染，界面主题也已生效

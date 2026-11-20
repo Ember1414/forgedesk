@@ -23,6 +23,7 @@
     <link rel="stylesheet" href="/assets.css" />
   </head>
   <body data-page="download">
+    <a class="skip-link" href="#main-content">跳到正文</a>
     <header class="site-nav">
       <a class="brand" href="index.html">
         <span class="mark" aria-hidden="true">
@@ -51,7 +52,7 @@
       </a>
     </header>
 
-    <main class="page">
+    <main class="page" id="main-content" tabindex="-1">
       <h1>下载与校验</h1>
 
       <!-- 推荐入口：与首页同一套按钮（app.js 按平台识别渲染），
@@ -59,8 +60,8 @@
       <div class="dl-hero">
         <span class="status" id="status">状态：尚无可用版本</span>
         <p class="dl-lead">
-          下载后请按下方命令核对 SHA256——这一步能挡住传输损坏与中间人换包。
-          没有可用版本时这里不会给出任何下载入口。
+          选择 Windows 安装器、便携版或 macOS 磁盘映像，下载后核对 SHA256；
+          要验证发布者签名，请继续查看 GPG 验证步骤。
         </p>
         <div class="actions">
           <div id="download-cta" style="display: contents"></div>
@@ -73,6 +74,13 @@
         </ul>
       </div>
 
+      <noscript
+        ><p>
+          请直接访问
+          <a href="https://github.com/Ember1414/forgedesk/releases/latest">GitHub 最新版本</a>
+          下载，平台选择需要 JavaScript。
+        </p></noscript
+      >
       <section class="section-card">
         <h2>版本矩阵</h2>
         <p class="note" id="matrix-note" hidden>
@@ -88,7 +96,7 @@
         <div class="table-wrap" id="matrix-wrap" hidden></div>
       </section>
 
-      <section class="section-card">
+      <section class="section-card" id="verification">
         <div class="section-head">
           <h2>校验下载（三平台命令）</h2>
         </div>
@@ -104,12 +112,12 @@
         </div>
 
         <h3>macOS（终端）</h3>
-        <pre><code id="cmd-macos">shasum -a 256 ForgeDesk_&lt;版本&gt;_macos_aarch64.dmg</code></pre>
+        <pre><code id="cmd-macos">shasum -a 256 ForgeDesk_&lt;版本&gt;_macos_universal.dmg</code></pre>
         <div class="copy-row">
           <button type="button" class="copy" data-copy-target="#cmd-macos">复制</button>
         </div>
 
-        <h3>Linux（终端）</h3>
+        <h3>Linux（终端；官方产物暂缓，命令供自构建校验）</h3>
         <pre><code id="cmd-linux">sha256sum ForgeDesk_&lt;版本&gt;_linux_amd64.AppImage</code></pre>
         <div class="copy-row">
           <button type="button" class="copy" data-copy-target="#cmd-linux">复制</button>

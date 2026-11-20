@@ -11,11 +11,13 @@ import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useQueryClient } from '@tanstack/react-query';
 
+import { useAppError } from '@/lib/errors';
 import { gitFetch } from '@/lib/ipc/sync';
 import { workspaceStatus } from '@/lib/ipc/workspace';
 import { STATUS_QUERY_KEY } from '@/lib/queryKeys';
 import { openLogViewer } from '@/stores/logViewerStore';
 import { useUiStore } from '@/stores/uiStore';
+import { useLayoutStore } from '@/stores/layoutStore';
 import { useCommandRegistry } from '@/features/commands/commandRegistry';
 import type { RegisteredCommand } from '@/features/commands/commandRegistry';
 
@@ -54,11 +56,12 @@ function nav(
 /** 组装全部命令（AppShell 与命令面板共用）。 */
 export function useCommandDefinitions(): readonly RegisteredCommand[] {
   const { t } = useTranslation('shell');
+  const { show } = useAppError();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const setThemeMode = useUiStore((state) => state.setThemeMode);
   const toggleSidebar = useUiStore((state) => state.toggleSidebar);
-  const setDetailPanel = useUiStore((state) => state.setDetailPanel);
+  const setDetailPanel = useLayoutStore((state) => state.setDetailPanel);
 
   const repoScope = useCallback(() => useUiStore.getState().currentRepoId, []);
 
@@ -67,9 +70,11 @@ export function useCommandDefinitions(): readonly RegisteredCommand[] {
     if (repoId === null) {
       return;
     }
-    await workspaceStatus(Number(repoId), false).catch(() => {});
+    // 失败必须可见：命令面板的动作没有别处报告结果，静默吞错会表现成"点了没反应"
+    // （这正是本项目最忌讳的交互形态）。
+    await workspaceStatus(Number(repoId), false).catch(show);
     void queryClient.invalidateQueries({ queryKey: [STATUS_QUERY_KEY, Number(repoId)] });
-  }, [queryClient, repoScope]);
+  }, [queryClient, repoScope, show]);
 
   return useMemo(() => {
     const commands: RegisteredCommand[] = [
@@ -158,7 +163,8 @@ export function useCommandDefinitions(): readonly RegisteredCommand[] {
         run: () => {
           const repoId = repoScope();
           if (repoId !== null) {
-            void gitFetch(Number(repoId), {}).catch(() => {});
+            // 与「刷新状态」同一取舍：拉取失败要弹错误，否则用户以为在拉却什么都没发生
+            void gitFetch(Number(repoId), {}).catch(show);
           }
         },
       },
@@ -353,6 +359,7 @@ export function useCommandDefinitions(): readonly RegisteredCommand[] {
     repoScope,
     setDetailPanel,
     setThemeMode,
+    show,
     t,
     toggleSidebar,
   ]);

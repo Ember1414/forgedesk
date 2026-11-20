@@ -52,7 +52,8 @@
 - **Unicode NFD**：APFS/HFS+ 以 NFD 保存文件名，程序内部通常写 NFC。
   一切路径比较必须先 NFC 归一化（`PathNormalizer::macos()` 已内置），
   否则"同一个文件"会静默比较失败。
-- **Gatekeeper 隔离**：未公证构建首次打开需右键 → 打开（M8 首启引导负责检测与指引）。
+- **Gatekeeper 隔离**：未公证构建首次打开需右键 → 打开（已由应用内首启引导
+  `FirstRunTrustHint` 说明原因并给出校验入口，见 [`install/macos.md`](./install/macos.md)）。
 - **开机自启**：LaunchAgent plist（`RunAtLoad`）。签名/沙盒变化后路径不变，
   不需要额外权限。
 

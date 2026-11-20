@@ -96,6 +96,7 @@ async function loadPage(file, routes, { path = '/', userAgent } = {}) {
     if (route === undefined) {
       return Promise.resolve({ ok: false, status: 404, headers: { get: () => null } });
     }
+    if (route.error) return Promise.reject(new Error(route.error));
     const contentType =
       route.contentType ?? (route.json !== undefined ? 'application/json' : 'text/plain');
     return Promise.resolve({
@@ -543,8 +544,9 @@ console.log('状态 6：macOS 用户（universal 清单）');
   const cta = dom.window.document.getElementById('download-cta');
   const ctaLink = cta.querySelector('a.btn.primary');
   assert(
-    ctaLink !== null && ctaLink.getAttribute('href') === macManifest.platforms[macTarget].url,
-    'macOS 用户的主按钮指向清单里的 universal 更新包',
+    ctaLink !== null &&
+      ctaLink.getAttribute('href').endsWith(`ForgeDesk_${version}_macos_universal.dmg`),
+    'macOS 手动下载按钮指向 dmg，不能把自动更新包当作安装入口',
   );
   assert(cta.textContent.includes('下载 macOS 版'), '按钮文案标明平台（不是笼统的"下载"）');
   assert(
@@ -574,6 +576,58 @@ console.log('状态 6：macOS 用户（universal 清单）');
     '.dmg 行按命名约定（ForgeDesk_<版本>_macos_universal.dmg）拼出下载地址',
   );
   downloadDom.window.close();
+}
+
+console.log('状态 7：单个平台网络失败不阻断其他平台下载');
+{
+  const dom = await loadPage(
+    'index.html',
+    {
+      [MANIFEST_URL]: { json: manifest },
+      '/updates/stable/darwin-aarch64.json': { error: 'temporary network failure' },
+    },
+    { userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
+  );
+  assert(
+    dom.window.document.getElementById('status').textContent.includes(`v${version}`),
+    '可选平台请求失败后仍展示 Windows 发布版本',
+  );
+  assert(artifactLinks(dom.window.document).length > 0, '保留可用平台的下载按钮');
+  dom.window.close();
+}
+
+console.log('状态 8：不同版本的平台清单不混合生成下载地址');
+{
+  const newer = '99.0.0';
+  const dom = await loadPage(
+    'download.html',
+    {
+      [MANIFEST_URL]: { json: manifest },
+      '/updates/stable/darwin-aarch64.json': {
+        json: {
+          version: newer,
+          platforms: {
+            'darwin-aarch64': {
+              url: `https://github.com/Ember1414/forgedesk/releases/download/v${newer}/ForgeDesk_${newer}_macos_universal.app.tar.gz`,
+            },
+          },
+        },
+      },
+      [CHECKSUMS_URL]: { text: checksums },
+    },
+    { path: '/download.html' },
+  );
+  const document = dom.window.document;
+  assert(
+    document.getElementById('status').textContent.includes(`v${newer}`),
+    '选择最新的完整版本身份',
+  );
+  assert(
+    artifactLinks(document).every((link) => link.href.includes(`/v${newer}/`)),
+    '每个下载地址与展示版本一致，不用新版本号拼旧平台包',
+  );
+  assert(document.getElementById('checksums').hidden, '旧版本校验和不能展示为新版本校验和');
+  dom.window.close();
 }
 
 rmSync(work, { recursive: true, force: true });
