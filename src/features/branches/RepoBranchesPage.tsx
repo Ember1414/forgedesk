@@ -30,7 +30,6 @@ import { useTranslation } from 'react-i18next';
 import { useParams } from 'react-router-dom';
 
 import { useAppError } from '@/lib/errors';
-import { useRepoChangeInvalidation } from '@/lib/repoChanged';
 import {
   gitBranchCompare,
   gitBranchCreate,
@@ -74,7 +73,6 @@ export function RepoBranchesPageInner() {
   const repoId = Number(params.repoId);
   const queryClient = useQueryClient();
   const { show } = useAppError();
-  useRepoChangeInvalidation(repoId);
 
   const [filter, setFilter] = useState('');
   const [createOpen, setCreateOpen] = useState(false);

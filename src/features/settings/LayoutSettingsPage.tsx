@@ -7,7 +7,6 @@
  */
 import { useEffect, useState } from 'react';
 
-import { useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 
 import { pushToast } from '@/stores/toastStore';
@@ -33,25 +32,25 @@ export function LayoutSettingsPage() {
   const setTreeWidth = useLayoutStore((state) => state.setTreeWidth);
   const resetToDefault = useLayoutStore((state) => state.resetToDefault);
   const hydrate = useLayoutStore((state) => state.hydrate);
-  const queryClient = useQueryClient();
   const [exported, setExported] = useState(false);
 
   // 载入持久化值（损坏 → toast 一次性提示）
   useEffect(() => {
-    void settingsGet('global', LAYOUT_KEY).then((raw) => {
-      hydrate(raw ?? undefined);
-      if (corrupted) {
-        pushToast({ tone: 'warning', title: t('settings.layout.corruptedToast') });
-        markCorruptionHandled();
-      }
-    });
+    void settingsGet('global', LAYOUT_KEY)
+      .then((raw) => {
+        hydrate(raw ?? undefined);
+        if (useLayoutStore.getState().corrupted) {
+          pushToast({ tone: 'warning', title: t('settings.layout.corruptedToast') });
+          markCorruptionHandled();
+        }
+      })
+      .catch(() => undefined);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const persist = async (next: LayoutState) => {
     await settingsSet('global', LAYOUT_KEY, JSON.stringify(next));
     hydrate(JSON.stringify(next));
-    void queryClient.invalidateQueries();
   };
 
   return (
@@ -70,7 +69,6 @@ export function LayoutSettingsPage() {
             const preset = LAYOUT_PRESETS.find((name) => name === value);
             if (preset !== undefined) {
               setPreset(preset);
-              void persist({ ...layout, preset });
             }
           }}
           options={LAYOUT_PRESETS.map((preset) => ({

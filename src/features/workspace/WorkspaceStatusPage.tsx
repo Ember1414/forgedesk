@@ -11,7 +11,7 @@
 //! 3. **大数据量**：列表统一走 VirtualList（树视图展开为"目录行+文件行"序列），
 //!    基准数据见 docs/benchmarks/status-panel.md。
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Copy, FolderOpen, Minus, Plus, RefreshCw, RotateCcw, Rows3, History } from 'lucide-react';
@@ -76,7 +76,8 @@ import {
 import type { DiscardScope, PatchViewSpec, StageScope } from '@/lib/ipc/workspace';
 import { normalizeError, useAppError } from '@/lib/errors';
 import { cn } from '@/lib/utils';
-import { useRepoChangeInvalidation } from '@/lib/repoChanged';
+import { onRepoChanged } from '@/lib/ipc/workspace';
+import { isTauriRuntime } from '@/lib/ipc';
 import { useSettingsStore, WATCH_AUTO_REFRESH_KEY } from '@/stores/settingsStore';
 
 /** TanStack Query 的 key 约定（定义在 `@/lib/queryKeys`，各页面从那里引用）。 */
@@ -362,11 +363,23 @@ export function WorkspaceStatusPage() {
     // 监听开着时由事件驱动刷新（T1.10）；关掉开关才退回定时轮询
     ...(autoRefresh ? {} : { refetchInterval: STATUS_FALLBACK_REFRESH_MS }),
   });
-  useRepoChangeInvalidation(repoId, {
-    onLargeChange: () => {
-      setLargeChange(true);
-    },
-  });
+  useEffect(() => {
+    if (!isTauriRuntime()) return;
+    let disposed = false;
+    let stop: (() => void) | undefined;
+    void onRepoChanged((event) => {
+      if (event.repoId === repoId && event.kind === 'large') setLargeChange(true);
+    })
+      .then((fn) => {
+        if (disposed) fn();
+        else stop = fn;
+      })
+      .catch(() => undefined);
+    return () => {
+      disposed = true;
+      stop?.();
+    };
+  }, [repoId]);
 
   const groups = query.data ? groupsOf(query.data) : undefined;
   const counts = groups ? countsOf(groups) : undefined;

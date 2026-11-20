@@ -19,6 +19,8 @@ import { isTauriRuntime, settingsSet } from '@/lib/ipc';
 /** 布局预设名。 */
 export const LAYOUT_PRESETS = ['default', 'review', 'editor'] as const;
 export type LayoutPreset = (typeof LAYOUT_PRESETS)[number];
+export const DETAIL_PANEL_POSITIONS = ['right', 'bottom', 'hidden'] as const;
+export type DetailPanelPosition = (typeof DETAIL_PANEL_POSITIONS)[number];
 
 /** 布局快照（持久化形状）。 */
 export interface LayoutState {
@@ -95,7 +97,9 @@ export function parseLayout(raw: string | undefined): {
     // 旧版布局 JSON 没有 detailSize：缺省即 null（跟随默认），不算损坏
     const detailSizeRaw = source['detailSize'];
     const detailSize =
-      typeof detailSizeRaw === 'number' ? clampDetailSize(detailSizeRaw, 'horizontal') : null;
+      typeof detailSizeRaw === 'number'
+        ? clampDetailSize(detailSizeRaw, detailPanel === 'bottom' ? 'vertical' : 'horizontal')
+        : null;
     return { layout: { preset, treeWidth, detailPanel, detailSize }, error: null };
   } catch (error) {
     return {
@@ -113,6 +117,7 @@ export interface LayoutStoreState {
   readonly corrupted: boolean;
   setLayout(layout: LayoutState): void;
   setPreset(preset: LayoutPreset): void;
+  setDetailPanel(position: DetailPanelPosition): void;
   setTreeWidth(width: number): void;
   /** 拖拽详情面板后记录尺寸（orientation 决定钳制边界）。 */
   setDetailSize(size: number, orientation: 'horizontal' | 'vertical'): void;
@@ -135,7 +140,17 @@ export const useLayoutStore = create<LayoutStoreState>()((set) => ({
   },
 
   setPreset: (preset) => {
-    set((state) => ({ layout: { ...state.layout, preset } }));
+    set({
+      layout: {
+        ...DEFAULT_LAYOUT,
+        preset,
+        ...(preset === 'review' ? { detailPanel: 'bottom' as const, detailSize: 240 } : {}),
+        ...(preset === 'editor' ? { detailPanel: 'hidden' as const, treeWidth: 224 } : {}),
+      },
+    });
+  },
+  setDetailPanel: (detailPanel) => {
+    set((state) => ({ layout: { ...state.layout, detailPanel, detailSize: null } }));
   },
 
   setTreeWidth: (width) => {

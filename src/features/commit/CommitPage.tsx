@@ -41,7 +41,6 @@ import {
 import type { AmendContext, AmendMode, CommitPlan, CommitSignMode } from '@/lib/ipc/commit';
 import { workspaceStatus } from '@/lib/ipc/workspace';
 import { STATUS_QUERY_KEY, statusKey } from '@/lib/queryKeys';
-import { useRepoChangeInvalidation } from '@/lib/repoChanged';
 import { pushToast } from '@/stores/toastStore';
 import { Button } from '@/ui/components/button';
 import { Checkbox } from '@/ui/components/checkbox';
@@ -118,12 +117,6 @@ export function CommitPage() {
   // 用户在别处（状态面板、终端）暂存、改文件或提交之后，本页的"已暂存 N 个文件"
   // 与"最近提交提示"都要跟着变。通用类别由 `lib/repoChanged` 统一处理，
   // 风格提示与钩子清单是本页自己的查询，作为额外键交给它一并失效。
-  useRepoChangeInvalidation(repoId, {
-    extraKeys: [
-      [HINT_QUERY_KEY, repoId],
-      [HOOKS_QUERY_KEY, repoId],
-    ],
-  });
 
   const stagedCount = statusQuery.data ? countsOf(groupsOf(statusQuery.data)).staged : 0;
   const subjectChars = subject.trim().length;

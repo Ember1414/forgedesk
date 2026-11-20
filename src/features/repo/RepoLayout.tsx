@@ -1,13 +1,16 @@
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { NavLink, Outlet, useParams } from 'react-router-dom';
 
-import { DETAIL_PANEL_POSITIONS, useUiStore } from '@/stores/uiStore';
-import type { DetailPanelPosition } from '@/stores/uiStore';
+import {
+  DETAIL_PANEL_POSITIONS,
+  useLayoutStore,
+  type DetailPanelPosition,
+} from '@/stores/layoutStore';
 import {
   DETAIL_DEFAULT_HEIGHT,
   DETAIL_DEFAULT_WIDTH,
   DETAIL_SIZE_LIMITS,
-  useLayoutStore,
 } from '@/stores/layoutStore';
 import { useRepoById } from '@/features/repo/recentRepos';
 import { BranchSwitcher } from '@/features/branches/BranchSwitcher';
@@ -17,6 +20,8 @@ import { CommitDetailPanel } from '@/features/history/CommitDetailPanel';
 import { Resizable } from '@/ui/components/resizable';
 import { ToggleGroup } from '@/ui/components/toggle-group';
 import { cn } from '@/lib/utils';
+import { useRepoChangeInvalidation } from '@/lib/repoChanged';
+import { useUiStore } from '@/stores/uiStore';
 
 /**
  * 仓库级页面的公共外壳：仓库标题 + 仓库内标签导航 + 详情面板 + 子路由出口。
@@ -26,7 +31,7 @@ import { cn } from '@/lib/utils';
  *   而不是侧栏的五个平级项——它们共享同一个仓库上下文，标签形态能明确表达
  *   "我在同一个仓库里换视角"，而侧栏表达的是"换一个完全不同的区域"。
  *
- * 详情面板位置由 uiStore 控制（右侧 / 底部 / 隐藏），
+ * 详情面板位置由 layoutStore 控制（右侧 / 底部 / 隐藏），
  * 让"看变更的同时能看 diff""终端要占满宽度"这类不同工作方式可以各取所需。
  */
 const REPO_TABS = [
@@ -45,8 +50,28 @@ const REPO_TABS = [
 export function RepoLayout() {
   const { t } = useTranslation('shell');
   const { repoId } = useParams();
-  const detailPanel = useUiStore((state) => state.detailPanel);
-  const setDetailPanel = useUiStore((state) => state.setDetailPanel);
+  useEffect(() => {
+    if (repoId) useUiStore.getState().setCurrentRepoId(repoId);
+  }, [repoId]);
+  useRepoChangeInvalidation(Number(repoId));
+  const contentRef = useRef<HTMLDivElement>(null);
+  const [available, setAvailable] = useState({ width: 1024, height: 600 });
+  useEffect(() => {
+    const element = contentRef.current;
+    if (!element) return;
+    const observer = new ResizeObserver(([entry]) => {
+      if (entry)
+        setAvailable((previous) =>
+          previous.width === entry.contentRect.width && previous.height === entry.contentRect.height
+            ? previous
+            : { width: entry.contentRect.width, height: entry.contentRect.height },
+        );
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+  const detailPanel = useLayoutStore((state) => state.layout.detailPanel);
+  const setDetailPanel = useLayoutStore((state) => state.setDetailPanel);
   // 拖拽尺寸（T5.10 布局持久化的延续）：null = 用户没拖过，用位置各自的默认
   const detailSize = useLayoutStore((state) => state.layout.detailSize);
   const setDetailSize = useLayoutStore((state) => state.setDetailSize);
@@ -56,10 +81,19 @@ export function RepoLayout() {
 
   const isBottom = detailPanel === 'bottom';
   const limits = isBottom ? DETAIL_SIZE_LIMITS.vertical : DETAIL_SIZE_LIMITS.horizontal;
-  const panelSize = detailSize ?? (isBottom ? DETAIL_DEFAULT_HEIGHT : DETAIL_DEFAULT_WIDTH);
+  const maxPanelSize = Math.min(
+    limits.max,
+    isBottom
+      ? Math.max(limits.min, available.height - 240)
+      : Math.max(limits.min, available.width - 560),
+  );
+  const panelSize = Math.min(
+    maxPanelSize,
+    detailSize ?? (isBottom ? DETAIL_DEFAULT_HEIGHT : DETAIL_DEFAULT_WIDTH),
+  );
 
   return (
-    <section className="flex h-full flex-col gap-3">
+    <section className="flex h-full min-h-0 flex-col gap-3">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div className="flex min-w-0 flex-col gap-1.5">
           <div className="flex flex-wrap items-baseline gap-2">
@@ -111,7 +145,10 @@ export function RepoLayout() {
       <MergeBanner />
       <SyncBar />
 
-      <div className={cn('flex min-h-0 flex-1', isBottom ? 'flex-col gap-3' : 'flex-row gap-3')}>
+      <div
+        ref={contentRef}
+        className={cn('flex min-h-0 flex-1', isBottom ? 'flex-col gap-3' : 'flex-row gap-3')}
+      >
         <div className="min-h-0 min-w-0 flex-1 overflow-auto">
           <Outlet />
         </div>
@@ -127,7 +164,7 @@ export function RepoLayout() {
             orientation={isBottom ? 'vertical' : 'horizontal'}
             size={panelSize}
             minSize={limits.min}
-            maxSize={limits.max}
+            maxSize={maxPanelSize}
             onSizeChange={(next) => {
               setDetailSize(next, isBottom ? 'vertical' : 'horizontal');
             }}

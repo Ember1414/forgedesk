@@ -17,6 +17,7 @@ import { workspaceStatus } from '@/lib/ipc/workspace';
 import { STATUS_QUERY_KEY } from '@/lib/queryKeys';
 import { openLogViewer } from '@/stores/logViewerStore';
 import { useUiStore } from '@/stores/uiStore';
+import { useLayoutStore } from '@/stores/layoutStore';
 import { useCommandRegistry } from '@/features/commands/commandRegistry';
 import type { RegisteredCommand } from '@/features/commands/commandRegistry';
 
@@ -60,7 +61,7 @@ export function useCommandDefinitions(): readonly RegisteredCommand[] {
   const queryClient = useQueryClient();
   const setThemeMode = useUiStore((state) => state.setThemeMode);
   const toggleSidebar = useUiStore((state) => state.toggleSidebar);
-  const setDetailPanel = useUiStore((state) => state.setDetailPanel);
+  const setDetailPanel = useLayoutStore((state) => state.setDetailPanel);
 
   const repoScope = useCallback(() => useUiStore.getState().currentRepoId, []);
 

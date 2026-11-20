@@ -37,7 +37,6 @@ import {
   SNAPSHOTS_QUERY_KEY,
   STATUS_QUERY_KEY,
 } from '@/lib/queryKeys';
-import { useRepoChangeInvalidation } from '@/lib/repoChanged';
 import {
   snapshotCleanup,
   snapshotCreate,
@@ -141,7 +140,6 @@ export function SnapshotsPage() {
 
   // 外部提交（终端里的 git commit）同样会产生"提交前"快照：列表必须跟着更新，
   // 否则用户会以为自己刚打的点丢了。`refs` 类别已经包含快照键，无需额外参数。
-  useRepoChangeInvalidation(repoId);
 
   const invalidate = () => {
     void queryClient.invalidateQueries({ queryKey: [SNAPSHOTS_QUERY_KEY, repoId] });

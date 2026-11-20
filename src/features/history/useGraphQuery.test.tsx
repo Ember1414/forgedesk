@@ -113,6 +113,19 @@ describe('filtersSignature', () => {
 // ---------------------------------------------------------------- buildGraphModel
 
 describe('buildGraphModel', () => {
+  it('所有后端筛选维度都会改变签名', () => {
+    for (const filter of [
+      { revisions: ['feature'] },
+      { mergesOnly: true },
+      { myCommitsOnly: true },
+      { caseInsensitive: true },
+    ]) {
+      expect(filtersSignature(filter, 200)).not.toBe(filtersSignature({}, 200));
+    }
+    expect(filtersSignature({ revisions: ['main'] }, 200)).not.toBe(
+      filtersSignature({ revisions: ['feature'] }, 200),
+    );
+  });
   it('空输入返回 EMPTY_GRAPH_MODEL', () => {
     const model = buildGraphModel([]);
     expect(model.rowCount).toBe(0);

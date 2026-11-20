@@ -529,6 +529,41 @@ test('加载更多续页', async ({ page }) => {
   expect(errs, JSON.stringify(errs)).toEqual([]);
 });
 
+test('历史图的可见行和 Canvas 尺寸受视口约束', async ({ page }) => {
+  await page.goto('/#/repo/1/history');
+  await expect(page.getByTestId('graph-overlay')).toBeVisible();
+  for (const [width, height] of [
+    [960, 600],
+    [1024, 768],
+    [1280, 800],
+    [1440, 900],
+  ]) {
+    await page.setViewportSize({ width: width!, height: height! });
+    await expect
+      .poll(() => page.getByTestId('graph-overlay').evaluate((element) => element.clientHeight))
+      .toBeGreaterThan(100);
+    const sizes = await page.getByTestId('graph-overlay').evaluate((element) => {
+      const canvas = element.querySelector('canvas');
+      return {
+        height: element.clientHeight,
+        canvasHeight: canvas?.height ?? 0,
+        viewport: innerHeight,
+        dpr: devicePixelRatio,
+      };
+    });
+    expect(sizes.height).toBeLessThan(sizes.viewport);
+    await expect
+      .poll(() =>
+        page
+          .getByTestId('graph-overlay')
+          .evaluate((element) => element.querySelector('canvas')?.height ?? 0),
+      )
+      .toBeLessThanOrEqual(sizes.viewport * sizes.dpr);
+  }
+  const errors = await page.evaluate(() => window.__errs ?? []);
+  expect(errors).toEqual([]);
+});
+
 test('hover 高亮态', async ({ page }) => {
   await page.goto('/#/repo/1/history');
   await expect(page.getByTestId('graph-overlay')).toBeVisible();

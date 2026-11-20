@@ -1,3 +1,4 @@
+import { useLayoutStore, initialLayoutState } from '@/stores/layoutStore';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { THEME_STORAGE_KEY } from '@/app/theme';
@@ -13,10 +14,12 @@ beforeEach(() => {
   window.localStorage.clear();
   document.documentElement.removeAttribute('data-theme');
   useUiStore.setState(initialUiState);
+  useLayoutStore.setState(initialLayoutState);
 });
 
 afterEach(() => {
   useUiStore.setState(initialUiState);
+  useLayoutStore.setState(initialLayoutState);
 });
 
 describe('侧栏', () => {
@@ -38,11 +41,11 @@ describe('侧栏', () => {
 
 describe('详情面板位置', () => {
   it('默认在右侧，可切换到底部或隐藏', () => {
-    expect(useUiStore.getState().detailPanel).toBe('right');
-    useUiStore.getState().setDetailPanel('bottom');
-    expect(useUiStore.getState().detailPanel).toBe('bottom');
-    useUiStore.getState().setDetailPanel('hidden');
-    expect(useUiStore.getState().detailPanel).toBe('hidden');
+    expect(useLayoutStore.getState().layout.detailPanel).toBe('right');
+    useLayoutStore.getState().setDetailPanel('bottom');
+    expect(useLayoutStore.getState().layout.detailPanel).toBe('bottom');
+    useLayoutStore.getState().setDetailPanel('hidden');
+    expect(useLayoutStore.getState().layout.detailPanel).toBe('hidden');
   });
 });
 
