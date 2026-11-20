@@ -20,6 +20,12 @@ on:
     # 只在站点内容变化时部署，避免无关提交也消耗额度
     paths:
       - 'site/**'
+      - 'docs/manual/**'
+      - 'docs/PRIVACY.md'
+      - 'docs/keys/forgedesk-release.pub'
+      - 'LICENSE'
+      - 'scripts/ci/build-site.mjs'
+      - 'scripts/ci/stage-pages.mjs'
       - 'wrangler.toml'
       - '.github/workflows/pages.yml'
 

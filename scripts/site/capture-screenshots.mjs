@@ -191,6 +191,8 @@ try {
     await context.addInitScript(mockScript);
 
     const page = await context.newPage();
+    const pageErrors = [];
+    page.on('pageerror', (error) => pageErrors.push(error.message));
     await scene.prepare(page);
     await scene.ready(page);
     // 把指针挪到角落：点击/悬停留下的浮层（如提交行的悬停卡片）会盖住内容，
@@ -198,6 +200,10 @@ try {
     await page.mouse.move(4, 4);
     // 等布局、悬停浮层收起与入场动画稳定：截图不是测试，宁可多给 800ms
     await page.waitForTimeout(800);
+    const uncaught = await page.evaluate(() => globalThis.__errs ?? []);
+    if (pageErrors.length > 0 || uncaught.length > 0) {
+      throw new Error(`截图页面 ${scene.name} 有未捕获错误，拒绝更新宣传图片。`);
+    }
 
     const rawPath = join(outputDir, `.${scene.name}.raw.png`);
     await page.screenshot({ path: rawPath, fullPage: false });

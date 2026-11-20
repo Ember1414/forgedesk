@@ -7,10 +7,8 @@ name: Release
 #   · push tag（`v<版本>`）→ 正式发布，渠道 stable；
 #   · workflow_dispatch    → 演练或 beta：可选渠道、可"只构建不发布"（默认就是）。
 #
-# 为什么没有 macOS / Linux 矩阵：ADR-005 决策**Windows 优先**，macOS/Linux 暂缓
-# （用户少、真机验证成本高）。本文件不塞半成品矩阵——将来要做时把 build-windows
-# 复制成 build-macos / build-linux，各自上传自己那一段清单即可：清单按
-# `<渠道>/<target>.json` 分段，互不覆盖（make-updater-manifest.mjs 已按此设计）。
+# 平台范围：Windows x64 + macOS universal。Linux 打包与真机验收仍按 ADR-005 暂缓。
+# 各平台分别上传产物与更新清单，再由 publish 合并、校验与部署。
 #
 # 未配置发布密钥时的行为（与 pages.yml 同一约定）：
 #   缺 TAURI_SIGNING_PRIVATE_KEY / TAURI_UPDATER_PUBKEY → **警告并跳过构建**，

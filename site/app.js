@@ -38,6 +38,7 @@
 
   /** 会去尝试拉取的全部清单：矩阵要把"这个版本有哪些平台"完整展示出来。 */
   var MANIFEST_TARGETS = ['windows-x86_64', 'windows-aarch64', 'darwin-aarch64', 'darwin-x86_64'];
+  var selectedOS = null;
 
   /*
    * 托管方（Cloudflare Pages）对**不存在的路径**返回的是 `200 + 首页 HTML` 兜底，
@@ -76,7 +77,7 @@
   }
 
   function currentOS() {
-    return storedOS() || detectOS();
+    return selectedOS || storedOS() || detectOS();
   }
 
   function formatSize(bytes) {
@@ -95,28 +96,40 @@
   function loadRelease() {
     return Promise.all(
       MANIFEST_TARGETS.map(function (target) {
-        return fetch(CHANNEL + '/' + target + '.json', { cache: 'no-store' }).then(
-          function (response) {
+        return fetch(CHANNEL + '/' + target + '.json', { cache: 'no-store' })
+          .then(function (response) {
             // 未发布时这里是 404，也可能被托管方返回 HTML 兜底页——都按"没有清单"处理
             if (!response.ok || isHtmlFallback(response)) return null;
             return response.json();
-          },
-        );
+          })
+          .catch(function () {
+            return null;
+          });
       }),
     ).then(function (manifests) {
       var release = null;
       manifests.forEach(function (manifest, index) {
-        if (!manifest || !manifest.version) return;
+        if (!manifest || !/^\d+\.\d+\.\d+$/.test(manifest.version)) return;
         var target = MANIFEST_TARGETS[index];
         var entry = (manifest.platforms || {})[target];
         if (!entry || !entry.url) return;
-        if (!release) {
+        if (!release || newerVersion(manifest.version, release.version)) {
           release = { version: manifest.version, pubDate: manifest.pub_date || '', targets: {} };
         }
-        release.targets[target] = entry;
+        // 部署切换期间平台清单可能处于不同版本，不能用新版本号拼旧产物地址。
+        if (manifest.version === release.version) release.targets[target] = entry;
       });
       return release;
     });
+  }
+
+  function newerVersion(candidate, current) {
+    var a = candidate.split('.').map(Number);
+    var b = current.split('.').map(Number);
+    for (var i = 0; i < 3; i += 1) {
+      if (a[i] !== b[i]) return a[i] > b[i];
+    }
+    return false;
   }
 
   function fetchChecksums() {
@@ -151,13 +164,15 @@
     if (entry) {
       var button = document.createElement('a');
       button.className = 'btn primary';
-      button.href = entry.url;
+      button.href =
+        os === 'macos'
+          ? entry.url.replace(/\/[^/]+$/, '/ForgeDesk_' + release.version + '_macos_universal.dmg')
+          : entry.url;
       var label = document.createElement('span');
       label.textContent = '下载 ' + OS_META[os].label + ' 版';
       var sub = document.createElement('span');
       sub.className = 'sub';
-      var format = urlExtension(entry.url);
-      sub.textContent = 'v' + release.version + ' · ' + (format || PRIMARY_FORMAT[os] || '');
+      sub.textContent = 'v' + release.version + ' · ' + PRIMARY_FORMAT[os];
       button.appendChild(label);
       button.appendChild(sub);
       container.appendChild(button);
@@ -166,22 +181,19 @@
       fallback.className = 'btn primary';
       fallback.href = RELEASES_URL;
       fallback.textContent =
-        os === 'windows' ? '前往 Releases 下载' : OS_META[os].label + ' 版即将提供 · 前往 Releases';
+        os === 'linux'
+          ? 'Linux 暂无官方安装包 · 查看发布记录'
+          : OS_META[os].label + ' 下载暂不可用 · 前往 Releases 下载';
       container.appendChild(fallback);
     }
 
     var secondary = document.createElement('a');
     secondary.className = 'btn secondary';
-    secondary.href = 'download.html';
-    secondary.textContent = '全部下载与校验';
+    secondary.href =
+      document.body.getAttribute('data-page') === 'download' ? '#verification' : 'download.html';
+    secondary.textContent =
+      document.body.getAttribute('data-page') === 'download' ? '查看校验方法' : '全部下载与校验';
     container.appendChild(secondary);
-  }
-
-  /** 从 URL 取扩展名（忽略查询串），用于展示"这一行是什么格式"。 */
-  function urlExtension(url) {
-    var clean = String(url).split(/[?#]/)[0];
-    var dot = clean.lastIndexOf('.');
-    return dot === -1 ? '' : clean.slice(dot + 1);
   }
 
   function artifactRows(release) {
@@ -305,7 +317,13 @@
         var lines = text
           .split('\n')
           .filter(function (line) {
-            return /^[0-9a-f]{64} {2}\S+$/.test(line.trim());
+            return (
+              /^[0-9a-f]{64} {2}\S+$/.test(line.trim()) &&
+              line
+                .trim()
+                .split(/ {2}/)[1]
+                .indexOf('ForgeDesk_' + release.version + '_') === 0
+            );
           })
           .map(function (line) {
             return line.trim();
@@ -487,8 +505,9 @@
       switcher.addEventListener('click', function (event) {
         var button = event.target.closest('button[data-os]');
         if (!button) return;
+        selectedOS = button.getAttribute('data-os');
         try {
-          localStorage.setItem('forgedesk.os', button.getAttribute('data-os'));
+          localStorage.setItem('forgedesk.os', selectedOS);
         } catch {
           /* 存不进就用会话内值 */
         }

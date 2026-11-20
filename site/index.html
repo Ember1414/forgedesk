@@ -23,6 +23,7 @@
     <link rel="stylesheet" href="/assets.css" />
   </head>
   <body data-page="home">
+    <a class="skip-link" href="#main-content">跳到正文</a>
     <header class="site-nav">
       <a class="brand" href="index.html">
         <span class="mark" aria-hidden="true">
@@ -56,14 +57,14 @@
       </a>
     </header>
 
-    <main class="page">
+    <main class="page" id="main-content" tabindex="-1">
       <section class="hero hero-grid">
         <div class="hero-copy">
           <span class="eyebrow">ForgeDesk · 开源 Git 桌面工作台</span>
           <h1>看得见的 Git</h1>
           <p class="tagline">
-            把易错的 Git 操作变成可视化界面、向导与可交互图表；破坏性操作先预览计划、自动打快照，
-            随时一键回滚。<strong>免费、开源、无 AI、无遥测。</strong>
+            查看提交图、逐行暂存、解决冲突，在一个桌面窗口里完成 Git 与 GitHub 工作。
+            操作预览与快照帮助你检查和恢复变更。<strong>免费、开源、无 AI、无遥测。</strong>
           </p>
           <span class="status" id="status">状态：尚无可用版本</span>
           <div class="actions">
@@ -79,9 +80,18 @@
           </div>
           <ul class="hero-bullets">
             <li>Apache-2.0 开源</li>
-            <li>凭据只存系统钥匙串</li>
+            <li>Windows / macOS 安装包</li>
             <li>本地操作完全离线</li>
           </ul>
+          <p class="note">
+            Linux 暂无官方安装包。首次运行可能出现系统信任提示，下载页提供校验与安装步骤。
+          </p>
+          <noscript
+            ><p>
+              请启用 JavaScript 查看平台下载，或直接访问
+              <a href="https://github.com/Ember1414/forgedesk/releases/latest">GitHub 最新版本</a>。
+            </p></noscript
+          >
         </div>
 
         <!-- 真实界面截图：由 pnpm site:screenshots 生成（注入演示数据跑真界面），
@@ -93,6 +103,7 @@
             height="1000"
             alt="ForgeDesk 的提交历史界面：左侧是分支泳道图与提交列表，右侧是选中提交的详情与文件变更"
             decoding="async"
+            fetchpriority="high"
           />
         </figure>
       </section>
@@ -141,7 +152,7 @@
             </svg>
           </div>
           <b>向导代替命令</b>
-          <span>合并、变基、解决冲突都走"预览计划 → 确认 → 执行"，每一步先看清楚再动手。</span>
+          <span>合并、变基与冲突解决提供操作界面，先检查目标和影响，再确认执行。</span>
         </li>
         <li>
           <div class="cap-icon" aria-hidden="true">
@@ -161,7 +172,10 @@
             </svg>
           </div>
           <b>敢做的安全网</b>
-          <span>破坏性操作自动打快照，push 只允许 force-with-lease，随时一键回滚。</span>
+          <span
+            >操作快照与历史帮助恢复本地变更；覆盖推送使用
+            force-with-lease。保护范围见用户手册。</span
+          >
         </li>
         <li>
           <div class="cap-icon" aria-hidden="true">
@@ -181,7 +195,7 @@
             </svg>
           </div>
           <b>本地与私密</b>
-          <span>不含任何 AI 功能、没有遥测；凭据只存系统钥匙串，离线完全可用。</span>
+          <span>不含 AI 推理与遥测 SDK；凭据优先使用系统凭据库，本地 Git 工作流可离线使用。</span>
         </li>
       </ul>
 
@@ -256,7 +270,7 @@ git init</code></pre>
       <ul class="stats" data-reveal>
         <li>
           <span class="figure">301 ms</span>
-          <span>打开 10 万提交的仓库（仓库内 <code>perf_probe</code> 实测）</span>
+          <span>原生仓库服务打开 10 万提交的基线（2026-09-27，不含界面启动）</span>
         </li>
         <li>
           <span class="figure">~8 MB</span>
@@ -322,10 +336,8 @@ git init</code></pre>
           <summary>真的免费吗？我的代码或数据会被上传吗？</summary>
           <p>
             Apache-2.0 许可，永久免费，也没有"付费版"计划。应用不含任何遥测/AI
-            功能：数据只存在本机（数据库、快照、日志都在你的用户目录里），
-            对外的网络请求只有你主动触发的那些（GitHub 操作、更新检查）。 完整清单见<a
-              href="privacy.html"
-              >隐私说明</a
+            功能：本地数据库、快照与日志保存在用户目录，日志不会自动上传。 Git 远端、GitHub
+            API、更新检查和连通性测试会按功能需要联网。完整清单见<a href="privacy.html">隐私说明</a
             >。
           </p>
         </details>
@@ -340,7 +352,7 @@ git init</code></pre>
         <details>
           <summary>首次打开被系统拦截了，是不是有问题？</summary>
           <p>
-            不是。本项目不购买付费代码签名证书（零成本分发的取舍），所以系统会多问一次。 你可以在<a
+            未购买商业代码签名、未做 Apple 公证时，系统可能显示信任提示。请先确认下载来源，并在<a
               href="download.html"
               >下载页</a
             >先核对 SHA256（必要时再验 GPG 签名）， 再按页面上的逐步说明放行——Windows 是「更多信息 →
@@ -351,8 +363,8 @@ git init</code></pre>
           <summary>会不会把我的仓库弄坏？</summary>
           <p>
             写操作走系统 git CLI（与你在终端里敲的是同一条路径），因此 hooks 与你的配置照常生效；
-            破坏性操作（reset --hard、变基、删分支、放弃改动……）动手前先打快照并展示计划，
-            随时可一键回滚。push 只允许 force-with-lease，不提供"直接强推"的入口。
+            图形化操作提供预览、快照与恢复入口，但快照不替代备份，终端命令及外部工具不保证受保护。
+            覆盖推送使用 force-with-lease；请按界面提示检查目标与恢复范围。
           </p>
         </details>
         <details>
@@ -365,7 +377,7 @@ git init</code></pre>
         <details>
           <summary>怎么更新？更新安全吗？</summary>
           <p>
-            应用内会自动检查更新（也可以在设置里关掉或选 stable/beta 渠道）。
+            正式安装包支持自动检查更新，可在设置里关闭；stable/beta 渠道由安装的构建决定。
             更新包经过签名校验，<strong>校验失败直接拒绝安装</strong>，不存在"跳过校验"的降级路径；
             清单与应用使用同一份数据。你也可以随时手动下载新版本覆盖安装。
           </p>
