@@ -3,7 +3,7 @@
 > **本文件供人类提交申请使用。代理不得自行提交申请，也不得声称已提交。**
 > 申请需要维护者账号、项目所有权证明与对仓库的持续公开承诺——这些只能由人类完成。
 >
-> 相关：`docs/M8-PLAN.md` T8.6、`docs/install/windows.md` §3（SmartScreen 指引）、
+> 相关：[M8 任务对照](../acceptance/M8.md#2-任务对照) T8.6、`docs/install/windows.md` §3（SmartScreen 指引）、
 > `AGENTS.md` 红线 R5（零成本：只申请**免费**计划，任何需要付费的选项直接放弃）。
 
 ## 1. 为什么值得申请

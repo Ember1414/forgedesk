@@ -48,22 +48,25 @@ graph TD
 
 `谁能依赖它`一列是**硬约束**：违反会在评审与 `cargo` 依赖图里暴露，不在运行时才炸。
 
-| crate | 职责（一句话） | 谁能依赖它 | 状态（M0 末） |
-| --- | --- | --- | --- |
-| `crates/domain` | 纯逻辑：领域模型、状态机、错误类型与错误码分类 | 所有 Rust crate | ✅ 错误模型与 `ErrorCode::classify` + 补丁裁剪（T1.6）+ 提交计划模型（T1.7）+ 远端 URL 解析（T4.1，自 `credentials` 上移）+ 冲突状态机（T3.1）+ rebase 计划模型与预览（T3.5） |
-| `crates/commands` | Tauri 命令定义、DTO 转换、能力等级校验、写操作审计拦截 | `src-tauri` | ✅ 命令注册（发布构建 71 条；开发构建 88 条，多出 diff 预览与调试命令）：仓库 / 工作区 / 历史 / 分支标签 / 储藏 / 合并冲突 / rebase / 快照 / 审计；另有监听注册表（T1.10，无命令） |
-| `crates/services` | 用例编排（打开仓库、工作区状态、部分暂存、提交、审计…） | `commands`、`plugin-host` | ✅ `RepositoryService`（T1.3）+ `WorkspaceService`（T1.4）+ `StagingService`（T1.6，含 400 组对拍测试）+ `CommitService`（T1.7/T1.8）+ `AuditLog`（T1.11：脱敏/2KB 摘要/保留策略/导出）+ 冲突编排（T3.1）+ 合并用例（T3.4）+ rebase 执行编排（T3.7） |
-| `crates/git-engine` | `GitEngine` trait + CLI 实现 + libgit2 实现 | `services`、`snapshot`、`commands` | ✅ `GitProcess` 执行器 + 4 个解析器（T1.1）+ `GitEngine` 双实现与差分测试（T1.2）+ 统一补丁解析（T1.5）+ 补丁应用通道（T1.6）+ CLI-only 冲突状态机与 rebase 家族（T3.1/T3.5/T3.7，差异见 GIT-ENGINE-DIFF.md §4） |
-| `crates/provider` | `HostProvider` trait + GitHub/GitLab/Gitea 实现 | `services`、`commands` | 🔶 T4.1：trait 树 + `ProviderRegistry`（含企业 host 绑定）+ GitHub HTTP 底座（重试/限流捕获/错误映射/脱敏）+ OAuth Device Flow 与 PAT 校验（`GitHubProvider`）；子服务方法随 T4.5/T4.7/T4.8/T4.9 落地，octocrab 侧 tower 中间件随 T4.2 |
-| `crates/snapshot` | 快照创建/列表/回滚/校验 | `services`、`commands` | ✅ ref 锚点快照（T1.9：`refs/forgedesk/snapshots/<id>` 防 gc、回滚前自动打保护点、双引擎校验、保留策略） |
-| `crates/diagnostics` | 日志脱敏、stderr 解析、错误码映射、修复建议 | `commands`、`platform`、`git-engine`、`src-tauri` | ✅ 脱敏写入层（592 行）；规则引擎 M5 |
-| `crates/storage` | SQLite 仓储、版本化迁移、设置读写、操作审计 | `commands`、`services`、`src-tauri` | ✅ 7 张表 + 迁移 + `OperationStore`（T1.7：`operation_records` 审计） |
-| `crates/credentials` | keyring 封装、账号模型 | `services`、`commands` | ✅ keyring/加密文件回退 + 索引 + askpass + SSH 盘点（T2.7）；多账号模型 M4/T4.4 |
-| `crates/jobs` | 任务注册、进度广播、取消令牌 | `services`、`commands` | ✅ 注册表 + 进度广播 + 取消（T1.3 起用于克隆） |
-| `crates/platform` | 平台适配：日志文件、会话标记、shell 解析、路径规范化、系统集成、文件监听 | `commands`、`src-tauri` | ✅ 日志/panic/会话/打开目录（T0.8）+ 文件监听（T1.10：噪声过滤 / 去抖动 / 溢出保护，**不依赖 Tauri**） |
-| `crates/plugin-host` | 插件加载、权限、WASI 沙箱、插件 API | `commands` | ⬜ 骨架（M6） |
-| `src-tauri` | 窗口与命令注册；**极薄**，不含业务逻辑 | 无（顶层） | ✅ 日志初始化、迁移、命令注册 |
-| `src/` | 前端：路由、外壳、设计系统、状态、IPC 封装 | 无（顶层） | ✅ 外壳 + 20 条路由 + 组件库 + 提交历史图（T2.2）+ 冲突三栏编辑器（T3.2/T3.3）+ 合并对话框（T3.4）+ 拖拽式 rebase 面板（T3.6） |
+| crate | 职责 | 谁能依赖它 |
+| --- | --- | --- |
+| `crates/domain` | 纯逻辑、状态机、补丁、计划与 DAG 布局 | 全部 Rust crate |
+| `crates/commands` | IPC 校验、DTO、能力等级与事件接线 | 宿主 |
+| `crates/services` | 仓库、提交、同步、冲突、文件、终端、账号用例编排 | commands、plugin-host |
+| `crates/git-engine` | GitEngine trait、libgit2 读取、CLI 写入与可取消进程 | services、snapshot、commands |
+| `crates/provider` | 托管平台抽象、GitHub API、认证、缓存、限流与重试 | services、commands |
+| `crates/snapshot` | 快照、内容备份、恢复、校验与保留策略 | services、commands |
+| `crates/diagnostics` | 日志脱敏、stderr 解析、诊断规则与修复建议 | 边界与基础设施层 |
+| `crates/storage` | SQLite、迁移、设置、账号元数据与操作记录 | services、commands、宿主 |
+| `crates/credentials` | keyring、加密保险库原语、askpass、SSH 盘点 | services、commands、宿主 |
+| `crates/jobs` | 任务注册、进度、完成事件与取消 | services、commands |
+| `crates/platform` | 路径、日志、会话、文件监听、shell 与系统集成 | commands、宿主及基础设施 |
+| `crates/plugin-host` | wasmi 沙箱、插件加载、权限、宿主 API 与资源限制 | commands、宿主 |
+| `src-tauri` | 窗口、插件、服务装配、命令注册与启动退出接线 | 顶层 |
+| `src/` | React 路由、功能界面、Query、UI 状态、IPC、设计系统与 i18n | 顶层 |
+
+平台范围与验证状态见[维护清单](./MAINTENANCE.md)，命令参数以[API 契约](./API.md)
+及 `pnpm check:ipc` 为准，避免在架构文档重复维护过期计数。
 
 **与 `PLAN.md` §5.2 的差异（有意为之）**：PLAN 的模块表未列 `crates/platform`，
 而 §5.9 又要求存在一个统一的平台适配层（凭据库、shell 解析、路径规范化、监听器、通知）。

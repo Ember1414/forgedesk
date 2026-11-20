@@ -10,7 +10,7 @@
 > 保持原文不改；执行中的范围修订一律记录在对应文档，**阅读时以修订文档为准**：
 > ① 官网与更新清单托管：GitHub Pages → **Cloudflare Pages**（[`adr/ADR-003`](./adr/ADR-003-cloudflare-instead-of-github-pages.md)）；
 > ② 平台范围：Linux 打包暂缓（[`adr/ADR-005`](./adr/ADR-005-defer-cross-platform-verification.md)）；
-> ③ M8 的执行细目与豁免（Flathub/Snap/AUR 等）按 [`M8-PLAN.md`](./M8-PLAN.md)，
+> ③ M8 的执行细目与既有豁免（Flathub/Snap/AUR 等）归并到 [`acceptance/M8.md`](./acceptance/M8.md)，
 > 验收结论见 [`acceptance/M8.md`](./acceptance/M8.md)。
 
 ---

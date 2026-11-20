@@ -6,12 +6,12 @@
 
 ## 渠道一览
 
-| 渠道                      | 目录                                | 状态                                                            | 依赖                                                       |
-| ------------------------- | ----------------------------------- | --------------------------------------------------------------- | ---------------------------------------------------------- |
-| Scoop（Windows）          | [`scoop/`](./scoop/README.md)       | ✅ 清单就绪，**已在本机真实验证**（见 `docs/acceptance/M8.md`） | 自有 bucket 仓库待人类创建                                 |
-| Winget（Windows）         | [`winget/`](./winget/PUBLISH.md)    | 📋 清单草稿就绪                                                 | 人类账号提 PR（`microsoft/winget-pkgs`）                   |
-| Homebrew Cask（macOS）    | [`homebrew/`](./homebrew/README.md) | 📋 清单草稿就绪                                                 | 自有 tap 待创建；真机验证需 Mac                            |
-| Flathub / Snapcraft / AUR | —                                   | ⛔ 暂不做                                                       | Linux 打包链本身按 ADR-005 暂缓（见 `docs/M8-PLAN.md` §4） |
+| 渠道                      | 目录                                | 状态                                                            | 依赖                                                                                    |
+| ------------------------- | ----------------------------------- | --------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| Scoop（Windows）          | [`scoop/`](./scoop/README.md)       | ✅ 清单就绪，**已在本机真实验证**（见 `docs/acceptance/M8.md`） | 自有 bucket 仓库待人类创建                                                              |
+| Winget（Windows）         | [`winget/`](./winget/PUBLISH.md)    | 📋 清单草稿就绪                                                 | 人类账号提 PR（`microsoft/winget-pkgs`）                                                |
+| Homebrew Cask（macOS）    | [`homebrew/`](./homebrew/README.md) | 📋 清单草稿就绪                                                 | 自有 tap 待创建；真机验证需 Mac                                                         |
+| Flathub / Snapcraft / AUR | —                                   | ⛔ 暂不做                                                       | Linux 打包链按 [ADR-005](../docs/adr/ADR-005-defer-cross-platform-verification.md) 暂缓 |
 
 ## 更新流程（发版后）
 

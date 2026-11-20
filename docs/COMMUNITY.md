@@ -10,7 +10,7 @@
 | --- | --- | --- |
 | GitHub Issues | 缺陷、功能请求、插件问题、RFC | ✅ 已启用（模板见 `.github/ISSUE_TEMPLATE/`） |
 | GitHub Discussions | 提问、用法分享、想法、公告 | ⏳ **待人类创建分类**（文案见 §2） |
-| 即时社区（Discord/Matrix） | — | ❌ **决定不做**：零维护优先（M8-PLAN 方案 A）。所有交流收敛到 Discussions |
+| 即时社区（Discord/Matrix） | — | ❌ **决定不做**：沿用零维护优先的选择，所有交流收敛到 Discussions |
 
 ## 2. Discussions 分类与欢迎贴（创建文案）
 

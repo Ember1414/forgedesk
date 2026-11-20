@@ -29,8 +29,8 @@ pnpm version:check          # 只校验三处一致（CI 门禁用）
 
 | 渠道 | 版本形态（示例为当前） | 用途 | 检查频率 |
 | --- | --- | --- | --- |
-| `stable` | `1.1.3` | 所有用户 | 启动后 60s + 每 24h（可关） |
-| `beta` | `1.1.3-beta.N` | 提前 1–2 周验证 | 同上 |
+| `stable` | `1.1.4` | 所有用户 | 启动后 60s + 每 24h（可关） |
+| `beta` | `1.1.4-beta.N` | 提前 1–2 周验证 | 同上 |
 
 更新清单托管在 Cloudflare Pages（见 `ADR-003`），路径为
 `https://forgedesk.pages.dev/updates/<渠道>/<target>.json`（例如 `updates/stable/windows-x86_64.json`）。
@@ -129,8 +129,8 @@ cargo fmt --all -- --check && cargo clippy --workspace --all-targets -- -D warni
 cargo test --workspace
 
 # 4) 提交并打 tag（tag 是唯一发布触发条件）
-git add -A && git commit -m "chore(release): v1.0.0"
-git tag -a v1.0.0 -m "ForgeDesk v1.0.0"
+git add -A && git commit -m "chore(release): v1.1.4"
+git tag -a v1.1.4 -m "ForgeDesk v1.1.4"
 git push origin main --follow-tags
 ```
 
