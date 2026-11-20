@@ -44,31 +44,42 @@ export function NetworkSettingsPage(): React.JSX.Element {
     queryKey: ['networkSettings'],
     queryFn: () => settingsAll('global', undefined),
   });
-  const mode = (parseMode(settings.data?.['network.proxyMode']) ?? 'system') as ProxyModeUi;
+  const [modeEdit, setModeEdit] = useState<ProxyModeUi | null>(null);
+  const mode = modeEdit ?? parseMode(settings.data?.['network.proxyMode']) ?? 'system';
   const proxyUrl = parseStr(settings.data?.['network.proxyUrl']);
   const noProxy = parseStr(settings.data?.['network.noProxy']);
 
-  const [urlDraft, setUrlDraft] = useState(proxyUrl ?? '');
-  const [noProxyDraft, setNoProxyDraft] = useState(noProxy ?? '');
+  const [urlEdit, setUrlDraft] = useState<string | null>(null);
+  const [bypassEdit, setNoProxyDraft] = useState<string | null>(null);
+  const urlDraft = urlEdit ?? proxyUrl ?? '';
+  const noProxyDraft = bypassEdit ?? noProxy ?? '';
 
   const save = useMutation({
     mutationFn: async (next: { mode: ProxyModeUi; url?: string; noProxy?: string }) => {
-      await settingsSet('global', 'network.proxyMode', JSON.stringify(next.mode), undefined);
       if (next.url !== undefined) {
         await settingsSet('global', 'network.proxyUrl', JSON.stringify(next.url), undefined);
       }
       if (next.noProxy !== undefined) {
         await settingsSet('global', 'network.noProxy', JSON.stringify(next.noProxy), undefined);
       }
+      await settingsSet('global', 'network.proxyMode', JSON.stringify(next.mode), undefined);
     },
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['networkSettings'] });
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['networkSettings'] });
+      setModeEdit(null);
+      setUrlDraft(null);
+      setNoProxyDraft(null);
       pushToast({ title: t('network.savedToast'), tone: 'success' });
     },
     onError: show,
   });
 
   const saveMode = (nextMode: ProxyModeUi): void => {
+    if (save.isPending) return;
+    if (nextMode === 'manual' && urlDraft.trim() === '') {
+      setModeEdit('manual');
+      return;
+    }
     // mode=manual 时带上当前草稿里的 URL；其他模式清 URL（避免残留生效）
     save.mutate({
       mode: nextMode,
@@ -143,7 +154,8 @@ export function NetworkSettingsPage(): React.JSX.Element {
 type ProxyModeUi = 'none' | 'system' | 'manual';
 
 function parseMode(raw: string | undefined): ProxyModeUi | null {
-  return raw === 'none' || raw === 'system' || raw === 'manual' ? raw : null;
+  const mode = parseStr(raw);
+  return mode === 'none' || mode === 'system' || mode === 'manual' ? mode : null;
 }
 
 function parseStr(raw: string | undefined): string | null {

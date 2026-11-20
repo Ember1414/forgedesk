@@ -123,10 +123,10 @@ pub fn resolve_proxy_settings(
 
 /// 把代理设置应用到 git CLI 引擎与 GitHub HTTP 客户端。
 ///
-/// 返回重建后的 [`GitHubHttp`]（调用方替换 AppState 里的实例——构造廉价，
-/// 直接换比引入 ArcSwap 简单且语义清晰："下一次请求起生效"）。
+/// 返回重建后的 [`GitHubHttp`]，调用方替换所有客户端共享的传输层，
+/// 从下一次请求起生效；配置校验失败时不改动 CLI 配置。
 pub fn apply_proxy_settings(engines: &GitEngines, database: &Database) -> AppResult<GitHubHttp> {
-    let (mode, url, _no_proxy) = resolve_proxy_settings(database)?;
+    let (mode, url, no_proxy) = resolve_proxy_settings(database)?;
     let proxy_arg = match mode {
         ProxyMode::System => None,
         ProxyMode::None => Some(("http.proxy".to_owned(), String::new())),
@@ -139,10 +139,6 @@ pub fn apply_proxy_settings(engines: &GitEngines, database: &Database) -> AppRes
             }
         }
     };
-    engines
-        .write()
-        .set_extra_config(proxy_arg.iter().cloned().collect());
-
     let config = match mode {
         ProxyMode::System => HttpConfig::default(),
         ProxyMode::None => HttpConfig {
@@ -151,10 +147,22 @@ pub fn apply_proxy_settings(engines: &GitEngines, database: &Database) -> AppRes
         },
         ProxyMode::Manual => HttpConfig {
             proxy: url,
+            no_proxy: no_proxy.clone(),
             ..HttpConfig::default()
         },
     };
-    GitHubHttp::new(config)
+    let http = GitHubHttp::new(config)?;
+    engines
+        .write()
+        .set_extra_config(proxy_arg.iter().cloned().collect());
+    engines
+        .write()
+        .set_proxy_bypass(if mode == ProxyMode::System {
+            None
+        } else {
+            Some(no_proxy.join(","))
+        });
+    Ok(http)
 }
 
 /// 单项连通性测试结果。
@@ -183,7 +191,7 @@ fn http_error_message(error: &AppError) -> String {
 
 /// 读取当前设置的代理配置构建测试用 HTTP 客户端。
 fn test_client(database: &Database) -> AppResult<GitHubHttp> {
-    let (mode, url, _no_proxy) = resolve_proxy_settings(database)?;
+    let (mode, url, no_proxy) = resolve_proxy_settings(database)?;
     let config = match mode {
         ProxyMode::System => HttpConfig::default(),
         ProxyMode::None => HttpConfig {
@@ -192,6 +200,7 @@ fn test_client(database: &Database) -> AppResult<GitHubHttp> {
         },
         ProxyMode::Manual => HttpConfig {
             proxy: url,
+            no_proxy,
             ..HttpConfig::default()
         },
     };

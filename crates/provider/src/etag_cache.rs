@@ -34,6 +34,7 @@ struct CacheEntry {
     etag: String,
     content_type: String,
     body: Vec<u8>,
+    headers: reqwest::header::HeaderMap,
 }
 
 /// 线程安全的 ETag 缓存（Arc 共享：GitHubHttp 克隆之间同一份）。
@@ -70,6 +71,24 @@ impl EtagCache {
     /// 体为空或超过 [`MAX_CACHED_BODY_BYTES`] 时静默跳过：这种响应没有
     /// 缓存价值（日志流），不值得占位。
     pub fn store(&self, key: &str, etag: &str, content_type: &str, body: Vec<u8>) {
+        self.store_response(
+            key,
+            etag,
+            content_type,
+            body,
+            reqwest::header::HeaderMap::new(),
+        );
+    }
+
+    /// 缓存分页等表示元数据；不保存凭据或 Set-Cookie。
+    pub(crate) fn store_response(
+        &self,
+        key: &str,
+        etag: &str,
+        content_type: &str,
+        body: Vec<u8>,
+        headers: reqwest::header::HeaderMap,
+    ) {
         if body.is_empty() || body.len() > MAX_CACHED_BODY_BYTES {
             return;
         }
@@ -89,8 +108,17 @@ impl EtagCache {
                 etag: etag.to_owned(),
                 content_type: content_type.to_owned(),
                 body,
+                headers,
             },
         );
+    }
+
+    pub(crate) fn headers_for(&self, key: &str) -> reqwest::header::HeaderMap {
+        self.entries
+            .read()
+            .get(key)
+            .map(|entry| entry.headers.clone())
+            .unwrap_or_default()
     }
 
     /// 清空（测试与"彻底刷新"场景）。

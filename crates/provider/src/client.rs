@@ -41,7 +41,10 @@
 //!
 //! 所有进入 `detail` 的原始文本都先过 [`crate::redact::redact_tokens`]。
 
+use parking_lot::RwLock;
 use secrecy::{ExposeSecret, SecretString};
+use sha2::{Digest, Sha256};
+use std::sync::Arc;
 use std::time::Duration;
 
 use forgedesk_domain::{AppError, ErrorCode};
@@ -72,8 +75,10 @@ const MAX_DETAIL_LEN: usize = 2048;
 /// HTTP 层配置。代理来自应用设置（M6 的代理设置页落地前可传 `None`）。
 #[derive(Debug, Clone)]
 pub struct HttpConfig {
-    /// 显式代理 URL（http/https/socks5）。`None` = 跟随系统代理。
+    /// 显式代理 URL（http/https/socks5）。`None` 跟随系统，空串强制直连。
     pub proxy: Option<String>,
+    /// 手动代理的绕过列表（与 NO_PROXY 相同语义）。
+    pub no_proxy: Vec<String>,
     /// 单请求超时。
     pub timeout: Duration,
     /// 5xx 最大重试次数。
@@ -86,6 +91,7 @@ impl Default for HttpConfig {
     fn default() -> Self {
         Self {
             proxy: None,
+            no_proxy: Vec::new(),
             timeout: DEFAULT_TIMEOUT,
             max_retries: DEFAULT_MAX_RETRIES,
             backoff_base: DEFAULT_BACKOFF,
@@ -215,7 +221,7 @@ impl ApiRequest {
 /// GitHub 的 HTTP 底座：可克隆，供各子服务共享同一个连接池与限流快照。
 #[derive(Clone, Debug)]
 pub struct GitHubHttp {
-    client: reqwest::Client,
+    client: Arc<RwLock<reqwest::Client>>,
     config: HttpConfig,
     rate_limit: RateLimitTracker,
     cache: EtagCache,
@@ -228,20 +234,20 @@ impl GitHubHttp {
             .user_agent(USER_AGENT)
             .timeout(config.timeout);
         if let Some(proxy_url) = &config.proxy {
-            let proxy = reqwest::Proxy::all(proxy_url).map_err(|_| {
-                AppError::new(
-                    ErrorCode::Validation,
-                    format!("invalid proxy URL: {proxy_url}"),
-                )
-            })?;
-            // 显式代理必须排除系统代理，否则环境变量里的代理会与设置打架
-            builder = builder.no_proxy().proxy(proxy);
+            builder = builder.no_proxy();
+            if !proxy_url.is_empty() {
+                let proxy = reqwest::Proxy::all(proxy_url)
+                    .map_err(|_| AppError::new(ErrorCode::Validation, "invalid proxy URL"))?;
+                // 显式代理必须排除系统代理，否则环境变量里的代理会与设置打架
+                let exclusions = reqwest::NoProxy::from_string(&config.no_proxy.join(","));
+                builder = builder.proxy(proxy.no_proxy(exclusions));
+            }
         }
         Ok(Self {
-            client: builder.build().map_err(|err| {
+            client: Arc::new(RwLock::new(builder.build().map_err(|err| {
                 AppError::new(ErrorCode::Network, "failed to build HTTP client")
                     .with_detail(redact_tokens(&err.to_string()))
-            })?,
+            })?)),
             config,
             rate_limit: RateLimitTracker::new(),
             cache: EtagCache::new(),
@@ -261,8 +267,14 @@ impl GitHubHttp {
 
     /// 底层 client（octocrab 复用同一连接池时使用）。
     #[must_use]
-    pub fn raw_client(&self) -> &reqwest::Client {
-        &self.client
+    pub fn raw_client(&self) -> reqwest::Client {
+        self.client.read().clone()
+    }
+
+    /// 替换所有克隆共享的传输层；在途请求继续，之后的请求使用新配置。
+    pub fn replace_transport(&self, configured: &Self) {
+        *self.client.write() = configured.raw_client();
+        self.cache.clear();
     }
 
     /// 发送请求：限流捕获 → 5xx 重试 → 错误映射。
@@ -274,7 +286,24 @@ impl GitHubHttp {
     /// 上层完全透明：调用方拿到的永远是一个正常的成功响应。
     pub async fn send(&self, request: &ApiRequest) -> Result<reqwest::Response, AppError> {
         let is_get = request.method == reqwest::Method::GET;
-        let key = cache_key(&request.url, request.query.as_deref());
+        let mut identity = Sha256::new();
+        if let Some(token) = &request.bearer {
+            identity.update(token.expose_secret().as_bytes());
+        }
+        for name in ["authorization", "accept", "x-github-api-version"] {
+            for (header, value) in &request.headers {
+                if header.as_str() == name {
+                    identity.update(name.as_bytes());
+                    identity.update((value.as_bytes().len() as u64).to_le_bytes());
+                    identity.update(value.as_bytes());
+                }
+            }
+        }
+        let key = format!(
+            "{:x}:{}",
+            identity.finalize(),
+            cache_key(&request.url, request.query.as_deref())
+        );
         let etag = if is_get {
             self.cache.etag_for(&key)
         } else {
@@ -313,7 +342,7 @@ impl GitHubHttp {
 
             // 304：内容未变，回放缓存体（304 的响应体是空的，必须用缓存）
             if status == reqwest::StatusCode::NOT_MODIFIED && is_get {
-                return self.stale_fallback(&key).ok_or_else(|| {
+                return self.cached_response(&key, false).ok_or_else(|| {
                     // etag 与缓存体同生共死，实际不可达；防御一条可读错误
                     AppError::new(
                         ErrorCode::Internal,
@@ -362,8 +391,19 @@ impl GitHubHttp {
                 let body = response.bytes().await.map_err(map_transport_error)?;
                 if let Some(etag_value) = cacheable_etag(&headers) {
                     let content_type = content_type_of(&headers);
-                    self.cache
-                        .store(&key, &etag_value, &content_type, body.to_vec());
+                    let mut metadata = reqwest::header::HeaderMap::new();
+                    for name in [reqwest::header::LINK, reqwest::header::ETAG] {
+                        if let Some(value) = headers.get(&name) {
+                            metadata.insert(name, value.clone());
+                        }
+                    }
+                    self.cache.store_response(
+                        &key,
+                        &etag_value,
+                        &content_type,
+                        body.to_vec(),
+                        metadata,
+                    );
                 }
                 return rebuild_response(status, &headers, body);
             }
@@ -373,15 +413,19 @@ impl GitHubHttp {
 
     /// 从缓存重建一个 200 响应（304 回放与限流降级共用）。
     fn stale_fallback(&self, key: &str) -> Option<reqwest::Response> {
+        self.cached_response(key, true)
+    }
+
+    fn cached_response(&self, key: &str, stale: bool) -> Option<reqwest::Response> {
         let (content_type, body) = self.cache.body_for(key)?;
-        let mut headers = reqwest::header::HeaderMap::new();
+        let mut headers = self.cache.headers_for(key);
         headers.insert(
             reqwest::header::CONTENT_TYPE,
             reqwest::header::HeaderValue::from_str(&content_type).ok()?,
         );
         headers.insert(
             reqwest::header::HeaderName::from_static("x-forgedesk-cache"),
-            reqwest::header::HeaderValue::from_static("stale"),
+            reqwest::header::HeaderValue::from_static(if stale { "stale" } else { "revalidated" }),
         );
         rebuild_response(http::StatusCode::OK, &headers, body).ok()
     }
@@ -391,7 +435,9 @@ impl GitHubHttp {
         request: &ApiRequest,
         conditional_etag: Option<&str>,
     ) -> reqwest::RequestBuilder {
-        let mut builder = self.client.request(request.method.clone(), &request.url);
+        let mut builder = self
+            .raw_client()
+            .request(request.method.clone(), &request.url);
         // 默认 Accept 是 JSON（REST API 的绝大多数形态）；请求描述里已显式
         // 携带 accept 时以显式为准（README 的 raw 端点等），避免出现两个
         // 互相矛盾的 Accept 头
@@ -976,6 +1022,77 @@ mod tests {
 
     // ---- ETag 缓存与限流/离线降级（T4.10）----
 
+    #[test]
+    fn explicit_direct_connection_accepts_an_empty_proxy_url() {
+        assert!(GitHubHttp::new(HttpConfig {
+            proxy: Some(String::new()),
+            ..HttpConfig::default()
+        })
+        .is_ok());
+    }
+
+    #[tokio::test]
+    async fn replacing_the_transport_updates_existing_clones() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({"ok":true})))
+            .mount(&server)
+            .await;
+        let http = GitHubHttp::new(HttpConfig {
+            proxy: Some("http://127.0.0.1:9".to_owned()),
+            ..HttpConfig::default()
+        })
+        .unwrap();
+        let clone = http.clone();
+        let direct = GitHubHttp::new(HttpConfig {
+            proxy: Some(String::new()),
+            ..HttpConfig::default()
+        })
+        .unwrap();
+        http.replace_transport(&direct);
+        assert!(clone.send(&ApiRequest::get(server.uri())).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn cached_responses_preserve_pagination_and_are_partitioned_by_account() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(header("if-none-match", "\"account-a\""))
+            .respond_with(
+                ResponseTemplate::new(403)
+                    .insert_header("x-ratelimit-limit", "5000")
+                    .insert_header("x-ratelimit-remaining", "0")
+                    .insert_header("x-ratelimit-reset", "1790000000"),
+            )
+            .with_priority(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(header("authorization", "Bearer account-a"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .insert_header("etag", "\"account-a\"")
+                    .insert_header("link", "<http://localhost/items?page=2>; rel=\"next\"")
+                    .set_body_json(serde_json::json!({"account":"a"})),
+            )
+            .mount(&server)
+            .await;
+        let http = client().await;
+        let uri = server.uri();
+        let a = ApiRequest::get(&uri).with_bearer(token("account-a"));
+        http.send(&a).await.unwrap();
+        let cached = http.send(&a).await.unwrap();
+        assert!(cached.headers().get("link").is_some());
+        assert_eq!(cached.headers().get("x-forgedesk-cache").unwrap(), "stale");
+        let other = http
+            .send(&ApiRequest::get(&uri).with_bearer(token("account-b")))
+            .await;
+        assert!(
+            other.is_err(),
+            "another account must not receive the cached private response"
+        );
+    }
+
     #[tokio::test]
     async fn a_304_revalidates_from_the_cached_body_without_reaching_the_caller() {
         let server = MockServer::start().await;
@@ -990,6 +1107,7 @@ mod tests {
             .respond_with(
                 ResponseTemplate::new(200)
                     .insert_header("etag", "\"v1\"")
+                    .insert_header("link", "<http://localhost/items?page=2>; rel=\"next\"")
                     .set_body_json(serde_json::json!({ "page": 1 })),
             )
             .expect(1)
@@ -1003,6 +1121,11 @@ mod tests {
         // 第二轮：服务器只回 304，调用方应拿到缓存体重建的 200
         let second = http.send(&ApiRequest::get(server.uri())).await.unwrap();
         assert_eq!(second.status(), 200);
+        assert!(second.headers().get("link").is_some());
+        assert_eq!(
+            second.headers().get("x-forgedesk-cache").unwrap(),
+            "revalidated"
+        );
         let body: serde_json::Value = second.json().await.unwrap();
         assert_eq!(body["page"], 1);
         server.verify().await;

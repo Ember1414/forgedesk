@@ -24,6 +24,37 @@ use forgedesk_git_engine::process::{GitProcess, GitRunOpts, DEFAULT_TIMEOUT};
 use support::{args, TempDir};
 use tokio_util::sync::CancellationToken;
 
+#[tokio::test]
+async fn blocked_stdin_is_subject_to_the_same_deadline_and_cancellation() {
+    let dir = TempDir::new("blocked-stdin");
+    let (program, args) = hanging_command();
+    let process = GitProcess::with_program(program);
+    let opts = GitRunOpts::new(dir.path())
+        .with_timeout(Duration::from_millis(200))
+        .with_stdin(vec![b'x'; 8 * 1024 * 1024]);
+    let started = Instant::now();
+    let error = process.run(&args, opts).await.unwrap_err();
+    assert_eq!(error.code, ErrorCode::Internal);
+    assert!(error.message.contains("timed out"));
+    assert!(started.elapsed() < Duration::from_secs(5));
+    let cancel = CancellationToken::new();
+    let signal = cancel.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        signal.cancel();
+    });
+    let error = process
+        .run(
+            &args,
+            GitRunOpts::new(dir.path())
+                .with_cancel(cancel)
+                .with_stdin(vec![b'x'; 8 * 1024 * 1024]),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(error.code, ErrorCode::Cancelled);
+}
+
 /// 执行一条 git 命令并断言进程正常结束。
 async fn run_git(
     process: &GitProcess,

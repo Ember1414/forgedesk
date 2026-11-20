@@ -64,12 +64,35 @@ pub fn settings_set(
 ) -> AppResult<()> {
     let scope = Scope::parse(&scope, repo_id)?;
     validate_json_value(&value)?;
-    SettingsRepository::new(&state.database).set(&scope, &key, &value)?;
+    let repository = SettingsRepository::new(&state.database);
+    let previous = repository.get(&scope, &key)?;
+    repository.set(&scope, &key, &value)?;
 
     // 监听类设置写完之后必须**立刻生效**：用户改了去抖动时长却要重启应用
     // 才起作用，等同于这个设置不存在。
     if WatchSettings::is_watch_key(&key) {
         watch::apply_settings(&state.watchers, &state.database, &state.open_repos.ids())?;
+    }
+    if matches!(scope, Scope::Global)
+        && matches!(
+            key.as_str(),
+            crate::network::KEY_PROXY_MODE
+                | crate::network::KEY_PROXY_URL
+                | crate::network::KEY_NO_PROXY
+        )
+    {
+        let configured = match crate::network::apply_proxy_settings(&state.engines, &state.database)
+        {
+            Ok(configured) => configured,
+            Err(error) => {
+                match previous {
+                    Some(value) => repository.set(&scope, &key, &value)?,
+                    None => repository.remove(&scope, &key)?,
+                }
+                return Err(error);
+            }
+        };
+        state.host_repos.replace_http_transport(&configured);
     }
     Ok(())
 }

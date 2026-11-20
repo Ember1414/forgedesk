@@ -288,6 +288,10 @@ interface UpdateCheck {
 - **能力等级**：`Mutating`（只写本地配置，不涉及仓库状态，因此**不需要**快照）
 - **返回**：`null`
 - **错误**：`VALIDATION`（scope 非法 / key 为空 / value 不是合法 JSON）、`STORAGE`
+- **代理副作用**：全局 `network.proxyMode`（JSON 字符串 `system`/`none`/`manual`）、
+  `network.proxyUrl`、`network.noProxy`（逗号分隔）写入后立即应用到 Git CLI 与共享 HTTP 传输层，
+  不修改用户 Git 配置文件。`none` 强制直连；`system` 恢复系统代理；手动模式要求有效非空 URL。
+  代理校验失败会恢复本次设置项并返回 `VALIDATION`，HTTP 构建失败还可能返回 `NETWORK`。
 
 #### settings_all
 
@@ -1868,6 +1872,9 @@ actor, runNumber, createdAt?, updatedAt?, htmlUrl }`（`name` 取 `display_title
 或传输失败时自动回退缓存体**——调用方拿到的是正常成功响应，降级对服务层透明
 （响应带 `x-forgedesk-cache: stale` 标记）。只缓存 ≤1MB 的 JSON 响应（日志流/raw
 README 直连）。UI 判定：快照 `remaining == 0` → 横幅"额度耗尽、展示缓存数据 + 重置时间"。
+
+缓存键包含认证与表示头的摘要，账号之间隔离且不存明文令牌。回放保留 `Link` 分页与 `ETag`；
+304 验证成功使用 `x-forgedesk-cache: revalidated`，区别于离线/限流的 `stale`。代理变更会清理缓存。
 
 | 命令 | 能力 | 参数 | 返回 / 说明 |
 | --- | --- | --- | --- |
