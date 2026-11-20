@@ -23,6 +23,7 @@ import {
   repoActionsJobLogs,
   JOB_DONE_EVENT,
   JOB_FAILED_EVENT,
+  cancelJob,
 } from '@/lib/ipc';
 import { listenEvent } from '@/lib/ipc/client';
 
@@ -59,6 +60,17 @@ function appendChunk(lines: readonly string[], text: string): readonly string[] 
 }
 
 export function ActionsLogDialog({ target, onOpenChange }: ActionsLogDialogProps) {
+  if (target === null) return null;
+  return (
+    <ActionsLogSession
+      key={`${target.owner}/${target.repo}/${target.jobId}`}
+      target={target}
+      onOpenChange={onOpenChange}
+    />
+  );
+}
+
+function ActionsLogSession({ target, onOpenChange }: ActionsLogDialogProps) {
   const { t } = useTranslation('shell');
   const [lines, setLines] = useState<readonly string[]>([]);
   const [phase, setPhase] = useState<LogPhase>('starting');
@@ -68,59 +80,69 @@ export function ActionsLogDialog({ target, onOpenChange }: ActionsLogDialogProps
       return;
     }
     let streamJobId: string | null = null;
-    let unlisteners: readonly (() => void)[] = [];
+    const unlisteners: (() => void)[] = [];
+    let earlyEvents: { jobId: string; apply: () => void }[] = [];
     const cancelledFlag = { value: false };
+    const dispatch = (jobId: string, apply: () => void): void => {
+      if (cancelledFlag.value) return;
+      // 后台任务可能先发事件、后返回 jobId；收到身份后按原顺序回放。
+      if (streamJobId === null) earlyEvents.push({ jobId, apply });
+      else if (jobId === streamJobId) apply();
+    };
+    const attach = (pending: Promise<() => void>): Promise<void> =>
+      pending.then((unlisten) => {
+        if (cancelledFlag.value) unlisten();
+        else unlisteners.push(unlisten);
+      });
 
     const unlistenChunks = listenActionsLogChunks((payload) => {
-      if (payload.jobId !== streamJobId || cancelledFlag.value) {
-        return;
-      }
-      setLines((current) => appendChunk(current, payload.text));
+      dispatch(payload.jobId, () => setLines((current) => appendChunk(current, payload.text)));
     });
     const unlistenDone = listenEvent<{ jobId: string; result?: { totalLines?: number } }>(
       JOB_DONE_EVENT,
       (payload) => {
-        if (payload.jobId !== streamJobId || cancelledFlag.value) {
-          return;
-        }
-        setPhase('done');
+        dispatch(payload.jobId, () => setPhase('done'));
       },
     );
     const unlistenFailed = listenEvent<{ jobId: string; error?: { code?: string } }>(
       JOB_FAILED_EVENT,
       (payload) => {
-        if (payload.jobId !== streamJobId || cancelledFlag.value) {
-          return;
-        }
-        setPhase(payload.error?.code === 'CANCELLED' ? 'cancelled' : 'failed');
+        dispatch(payload.jobId, () =>
+          setPhase(payload.error?.code === 'CANCELLED' ? 'cancelled' : 'failed'),
+        );
       },
     );
 
-    void Promise.resolve()
-      .then(() => repoActionsJobLogs(HOST, target.owner, target.repo, target.jobId))
-      .then(({ jobId }) => {
+    void Promise.all([attach(unlistenChunks), attach(unlistenDone), attach(unlistenFailed)])
+      .then(() => {
+        if (cancelledFlag.value) return null;
+        return repoActionsJobLogs(HOST, target.owner, target.repo, target.jobId);
+      })
+      .then((job) => {
+        if (job === null) return;
+        const { jobId } = job;
         if (cancelledFlag.value) {
+          void cancelJob(jobId).catch(() => undefined);
           return;
         }
         streamJobId = jobId;
         setPhase('streaming');
+        for (const event of earlyEvents) dispatch(event.jobId, event.apply);
+        earlyEvents = [];
       })
       .catch(() => {
         if (!cancelledFlag.value) {
           setPhase('failed');
+          cancelledFlag.value = true;
+          earlyEvents = [];
+          unlisteners.forEach((fn) => fn());
         }
       });
 
-    void Promise.all([unlistenChunks, unlistenDone, unlistenFailed]).then((unlisten) => {
-      if (cancelledFlag.value) {
-        unlisten.forEach((fn) => fn());
-      } else {
-        unlisteners = unlisten;
-      }
-    });
-
     return () => {
       cancelledFlag.value = true;
+      earlyEvents = [];
+      if (streamJobId !== null) void cancelJob(streamJobId).catch(() => undefined);
       unlisteners.forEach((fn) => fn());
     };
   }, [target]);

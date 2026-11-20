@@ -1,11 +1,38 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import { scanOscTitle } from '@/features/terminal/manager';
+import {
+  deliverOutput,
+  forgetTerminal,
+  registerTerminal,
+  unregisterTerminal,
+  scanOscTitle,
+  type ManagedTerminal,
+} from '@/features/terminal/manager';
 import { initialTerminalState, useTerminalStore } from '@/stores/terminalStore';
 
 function encode(text: string): Uint8Array {
   return new TextEncoder().encode(text);
 }
+
+it('离屏多块输出受上限约束，重新挂载可回放之前显示过的输出', () => {
+  const received: Uint8Array[] = [];
+  const managed = {
+    term: { write: (bytes: Uint8Array) => received.push(bytes) },
+    fit: {},
+    search: {},
+  } as unknown as ManagedTerminal;
+  for (let index = 0; index < 40; index++)
+    deliverOutput('bounded', new Uint8Array(65536).fill(120));
+  registerTerminal('bounded', managed);
+  expect(received.reduce((total, bytes) => total + bytes.length, 0)).toBeLessThanOrEqual(1048576);
+  expect(new TextDecoder().decode(received[0])).toContain('ForgeDesk');
+  unregisterTerminal('bounded');
+  received.length = 0;
+  registerTerminal('bounded', managed);
+  expect(received.length).toBeGreaterThan(0);
+  forgetTerminal('bounded');
+  unregisterTerminal('bounded');
+});
 
 describe('scanOscTitle（OSC 标题 → 标签标题）', () => {
   beforeEach(() => {

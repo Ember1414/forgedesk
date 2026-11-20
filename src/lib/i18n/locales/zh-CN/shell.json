@@ -2172,6 +2172,11 @@
       "loadMore": "加载更多",
       "listError": "文件历史加载失败。",
       "retry": "重试"
+    },
+    "unsaved": {
+      "title": "关闭未保存的文件？",
+      "description": "尚未保存的编辑会被丢弃。",
+      "discard": "丢弃编辑并关闭"
     }
   },
   "commands": {

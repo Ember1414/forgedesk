@@ -11,8 +11,8 @@
  * # 三个职责
  *
  * 1. **输出路由**：全局的 `term:output` 监听只有一份（懒建立、活到应用退出），
- *    按 termId 路由到已注册的实例；实例不存在（标签页没挂载）时进 pending
- *    缓冲（上限 1MB，超限丢最旧并插入截断标记），注册时排干——保证
+ *    按 termId 路由到已注册的实例；所有输出保留在有界回放
+ *    缓冲（上限 1MB，超限丢最旧并插入截断标记），注册新实例时回放——保证
  *    "切到别的页面再回来"不丢输出、不重复输出。
  * 2. **事件接线**：`term:exit` 直接进 store（标签角标与关闭提示的来源）。
  * 3. **全局生效项**：主题切换 / 字号变化要作用到**所有**实例，调用方（页面）
@@ -45,6 +45,7 @@ export interface ManagedTerminal {
 const instances = new Map<string, ManagedTerminal>();
 const pending = new Map<string, Uint8Array[]>();
 const pendingBytes = new Map<string, number>();
+const closedSessions = new Set<string>();
 let listenersReady = false;
 
 /** base64 → 字节（输出方向；一次一个合并块，几十 KB 量级）。 */
@@ -57,31 +58,37 @@ function base64ToBytes(data: string): Uint8Array {
   return bytes;
 }
 
-function deliverOutput(termId: string, bytes: Uint8Array): void {
+/** 输出同时进入有界回放缓冲；导出用于资源上限回归验证。 */
+export function deliverOutput(termId: string, bytes: Uint8Array): void {
+  if (closedSessions.has(termId)) return;
   const managed = instances.get(termId);
   if (managed) {
     managed.term.write(bytes);
-    return;
   }
   let queued = pendingBytes.get(termId) ?? 0;
   const queue = pending.get(termId) ?? [];
   if (queued + bytes.length > MAX_PENDING_BYTES) {
     // 丢最旧的块直到装得下：缓冲是"离屏暂存"，不是完整的回滚记录
     let dropped = 0;
-    while (queue.length > 0 && queued + bytes.length - dropped > MAX_PENDING_BYTES) {
+    const mark = new TextEncoder().encode(TRUNCATION_MARK);
+    while (
+      queue.length > 0 &&
+      queued + Math.min(bytes.length, MAX_PENDING_BYTES - mark.length) - dropped + mark.length >
+        MAX_PENDING_BYTES
+    ) {
       const oldest = queue.shift();
       if (!oldest) {
         break;
       }
       dropped += oldest.length;
     }
-    const mark = new TextEncoder().encode(TRUNCATION_MARK);
     queue.unshift(mark);
     queued = queued - dropped + mark.length;
+    bytes = bytes.slice(-Math.min(bytes.length, MAX_PENDING_BYTES - mark.length));
   }
   queue.push(bytes);
   pending.set(termId, queue);
-  pendingBytes.set(termId, queued);
+  pendingBytes.set(termId, queued + bytes.length);
 }
 
 /**
@@ -132,8 +139,6 @@ export function registerTerminal(termId: string, managed: ManagedTerminal): void
     for (const bytes of queue) {
       managed.term.write(bytes);
     }
-    pending.delete(termId);
-    pendingBytes.delete(termId);
   }
 }
 
@@ -141,6 +146,19 @@ export function registerTerminal(termId: string, managed: ManagedTerminal): void
 export function unregisterTerminal(termId: string): void {
   instances.delete(termId);
 }
+
+/** 会话关闭后释放回放缓冲与输入跟踪器。 */
+export function forgetTerminal(termId: string): void {
+  closedSessions.add(termId);
+  pending.delete(termId);
+  pendingBytes.delete(termId);
+  trackers.delete(termId);
+}
+
+useTerminalStore.subscribe((state, previous) => {
+  const remaining = new Set(state.tabs.map((tab) => tab.termId));
+  for (const tab of previous.tabs) if (!remaining.has(tab.termId)) forgetTerminal(tab.termId);
+});
 
 /** 主题切换后刷新所有实例的颜色与字体（未挂载的没有实例，无需处理）。 */
 export function applyThemeToAll(): void {

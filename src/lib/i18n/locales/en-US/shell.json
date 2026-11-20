@@ -2172,6 +2172,11 @@
       "loadMore": "Load more",
       "listError": "Could not load file history.",
       "retry": "Retry"
+    },
+    "unsaved": {
+      "title": "Close unsaved file?",
+      "description": "Unsaved edits will be discarded.",
+      "discard": "Discard edits and close"
     }
   },
   "commands": {

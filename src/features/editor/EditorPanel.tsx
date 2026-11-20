@@ -38,7 +38,18 @@ import { gitBlame } from '@/lib/ipc/blame';
 import type { BlameLine } from '@/lib/ipc/blame';
 import { fsRead, fsWrite } from '@/lib/ipc/fs';
 import type { EditorTab } from '@/stores/editorStore';
-import { useEditorStore } from '@/stores/editorStore';
+import { editorDocumentId, useEditorStore } from '@/stores/editorStore';
+import { useAppError } from '@/lib/errors';
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogCancel,
+  AlertDialogAction,
+} from '@/ui/components/alert-dialog';
 import { Button } from '@/ui/components/button';
 import { cn } from '@/lib/utils';
 import '@/features/editor/blame.css';
@@ -121,13 +132,14 @@ export interface EditorPanelProps {
 /** 编辑器主面板（由仓库内路由挂载）。 */
 export function EditorPanel({ repoId }: EditorPanelProps) {
   const { t } = useTranslation('shell');
-  const tabs = useEditorStore((state) => state.tabs);
-  const activePath = useEditorStore((state) => state.activePath);
+  const allTabs = useEditorStore((state) => state.tabs);
+  const tabs = allTabs.filter((tab) => tab.repoId === repoId);
+  const activePath = useEditorStore((state) => state.activePaths[repoId]);
   const setActive = useEditorStore((state) => state.setActive);
   const closeTab = useEditorStore((state) => state.closeTab);
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
       {tabs.length > 0 ? (
         <div
           className="border-line flex flex-wrap items-center gap-1 border-b pb-1.5"
@@ -140,7 +152,7 @@ export function EditorPanel({ repoId }: EditorPanelProps) {
               type="button"
               role="tab"
               aria-selected={tab.path === activePath}
-              onClick={() => setActive(tab.path)}
+              onClick={() => setActive(repoId, tab.path)}
               className={cn(
                 'fd-transition flex items-center gap-1 rounded-md px-2 py-1 text-13',
                 tab.path === activePath
@@ -150,6 +162,7 @@ export function EditorPanel({ repoId }: EditorPanelProps) {
               title={tab.path}
             >
               {tab.isBinary ? '⚙' : tab.dirtyDisk ? '⚠' : ''}
+              {tab.draft !== tab.baseline ? '●' : ''}
               {tab.name}
             </button>
           ))}
@@ -163,11 +176,11 @@ export function EditorPanel({ repoId }: EditorPanelProps) {
       ) : (
         tabs.map((tab) => (
           <EditorTabView
-            key={tab.path}
+            key={editorDocumentId(tab.repoId, tab.path)}
             tab={tab}
             repoId={repoId}
             active={tab.path === activePath}
-            onClose={() => closeTab(tab.path)}
+            onClose={() => closeTab(tab.repoId, tab.path)}
           />
         ))
       )}
@@ -188,6 +201,9 @@ function EditorTabView({
 }) {
   const { t } = useTranslation('shell');
   const markSaved = useEditorStore((state) => state.markSaved);
+  const { show } = useAppError();
+  const [closeConfirm, setCloseConfirm] = useState(false);
+  const setDraft = useEditorStore((state) => state.setDraft);
   const markDirtyDisk = useEditorStore((state) => state.markDirtyDisk);
 
   // 主题变化（亮暗切换、换自定义主题）→ 用新的令牌值重定义 Monaco 主题。
@@ -195,7 +211,7 @@ function EditorTabView({
   // 重复重定义同一主题名是幂等的。
   useEffect(() => subscribeMonacoThemeChanges(() => applyMonacoTheme()), []);
   const keepMine = useEditorStore((state) => state.keepMine);
-  const [model, setModel] = useState<string | null>(tab.baseline);
+  const model = tab.draft;
   const [saving, setSaving] = useState(false);
   const [showCompare, setShowCompare] = useState(false);
   const [diskContent, setDiskContent] = useState<string | null>(null);
@@ -222,7 +238,7 @@ function EditorTabView({
     }
     let cancelled = false;
     let unlisten: Unlisten | undefined;
-    void watchExternalChanges(repoId, tab.path, () => {
+    const checkDisk = () => {
       void fsRead(repoId, tab.path)
         .then((content) => {
           if (cancelled) {
@@ -230,22 +246,30 @@ function EditorTabView({
           }
           const disk = content.content ?? '';
           setDiskContent(disk);
-          if (modelRef.current !== null && disk !== modelRef.current) {
-            markDirtyDisk(tab.path);
-          } else if (modelRef.current !== null) {
+          const document = useEditorStore
+            .getState()
+            .tabs.find((item) => item.repoId === repoId && item.path === tab.path);
+          if (document && disk !== document.baseline && disk !== document.draft) {
+            markDirtyDisk(repoId, tab.path);
+          } else if (document && disk === document.draft) {
             // 磁盘与编辑器一致（可能是自己保存的回声）：更新基线
-            markSaved(tab.path, disk);
+            markSaved(repoId, tab.path, disk);
           }
         })
         .catch(() => {});
-    }).then((fn) => {
-      unlisten = fn;
-    });
+    };
+    checkDisk();
+    void watchExternalChanges(repoId, tab.path, checkDisk)
+      .then((fn) => {
+        if (cancelled) fn();
+        else unlisten = fn;
+      })
+      .catch(show);
     return () => {
       cancelled = true;
       unlisten?.();
     };
-  }, [active, markDirtyDisk, markSaved, repoId, tab.path]);
+  }, [active, markDirtyDisk, markSaved, repoId, tab.path, show]);
 
   // blame 开关：拉取逐行归属并渲染为 Monaco 装饰（未提交行单独标记）
   useEffect(() => {
@@ -294,27 +318,30 @@ function EditorTabView({
   }, [blameOn, blame]);
 
   const save = useCallback(async () => {
-    if (modelRef.current === null) {
+    const content = modelRef.current;
+    if (content === null || tab.dirtyDisk) {
       return;
     }
     setSaving(true);
     try {
-      await fsWrite(repoId, tab.path, modelRef.current, tab.eol, tab.hasBom);
-      markSaved(tab.path, modelRef.current);
+      await fsWrite(tab.repoId, tab.path, content, tab.eol, tab.hasBom);
+      markSaved(tab.repoId, tab.path, content);
       setDiskContent(null);
+    } catch (error) {
+      show(error);
     } finally {
       setSaving(false);
     }
-  }, [markSaved, repoId, tab.eol, tab.hasBom, tab.path]);
+  }, [markSaved, show, tab.repoId, tab.dirtyDisk, tab.eol, tab.hasBom, tab.path]);
 
   const reloadFromDisk = useCallback(() => {
     if (diskContent !== null) {
-      setModel(diskContent);
-      markSaved(tab.path, diskContent);
+      setDraft(repoId, tab.path, diskContent);
+      markSaved(repoId, tab.path, diskContent);
       setDiskContent(null);
       setShowCompare(false);
     }
-  }, [diskContent, markSaved, tab.path]);
+  }, [diskContent, markSaved, setDraft, repoId, tab.path]);
 
   const insertExample = useCallback((example: string) => {
     const managed = editorRef.current;
@@ -326,6 +353,18 @@ function EditorTabView({
 
   return (
     <div className={cn('relative flex min-h-0 min-w-0 flex-1', active ? '' : 'hidden')}>
+      <AlertDialog open={closeConfirm} onOpenChange={setCloseConfirm}>
+        <AlertDialogContent tone="danger" impact={t('editor.unsaved.description')}>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('editor.unsaved.title')}</AlertDialogTitle>
+            <AlertDialogDescription>{t('editor.unsaved.description')}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('common:actions.cancel')}</AlertDialogCancel>
+            <AlertDialogAction onClick={onClose}>{t('editor.unsaved.discard')}</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       {detailOid !== null ? (
         <CommitDetailDialog repoId={repoId} oid={detailOid} onClose={() => setDetailOid(null)} />
       ) : null}
@@ -337,7 +376,7 @@ function EditorTabView({
         <div className="flex min-h-0 min-w-0 flex-1">
           <div className="flex min-h-0 min-w-0 flex-1 flex-col">
             <div className="border-line flex items-center gap-2 border-b px-2 py-1">
-              <Button size="sm" disabled={saving} onClick={() => void save()}>
+              <Button size="sm" disabled={saving || tab.dirtyDisk} onClick={() => void save()}>
                 {t('editor.save')}
               </Button>
               {tab.dirtyDisk ? (
@@ -359,7 +398,11 @@ function EditorTabView({
               >
                 {t('editor.history.toggle')}
               </Button>
-              <Button size="sm" variant="ghost" onClick={onClose}>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => (tab.draft !== tab.baseline ? setCloseConfirm(true) : onClose())}
+              >
                 {t('editor.close')}
               </Button>
             </div>
@@ -370,7 +413,12 @@ function EditorTabView({
                 <Button size="sm" variant="danger" onClick={reloadFromDisk}>
                   {t('editor.conflictReload')}
                 </Button>
-                <Button size="sm" onClick={() => keepMine(tab.path)}>
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    if (diskContent !== null) keepMine(repoId, tab.path, diskContent);
+                  }}
+                >
                   {t('editor.conflictKeepMine')}
                 </Button>
                 {diskContent !== null ? (
@@ -398,9 +446,12 @@ function EditorTabView({
                 // 显式 100%：默认值依赖父容器有确定高度，写出来才不会被"内容高度"
                 // 带着走（表现为编辑区不填满窗口）
                 height="100%"
-                path={tab.path}
+                path={editorDocumentId(tab.repoId, tab.path)}
                 value={model ?? ''}
-                onChange={(value) => setModel(value ?? '')}
+                onChange={(value) => {
+                  modelRef.current = value ?? '';
+                  setDraft(tab.repoId, tab.path, value ?? '');
+                }}
                 onMount={(editor, monaco) => {
                   configureMonaco();
                   // 定义并套用"跟随主题"的配色（令牌驱动）

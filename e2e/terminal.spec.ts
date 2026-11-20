@@ -208,6 +208,23 @@ test('窗口尺寸变化触发 term_resize', async ({ page }) => {
   await expectNoPageErrors(page);
 });
 
+test('切换页面后保留已显示的终端输出', async ({ page }) => {
+  await pinLanguage(page);
+  await page.addInitScript(TERMINAL_MOCK);
+  await page.goto('/#/repo/1/terminal');
+  await page.getByRole('button', { name: '新建终端' }).click();
+  await page.getByRole('menuitem', { name: '默认 Shell' }).click();
+  await expect
+    .poll(() => page.evaluate(() => window.__forgedeskTermText?.('term-1') ?? ''))
+    .toContain('mock-shell 已就绪');
+  await page.getByRole('link', { name: '工作区', exact: true }).first().click();
+  await page.getByRole('link', { name: '终端', exact: true }).first().click();
+  await expect
+    .poll(() => page.evaluate(() => window.__forgedeskTermText?.('term-1') ?? ''))
+    .toContain('mock-shell 已就绪');
+  await expectNoPageErrors(page);
+});
+
 test('Ctrl+F 打开搜索栏，可关闭', async ({ page }) => {
   await pinLanguage(page);
   await page.addInitScript(TERMINAL_MOCK);
