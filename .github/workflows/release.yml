@@ -616,6 +616,11 @@ jobs:
           patch="${RUNNER_TEMP}/packaging.patch"
           git diff -- packaging > "${patch}"
 
+          # checkout 会保留可直接带到 main 的未提交修改；必须先清掉本步骤刚生成的
+          # 清单变更，否则 --3way 要求的 index/worktree 一致性会失败（2026-11-20）。
+          # patch 已保存；此处仅恢复清单路径，不触碰其余产物或配置。
+          git restore --worktree -- packaging
+
           # 分支基于 **origin/main** 而不是 tag commit：tag 之后 main 可能已经前进，
           # 基于 tag 的 PR 会把 main 上的 packaging 回退到 tag 时刻的内容。
           branch="chore/packaging-v${VERSION}"

@@ -3,8 +3,8 @@
 # 发布形态是 **universal** dmg（单一文件同时覆盖 Apple Silicon 与 Intel），
 # 因此只有一个 sha256；这与"arm64 + intel 两个 dmg"的旧表述不同（见 README.md §3）。
 cask "forgedesk" do
-  version "1.1.3"
-  sha256 "4ede2122d8fa8df5bc4dc712b2fdfcd46b72a1631847ef03a698e4ea8124a1db"
+  version "1.1.4"
+  sha256 "de789f053caba13226f31dc247e308b031b96079738265bca2b00fed28e60a1c"
 
   url "https://github.com/Ember1414/forgedesk/releases/download/v#{version}/ForgeDesk_#{version}_macos_universal.dmg",
       verified: "github.com/Ember1414/forgedesk/"
