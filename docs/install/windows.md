@@ -1,6 +1,6 @@
 # 在 Windows 上安装 ForgeDesk
 
-> 适用版本：v1.0 及以后（**当前最新 1.1.3**，2026-10-09）。
+> 适用版本：v1.0 及以后。当前正式版以[最新 Release](https://github.com/Ember1414/forgedesk/releases/latest)为准。
 
 ForgeDesk 采用**零成本信任方案**：不使用付费代码签名证书。因此首次运行时
 Windows SmartScreen 可能提示"未知发布者"，这是正常现象——**安装前请先用下面第 2 节
@@ -14,11 +14,11 @@ Windows SmartScreen 可能提示"未知发布者"，这是正常现象——**�
 | --- | --- | --- |
 | NSIS 安装器（`.exe`） | 大多数用户 | 双击安装，支持当前用户安装，可静默安装 |
 | MSI（`.msi`） | 企业/批量部署 | 支持组策略与静默部署 |
-| 便携版 zip | 不想安装 / 无管理员权限 | 解压即用，**最不容易触发 SmartScreen** |
+| 便携版 zip | 不想安装 / 无管理员权限 | 解压即用，系统仍可能显示下载文件的信任提示 |
 | **Scoop**（`forgedesk`） | 习惯包管理器的用户 | 来源更可信、哈希由包管理器校验；清单见 [`packaging/scoop/`](../../packaging/scoop/README.md) |
 | Winget（`ForgeDesk.ForgeDesk`） | 同上 | 清单已起草（[`packaging/winget/`](../../packaging/winget/PUBLISH.md)），待收录进 `microsoft/winget-pkgs` |
 
-用 Scoop 安装（安装的是便携版，不经安装器、不触发 SmartScreen）：
+用 Scoop 安装（安装的是便携版，仍需遵循系统的信任与校验提示）：
 
 ```powershell
 # 自有 bucket 上线后（推荐）：

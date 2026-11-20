@@ -4,7 +4,7 @@
 > 内容刻意**不含日期与平台专属二进制包**（@img/sharp-*、@esbuild/* 等，与父包同版本，
 > 以父包审计为准）——否则本文件会随生成平台与日期漂移，Linux CI 永远对不上（真实教训）。
 
-## 汇总（Rust 依赖 657 个，npm 依赖 342 个）
+## 汇总（Rust 依赖 657 个，npm 依赖 329 个）
 
 | 许可证 | 数量 |
 | --- | --- |
@@ -36,13 +36,13 @@
 | CDLA-Permissive-2.0 | 1 |
 | ISC AND (Apache-2.0 OR ISC) AND Apache-2.0 AND MIT AND BSD-3-Clause AND (Apache-2.0 OR ISC OR MIT) AND (Apache-2.0 OR ISC OR MIT-0) | 1 |
 | ISC AND (Apache-2.0 OR ISC) | 1 |
-| ISC | 20 |
+| ISC | 19 |
 | MIT OR Apache-2.0 OR BSD-1-Clause | 1 |
 | MIT OR Apache-2.0 OR LGPL-2.1-or-later | 2 |
 | MIT OR Apache-2.0 OR Zlib | 2 |
 | MIT OR Apache-2.0 | 303 |
 | MIT OR Zlib OR Apache-2.0 | 2 |
-| MIT | 428 |
+| MIT | 416 |
 | MIT-0 | 2 |
 | MIT/Apache-2.0 | 33 |
 | MPL-2.0 | 7 |

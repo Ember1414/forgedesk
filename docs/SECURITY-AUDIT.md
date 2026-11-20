@@ -18,7 +18,20 @@
 > npm 侧必须显式指定官方 registry：国内镜像（npmmirror 等）没有实现 audit 端点，
 > 会报 `ERR_PNPM_AUDIT_ENDPOINT_NOT_EXISTS`（本机实测）。
 
-## 最近一次全量审计（2026-10-09，本机 Windows）
+## 2026-11-20 发布前复查
+
+GitHub Actions 首轮 npm 审计发现 7 high、11 moderate、1 low。高危来自 Vite 8.3.0、
+Zod 4.6.5 与 jsdom 的传递依赖 Undici 8.11.0；另有 Vitest mocker 的中危公告。
+本次采用同主版本的补丁升级：Vite 8.3.3、Zod 4.6.6、Vitest/coverage-v8 5.0.3，
+并将 Undici 约束到 8.12.2。没有通过新增忽略项绕过高危门禁。
+
+影响范围：Vite/Vitest/Undici 用于开发与测试；Zod 参与前端验证，更新后需重新运行单测、E2E 与生产构建。
+Zod 的替代方案是逐处手写输入校验，既增加维护成本也不能修复原依赖；因此沿用现有库的修复版。
+
+本机 npm 复查结果：0 high / 0 critical，剩 1 moderate（minimatch，修复需跨主版本，属于开发工具链）。
+Rust 继续沿用下述唯一漏洞例外，未增加新的安全例外；GitHub Rust 审计结果以本次 PR 检查为准。
+
+## 历史全量审计（2026-10-09，本机 Windows）
 
 `cargo audit`：**1 个 vulnerability（已知例外，见下）+ 3 个警告**（669 个依赖）。
 `pnpm audit`：**无已知漏洞**。
