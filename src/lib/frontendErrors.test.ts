@@ -86,7 +86,7 @@ describe('describeError', () => {
     const circular: Record<string, unknown> = {};
     circular['self'] = circular;
     expect(() => describeError(circular)).not.toThrow();
-    expect(describeError(circular).message).toContain('Object');
+    expect(describeError(circular).message).toBe('unserializable error object');
   });
 
   it('undefined / null 也描述得出来', () => {

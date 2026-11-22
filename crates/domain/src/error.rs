@@ -98,6 +98,10 @@ pub enum ErrorCode {
     /// 界面应当安静地显示"已取消"，而不是弹一个"内部错误"的红色提示。
     /// 把两者混在一起会让用户以为自己点坏了什么。
     Cancelled,
+    /// 更新包验签失败，必须拒绝安装。
+    UpdateSignatureInvalid,
+    /// 已下载更新包但本地安装失败。
+    UpdateInstallFailed,
     /// 未归类的内部错误。
     Internal,
 }
@@ -135,6 +139,8 @@ impl ErrorCode {
         Self::PtyUnsupported,
         Self::UnsupportedByEngine,
         Self::Cancelled,
+        Self::UpdateSignatureInvalid,
+        Self::UpdateInstallFailed,
         Self::Internal,
     ];
 
@@ -166,6 +172,8 @@ impl ErrorCode {
             Self::PtyUnsupported => "PTY_UNSUPPORTED",
             Self::UnsupportedByEngine => "UNSUPPORTED_BY_ENGINE",
             Self::Cancelled => "CANCELLED",
+            Self::UpdateSignatureInvalid => "UPDATE_SIGNATURE_INVALID",
+            Self::UpdateInstallFailed => "UPDATE_INSTALL_FAILED",
             Self::Internal => "INTERNAL",
         }
     }
@@ -223,6 +231,8 @@ impl ErrorCode {
             Self::PtyUnsupported => "pseudo-terminal is not supported on this platform",
             Self::UnsupportedByEngine => "the current Git engine does not support this operation",
             Self::Cancelled => "the operation was cancelled",
+            Self::UpdateSignatureInvalid => "the update signature could not be verified",
+            Self::UpdateInstallFailed => "the update could not be installed",
             Self::Internal => "an internal error occurred",
         }
     }
@@ -849,13 +859,15 @@ mod tests {
             ErrorCode::UnsupportedByEngine => "UNSUPPORTED_BY_ENGINE",
             ErrorCode::Cancelled => "CANCELLED",
             ErrorCode::Internal => "INTERNAL",
+            ErrorCode::UpdateSignatureInvalid => "UPDATE_SIGNATURE_INVALID",
+            ErrorCode::UpdateInstallFailed => "UPDATE_INSTALL_FAILED",
         }
     }
 
     #[test]
     fn all_lists_every_variant_exactly_once() {
-        // 26 个变体（新增时必须同时改 ALL 与本断言里的数字）
-        assert_eq!(ErrorCode::ALL.len(), 26);
+        // 新增时必须同时改 ALL 与本断言里的数字。
+        assert_eq!(ErrorCode::ALL.len(), 28);
 
         let mut seen = std::collections::BTreeSet::new();
         for code in ErrorCode::ALL {

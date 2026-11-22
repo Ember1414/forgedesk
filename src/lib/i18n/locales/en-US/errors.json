@@ -103,6 +103,14 @@
     "title": "Internal error",
     "hint": "This is unexpected. Expand the details and include them in your bug report."
   },
+  "UPDATE_SIGNATURE_INVALID": {
+    "title": "Update verification failed",
+    "hint": "Installation was stopped. You can keep using this version. Retry or download from the official page; do not install an unverified file."
+  },
+  "UPDATE_INSTALL_FAILED": {
+    "title": "Update installation failed",
+    "hint": "Check free disk space and application directory permissions, close programs using the files, and retry or use the official installer."
+  },
   "unknownTitle": "Something unexpected happened",
   "unknownHint": "Expand the details for the raw message and include it in your bug report.",
   "details": "Details",

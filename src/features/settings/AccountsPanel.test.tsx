@@ -26,6 +26,7 @@ import { createTestQueryClient } from '@/test/queryClient';
 const bus = {
   done: [] as Array<(payload: unknown) => void>,
   failed: [] as Array<(payload: unknown) => void>,
+  rejectSubscription: false,
 };
 
 vi.mock('@/lib/ipc/accounts', () => ({
@@ -39,6 +40,7 @@ vi.mock('@/lib/ipc/accounts', () => ({
 vi.mock('@/lib/ipc/jobs', () => ({
   cancelJob: vi.fn().mockResolvedValue(true),
   onJobDone: (handler: (payload: unknown) => void) => {
+    if (bus.rejectSubscription) return Promise.reject(new Error('IPC listen:job:done: null'));
     bus.done.push(handler);
     return Promise.resolve(() => undefined);
   },
@@ -89,6 +91,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   bus.done = [];
   bus.failed = [];
+  bus.rejectSubscription = false;
   useToastStore.setState(initialToastState);
   listMock.mockResolvedValue([]);
   patMock.mockResolvedValue(account('octocat'));
@@ -168,6 +171,28 @@ describe('AccountsPanel — PAT 登录', () => {
 });
 
 describe('AccountsPanel — 设备码登录', () => {
+  it('事件订阅失败时提示具体来源且不启动设备授权', async () => {
+    bus.rejectSubscription = true;
+    renderPanel();
+    fireEvent.click(screen.getByTestId('account-add'));
+    await waitFor(() => expect(useToastStore.getState().toasts).toHaveLength(1));
+    expect(useToastStore.getState().toasts[0]?.detail).toContain('listen:job:done');
+    expect(screen.getByTestId('account-device-submit')).toBeDisabled();
+    expect(startMock).not.toHaveBeenCalled();
+  });
+  it('授权任务在身份返回前已完成时仍能登录成功', async () => {
+    waitMock.mockImplementationOnce(async () => {
+      bus.done.forEach((handler) =>
+        handler({ jobId: 'fast-login', result: { account: account('fast') } }),
+      );
+      return { jobId: 'fast-login' };
+    });
+    renderPanel();
+    fireEvent.click(screen.getByTestId('account-add'));
+    fireEvent.click(await screen.findByTestId('account-device-submit'));
+    await waitFor(() => expect(listMock).toHaveBeenCalledTimes(2));
+    expect(screen.queryByTestId('account-waiting')).not.toBeInTheDocument();
+  });
   it('获取设备码后显示 user_code 并启动等待任务，授权完成经 job:done 关闭', async () => {
     renderPanel();
 

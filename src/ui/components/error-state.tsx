@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 
 import { TriangleAlert } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 import { Button } from '@/ui/components/button';
 import { cn } from '@/lib/utils';
@@ -43,6 +44,7 @@ export function ErrorState({
   retryLoading = false,
   className,
 }: ErrorStateProps) {
+  const { t } = useTranslation('errors');
   return (
     <div
       role="alert"
@@ -61,7 +63,7 @@ export function ErrorState({
 
       {details !== undefined ? (
         <details className="rounded-md border border-line bg-surface-sunken px-3 py-2">
-          <summary className="cursor-pointer text-12 text-fg-muted">details</summary>
+          <summary className="cursor-pointer text-12 text-fg-muted">{t('details')}</summary>
           <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-all font-mono text-12 text-fg-muted">
             {details}
           </pre>

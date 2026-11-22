@@ -20,6 +20,12 @@ import {
  *    （这比硬编码中文更糟：用户完全看不懂）。
  */
 describe('normalizeError', () => {
+  it('循环引用和 BigInt 的拒绝原因也不会使错误处理再次抛出', () => {
+    const cyclic: Record<string, unknown> = {};
+    cyclic['self'] = cyclic;
+    expect(() => normalizeError(cyclic)).not.toThrow();
+    expect(() => normalizeError(10n)).not.toThrow();
+  });
   it('原样保留后端返回的 AppError', () => {
     const error = normalizeError({
       code: 'NETWORK',

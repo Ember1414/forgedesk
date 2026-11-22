@@ -514,6 +514,7 @@ export function WorkspaceStatusPage() {
   ) =>
     count > 0 ? (
       <GroupSection
+        key={title}
         title={title}
         count={count}
         tone={tone}

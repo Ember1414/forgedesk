@@ -6,13 +6,9 @@ import { useNavigate } from 'react-router-dom';
 import { GlobalSearch } from '@/app/shell/GlobalSearch';
 import { RepoSwitcher } from '@/app/shell/RepoSwitcher';
 import { accountList } from '@/lib/ipc/accounts';
-import { isTauriRuntime, updateCheck } from '@/lib/ipc';
+import { isTauriRuntime } from '@/lib/ipc';
+import { useUpdateCheck } from '@/features/system/useUpdateCheck';
 import { ACCOUNTS_QUERY_KEY } from '@/lib/queryKeys';
-import {
-  DEFAULT_UPDATE_AUTO_CHECK,
-  UPDATE_AUTO_CHECK_KEY,
-  useSettingsStore,
-} from '@/stores/settingsStore';
 import { cn } from '@/lib/utils';
 
 /**
@@ -54,21 +50,7 @@ export function TitleBar() {
   const account = accountQuery.data?.[0];
 
   // 与 UpdateBanner 同一查询键：这里只**读**缓存/触发一次检查，不引入第二条数据通路
-  const settingsLoaded = useSettingsStore((state) => state.loaded);
-  const autoCheck = useSettingsStore((state) =>
-    state.getJson<boolean>(UPDATE_AUTO_CHECK_KEY, DEFAULT_UPDATE_AUTO_CHECK),
-  );
-  const canCheckUpdate = inTauri && settingsLoaded && autoCheck;
-  const updateQuery = useQuery({
-    queryKey: ['app', 'update'],
-    queryFn: updateCheck,
-    enabled: canCheckUpdate,
-    staleTime: Number.POSITIVE_INFINITY,
-    retry: 0,
-    // 长驻应用也要周期复查：启动那一刻还没有新版、半小时后发了新版，
-    // 不复查就永远看不到（2026-10-08 "明明发了 1.1.1 却没有提示"的场景之一）
-    refetchInterval: 30 * 60 * 1000,
-  });
+  const updateQuery = useUpdateCheck();
 
   const updateBadge = (() => {
     const data = updateQuery.data;

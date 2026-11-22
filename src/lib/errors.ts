@@ -23,6 +23,7 @@ import { invokeCommand } from '@/lib/ipc';
 import { pushToast, useToastStore } from '@/stores/toastStore';
 import { systemDiagnoseError } from '@/lib/ipc';
 import { recordDiagnosis } from '@/features/diagnostics/history';
+import { describeError } from '@/lib/errorDescription';
 
 /**
  * 错误码清单，必须与 Rust 侧 `ErrorCode` 完全一致（只增不改）。
@@ -57,6 +58,8 @@ export const ERROR_CODES = [
   'PTY_UNSUPPORTED',
   'UNSUPPORTED_BY_ENGINE',
   'CANCELLED',
+  'UPDATE_SIGNATURE_INVALID',
+  'UPDATE_INSTALL_FAILED',
   'INTERNAL',
 ] as const;
 
@@ -169,7 +172,7 @@ export function normalizeError(error: unknown): NormalizedError {
   // 兜底：不要把对象序列化成 "[object Object]" 丢给用户，而是明确说明"形态未知"
   return {
     code: 'INTERNAL',
-    message: typeof error === 'undefined' ? 'unknown error' : JSON.stringify(error),
+    message: typeof error === 'undefined' ? 'unknown error' : describeError(error).message,
     actions: [],
     retryable: false,
   };
@@ -208,7 +211,9 @@ export function useAppError() {
         // 错误提示不自动消失：一闪而过的错误等于没提示
         duration: 0,
         // detail 与 actions 交给 Toaster 渲染（可折叠 + 可点击）
-        ...(error.detail === undefined ? {} : { detail: error.detail }),
+        ...((error.detail ?? error.message).trim() === ''
+          ? {}
+          : { detail: error.detail ?? error.message }),
         ...(error.actions.length === 0
           ? {}
           : {

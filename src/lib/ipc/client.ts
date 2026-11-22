@@ -13,6 +13,34 @@
  */
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
+import { describeError } from '@/lib/errorDescription';
+
+let reportedFailures = 0;
+
+/** 不记录请求参数（可能含 PAT/文件内容），只保留操作名与已返回的错误。 */
+function operationFailure(operation: string, raw: unknown): unknown {
+  const described = describeError(raw);
+  const structured = typeof raw === 'object' && raw !== null && 'code' in raw;
+  const error = structured
+    ? {
+        ...raw,
+        detail: `IPC ${operation}\n${'detail' in raw && typeof raw.detail === 'string' ? raw.detail : described.message}`,
+      }
+    : new Error(`IPC ${operation}: ${described.message}`);
+  if (isTauriRuntime() && operation !== 'log_frontend_error' && reportedFailures < 20) {
+    reportedFailures += 1;
+    // 绕过本包装器，且接住日志命令自身失败，避免诊断递归。
+    void Promise.resolve()
+      .then(() =>
+        invoke('log_frontend_error', {
+          message: `IPC ${operation}: ${described.message}`,
+          ...(described.stack === undefined ? {} : { stack: described.stack }),
+        }),
+      )
+      .catch(() => undefined);
+  }
+  return error;
+}
 
 /**
  * 取消订阅。
@@ -38,11 +66,15 @@ export function isTauriRuntime(): boolean {
  * 除非确实没有对应的具名封装，否则**不要**在业务代码中直接使用它——
  * 每新增一个后端命令，请在 `repository.ts` 之类的模块里补一个具名函数。
  */
-export function invokeCommand<TResult>(
+export async function invokeCommand<TResult>(
   command: string,
   args?: Record<string, unknown>,
 ): Promise<TResult> {
-  return invoke<TResult>(command, args);
+  try {
+    return await invoke<TResult>(command, args);
+  } catch (error) {
+    throw operationFailure(command, error);
+  }
 }
 
 /**
@@ -51,9 +83,13 @@ export function invokeCommand<TResult>(
  * 返回 `unlisten`：**组件卸载时必须调用它**，否则监听器会留在全局集合里，
  * 每次挂载再叠一层（表现是同一个事件被处理多次）。
  */
-export function listenEvent<TPayload>(
+export async function listenEvent<TPayload>(
   event: string,
   handler: (payload: TPayload) => void,
 ): Promise<Unlisten> {
-  return listen<TPayload>(event, (message) => handler(message.payload));
+  try {
+    return await listen<TPayload>(event, (message) => handler(message.payload));
+  } catch (error) {
+    throw operationFailure(`listen:${event}`, error);
+  }
 }

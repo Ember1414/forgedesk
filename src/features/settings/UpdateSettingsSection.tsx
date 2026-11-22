@@ -11,6 +11,8 @@ import {
 } from '@/stores/settingsStore';
 import { Button } from '@/ui/components/button';
 import { Checkbox } from '@/ui/components/checkbox';
+import { isTauriRuntime } from '@/lib/ipc';
+import { useUpdateCheck } from '@/features/system/useUpdateCheck';
 
 /**
  * 「更新」设置区块（T7.1）——挂在高级设置页。
@@ -30,6 +32,11 @@ import { Checkbox } from '@/ui/components/checkbox';
 export function UpdateSettingsSection() {
   const { t } = useTranslation('shell');
   const { show } = useAppError();
+  const check = useUpdateCheck();
+  const manualCheck = async (): Promise<void> => {
+    const result = await check.refetch();
+    if (result.error !== null) show(result.error);
+  };
 
   // 进入设置页时按需加载（幂等：App 启动时已加载过则不会再请求）
   useEffect(() => {
@@ -47,6 +54,24 @@ export function UpdateSettingsSection() {
   return (
     <div className="border-line bg-surface flex flex-col gap-3 rounded-lg border p-4">
       <h2 className="text-14 font-medium">{t('settings.update.title')}</h2>
+      <div className="flex flex-wrap items-center gap-2 text-13">
+        <Button
+          variant="secondary"
+          disabled={!isTauriRuntime() || check.isFetching}
+          onClick={() => void manualCheck()}
+        >
+          {t('settings.update.checkNow')}
+        </Button>
+        {check.data != null ? (
+          <span role="status">
+            {!check.data.configured
+              ? t('titleBar.update.localBuild')
+              : check.data.update !== null
+                ? t('titleBar.update.available', { version: check.data.update.version })
+                : t('titleBar.update.latest')}
+          </span>
+        ) : null}
+      </div>
 
       <label className="flex flex-col gap-0.5 text-13">
         <span className="flex items-center gap-2">

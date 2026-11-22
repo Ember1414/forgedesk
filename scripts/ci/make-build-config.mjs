@@ -94,6 +94,7 @@ const config = {
   plugins: {
     updater: {
       pubkey: options.pubkey.trim(),
+      requireSignedVersion: true,
       endpoints: [endpoint],
     },
   },

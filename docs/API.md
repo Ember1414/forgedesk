@@ -236,15 +236,16 @@ interface UpdateCheck {
 }
 ```
 
-- **错误**：网络失败 → `NETWORK`；配置存在但非法（如 URL 不合法）→ `NETWORK`（原始错误进 `detail`，已脱敏）
+- **错误**：网络失败 → `NETWORK`；配置存在但非法 → `VALIDATION`。原始错误进 `detail`，已脱敏。
+- **网络策略**：读取全局代理设置（直连/系统/手动与 bypass）；检查限时 15 秒，连接限时 10 秒，读取限时 30 秒。
 - **前端封装**：`src/lib/ipc/index.ts` 的 `updateCheck()`
 
 ### update_install
 
 下载并安装指定版本（T7.1）。要求 `version` 与**本次**检查到的版本一致：界面上的信息可能已过期
-（期间又发布了新版本），不一致时返回 `VALIDATION` 要求界面重新确认——避免"用户点了 A、装上的却是 B"。
+（期间又发布了新版本），不一致时返回 `PLAN_STALE`，界面重新检查并确认。
 
-- **能力等级**：`Network`（下载安装包；安装成功后由插件重启应用）
+- **能力等级**：`Network`（下载安装包；Windows 由安装器重启，macOS/Linux 由应用主动重启）
 - **参数**：
 
 | 参数 | 类型 | 必填 | 说明 |
@@ -252,8 +253,11 @@ interface UpdateCheck {
 | `version` | `string` | 是 | 要安装的版本号（必须等于最近一次检查返回的 `version`） |
 
 - **返回**：`null`（安装成功后进程会重启，因此实际不会返回到界面）
-- **错误**：无可用更新 → `NOT_FOUND`；版本不匹配 → `VALIDATION`；下载/安装/签名校验失败 → `NETWORK`
+- **错误**：无可用更新 → `NOT_FOUND`；版本不匹配 → `PLAN_STALE`；非法版本或已有安装在进行 → `VALIDATION`；
+  下载失败 → `NETWORK`；验签或签名版本不匹配 → `UPDATE_SIGNATURE_INVALID`；本地安装失败 → `UPDATE_INSTALL_FAILED`。
   （**签名校验失败绝不降级为跳过校验**，见 `docs/RELEASE.md` §3.2）
+- **执行约束**：单一安装入口；下载限时 300 秒，读取限时 30 秒。下载并验签成功后才发 installing 阶段，
+  失败释放安装锁可重试。重启前结束会话标记；界面有未保存的编辑器文档时阻止安装。
 - **进度事件**：`update:progress`（见 §3）
 - **前端封装**：`src/lib/ipc/index.ts` 的 `updateInstall(version)`
 
@@ -741,7 +745,7 @@ PTY Spike（T5.1）的调试通道：把 `docs/PTY-SPIKE.md` 验证过的会话�
 | 事件 | 载荷 | 用途 | 任务 | 状态 |
 | --- | --- | --- | --- | --- |
 | `repo:changed` | `{ repoId, kind, paths }` | 仓库数据已变化（应用自己的写操作，或文件监听发现的**外部**变化） | T1.4 / T1.10 | ✅ 已实现 |
-| `update:progress` | `{ phase, received, total }` | 自动更新的下载/安装进度（`phase` ∈ `downloading` \| `installing`；`total` 为 null 表示服务端未给长度） | T7.1 | ✅ 已实现 |
+| `update:progress` | `{ phase, received, total }` | 自动更新的下载/安装进度；received 是累计字节数；`phase` ∈ `downloading` \| `installing`；验签通过后才进入 installing；`total` 为 null 表示服务端未给长度 | T7.1 | ✅ 已实现 |
 
 **`repo:changed` 的载荷（T1.10 起带 `kind`）**：
 

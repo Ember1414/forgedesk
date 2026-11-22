@@ -1,5 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClientProvider } from '@tanstack/react-query';
+import { initialEditorState, useEditorStore } from '@/stores/editorStore';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { UpdateBanner } from '@/features/system/UpdateBanner';
@@ -60,14 +61,54 @@ beforeEach(() => {
   listenMock.mockImplementation(async () => () => undefined);
   // 设置必须先"加载完成"，否则横幅按未就绪处理（避免用户关掉开关仍发请求）
   useSettingsStore.setState({ ...initialSettingsState, loaded: true });
+  useEditorStore.setState(initialEditorState);
 });
 
 afterEach(() => {
   cleanup();
   useSettingsStore.setState(initialSettingsState);
+  useEditorStore.setState(initialEditorState);
 });
 
 describe('更新横幅', () => {
+  it('进度订阅失败时不会启动安装，并允许重试', async () => {
+    checkMock.mockResolvedValue(available());
+    listenMock.mockRejectedValueOnce(new Error('event channel failed'));
+    renderBanner();
+    fireEvent.click(await screen.findByRole('button', { name: '立即更新' }));
+    await waitFor(() => expect(listenMock).toHaveBeenCalledTimes(1));
+    expect(installMock).not.toHaveBeenCalled();
+    await waitFor(() => expect(screen.getByRole('button', { name: '立即更新' })).toBeEnabled());
+  });
+
+  it('手工检查即使关闭自动检查也能呈现更新，且未保存文档会阻止安装', async () => {
+    useSettingsStore.setState({
+      ...initialSettingsState,
+      loaded: true,
+      values: { [UPDATE_AUTO_CHECK_KEY]: 'false' },
+    });
+    useEditorStore.getState().openTab({
+      repoId: 1,
+      path: 'file.txt',
+      name: 'file.txt',
+      eol: 'lf',
+      hasBom: false,
+      isBinary: false,
+      baseline: 'old',
+      draft: 'new',
+      dirtyDisk: false,
+    });
+    const client = createTestQueryClient();
+    client.setQueryData(['app', 'update'], available());
+    render(
+      <QueryClientProvider client={client}>
+        <UpdateBanner />
+      </QueryClientProvider>,
+    );
+    expect(await screen.findByRole('button', { name: '立即更新' })).toBeDisabled();
+    expect(screen.getByText(/请先保存或关闭/)).toBeInTheDocument();
+    expect(checkMock).not.toHaveBeenCalled();
+  });
   it('有可用更新时显示版本与三个动作', async () => {
     checkMock.mockResolvedValue(available());
     renderBanner();

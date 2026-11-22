@@ -99,12 +99,22 @@ const MOCK_SCRIPT = `
   window.__githubCalls = [];
   window.__githubAuthRequired = false;
   const listeners = [];
+  const eventsByName = {};
+  function emit(event, payload) {
+    (eventsByName[event] || []).forEach(function (callback) {
+      callback({ event: event, id: 1, payload: payload });
+    });
+  }
 
   window.__TAURI_INTERNALS__ = {
     transformCallback: function (callback) { listeners.push(callback); return listeners.length; },
     unregisterListener: function () {},
     invoke: function (command, args) {
       window.__githubCalls.push({ command: command, args: args });
+      if (command === 'plugin:event|listen') {
+        (eventsByName[args.event] = eventsByName[args.event] || []).push(listeners[args.handler - 1]);
+        return Promise.resolve(1);
+      }
       if (command === 'account_list') {
         return Promise.resolve(window.__githubAuthRequired ? [] : [account]);
       }
@@ -118,6 +128,25 @@ const MOCK_SCRIPT = `
       if (command === 'repo_remote_search') return Promise.resolve({ items: [repo], nextPage: null });
       if (command === 'repo_account_binding_get') return Promise.resolve(null);
       if (command === 'repo_rate_limit_state') return Promise.resolve(null);
+      if (command === 'repo_actions_runs_list') {
+        return Promise.resolve({ items: [{
+          id: 10, name: 'Build fixture', status: 'completed', conclusion: 'success',
+          actor: 'test', runNumber: 10, htmlUrl: 'https://github.com/octo/demo/actions/runs/10'
+        }], nextPage: null });
+      }
+      if (command === 'repo_actions_run_jobs') {
+        return Promise.resolve([{ id: 100, name: 'build', status: 'completed', conclusion: 'success' }]);
+      }
+      if (command === 'repo_actions_job_logs') {
+        setTimeout(function () {
+          emit('actions:log-chunk', {
+            jobId: 'log-fixture', totalLines: 20005,
+            text: Array.from({ length: 20005 }, function (_, i) { return 'log-line-' + i; }).join('\\n') + '\\n'
+          });
+          emit('job:done', { jobId: 'log-fixture', result: { totalLines: 20005 } });
+        }, 25);
+        return Promise.resolve({ jobId: 'log-fixture' });
+      }
       // 设置页会同时挂上凭据面板与 SSH 面板：它们的 DTO 都是**非空**形状，
       // 返回 null 会当场炸掉整个页面（DTO 契约见 docs/API.md「凭据」节）
       if (command === 'credentials_status') {
@@ -319,4 +348,60 @@ test('未登录时给出登录引导，而不是把内部错误摊给用户（M4
 
   const errs = await page.evaluate(() => window.__errs ?? []);
   expect(errs, JSON.stringify(errs)).toEqual([]);
+});
+
+test('large Actions logs stay virtualized and usable in a small window', async ({ page }) => {
+  await page.setViewportSize({ width: 960, height: 600 });
+  await page.goto('/#/github/actions');
+  await page.getByTestId('actions-repo-input').fill('octo/demo');
+  await page.getByTestId('actions-repo-go').click();
+  await page.getByTestId('actions-item-10').click();
+  await page.getByTestId('actions-log-open-100').click();
+  await expect(page.getByTestId('actions-log-status')).toContainText('20005');
+  await expect(page.getByTestId('actions-log-truncated')).toBeVisible();
+
+  const dialog = page.getByRole('dialog', { name: '日志：build' });
+  const box = await dialog.boundingBox();
+  expect(box).not.toBeNull();
+  expect(box!.y).toBeGreaterThanOrEqual(16);
+  expect(box!.y + box!.height).toBeLessThanOrEqual(584);
+  const list = dialog.getByRole('list');
+  expect(await list.getByRole('listitem').count()).toBeLessThanOrEqual(26);
+  await list.evaluate((element) => {
+    element.scrollTop = element.scrollHeight;
+  });
+  await expect(dialog.getByText('log-line-20004', { exact: true })).toBeVisible();
+  await dialog.getByRole('button', { name: '关闭' }).click();
+  await expect(dialog).toHaveCount(0);
+  expect(await page.evaluate(() => window.__errs ?? [])).toEqual([]);
+});
+
+test('login event subscription failure keeps the app usable and exposes its source', async ({
+  page,
+}) => {
+  await page.goto('/#/settings/github');
+  await expect(page.getByTestId('account-add')).toBeVisible();
+  await page.evaluate(() => {
+    const host = (
+      window as unknown as {
+        __TAURI_INTERNALS__: {
+          invoke: (command: string, args?: { event?: string }) => Promise<unknown>;
+        };
+      }
+    ).__TAURI_INTERNALS__;
+    const invoke = host.invoke;
+    host.invoke = (command, args) =>
+      command === 'plugin:event|listen' && args?.event === 'job:done'
+        ? Promise.reject(null)
+        : invoke(command, args);
+  });
+  await page.getByTestId('account-add').click();
+  await expect(page.getByTestId('account-device-submit')).toBeDisabled();
+  await page.getByRole('dialog').getByText('详情', { exact: true }).click();
+  await expect(
+    page.getByRole('dialog').getByText('IPC listen:job:done: null', { exact: true }),
+  ).toBeVisible();
+  await page.getByRole('dialog').getByRole('button', { name: '关闭', exact: true }).click();
+  await expect(page.getByTestId('account-items')).toBeVisible();
+  expect(await page.evaluate(() => window.__errs ?? [])).toEqual([]);
 });

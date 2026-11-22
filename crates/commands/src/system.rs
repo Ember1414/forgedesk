@@ -95,7 +95,7 @@ pub fn log_frontend_error(message: String, stack: Option<String>) -> AppResult<(
 
     tracing::error!(
         target: "forgedesk::frontend",
-        message = %message,
+        error_message = %message,
         message_truncated,
         stack = %stack.as_ref().map(|(text, _)| text.as_str()).unwrap_or(""),
         stack_truncated = stack.as_ref().is_some_and(|(_, truncated)| *truncated),

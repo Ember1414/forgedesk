@@ -14,6 +14,8 @@ import { initialToastState, useToastStore } from '@/stores/toastStore';
  *   - 打开失败时给出错误提示，而不是静默无反应。
  */
 vi.mock('@/lib/ipc', () => ({
+  isTauriRuntime: () => false,
+  updateCheck: vi.fn(async () => ({ configured: false, update: null })),
   logsOpen: vi.fn(),
   logsTail: vi.fn(),
 }));

@@ -53,9 +53,9 @@ afterEach(() => {
 });
 
 describe('路由表', () => {
-  it.each([...ROUTE_CASES])('%s 渲染「%s」页面', (path, heading) => {
+  it.each([...ROUTE_CASES])('%s 渲染「%s」页面', async (path, heading) => {
     renderApp(path);
-    expect(screen.getByRole('heading', { name: heading })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: heading })).toBeInTheDocument();
   });
 
   it('开发专用路由可访问设计系统预览页（生产构建不注册）', async () => {
@@ -65,7 +65,7 @@ describe('路由表', () => {
 });
 
 describe('导航与路由的一致性', () => {
-  it('每个导航项都能解析出路径，且该路径下侧栏对应条目被标记为当前页', () => {
+  it('每个导航项都能解析出路径，且该路径下侧栏对应条目被标记为当前页', async () => {
     const repoId = 'example-forgedesk';
     const items = NAV_SECTIONS.flatMap((section) => section.items);
 
@@ -80,7 +80,7 @@ describe('导航与路由的一致性', () => {
       // 用 aria-current="page" 作为判据——它由路由的真实匹配结果产生，
       // 因此能同时发现"路由漏注册"和"路径算错"两类问题。
       const { unmount } = renderApp(path ?? '/');
-      const sidebar = screen.getByRole('navigation', { name: '主导航' });
+      const sidebar = await screen.findByRole('navigation', { name: '主导航' });
       const label = i18n.t(item.labelKey, { ns: 'shell' });
 
       expect(

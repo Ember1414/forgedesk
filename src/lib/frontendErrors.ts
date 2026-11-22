@@ -15,6 +15,8 @@
  */
 
 import { logFrontendError } from '@/lib/ipc';
+import { describeError } from '@/lib/errorDescription';
+export { describeError } from '@/lib/errorDescription';
 
 declare global {
   interface Window {
@@ -39,25 +41,6 @@ export const KEEP_ERRORS = 50;
  * 反而把发生顺序里最早、最有价值的那几条挤掉。
  */
 export const REPORT_LIMIT = 20;
-
-/** 把任意抛出物描述成可读的 `{ message, stack }`。 */
-export function describeError(error: unknown): { message: string; stack?: string } {
-  if (error instanceof Error) {
-    return error.stack === undefined
-      ? { message: error.message }
-      : { message: error.message, stack: error.stack };
-  }
-  if (typeof error === 'string') {
-    return { message: error };
-  }
-  try {
-    // Promise 拒绝里什么都可能有（`throw undefined` 是合法 JS）：
-    // JSON 化失败（循环引用）时要退回 String()，而不是在错误处理里再抛一次
-    return { message: JSON.stringify(error) ?? String(error) };
-  } catch {
-    return { message: String(error) };
-  }
-}
 
 /**
  * 从事件对象里取出真正被抛出的东西。
