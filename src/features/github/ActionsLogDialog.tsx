@@ -4,8 +4,8 @@
  * # 流式为什么不卡 UI
  *
  * 日志行经 `actions:log-chunk` 事件分块到达（后端按完整行切分），这里
- * 只把新行 append 进数组并交给 [`VirtualList`]——DOM 里永远只有可视区
- * 的几十行，5MB 还是 50MB 对渲染层的成本是同一常数（M4 验收的落点）。
+ * 先写入有界环形缓冲，最多每 50ms 向 VirtualList 发布一次快照。
+ * DOM 只保留可视行；旧日志和超长行被裁剪时明确提示，避免虚拟化掩盖内存增长。
  * 行内容是 CI 日志原文，React 文本节点展示（默认转义），无 HTML 注入面。
  *
  * # 生命周期
@@ -29,6 +29,8 @@ import { listenEvent } from '@/lib/ipc/client';
 
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/ui/components/dialog';
 import { VirtualList } from '@/ui/components/virtual-list';
+import { ActionsLogBuffer, MAX_LOG_CHARACTERS, logTextTail } from './actionsLogBuffer';
+import type { ActionsLogSnapshot } from './actionsLogBuffer';
 
 /** 与其他 GitHub 页一致的站点常量。 */
 const HOST = 'github.com';
@@ -48,16 +50,10 @@ export interface ActionsLogDialogProps {
 }
 
 type LogPhase = 'starting' | 'streaming' | 'done' | 'cancelled' | 'failed';
-
-/** 把一个事件块按行拆开（行尾换行符由后端保证在块内）。 */
-function appendChunk(lines: readonly string[], text: string): readonly string[] {
-  const parts = text.split('\n');
-  // split 后尾元素是最后一个换行后的空串（有换行结尾时），丢弃
-  if (parts.length > 1 && parts[parts.length - 1] === '') {
-    parts.pop();
-  }
-  return [...lines, ...parts];
-}
+type StreamEvent = { readonly jobId: string } & (
+  | { readonly kind: 'chunk'; readonly text: string; readonly totalLines: number }
+  | { readonly kind: 'phase'; readonly phase: LogPhase }
+);
 
 export function ActionsLogDialog({ target, onOpenChange }: ActionsLogDialogProps) {
   if (target === null) return null;
@@ -70,24 +66,64 @@ export function ActionsLogDialog({ target, onOpenChange }: ActionsLogDialogProps
   );
 }
 
-function ActionsLogSession({ target, onOpenChange }: ActionsLogDialogProps) {
+function ActionsLogSession({
+  target,
+  onOpenChange,
+}: {
+  readonly target: NonNullable<ActionsLogDialogProps['target']>;
+  readonly onOpenChange: ActionsLogDialogProps['onOpenChange'];
+}) {
   const { t } = useTranslation('shell');
-  const [lines, setLines] = useState<readonly string[]>([]);
+  const [snapshot, setSnapshot] = useState<ActionsLogSnapshot>({
+    lines: [],
+    totalLines: 0,
+    truncated: false,
+  });
   const [phase, setPhase] = useState<LogPhase>('starting');
+  const { owner, repo, jobId: targetJobId } = target;
+  const { lines, totalLines, truncated } = snapshot;
 
   useEffect(() => {
-    if (target === null) {
-      return;
-    }
     let streamJobId: string | null = null;
+    const buffer = new ActionsLogBuffer();
+    let flushTimer: ReturnType<typeof setTimeout> | undefined;
+    const flush = (): void => {
+      clearTimeout(flushTimer);
+      flushTimer = undefined;
+      setSnapshot(buffer.snapshot());
+    };
+    const scheduleFlush = (): void => {
+      flushTimer ??= setTimeout(flush, 50);
+    };
     const unlisteners: (() => void)[] = [];
-    let earlyEvents: { jobId: string; apply: () => void }[] = [];
+    let earlyEvents: StreamEvent[] = [];
+    let earlyCharacters = 0;
     const cancelledFlag = { value: false };
-    const dispatch = (jobId: string, apply: () => void): void => {
+    const dispatch = (event: StreamEvent): void => {
       if (cancelledFlag.value) return;
       // 后台任务可能先发事件、后返回 jobId；收到身份后按原顺序回放。
-      if (streamJobId === null) earlyEvents.push({ jobId, apply });
-      else if (jobId === streamJobId) apply();
+      // 早到队列也必须有界，否则下载身份返回较慢时会绕过主缓冲限制。
+      if (streamJobId === null) {
+        if (event.kind === 'chunk' && event.text.length > MAX_LOG_CHARACTERS) {
+          event = { ...event, text: logTextTail(event.text, MAX_LOG_CHARACTERS) };
+          buffer.markTruncated();
+        }
+        earlyEvents.push(event);
+        if (event.kind === 'chunk') earlyCharacters += event.text.length;
+        while (earlyEvents.length > 512 || earlyCharacters > MAX_LOG_CHARACTERS) {
+          const removed = earlyEvents.shift();
+          if (removed?.kind === 'chunk') earlyCharacters -= removed.text.length;
+          buffer.markTruncated();
+        }
+      } else if (event.jobId === streamJobId) {
+        if (event.kind === 'chunk') {
+          buffer.append(event.text, event.totalLines);
+          scheduleFlush();
+        } else {
+          flush();
+          setPhase(event.phase);
+        }
+      }
     };
     const attach = (pending: Promise<() => void>): Promise<void> =>
       pending.then((unlisten) => {
@@ -96,27 +132,29 @@ function ActionsLogSession({ target, onOpenChange }: ActionsLogDialogProps) {
       });
 
     const unlistenChunks = listenActionsLogChunks((payload) => {
-      dispatch(payload.jobId, () => setLines((current) => appendChunk(current, payload.text)));
+      dispatch({ ...payload, kind: 'chunk' });
     });
     const unlistenDone = listenEvent<{ jobId: string; result?: { totalLines?: number } }>(
       JOB_DONE_EVENT,
       (payload) => {
-        dispatch(payload.jobId, () => setPhase('done'));
+        dispatch({ jobId: payload.jobId, kind: 'phase', phase: 'done' });
       },
     );
     const unlistenFailed = listenEvent<{ jobId: string; error?: { code?: string } }>(
       JOB_FAILED_EVENT,
       (payload) => {
-        dispatch(payload.jobId, () =>
-          setPhase(payload.error?.code === 'CANCELLED' ? 'cancelled' : 'failed'),
-        );
+        dispatch({
+          jobId: payload.jobId,
+          kind: 'phase',
+          phase: payload.error?.code === 'CANCELLED' ? 'cancelled' : 'failed',
+        });
       },
     );
 
     void Promise.all([attach(unlistenChunks), attach(unlistenDone), attach(unlistenFailed)])
       .then(() => {
         if (cancelledFlag.value) return null;
-        return repoActionsJobLogs(HOST, target.owner, target.repo, target.jobId);
+        return repoActionsJobLogs(HOST, owner, repo, targetJobId);
       })
       .then((job) => {
         if (job === null) return;
@@ -127,7 +165,7 @@ function ActionsLogSession({ target, onOpenChange }: ActionsLogDialogProps) {
         }
         streamJobId = jobId;
         setPhase('streaming');
-        for (const event of earlyEvents) dispatch(event.jobId, event.apply);
+        for (const event of earlyEvents) dispatch(event);
         earlyEvents = [];
       })
       .catch(() => {
@@ -135,6 +173,7 @@ function ActionsLogSession({ target, onOpenChange }: ActionsLogDialogProps) {
           setPhase('failed');
           cancelledFlag.value = true;
           earlyEvents = [];
+          clearTimeout(flushTimer);
           unlisteners.forEach((fn) => fn());
         }
       });
@@ -142,41 +181,51 @@ function ActionsLogSession({ target, onOpenChange }: ActionsLogDialogProps) {
     return () => {
       cancelledFlag.value = true;
       earlyEvents = [];
+      clearTimeout(flushTimer);
       if (streamJobId !== null) void cancelJob(streamJobId).catch(() => undefined);
       unlisteners.forEach((fn) => fn());
     };
-  }, [target]);
+  }, [owner, repo, targetJobId]);
 
   const statusText =
     phase === 'starting' || phase === 'streaming'
-      ? t('github.actions.logsStreaming', { lines: lines.length })
+      ? t('github.actions.logsStreaming', { lines: totalLines })
       : phase === 'done'
-        ? t('github.actions.logsDone', { lines: lines.length })
+        ? t('github.actions.logsDone', { lines: totalLines })
         : phase === 'cancelled'
-          ? t('github.actions.logsCancelled', { lines: lines.length })
+          ? t('github.actions.logsCancelled', { lines: totalLines })
           : t('github.actions.logsFailed');
 
   return (
     <Dialog open={target !== null} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl" closeLabel={t('common:actions.close')}>
+      <DialogContent
+        className="flex max-h-[calc(100dvh-2rem)] max-w-3xl flex-col overflow-hidden"
+        closeLabel={t('common:actions.close')}
+      >
         <DialogHeader>
           <DialogTitle>{t('github.actions.logsTitle', { job: target?.jobName ?? '' })}</DialogTitle>
         </DialogHeader>
         <p className="text-12 text-fg-muted" data-testid="actions-log-status">
           {statusText}
         </p>
+        {truncated ? (
+          <p className="shrink-0 text-12 text-fg-muted" data-testid="actions-log-truncated">
+            {t('github.actions.logsTruncated', { lines: lines.length })}
+          </p>
+        ) : null}
         {lines.length === 0 ? (
           <p className="text-13 text-fg-subtle" data-testid="actions-log-empty">
             {phase === 'failed' ? statusText : t('github.actions.logsEmpty')}
           </p>
         ) : (
-          <div className="overflow-hidden rounded-md border border-line bg-surface">
+          <div className="min-h-0 overflow-y-auto rounded-md border border-line bg-surface">
             <VirtualList
               items={lines}
               itemHeight={ROW_HEIGHT}
               height={420}
+              className="max-h-[max(96px,calc(100dvh-14rem))]"
               label={t('github.actions.logsTitle', { job: target?.jobName ?? '' })}
-              getKey={(_, index) => `log-line-${index}`}
+              getKey={(_, index) => `log-line-${totalLines - lines.length + index}`}
               renderItem={(line) => (
                 <div className="font-mono text-12 leading-6 whitespace-pre">{line}</div>
               )}

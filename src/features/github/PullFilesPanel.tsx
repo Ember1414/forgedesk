@@ -330,7 +330,7 @@ export function PullFilesPanel({ owner, repo, number }: PullFilesPanelProps) {
           )),
     );
     return (
-      <div className="rounded-md border border-line" data-testid="pull-file">
+      <div key={file.filename} className="rounded-md border border-line" data-testid="pull-file">
         <button
           type="button"
           className="fd-transition flex w-full items-center gap-2 px-2 py-1.5 text-left text-13 hover:bg-surface focus:bg-surface"

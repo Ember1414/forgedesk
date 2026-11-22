@@ -1777,7 +1777,8 @@
       "logsDone": "共 {{lines}} 行",
       "logsCancelled": "下载已取消（{{lines}} 行）",
       "logsFailed": "日志加载失败。",
-      "logsEmpty": "日志还没有内容。"
+      "logsEmpty": "日志还没有内容。",
+      "logsTruncated": "日志较大，已省略较早内容或超长行的前半部分；当前保留 {{lines}} 行。"
     },
     "rateLimit": {
       "exhausted": "GitHub API 额度已用尽，正在展示缓存数据。",

@@ -11,9 +11,10 @@
  *   在页面刷新时能否回落到 index.html 取决于宿主实现；而桌面应用**没有**SEO 与
  *   分享链接需求，hash 路由把这个不确定性直接消除（刷新永远回到 index.html）。
  *
- * 页面全部为 M0 骨架，除「外壳导航」与「外观设置」外不实现功能。
+ * 工作区等常用入口同步装配；终端、编辑器、托管平台和插件在访问时加载，
+ * 避免尚未打开的功能及其依赖进入首屏。路由 lazy 同时覆盖直接进入与站内导航。
  */
-import { lazy, Suspense } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Navigate, createHashRouter } from 'react-router-dom';
 import type { RouteObject } from 'react-router-dom';
 
@@ -24,25 +25,12 @@ import { DashboardPage } from '@/features/dashboard/DashboardPage';
 import { OperationsPage } from '@/features/operations/OperationsPage';
 import { SnapshotsPage } from '@/features/snapshots/SnapshotsPage';
 import { RepoSettingsPage } from '@/features/repo/RepoSettingsPage';
-import { GitHubActionsPage } from '@/features/github/GitHubActionsPage';
-import { GitHubDashboardPage } from '@/features/github/GitHubDashboardPage';
-import { GitHubIssuesPage } from '@/features/github/GitHubIssuesPage';
 import { GitHubLayout } from '@/features/github/GitHubLayout';
-import { GitHubPullRequestsPage } from '@/features/github/GitHubPullRequestsPage';
-import { GitHubReposPage } from '@/features/github/GitHubReposPage';
-import { PluginsPage } from '@/features/plugins/PluginsPage';
-import { CommandDictionaryPage } from '@/features/terminal/CommandDictionaryPage';
 import { RepoBranchesPage } from '@/features/repo/RepoBranchesPage';
 import { RepoConflictPage } from '@/features/repo/RepoConflictPage';
 import { RepoHistoryPage } from '@/features/repo/RepoHistoryPage';
 import { RepoLayout } from '@/features/repo/RepoLayout';
 import { RepoStatusPage } from '@/features/repo/RepoStatusPage';
-// T5.7：编辑器携带 Monaco 核心（~3MB）——lazy chunk，不进首屏
-const RepoEditorPage = lazy(() =>
-  import('@/features/editor/RepoEditorPage').then((m) => ({ default: m.RepoEditorPage })),
-);
-import { RepoTerminalPage } from '@/features/repo/RepoTerminalPage';
-import { PluginPanelsPage } from '@/features/plugins/PluginPanelsPage';
 import { AdvancedSettingsPage } from '@/features/settings/AdvancedSettingsPage';
 import { AppearanceSettingsPage } from '@/features/settings/AppearanceSettingsPage';
 import { GeneralSettingsPage } from '@/features/settings/GeneralSettingsPage';
@@ -54,18 +42,44 @@ import { SettingsLayout } from '@/features/settings/SettingsLayout';
 import { LayoutSettingsPage } from '@/features/settings/LayoutSettingsPage';
 import { ShortcutsSettingsPage } from '@/features/settings/ShortcutsSettingsPage';
 import { TerminalSettingsPage } from '@/features/settings/TerminalSettingsPage';
-import { ComponentsPage } from '@/ui/__dev__/ComponentsPage';
-import { DesignSystemPage } from '@/ui/__dev__/DesignSystemPage';
-import { GraphPerfRoute } from '@/ui/__dev__/GraphPerfPanel';
-import { PtySpikePanel } from '@/ui/__dev__/PtySpikePanel';
+
+/** 直接进入延迟路由时仍提供明确的加载反馈（不能留下空白窗口）。 */
+function RouteLoading() {
+  const { t } = useTranslation('common');
+  return (
+    <p role="status" className="p-4 text-13 text-fg-muted">
+      {t('state.loading')}
+    </p>
+  );
+}
 
 /** 开发专用路由（生产构建不包含这几个预览页）。 */
 const devRoutes: RouteObject[] = import.meta.env.DEV
   ? [
-      { path: '__dev__/design', element: <DesignSystemPage /> },
-      { path: '__dev__/components', element: <ComponentsPage /> },
-      { path: '__dev__/graph-perf', element: <GraphPerfRoute /> },
-      { path: '__dev__/pty-spike', element: <PtySpikePanel /> },
+      {
+        path: '__dev__/design',
+        lazy: async () => ({
+          Component: (await import('@/ui/__dev__/DesignSystemPage')).DesignSystemPage,
+        }),
+      },
+      {
+        path: '__dev__/components',
+        lazy: async () => ({
+          Component: (await import('@/ui/__dev__/ComponentsPage')).ComponentsPage,
+        }),
+      },
+      {
+        path: '__dev__/graph-perf',
+        lazy: async () => ({
+          Component: (await import('@/ui/__dev__/GraphPerfPanel')).GraphPerfRoute,
+        }),
+      },
+      {
+        path: '__dev__/pty-spike',
+        lazy: async () => ({
+          Component: (await import('@/ui/__dev__/PtySpikePanel')).PtySpikePanel,
+        }),
+      },
     ]
   : [];
 
@@ -73,6 +87,7 @@ export const appRoutes: RouteObject[] = [
   {
     path: '/',
     element: <AppShell />,
+    hydrateFallbackElement: <RouteLoading />,
     children: [
       { index: true, element: <DashboardPage /> },
 
@@ -88,16 +103,24 @@ export const appRoutes: RouteObject[] = [
           { path: 'history', element: <RepoHistoryPage /> },
           { path: 'branches', element: <RepoBranchesPage /> },
           { path: 'conflict', element: <RepoConflictPage /> },
-          { path: 'terminal', element: <RepoTerminalPage /> },
+          {
+            path: 'terminal',
+            lazy: async () => ({
+              Component: (await import('@/features/repo/RepoTerminalPage')).RepoTerminalPage,
+            }),
+          },
           {
             path: 'editor',
-            element: (
-              <Suspense fallback={<div className="text-fg-muted p-4 text-13">…</div>}>
-                <RepoEditorPage />
-              </Suspense>
-            ),
+            lazy: async () => ({
+              Component: (await import('@/features/editor/RepoEditorPage')).RepoEditorPage,
+            }),
           },
-          { path: 'plugin-panels', element: <PluginPanelsPage /> },
+          {
+            path: 'plugin-panels',
+            lazy: async () => ({
+              Component: (await import('@/features/plugins/PluginPanelsPage')).PluginPanelsPage,
+            }),
+          },
           { path: 'settings', element: <RepoSettingsPage /> },
         ],
       },
@@ -107,11 +130,38 @@ export const appRoutes: RouteObject[] = [
         element: <GitHubLayout />,
         children: [
           { index: true, element: <Navigate to="repos" replace /> },
-          { path: 'repos', element: <GitHubReposPage /> },
-          { path: 'pull-requests', element: <GitHubPullRequestsPage /> },
-          { path: 'issues', element: <GitHubIssuesPage /> },
-          { path: 'actions', element: <GitHubActionsPage /> },
-          { path: 'dashboard', element: <GitHubDashboardPage /> },
+          {
+            path: 'repos',
+            lazy: async () => ({
+              Component: (await import('@/features/github/GitHubReposPage')).GitHubReposPage,
+            }),
+          },
+          {
+            path: 'pull-requests',
+            lazy: async () => ({
+              Component: (await import('@/features/github/GitHubPullRequestsPage'))
+                .GitHubPullRequestsPage,
+            }),
+          },
+          {
+            path: 'issues',
+            lazy: async () => ({
+              Component: (await import('@/features/github/GitHubIssuesPage')).GitHubIssuesPage,
+            }),
+          },
+          {
+            path: 'actions',
+            lazy: async () => ({
+              Component: (await import('@/features/github/GitHubActionsPage')).GitHubActionsPage,
+            }),
+          },
+          {
+            path: 'dashboard',
+            lazy: async () => ({
+              Component: (await import('@/features/github/GitHubDashboardPage'))
+                .GitHubDashboardPage,
+            }),
+          },
         ],
       },
 
@@ -133,10 +183,21 @@ export const appRoutes: RouteObject[] = [
         ],
       },
 
-      { path: 'plugins', element: <PluginsPage /> },
+      {
+        path: 'plugins',
+        lazy: async () => ({
+          Component: (await import('@/features/plugins/PluginsPage')).PluginsPage,
+        }),
+      },
 
       // T5.4 命令字典（全局，不依赖仓库）
-      { path: 'commands', element: <CommandDictionaryPage /> },
+      {
+        path: 'commands',
+        lazy: async () => ({
+          Component: (await import('@/features/terminal/CommandDictionaryPage'))
+            .CommandDictionaryPage,
+        }),
+      },
 
       ...devRoutes,
 
