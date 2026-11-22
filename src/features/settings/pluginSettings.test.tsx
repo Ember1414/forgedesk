@@ -105,6 +105,37 @@ describe('插件管理页', () => {
     expect(await screen.findByText('还没有安装任何插件')).toBeInTheDocument();
   });
 
+  it('列表查询失败时展示错误和重试，不能伪装为没有插件', async () => {
+    listMock.mockRejectedValueOnce({ code: 'INTERNAL', message: 'plugin host unavailable' });
+    renderPage();
+    const alert = await screen.findByRole('alert');
+    expect(within(alert).getByText('无法读取已安装插件')).toBeInTheDocument();
+    expect(screen.queryByText('还没有安装任何插件')).not.toBeInTheDocument();
+    listMock.mockResolvedValue([plugin()]);
+    fireEvent.click(within(alert).getByRole('button', { name: '重试' }));
+    expect(await screen.findByTestId('plugin-card-com.example.stats')).toBeInTheDocument();
+  });
+
+  it('内置插件查询失败时保留错误与重试入口', async () => {
+    listMock.mockResolvedValue([]);
+    builtinMock.mockRejectedValueOnce({ code: 'INTERNAL', message: 'resources unavailable' });
+    renderPage();
+    const alert = await screen.findByRole('alert');
+    expect(within(alert).getByText('无法读取内置示例插件')).toBeInTheDocument();
+    builtinMock.mockResolvedValue([
+      {
+        dirName: 'repo-stats',
+        id: 'com.example.repo-stats',
+        name: 'Repo Stats',
+        description: '仓库统计面板。',
+        version: '0.1.0',
+        installed: false,
+      },
+    ]);
+    fireEvent.click(within(alert).getByRole('button', { name: '重试' }));
+    expect(await screen.findByTestId('plugin-builtin-repo-stats')).toBeInTheDocument();
+  });
+
   it('列表卡片展示名称、状态徽章与权限行', async () => {
     listMock.mockResolvedValue([plugin()]);
 

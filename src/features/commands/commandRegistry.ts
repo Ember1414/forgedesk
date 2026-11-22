@@ -19,6 +19,8 @@ export interface RegisteredCommand {
   readonly id: string;
   /** i18n key（shell 命名空间下）。 */
   readonly titleKey: string;
+  /** 插件提供的标题（插件文案按清单原样显示，不作为应用 i18n key）。 */
+  readonly title?: string;
   /** 分类（面板分组与设置页）。 */
   readonly category: 'navigate' | 'git' | 'editor' | 'view' | 'app';
   /** 规范化默认键；null = 无快捷键。 */
@@ -36,6 +38,7 @@ export interface CommandRegistryState {
   /** 运行时 when 上下文（如 repoOpen）。 */
   readonly contextTags: ReadonlySet<string>;
   register(commands: readonly RegisteredCommand[]): void;
+  unregister(ids: readonly string[]): void;
   setPaletteOpen(open: boolean): void;
   setContextTags(tags: ReadonlySet<string>): void;
 }
@@ -58,6 +61,11 @@ export const useCommandRegistry = create<CommandRegistryState>()((set) => ({
       }
       return { commands: [...merged.values()] };
     });
+  },
+
+  unregister: (ids) => {
+    const removed = new Set(ids);
+    set((state) => ({ commands: state.commands.filter((command) => !removed.has(command.id)) }));
   },
 
   setPaletteOpen: (open) => {

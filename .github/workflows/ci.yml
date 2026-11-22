@@ -283,6 +283,10 @@ jobs:
       - name: 冒烟测试（加载入库产物）
         run: cargo test -p forgedesk-plugin-host --test example_plugins --locked
 
+      # debug 的小 fuel 预算只覆盖降级/隔离路径，真实仓库统计需用正式预算验证。
+      - name: 示例插件真实数据测试（正式执行预算）
+        run: cargo test --release -p forgedesk-plugin-host --test example_plugins --locked
+
   build:
     name: build (${{ matrix.platform }})
     needs: [quality, safety]

@@ -216,16 +216,16 @@ impl PluginManager {
                 );
                 continue;
             }
-            let state = if entry.enabled && !self.safe_mode {
+            let (state, runtime) = if entry.enabled && !self.safe_mode {
                 match self.load_and_activate(
                     &manifest,
                     &wasm,
                     &entry.granted.iter().copied().collect(),
                 ) {
-                    Ok(_) => ManagedState::Enabled,
+                    Ok(handle) => (ManagedState::Enabled, Some(handle)),
                     Err(error) => {
                         tracing::warn!(plugin_id = entry.id, error = %error, "plugin failed to restart");
-                        ManagedState::Crashed
+                        (ManagedState::Crashed, None)
                     }
                 }
             } else {
@@ -235,7 +235,7 @@ impl PluginManager {
                         "safe-mode startup: plugin activation deferred"
                     );
                 }
-                ManagedState::Disabled
+                (ManagedState::Disabled, None)
             };
             self.plugins.write().insert(
                 entry.id,
@@ -247,7 +247,7 @@ impl PluginManager {
                     granted: entry.granted.into_iter().collect(),
                     state,
                     enabled_intent: entry.enabled,
-                    runtime: None,
+                    runtime,
                 },
             );
         }
@@ -415,12 +415,13 @@ impl PluginManager {
             plugin.state = ManagedState::Enabled;
             plugin.enabled_intent = true;
             plugin.runtime = Some(handle);
-            Ok(())
+            drop(plugins);
+            self.persist()
         } else {
             let runtime = {
                 let mut plugins = self.plugins.write();
                 let plugin = Self::lookup_mut(&mut plugins, id)?;
-                if !matches!(plugin.state, ManagedState::Enabled) {
+                if !matches!(plugin.state, ManagedState::Enabled) && !plugin.enabled_intent {
                     return Ok(()); // 幂等
                 }
                 plugin.state = ManagedState::Disabled;
@@ -430,13 +431,27 @@ impl PluginManager {
             if let Some(handle) = runtime {
                 self.engine.unload(handle)?;
             }
-            Ok(())
+            self.persist()
         }
     }
 
     /// 重新加载（开发者模式热重载）：重读目录，保持授权与启用状态。
     pub fn reload(&self, id: &str) -> Result<(), HostError> {
-        let was_enabled = {
+        // 先校验新文件，失败时保留旧实例。重新加载必须先卸载旧句柄，
+        // 否则提交钩子按 id 查找时仍会命中旧代码，且每次重载都会泄漏实例。
+        let (manifest, wasm, granted) = {
+            let plugins = self.plugins.read();
+            let plugin = Self::lookup(&plugins, id)?;
+            if !matches!(plugin.state, ManagedState::Enabled) {
+                return Err(HostError::InvalidArgument(
+                    "id",
+                    "plugin is not running".to_owned(),
+                ));
+            }
+            let (manifest, wasm) = read_plugin_dir(&plugin.dir)?;
+            (manifest, wasm, plugin.granted.clone())
+        };
+        let runtime = {
             let mut plugins = self.plugins.write();
             let plugin = Self::lookup_mut(&mut plugins, id)?;
             if !matches!(plugin.state, ManagedState::Enabled) {
@@ -446,19 +461,20 @@ impl PluginManager {
                 ));
             }
             plugin.state = ManagedState::Disabled;
-            plugin.runtime.take().is_some()
+            plugin.runtime.take()
         };
+        if let Some(handle) = runtime {
+            self.engine.unload(handle)?;
+        }
         // 重读目录（开发者可能改了代码），sha256 刷新
-        let (manifest, wasm, granted) = {
+        {
             let mut plugins = self.plugins.write();
             let plugin = Self::lookup_mut(&mut plugins, id)?;
-            let (manifest, wasm) = read_plugin_dir(&plugin.dir)?;
             plugin.sha256 = sha256_hex(&wasm);
             plugin.manifest = manifest.clone();
             plugin.wasm = wasm.clone();
-            (manifest, wasm, plugin.granted.clone())
-        };
-        if was_enabled {
+        }
+        if runtime.is_some() {
             let effective: BTreeSet<Permission> = manifest
                 .permissions
                 .iter()
@@ -479,7 +495,7 @@ impl PluginManager {
             plugin.state = ManagedState::Enabled;
             plugin.runtime = Some(handle);
         }
-        Ok(())
+        self.persist()
     }
 
     /// 卸载：移除注册条目；`plugins_root` 内的目录一并删除，外部目录保留。
@@ -997,6 +1013,66 @@ mod tests {
     }
 
     #[test]
+    fn enabling_and_disabling_are_persisted_without_another_registry_write() {
+        let (manager, root, store) = test_manager("enabled-persistence");
+        let dir = write_plugin(&root, "p", &fixture::normal_plugin());
+        manager.install_from_dir(&dir).unwrap();
+        manager.set_enabled("com.example.installed", true).unwrap();
+        assert!(store.load()[0].enabled);
+        manager.set_enabled("com.example.installed", false).unwrap();
+        assert!(!store.load()[0].enabled);
+    }
+
+    #[test]
+    fn a_restored_enabled_plugin_has_a_callable_handle_and_can_be_revoked() {
+        let (manager, root, store) = test_manager("restored-handle");
+        let dir = write_plugin(
+            &root,
+            "p",
+            &fixture::host_call_plugin(crate::host::HostOp::GetRepoInfo, "{}"),
+        );
+        manager.install_from_dir(&dir).unwrap();
+        manager
+            .grant("com.example.installed", &[Permission::GitRead])
+            .unwrap();
+        // 单独构造持久化 enabled 条目，避免启用未持久化的问题掩盖句柄丢失。
+        store.entries.lock().unwrap()[0].enabled = true;
+        drop(manager);
+        let engine = Arc::new(WasmiEngine::with_default_limits(Arc::new(NoopServices)));
+        let restored = PluginManager::new(engine, root, store, false).unwrap();
+        assert_eq!(restored.list()[0].state, ManagedState::Enabled);
+        assert!(restored
+            .invoke_command("com.example.installed", "read", "{}")
+            .is_ok());
+        restored
+            .revoke("com.example.installed", Permission::GitRead)
+            .unwrap();
+        let result = restored
+            .invoke_command("com.example.installed", "read", "{}")
+            .unwrap();
+        assert!(result.contains("-2"), "{result}");
+    }
+
+    #[test]
+    fn an_enabled_real_example_can_render_after_a_manager_restart() {
+        let (manager, root, store) = test_manager("restored-panel");
+        let examples =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../plugins/examples/repo-stats");
+        let report = manager.install_copied(&examples).unwrap();
+        manager
+            .grant(&report.id, &report.declared_permissions)
+            .unwrap();
+        store.entries.lock().unwrap()[0].enabled = true;
+        drop(manager);
+        let engine = Arc::new(WasmiEngine::with_default_limits(Arc::new(NoopServices)));
+        let restored = PluginManager::new(engine, root, store, false).unwrap();
+        let dsl = restored.render_panel(&report.id, "stats").unwrap();
+        crate::panel_dsl::validate_panel_dsl(dsl.as_bytes()).unwrap();
+        restored.set_enabled(&report.id, false).unwrap();
+        assert!(restored.render_panel(&report.id, "stats").is_err());
+    }
+
+    #[test]
     fn entries_with_missing_or_tampered_directories_are_skipped_on_restart() {
         let (manager, root, store) = test_manager("tamper");
         let dir = write_plugin(&root, "p", &fixture::normal_plugin());
@@ -1052,12 +1128,57 @@ mod tests {
             .unwrap();
         manager.set_enabled("com.example.installed", true).unwrap();
 
+        let old_handle = manager.plugins.read()["com.example.installed"]
+            .runtime
+            .unwrap();
         manager.reload("com.example.installed").unwrap();
+        assert!(matches!(
+            manager.engine.state(old_handle),
+            Err(HostError::InstanceNotFound(_))
+        ));
         assert_eq!(manager.list()[0].state, ManagedState::Enabled);
         let result = manager
             .invoke_command("com.example.installed", "greet", "{}")
             .unwrap();
         assert_eq!(result, "hello world");
+    }
+
+    #[test]
+    fn invalid_reload_keeps_the_running_instance_available() {
+        let (manager, root, _store) = test_manager("invalid-reload");
+        let dir = write_plugin(&root, "p", &fixture::normal_plugin());
+        manager.install_from_dir(&dir).unwrap();
+        manager.set_enabled("com.example.installed", true).unwrap();
+        std::fs::write(dir.join("plugin.json"), "invalid").unwrap();
+        assert!(manager.reload("com.example.installed").is_err());
+        assert_eq!(manager.list()[0].state, ManagedState::Enabled);
+        assert_eq!(
+            manager
+                .invoke_command("com.example.installed", "greet", "{}")
+                .unwrap(),
+            "hello world"
+        );
+    }
+
+    #[test]
+    fn safe_mode_preserves_enable_intent_until_the_user_explicitly_disables_it() {
+        let (manager, root, store) = test_manager("safe-restart");
+        let dir = write_plugin(&root, "p", &fixture::normal_plugin());
+        manager.install_from_dir(&dir).unwrap();
+        manager.set_enabled("com.example.installed", true).unwrap();
+        drop(manager);
+        let engine = Arc::new(WasmiEngine::with_default_limits(Arc::new(NoopServices)));
+        let restored = PluginManager::new(engine, root.clone(), store.clone(), true).unwrap();
+        assert_eq!(restored.list()[0].state, ManagedState::Disabled);
+        assert!(store.load()[0].enabled);
+        restored
+            .set_enabled("com.example.installed", false)
+            .unwrap();
+        assert!(!store.load()[0].enabled);
+        drop(restored);
+        let engine = Arc::new(WasmiEngine::with_default_limits(Arc::new(NoopServices)));
+        let normal = PluginManager::new(engine, root, store, false).unwrap();
+        assert_eq!(normal.list()[0].state, ManagedState::Disabled);
     }
 
     #[test]

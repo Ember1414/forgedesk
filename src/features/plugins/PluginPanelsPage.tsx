@@ -1,13 +1,13 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 
 import { PanelRenderer } from '@/features/plugins/PanelRenderer';
-import { pluginInvokeCommand, pluginList, pluginRegistrations, pluginRenderPanel } from '@/lib/ipc';
+import { pluginList, pluginRegistrations, pluginRenderPanel } from '@/lib/ipc';
+import { usePluginCommand } from '@/features/plugins/usePluginCommand';
 import type { PluginRegistration } from '@/lib/ipc';
 import { PLUGIN_REGISTRATIONS_QUERY_KEY, PLUGINS_QUERY_KEY } from '@/lib/queryKeys';
-import { normalizeError, useAppError } from '@/lib/errors';
-import { pushToast } from '@/stores/toastStore';
+import { normalizeError } from '@/lib/errors';
 import { Badge } from '@/ui/components/badge';
 import { Button } from '@/ui/components/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/ui/components/tabs';
@@ -23,8 +23,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/ui/components/tabs';
  */
 export function PluginPanelsPage(): React.JSX.Element {
   const { t } = useTranslation('shell');
-  const { show } = useAppError();
-  const queryClient = useQueryClient();
   const navigate = useNavigate();
 
   const registrations = useQuery({
@@ -81,22 +79,25 @@ export function PluginPanelsPage(): React.JSX.Element {
       </section>
     );
 
-  const runCommand = useMutation({
-    mutationFn: ({ pluginId, command }: { pluginId: string; command: string }) =>
-      pluginInvokeCommand(pluginId, command, '{}'),
-    onSuccess: () => {
-      // 命令可能改了插件状态/面板内容：刷新注册表与面板缓存
-      void queryClient.invalidateQueries({ queryKey: [PLUGIN_REGISTRATIONS_QUERY_KEY] });
-      void queryClient.invalidateQueries({ queryKey: ['pluginPanel'] });
-      pushToast({ title: t('plugins.commandDone'), tone: 'success' });
-    },
-    onError: show,
-  });
+  const runCommand = usePluginCommand();
 
   if (registrations.isLoading) {
     return (
       <section className="flex flex-col gap-2 p-4" aria-busy="true">
         <p className="text-13 text-fg-subtle">{t('plugins.panelsLoading')}</p>
+      </section>
+    );
+  }
+
+  if (registrations.isError) {
+    return (
+      <section className="flex flex-col gap-3 p-4" role="alert">
+        <h1 className="text-20 font-semibold tracking-tight">{t('pages.pluginPanels.title')}</h1>
+        <p className="text-13 text-danger">{t('plugins.registrationsFailed')}</p>
+        <p className="text-12 text-fg-muted">{normalizeError(registrations.error).message}</p>
+        <Button size="sm" variant="secondary" onClick={() => void registrations.refetch()}>
+          {t('plugins.panelRetry')}
+        </Button>
       </section>
     );
   }

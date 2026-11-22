@@ -45,6 +45,8 @@ use serde::Serialize;
 use serde_json::{json, Value};
 use tauri::Emitter;
 
+use crate::state::AppState;
+
 /// 事件：插件请求 toast（前端转为应用内通知）。
 pub const EVENT_PLUGIN_TOAST: &str = "plugin-toast";
 /// 事件：插件的命令/面板注册表发生变化（前端刷新命令面板与面板挂载）。
@@ -243,6 +245,17 @@ impl AppHostServices {
 }
 
 impl HostServices for AppHostServices {
+    fn remove_plugin(&self, plugin_id: &str) {
+        self.registrations
+            .lock()
+            .retain(|entry| entry.plugin_id != plugin_id);
+        self.subscriptions.lock().remove(plugin_id);
+        self.commit_hooks
+            .lock()
+            .retain(|_, owner| owner != plugin_id);
+        let _ = self.app.emit(EVENT_PLUGIN_REGISTRATIONS, ());
+    }
+
     fn repo_info(&self, _plugin_id: &str) -> Result<Value, HostError> {
         let to_host = |error: AppError| {
             if error.code == forgedesk_domain::ErrorCode::NotFound {
@@ -568,8 +581,8 @@ fn parse_permission(raw: &str) -> Result<Permission, AppError> {
 
 /// 列出已安装插件。
 #[tauri::command(async)]
-pub fn plugin_list(state: tauri::State<'_, PluginManager>) -> AppResult<Vec<PluginSummary>> {
-    Ok(state.list())
+pub fn plugin_list(state: tauri::State<'_, AppState>) -> AppResult<Vec<PluginSummary>> {
+    Ok(state.plugins.list())
 }
 
 /// 随应用分发的示例插件所在的目录（打包 = 资源目录下的 `examples/`）。
@@ -666,9 +679,9 @@ fn builtin_example_ids(dir: &std::path::Path) -> Vec<String> {
 #[tauri::command(async)]
 pub fn plugin_builtin_examples(
     app: tauri::AppHandle,
-    state: tauri::State<'_, PluginManager>,
+    state: tauri::State<'_, AppState>,
 ) -> AppResult<Vec<BuiltinExampleDto>> {
-    let installed: Vec<String> = state.list().into_iter().map(|p| p.id).collect();
+    let installed: Vec<String> = state.plugins.list().into_iter().map(|p| p.id).collect();
     Ok(builtin_examples_dir(&app)
         .map(|dir| builtin_example_dtos(&dir, &installed))
         .unwrap_or_default())
@@ -743,7 +756,7 @@ pub fn seed_builtin_examples(
 #[tauri::command(async)]
 pub fn plugin_install_builtin(
     app: tauri::AppHandle,
-    state: tauri::State<'_, PluginManager>,
+    state: tauri::State<'_, AppState>,
     dir_name: String,
 ) -> AppResult<InstallReport> {
     // 零信任：目录名只允许作为单一路径组件，且必须是扫描清单里的真实条目——
@@ -774,16 +787,20 @@ pub fn plugin_install_builtin(
             format!("no builtin example named {dir_name}"),
         ));
     }
-    state.install_copied(&dir.join(&dir_name)).map_err(to_app)
+    state
+        .plugins
+        .install_copied(&dir.join(&dir_name))
+        .map_err(to_app)
 }
 
 /// 开发者模式：从本地目录安装插件（需用户在 UI 确认警告）。
 #[tauri::command]
 pub fn plugin_install_from_dir(
-    state: tauri::State<'_, PluginManager>,
+    state: tauri::State<'_, AppState>,
     dir: String,
 ) -> AppResult<InstallReport> {
     state
+        .plugins
         .install_from_dir(std::path::Path::new(&dir))
         .map_err(to_app)
 }
@@ -791,17 +808,17 @@ pub fn plugin_install_from_dir(
 /// 启用 / 禁用插件。
 #[tauri::command]
 pub fn plugin_set_enabled(
-    state: tauri::State<'_, PluginManager>,
+    state: tauri::State<'_, AppState>,
     id: String,
     enabled: bool,
 ) -> AppResult<()> {
-    state.set_enabled(&id, enabled).map_err(to_app)
+    state.plugins.set_enabled(&id, enabled).map_err(to_app)
 }
 
 /// 授予权限（逐项；扩权在插件重启后生效——UI 提示）。
 #[tauri::command]
 pub fn plugin_grant(
-    state: tauri::State<'_, PluginManager>,
+    state: tauri::State<'_, AppState>,
     id: String,
     permissions: Vec<String>,
 ) -> AppResult<()> {
@@ -809,71 +826,70 @@ pub fn plugin_grant(
         .iter()
         .map(|raw| parse_permission(raw))
         .collect::<AppResult<_>>()?;
-    state.grant(&id, &perms).map_err(to_app)
+    state.plugins.grant(&id, &perms).map_err(to_app)
 }
 
 /// 撤销一项权限（立即生效，插件的下一次调用即失败）。
 #[tauri::command]
 pub fn plugin_revoke(
-    state: tauri::State<'_, PluginManager>,
+    state: tauri::State<'_, AppState>,
     id: String,
     permission: String,
 ) -> AppResult<()> {
     let permission = parse_permission(&permission)?;
-    state.revoke(&id, permission).map_err(to_app)
+    state.plugins.revoke(&id, permission).map_err(to_app)
 }
 
 /// 卸载插件；返回是否删除了其目录（root 外的开发者目录保留）。
 #[tauri::command]
-pub fn plugin_uninstall(state: tauri::State<'_, PluginManager>, id: String) -> AppResult<bool> {
-    state.uninstall(&id).map_err(to_app)
+pub fn plugin_uninstall(state: tauri::State<'_, AppState>, id: String) -> AppResult<bool> {
+    state.plugins.uninstall(&id).map_err(to_app)
 }
 
 /// 热重载（开发者模式）。
 #[tauri::command]
-pub fn plugin_reload(state: tauri::State<'_, PluginManager>, id: String) -> AppResult<()> {
-    state.reload(&id).map_err(to_app)
+pub fn plugin_reload(state: tauri::State<'_, AppState>, id: String) -> AppResult<()> {
+    state.plugins.reload(&id).map_err(to_app)
 }
 
 /// 插件日志（运行中的实例）。
 #[tauri::command(async)]
 pub fn plugin_logs(
-    state: tauri::State<'_, PluginManager>,
+    state: tauri::State<'_, AppState>,
     id: String,
     limit: u32,
 ) -> AppResult<Vec<forgedesk_plugin_host::engine_wasmi::PluginLogEntry>> {
-    state.logs(&id, limit as usize).map_err(to_app)
+    state.plugins.logs(&id, limit as usize).map_err(to_app)
 }
 
 /// 渲染插件面板（返回已校验的 DSL JSON）。
 #[tauri::command(async)]
 pub fn plugin_render_panel(
-    state: tauri::State<'_, PluginManager>,
+    state: tauri::State<'_, AppState>,
     id: String,
     panel_id: String,
 ) -> AppResult<String> {
-    state.render_panel(&id, &panel_id).map_err(to_app)
+    state.plugins.render_panel(&id, &panel_id).map_err(to_app)
 }
 
 /// 执行插件命令（命令面板与面板按钮的执行入口）。
 #[tauri::command(async)]
 pub fn plugin_invoke_command(
-    state: tauri::State<'_, PluginManager>,
+    state: tauri::State<'_, AppState>,
     id: String,
     command: String,
     arg_json: String,
 ) -> AppResult<String> {
     state
+        .plugins
         .invoke_command(&id, &command, &arg_json)
         .map_err(to_app)
 }
 
 /// 已注册的贡献点（命令面板 / 面板挂载）。
 #[tauri::command(async)]
-pub fn plugin_registrations(
-    state: tauri::State<'_, AppHostServices>,
-) -> AppResult<Vec<RegistrationDto>> {
-    Ok(state.registrations())
+pub fn plugin_registrations(state: tauri::State<'_, AppState>) -> AppResult<Vec<RegistrationDto>> {
+    Ok(state.plugin_services.registrations())
 }
 
 /// 构建插件宿主（组合根的装配函数，`src-tauri` 启动时调用）。

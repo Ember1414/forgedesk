@@ -40,19 +40,33 @@ fn example_dir(name: &str) -> PathBuf {
 #[derive(Debug, Default)]
 struct BareServices {
     registrations: Mutex<Vec<String>>,
+    with_repo: bool,
 }
 
 impl HostServices for BareServices {
     fn repo_info(&self, _: &str) -> Result<Value, HostError> {
+        if self.with_repo {
+            return Ok(
+                serde_json::json!({ "currentBranch": "main", "name": "fixture", "isDirty": true }),
+            );
+        }
         Err(HostError::NotFound("no repository open".to_owned()))
     }
     fn status(&self, _: &str, _: Option<String>) -> Result<Value, HostError> {
+        if self.with_repo {
+            return Ok(
+                serde_json::json!({ "entries": [{ "path": "src/main.rs", "status": " M" }] }),
+            );
+        }
         Err(HostError::NotFound("no repository open".to_owned()))
     }
     fn read_file(&self, _: &str, rel_path: &str) -> Result<Value, HostError> {
         Err(HostError::NotFound(format!("not found: {rel_path}")))
     }
     fn list_dir(&self, _: &str, _: &str) -> Result<Value, HostError> {
+        if self.with_repo {
+            return Ok(serde_json::json!({ "entries": [{ "name": "src", "kind": "dir" }] }));
+        }
         Err(HostError::NotFound("no repository open".to_owned()))
     }
     fn write_file(&self, _: &str, _: &str, _: &str) -> Result<Value, HostError> {
@@ -68,6 +82,11 @@ impl HostServices for BareServices {
         Ok(serde_json::json!({}))
     }
     fn git_log(&self, _: &str, _: u32, _: Option<String>) -> Result<Value, HostError> {
+        if self.with_repo {
+            return Ok(
+                serde_json::json!({ "commits": [{ "id": "abc", "summary": "feat: fixture", "author": "Tester", "time": 1795330000 }] }),
+            );
+        }
         Err(HostError::NotFound("no repository open".to_owned()))
     }
     fn git_stage(&self, _: &str, _: Vec<String>) -> Result<Value, HostError> {
@@ -108,6 +127,13 @@ impl HostServices for BareServices {
     fn subscribe_events(&self, _: &str, _: Vec<String>) -> Result<Value, HostError> {
         Ok(serde_json::json!({}))
     }
+
+    fn remove_plugin(&self, plugin_id: &str) {
+        self.registrations
+            .lock()
+            .unwrap()
+            .retain(|entry| !entry.contains(plugin_id));
+    }
 }
 
 fn load_example(name: &str) -> (WasmiEngine, forgedesk_plugin_host::runtime::PluginHandle) {
@@ -132,6 +158,47 @@ fn every_example_manifest_matches_its_declared_contributions() {
         let manifest_text = std::fs::read_to_string(example_dir(name).join("plugin.json")).unwrap();
         let manifest = PluginManifest::parse(&manifest_text).unwrap();
         assert_eq!(manifest.id, *id, "示例 {name} 的 id 与登记不一致");
+    }
+}
+
+#[test]
+// 调试引擎的 40 万 fuel 专用于小夹具/沙箱验证；真实统计用正式预算验证，
+// 不为通过测试扩大 debug 原生栈的安全边界。执行：cargo test --release -p forgedesk-plugin-host --test example_plugins
+#[cfg(not(debug_assertions))]
+fn examples_produce_real_content_with_repository_data_instead_of_only_error_fallbacks() {
+    let services = Arc::new(BareServices {
+        with_repo: true,
+        ..BareServices::default()
+    });
+    let engine = WasmiEngine::with_default_limits(services);
+    for (name, _) in EXAMPLES {
+        let dir = example_dir(name);
+        let manifest =
+            PluginManifest::parse(&std::fs::read_to_string(dir.join("plugin.json")).unwrap())
+                .unwrap();
+        let handle = engine
+            .load(&manifest, &std::fs::read(dir.join("plugin.wasm")).unwrap())
+            .unwrap();
+        engine.activate(handle).unwrap();
+        let output = if *name == "commit-template" {
+            engine
+                .invoke(handle, "com.example.commit-template.fill-feat", "{}")
+                .unwrap_or_else(|error| panic!("{name}: {error}"))
+        } else {
+            engine
+                .render_panel(handle, "panel")
+                .unwrap_or_else(|error| panic!("{name}: {error}"))
+        };
+        assert!(
+            !output.contains("生成失败") && !output.contains("需要打开一个仓库"),
+            "{name}: {output}"
+        );
+        if *name == "commit-template" {
+            assert!(output.contains("feat"), "{output}");
+        } else {
+            validate_panel_dsl(output.as_bytes()).unwrap();
+        }
+        engine.unload(handle).unwrap();
     }
 }
 
@@ -197,10 +264,32 @@ fn registering_contributions_happens_at_activation() {
         let wasm = std::fs::read(dir.join("plugin.wasm")).unwrap();
         let handle = engine.load(&manifest, &wasm).unwrap();
         engine.activate(handle).unwrap();
+        assert!(!bare.registrations.lock().unwrap().is_empty());
         engine.unload(handle).unwrap();
+        assert!(
+            bare.registrations.lock().unwrap().is_empty(),
+            "卸载必须移除贡献点"
+        );
     }
     assert!(
-        !bare.registrations.lock().unwrap().is_empty(),
-        "激活时应产生动态注册"
+        bare.registrations.lock().unwrap().is_empty(),
+        "所有示例停用后不应残留注册"
     );
+}
+
+#[test]
+fn manifest_contributions_do_not_bypass_the_users_grants() {
+    let services = Arc::new(BareServices::default());
+    let engine = WasmiEngine::with_default_limits(services.clone());
+    let dir = example_dir("commit-template");
+    let manifest =
+        PluginManifest::parse(&std::fs::read_to_string(dir.join("plugin.json")).unwrap()).unwrap();
+    let wasm = std::fs::read(dir.join("plugin.wasm")).unwrap();
+    let handle = engine.load(&manifest, &wasm).unwrap();
+    engine
+        .set_effective_permissions(handle, Default::default())
+        .unwrap();
+    engine.activate(handle).unwrap();
+    assert!(services.registrations.lock().unwrap().is_empty());
+    engine.unload(handle).unwrap();
 }

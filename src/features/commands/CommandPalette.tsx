@@ -61,7 +61,7 @@ export function CommandPalette({ overrides, contextTags }: CommandPaletteProps) 
     const matched = flat.filter(
       ({ command }) =>
         needle === '' ||
-        t(command.titleKey).toLowerCase().includes(needle) ||
+        (command.title ?? t(command.titleKey)).toLowerCase().includes(needle) ||
         command.id.toLowerCase().includes(needle),
     );
     // 排序：可用在前 → 最近使用优先 → title 字母序
@@ -75,7 +75,9 @@ export function CommandPalette({ overrides, contextTags }: CommandPaletteProps) 
       if (recentDiff !== 0) {
         return recentDiff;
       }
-      return t(a.command.titleKey).localeCompare(t(b.command.titleKey));
+      return (a.command.title ?? t(a.command.titleKey)).localeCompare(
+        b.command.title ?? t(b.command.titleKey),
+      );
     });
   }, [flat, query, t]);
 
@@ -156,7 +158,7 @@ export function CommandPalette({ overrides, contextTags }: CommandPaletteProps) 
                 onMouseEnter={() => setActiveIndex(index)}
               >
                 <span className="min-w-0 flex-1 truncate">
-                  {t(command.titleKey)}
+                  {command.title ?? t(command.titleKey)}
                   {!available ? (
                     <span className="text-fg-subtle ms-1 text-11">
                       ({command.when.map((tag) => t(`commands.when.${tag}`)).join('、')})
