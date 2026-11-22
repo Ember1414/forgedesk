@@ -2309,7 +2309,13 @@
     "panelsPendingHint": "这些插件声明了面板，但尚未启用。启用后（需要逐项授予权限）它们会出现在上方。",
     "panelsPendingAction": "去启用",
     "panelsPendingState": "当前状态",
-    "panelsListError": "已安装插件列表读取失败：{message}"
+    "panelsListError": "已安装插件列表读取失败：{message}",
+    "listFailed": "无法读取已安装插件",
+    "builtinFailed": "无法读取内置示例插件",
+    "registrationsFailed": "无法读取插件面板",
+    "commandFailed": "插件命令执行失败",
+    "copyResult": "复制结果",
+    "resultCopied": "插件结果已复制"
   },
   "network": {
     "proxyTitle": "代理",

@@ -23,6 +23,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { inflateRawSync } from 'node:zlib';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const keep = process.argv.includes('--keep');
@@ -130,6 +131,30 @@ expectFile(join(releasesDir, `ForgeDesk_${version}_windows_x64.msi`), '归一化
 expectFile(join(releasesDir, `ForgeDesk_${version}_windows_x64.exe`), 'NSIS 安装器');
 expectFile(join(releasesDir, `ForgeDesk_${version}_windows_x64_portable.zip`), '便携版 zip');
 expectFile(join(releasesDir, 'SHA256SUMS'), '合并后的 SHA256SUMS');
+
+// 验证最终分发物，不能只检查源码目录：便携包曾遗漏所有插件资源。
+const portable = readFileSync(join(releasesDir, `ForgeDesk_${version}_windows_x64_portable.zip`));
+const portableFiles = new Map();
+for (let offset = 0; portable.readUInt32LE(offset) === 0x04034b50;) {
+  const method = portable.readUInt16LE(offset + 8);
+  const size = portable.readUInt32LE(offset + 18);
+  const nameLength = portable.readUInt16LE(offset + 26);
+  const extraLength = portable.readUInt16LE(offset + 28);
+  const name = portable.subarray(offset + 30, offset + 30 + nameLength).toString('utf8');
+  const start = offset + 30 + nameLength + extraLength;
+  const payload = portable.subarray(start, start + size);
+  portableFiles.set(name, method === 8 ? inflateRawSync(payload) : payload);
+  offset = start + size;
+}
+for (const name of ['commit-template', 'repo-stats', 'repo-audit']) {
+  for (const file of ['plugin.json', 'plugin.wasm']) {
+    const bundled = portableFiles.get(`examples/${name}/${file}`);
+    const source = readFileSync(join(repoRoot, 'plugins', 'examples', name, file));
+    if (bundled === undefined || !bundled.equals(source)) {
+      fail(`便携版缺失或损坏内置插件资源 examples/${name}/${file}`);
+    }
+  }
+}
 
 const sums = readFileSync(join(releasesDir, 'SHA256SUMS'), 'utf8').trim().split('\n');
 if (sums.length !== 3) {

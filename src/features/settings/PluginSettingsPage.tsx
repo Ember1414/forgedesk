@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 
-import { useAppError } from '@/lib/errors';
+import { normalizeError, useAppError } from '@/lib/errors';
 import { pickFolder } from '@/lib/ipc/dialog';
 import {
   pluginBuiltinExamples,
@@ -18,7 +18,7 @@ import {
   pluginUninstall,
 } from '@/lib/ipc';
 import type { PluginSummary } from '@/lib/ipc';
-import { PLUGINS_QUERY_KEY } from '@/lib/queryKeys';
+import { PLUGIN_REGISTRATIONS_QUERY_KEY, PLUGINS_QUERY_KEY } from '@/lib/queryKeys';
 import { pushToast } from '@/stores/toastStore';
 import {
   AlertDialog,
@@ -277,6 +277,8 @@ export function PluginSettingsPage() {
 
   const invalidate = () => {
     void queryClient.invalidateQueries({ queryKey: [PLUGINS_QUERY_KEY] });
+    void queryClient.invalidateQueries({ queryKey: [PLUGIN_REGISTRATIONS_QUERY_KEY] });
+    void queryClient.invalidateQueries({ queryKey: ['pluginPanel'] });
   };
 
   const setEnabled = useMutation({
@@ -380,6 +382,32 @@ export function PluginSettingsPage() {
         </p>
       </header>
 
+      {plugins.isPending || builtins.isPending ? (
+        <p className="text-13 text-fg-subtle" role="status">
+          {t('plugins.panelsLoading')}
+        </p>
+      ) : null}
+      {(
+        [
+          { query: plugins, title: t('plugins.listFailed') },
+          { query: builtins, title: t('plugins.builtinFailed') },
+        ] as const
+      ).map(({ query, title }) =>
+        query.isError ? (
+          <div
+            key={title}
+            role="alert"
+            className="flex flex-col gap-2 rounded-lg border border-line bg-surface p-4"
+          >
+            <p className="text-13 font-medium text-danger">{title}</p>
+            <p className="text-12 text-fg-muted">{normalizeError(query.error).message}</p>
+            <Button size="sm" variant="secondary" onClick={() => void query.refetch()}>
+              {t('plugins.panelRetry')}
+            </Button>
+          </div>
+        ) : null,
+      )}
+
       {plugins.data != null && plugins.data.length === 0 ? (
         <div className="flex flex-col gap-1 rounded-lg border border-line bg-surface p-4">
           <p className="text-14 font-medium">{t('plugins.emptyTitle')}</p>
@@ -450,12 +478,7 @@ export function PluginSettingsPage() {
                       {t('plugins.actionDisable')}
                     </Button>
                   ) : (
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      disabled={plugin.state === 'crashed'}
-                      onClick={() => handleEnable(plugin)}
-                    >
+                    <Button size="sm" variant="secondary" onClick={() => handleEnable(plugin)}>
                       {t('plugins.actionEnable')}
                     </Button>
                   )}

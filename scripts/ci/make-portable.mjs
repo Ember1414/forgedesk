@@ -24,13 +24,14 @@
  *   ForgeDesk.exe          可执行文件（由 --exe 指定或自动探测 release 产物）
  *   LICENSE                Apache-2.0 全文
  *   README-portable.txt    使用与校验说明（免安装、SmartScreen、校验方法）
+ *   examples/             内置插件，与安装版的 Tauri 资源目录布局一致
  *
  * 用法：
  *   node scripts/ci/make-portable.mjs --out <目录> [--exe <forgedesk.exe>] [--arch x64|arm64]
  */
 
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { deflateRawSync } from 'node:zlib';
@@ -259,10 +260,30 @@ if (!existsSync(licensePath)) {
 const baseName = `ForgeDesk_${version}_windows_${arch}_portable`;
 const zipPath = join(outDir, `${baseName}.zip`);
 
+// 便携版不经过 Tauri bundler，必须显式收集同一份资源，否则内置插件全为空。
+const exampleEntries = [];
+const examplesRoot = join(repoRoot, 'plugins', 'examples');
+for (const name of readdirSync(examplesRoot).sort()) {
+  const dir = join(examplesRoot, name);
+  if (!statSync(dir).isDirectory()) continue;
+  const manifest = JSON.parse(readFileSync(join(dir, 'plugin.json'), 'utf8'));
+  // 入口限制在插件目录内；打包阶段拒绝意外路径，不生成不完整分发物。
+  if (typeof manifest.main !== 'string' || !/^[a-zA-Z0-9_.-]+\.wasm$/.test(manifest.main)) {
+    throw new Error(`插件入口非法：${name}`);
+  }
+  for (const file of ['plugin.json', manifest.main, 'README.md']) {
+    const source = join(dir, file);
+    if (file === 'README.md' && !existsSync(source)) continue;
+    exampleEntries.push({ name: `examples/${name}/${file}`, data: readFileSync(source) });
+  }
+}
+if (exampleEntries.length === 0) throw new Error('没有找到随包分发的内置插件');
+
 const zip = createZip([
   { name: 'ForgeDesk.exe', data: readFileSync(exePath) },
   { name: 'LICENSE', data: readFileSync(licensePath) },
   { name: 'README-portable.txt', data: Buffer.from(portableReadme(version), 'utf8') },
+  ...exampleEntries,
 ]);
 
 mkdirSync(outDir, { recursive: true });

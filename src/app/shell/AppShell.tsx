@@ -10,6 +10,7 @@ import { TitleBar } from '@/app/shell/TitleBar';
 import { useIsNarrowViewport } from '@/app/shell/useIsNarrowViewport';
 import { ShortcutManagerWithPalette } from '@/features/commands/ShortcutManager';
 import { FirstRunTrustHint } from '@/features/system/FirstRunTrustHint';
+import { PluginRuntimeBridge } from '@/features/plugins/PluginRuntimeBridge';
 import { StartupRecoveryNotice } from '@/features/system/StartupRecoveryNotice';
 import { UpdateBanner } from '@/features/system/UpdateBanner';
 import { useUiStore } from '@/stores/uiStore';
@@ -95,6 +96,7 @@ export function AppShell() {
 
       {/* T5.9：命令面板 + 快捷键分发（渲染 null；编辑器页时 editorActive 生效） */}
       <ShortcutManagerWithPalette editorActive={location.pathname.includes('/editor')} />
+      <PluginRuntimeBridge />
       <StatusBar />
     </div>
   );

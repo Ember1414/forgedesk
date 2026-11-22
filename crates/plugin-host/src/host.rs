@@ -269,6 +269,8 @@ pub trait HostServices: Send + Sync {
     fn event_interest(&self, _plugin_id: &str, _event: &str) -> bool {
         false
     }
+    /// 实例卸载或激活失败时清除其面板、命令、事件订阅与提交钩子。
+    fn remove_plugin(&self, _plugin_id: &str) {}
     /// 注册提交钩子（phase: "pre"|"post"）。实现负责去重（同插件同名覆盖）。
     fn register_commit_hook(
         &self,

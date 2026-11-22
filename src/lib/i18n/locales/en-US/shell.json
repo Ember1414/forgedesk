@@ -2309,7 +2309,13 @@
     "panelsPendingHint": "These plugins declare panels but are not enabled. Once you enable them (permissions are granted one by one) they appear above.",
     "panelsPendingAction": "Enable",
     "panelsPendingState": "Current state",
-    "panelsListError": "Could not load installed plugins: {message}"
+    "panelsListError": "Could not load installed plugins: {message}",
+    "listFailed": "Could not load installed plugins",
+    "builtinFailed": "Could not load bundled examples",
+    "registrationsFailed": "Could not load plugin panels",
+    "commandFailed": "Plugin command failed",
+    "copyResult": "Copy result",
+    "resultCopied": "Plugin result copied"
   },
   "network": {
     "proxyTitle": "Proxy",

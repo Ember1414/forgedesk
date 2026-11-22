@@ -2067,13 +2067,17 @@ editor 的第一个参数追加，cp 完成替换；`GIT_EDITOR=true` 让 reword
 宿主侧：`crates/commands/src/plugins.rs`（命令 + `AppHostServices` 组合根实现）；
 引擎与管理器：`crates/plugin-host`（清单/权限/沙箱见 PLUGIN-API.md）。
 
+所有 `plugin_*` 命令统一注入宿主已注册的 `AppState`，由其 `plugins` / `plugin_services`
+字段访问同一份管理器与服务；不能将这两个字段的类型直接当作独立 `tauri::State<T>`。
+`pnpm check:ipc` 同时检查命令状态类型与宿主 `.manage()` 的注册是否匹配。
+
 | 命令 | 能力 | 参数 | 返回/说明 |
 | --- | --- | --- | --- |
 | `plugin_list` | ReadOnly | `{}` | `PluginSummary[]`：id/name/version/author/license/description/state（`enabled`/`disabled`/`crashed`）/declaredPermissions/grantedPermissions/permissionUsage（运行中才有）/declaredPanels（清单声明的面板，含**未启用**的插件——注册表 `plugin_registrations` 只反映运行态） |
 | `plugin_install_from_dir` | Mutating | `{ dir }` | `InstallReport { id, name, version, sha256, insideRoot, declaredPermissions }`。清单非法返回 `VALIDATION`（detail 含原因）；重复 id 返回 `VALIDATION`；目录缺文件返回 `NOT_FOUND` |
 | `plugin_builtin_examples` | ReadOnly | `{}` | `BuiltinExampleDto[] { dirName, id, name, description, version, installed }`。扫描随包资源目录（开发模式退回仓库 checkout 的 `plugins/examples`）；都没有时返回空数组 |
 | `plugin_install_builtin` | Mutating | `{ dirName }` | `InstallReport`（同上，`insideRoot` 恒为 true）。`dirName` 必须是 `[a-z0-9-]` 组成的目录名且在随包清单里（否则 `VALIDATION`/`NOT_FOUND`）；示例目录复制进 `plugins_root` 后走标准安装路径，重复安装返回 `VALIDATION` |
-| `plugin_set_enabled` | Mutating | `{ id, enabled }` | `void`。启用 = 加载（生效权限 = 清单 ∩ 授权）+ 激活；激活失败插件进入 `crashed` 态并返回错误 |
+| `plugin_set_enabled` | Mutating | `{ id, enabled }` | `void`。启用 = 加载（生效权限 = 清单 ∩ 授权）+ 激活；成功后保存启用意愿，重启恢复运行句柄；禁用清理实例及贡献点。激活失败插件进入 `crashed` 态并返回错误 |
 | `plugin_grant` | Mutating | `{ id, permissions: string[] }` | `void`。权限名必须是白名单成员（否则 `VALIDATION`）；插件运行中调用返回 `VALIDATION`（先禁用再扩权） |
 | `plugin_revoke` | Mutating | `{ id, permission }` | `void`。立即生效：运行中实例的下一次相关调用返回 `PERMISSION_DENIED` |
 | `plugin_uninstall` | Mutating | `{ id }` | `boolean`：是否删除了插件目录。`plugins_root` 内 → 删除；开发者模式的外部目录 → 保留（UI 须如实说明）。未安装返回 `NOT_FOUND` |

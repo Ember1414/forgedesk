@@ -86,6 +86,15 @@ function renderPage(): void {
 }
 
 describe('插件面板页', () => {
+  it('面板注册表查询失败时提示重试而不显示空面板', async () => {
+    registrationsMock.mockRejectedValueOnce(new Error('host unavailable'));
+    renderPage();
+    expect(await screen.findByRole('alert')).toHaveTextContent('无法读取插件面板');
+    expect(screen.queryByText('还没有已启用插件提供面板。')).not.toBeInTheDocument();
+    registrationsMock.mockResolvedValue([registration()]);
+    fireEvent.click(screen.getByRole('button', { name: '重试' }));
+    expect(await screen.findByRole('tab', { name: /仓库统计/ })).toBeInTheDocument();
+  });
   it('没有面板注册时渲染引导空态', async () => {
     registrationsMock.mockResolvedValue([]);
 

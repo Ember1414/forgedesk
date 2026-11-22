@@ -34,7 +34,8 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::host::{self, SharedServices};
-use crate::manifest::ValidatedManifest;
+use crate::manifest::{Contributes, PanelLocation, ValidatedManifest};
+use crate::permission::Permission;
 use crate::runtime::{
     HostError, LifecycleState, PermissionSet, PluginEngine, PluginHandle, RuntimeLimits,
 };
@@ -125,6 +126,7 @@ struct PluginInstance {
     instance: wasmi::Instance,
     state: LifecycleState,
     last_failure: Option<HostError>,
+    contributes: Contributes,
 }
 
 /// wasmi 引擎。构建开销一次；实例间经 `Store` 天然隔离。
@@ -432,6 +434,7 @@ impl PluginEngine for WasmiEngine {
                 instance,
                 state: LifecycleState::Loaded,
                 last_failure: None,
+                contributes: manifest.contributes.clone(),
             },
         );
         Ok(PluginHandle::new(raw))
@@ -476,7 +479,36 @@ impl PluginEngine for WasmiEngine {
                     Ok(())
                 }
             }
-        })
+        })?;
+        // 清单贡献点是静态注册契约，不要求 WASM 再调用一次 register_*。
+        // 注册仍受生效权限控制；动态注册同 id 由宿主去重。
+        let data = plugin.store.data();
+        if data.granted.allows(Permission::UiCommand) {
+            for command in &plugin.contributes.commands {
+                self.services.register_command(
+                    &data.plugin_id,
+                    &format!("{}.{}", data.plugin_id, command.id),
+                    &command.title,
+                    command.keybinding.clone(),
+                )?;
+            }
+        }
+        if data.granted.allows(Permission::UiPanel) {
+            for panel in &plugin.contributes.panels {
+                let location = match panel.location {
+                    PanelLocation::Sidebar => "sidebar",
+                    PanelLocation::Bottom => "bottom",
+                    PanelLocation::RepoTab => "repo-tab",
+                };
+                self.services.register_panel(
+                    &data.plugin_id,
+                    &format!("{}.{}", data.plugin_id, panel.id),
+                    &panel.title,
+                    location,
+                )?;
+            }
+        }
+        Ok(())
     }
 
     fn invoke(
@@ -591,7 +623,8 @@ impl PluginEngine for WasmiEngine {
             // 卸载不存在的实例视为幂等成功（管理页"清理残留"路径会走到）
             return Ok(());
         };
-        on_executor_stack(move || -> Result<(), HostError> {
+        let plugin_id = plugin.store.data().plugin_id.clone();
+        let result = on_executor_stack(move || -> Result<(), HostError> {
             Self::reset_fuel(&mut plugin.store)?;
             // 停用一个（哪怕即将崩溃的）插件是成功操作：deactivate 的 trap 不上抛
             if let Some(Err(_)) = plugin
@@ -603,7 +636,10 @@ impl PluginEngine for WasmiEngine {
                 tracing::warn!(plugin_id = handle.raw(), "plugin trapped during deactivate");
             }
             Ok(())
-        })
+        });
+        drop(instances);
+        self.services.remove_plugin(&plugin_id);
+        result
     }
 
     fn state(&self, handle: PluginHandle) -> Result<LifecycleState, HostError> {

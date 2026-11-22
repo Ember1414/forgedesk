@@ -73,7 +73,7 @@ export function ShortcutsSettingsPage() {
       return true;
     }
     return (
-      t(command.titleKey).toLowerCase().includes(needle) ||
+      (command.title ?? t(command.titleKey)).toLowerCase().includes(needle) ||
       command.id.toLowerCase().includes(needle)
     );
   });
@@ -152,7 +152,7 @@ export function ShortcutsSettingsPage() {
     ];
     for (const { command, normalized } of effective) {
       lines.push(
-        `| ${normalized === null ? '—' : displayShortcut(normalized)} | ${t(command.titleKey)} |`,
+        `| ${normalized === null ? '—' : displayShortcut(normalized)} | ${command.title ?? t(command.titleKey)} |`,
       );
     }
     void navigator.clipboard.writeText(lines.join('\n')).then(() => {});
@@ -203,7 +203,9 @@ export function ShortcutsSettingsPage() {
                 isConflict && 'border-warning',
               )}
             >
-              <span className="min-w-0 flex-1 truncate text-13">{t(command.titleKey)}</span>
+              <span className="min-w-0 flex-1 truncate text-13">
+                {command.title ?? t(command.titleKey)}
+              </span>
               {isConflict ? (
                 <span className="text-warning text-11">{t('settings.shortcuts.conflictMark')}</span>
               ) : null}
@@ -216,7 +218,9 @@ export function ShortcutsSettingsPage() {
                     'border-line bg-surface-sunken text-fg-muted cursor-pointer rounded border px-1.5 py-0.5 font-mono text-11',
                   )}
                   onClick={() => startRecording(command.id)}
-                  aria-label={t('settings.shortcuts.recordAria', { action: t(command.titleKey) })}
+                  aria-label={t('settings.shortcuts.recordAria', {
+                    action: command.title ?? t(command.titleKey),
+                  })}
                   title={t('settings.shortcuts.clickToRecord')}
                 >
                   {normalized === null ? '—' : displayShortcut(normalized)}

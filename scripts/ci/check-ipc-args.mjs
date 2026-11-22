@@ -132,15 +132,20 @@ for (const file of walk(join(repoRoot, 'crates', 'commands', 'src'), ['.rs'])) {
   let match;
   while ((match = pattern.exec(source)) !== null) {
     const name = match[1];
-    const params = splitTopLevel(match[2])
+    const allParams = splitTopLevel(match[2])
       .map((entry) => {
         const index = entry.indexOf(':');
         return index < 0
           ? null
           : { name: entry.slice(0, index).trim(), type: entry.slice(index + 1).trim() };
       })
-      .filter((entry) => entry !== null && !INJECTED.test(entry.name));
-    rustCommands.set(name, { params, file: relative(repoRoot, file) });
+      .filter((entry) => entry !== null);
+    const params = allParams.filter((entry) => !INJECTED.test(entry.name));
+    const states = allParams.flatMap((entry) => {
+      const state = /^(?:tauri::)?State\s*<\s*'\w*\s*,\s*(.*?)\s*>$/.exec(entry.type);
+      return state === null ? [] : [state[1].split('::').pop()];
+    });
+    rustCommands.set(name, { params, states, file: relative(repoRoot, file) });
   }
 }
 
@@ -268,6 +273,21 @@ function handlerBlocks(source) {
 const toCommandName = (entry) => /^forgedesk_commands::(\w+)$/.exec(entry.trim())?.[1] ?? null;
 
 const mainRs = readFileSync(join(repoRoot, 'src-tauri', 'src', 'main.rs'), 'utf8');
+// State<T> 只按精确类型解析，AppState 的字段不会自动注册为独立 Tauri State。
+// 此检查补上 invoke mock 无法发现的缺口：插件命令曾全族注入未注册的类型。
+const managedStates = new Set(
+  [...mainRs.matchAll(/\.manage\(\s*(?:[\w]+::)*(\w+)\s*\{/g)].map((match) => match[1]),
+);
+for (const [name, command] of rustCommands) {
+  for (const state of command.states) {
+    if (!managedStates.has(state)) {
+      problems.push(
+        `${command.file}  ${name} 请求未注册的 State<${state}>\n    ` +
+          '命令须使用宿主 .manage() 注册的精确类型；AppState 的字段不会自动注入。',
+      );
+    }
+  }
+}
 const handlerLists = handlerBlocks(mainRs).map((block) =>
   block
     .split(',')
