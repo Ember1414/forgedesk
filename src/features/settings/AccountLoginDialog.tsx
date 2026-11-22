@@ -25,7 +25,9 @@ import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 
-import { useAppError } from '@/lib/errors';
+import { errorHintKey, errorTitleKey, useAppError } from '@/lib/errors';
+import type { NormalizedError } from '@/lib/errors';
+import { ErrorState } from '@/ui/components/error-state';
 import {
   accountDeviceFlowStart,
   accountDeviceFlowWait,
@@ -33,6 +35,7 @@ import {
 } from '@/lib/ipc/accounts';
 import type { Account, DeviceFlowSession } from '@/lib/ipc/accounts';
 import { cancelJob, onJobDone, onJobFailed } from '@/lib/ipc/jobs';
+import type { JobDonePayload, JobFailedPayload } from '@/lib/ipc/jobs';
 import { ACCOUNTS_QUERY_KEY } from '@/lib/queryKeys';
 import { pushToast } from '@/stores/toastStore';
 
@@ -71,8 +74,15 @@ function normalizeResult(payload: unknown): Account {
 }
 
 export function AccountLoginDialog({ open, onOpenChange }: AccountLoginDialogProps) {
+  // 关闭即卸载会话：不把 PAT、等待状态或上一次错误留给下一次打开。
+  return open ? <AccountLoginSession open onOpenChange={onOpenChange} /> : null;
+}
+
+function AccountLoginSession({ open, onOpenChange }: AccountLoginDialogProps) {
   const { t } = useTranslation('shell');
+  const { t: errorText } = useTranslation('errors');
   const { show } = useAppError();
+  const [failure, setFailure] = useState<NormalizedError | null>(null);
   const queryClient = useQueryClient();
 
   const [mode, setMode] = useState<LoginMode>('device-flow');
@@ -84,6 +94,13 @@ export function AccountLoginDialog({ open, onOpenChange }: AccountLoginDialogPro
   const [copied, setCopied] = useState<'code' | 'link' | null>(null);
   // 事件回调里要读当前 jobId：放进 ref 才能在只挂一次的订阅里读到
   const jobIdRef = useRef<string | null>(null);
+  const activeRef = useRef(false);
+  const waitingRef = useRef(false);
+  const listenersReady = useRef<Promise<void> | null>(null);
+  const earlyEvents = useRef<
+    Array<{ kind: 'done'; payload: JobDonePayload } | { kind: 'failed'; payload: JobFailedPayload }>
+  >([]);
+  const [subscriptionFailed, setSubscriptionFailed] = useState(false);
 
   /** 成功：失效列表、提示、清令牌、回表单并关闭。 */
   const finishWith = (account: Account) => {
@@ -108,64 +125,138 @@ export function AccountLoginDialog({ open, onOpenChange }: AccountLoginDialogPro
     if (!open) {
       return;
     }
+    activeRef.current = true;
+    let disposed = false;
+    let subscriptionFailed = false;
+    const unlisteners: Array<() => void> = [];
+    const attach = async (pending: Promise<() => void>): Promise<void> => {
+      const off = await pending;
+      if (disposed || subscriptionFailed) off();
+      else unlisteners.push(off);
+    };
     const donePromise = onJobDone((payload) => {
+      if (disposed) return;
+      if (jobIdRef.current === null && waitingRef.current) {
+        earlyEvents.current = [...earlyEvents.current.slice(-31), { kind: 'done', payload }];
+        return;
+      }
       if (jobIdRef.current === null || payload.jobId !== jobIdRef.current) {
         return;
       }
       jobIdRef.current = null;
+      waitingRef.current = false;
       try {
         finishWith(normalizeResult(payload.result));
       } catch (error) {
-        show(error instanceof Error ? error : new Error(String(error)));
+        setFailure(show(error));
       }
     });
     const failedPromise = onJobFailed((payload) => {
+      if (disposed) return;
+      if (jobIdRef.current === null && waitingRef.current) {
+        earlyEvents.current = [...earlyEvents.current.slice(-31), { kind: 'failed', payload }];
+        return;
+      }
       if (jobIdRef.current === null || payload.jobId !== jobIdRef.current) {
         return;
       }
       jobIdRef.current = null;
+      waitingRef.current = false;
       setBusy(false);
       setWaitingFailed(true);
       // 错误详情走统一 toast（按 code 走 i18n）；向导停在等待页供重试
-      show(payload.error);
+      setFailure(show(payload.error));
+    });
+    const ready = Promise.all([attach(donePromise), attach(failedPromise)]).then(() => undefined);
+    listenersReady.current = ready;
+    void ready.catch((error: unknown) => {
+      if (!disposed) {
+        setSubscriptionFailed(true);
+        subscriptionFailed = true;
+        setFailure(show(error));
+        unlisteners.splice(0).forEach((off) => off());
+      }
     });
     return () => {
-      void donePromise.then((unlisten) => unlisten());
-      void failedPromise.then((unlisten) => unlisten());
+      disposed = true;
+      activeRef.current = false;
+      waitingRef.current = false;
+      earlyEvents.current = [];
+      const jobId = jobIdRef.current;
+      jobIdRef.current = null;
+      if (jobId !== null) void cancelJob(jobId).catch(() => undefined);
+      unlisteners.splice(0).forEach((off) => off());
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 随 open 开关重订阅；回调经 ref/state 读最新值
   }, [open]);
 
   const startDeviceFlow = useMutation({
-    mutationFn: () => accountDeviceFlowStart(host.trim()),
+    mutationFn: async () => {
+      await listenersReady.current;
+      if (!activeRef.current) return null;
+      const session = await accountDeviceFlowStart(host.trim());
+      if (!activeRef.current) return null;
+      waitingRef.current = true;
+      earlyEvents.current = [];
+      const { jobId } = await accountDeviceFlowWait(session.flowId);
+      if (!activeRef.current) {
+        await cancelJob(jobId).catch(() => undefined);
+        return null;
+      }
+      jobIdRef.current = jobId;
+      return { session, jobId };
+    },
     onMutate: () => {
+      setFailure(null);
       setBusy(true);
       setWaitingFailed(false);
     },
-    onSuccess: async (session) => {
-      const { jobId } = await accountDeviceFlowWait(session.flowId);
-      jobIdRef.current = jobId;
+    onSuccess: (result) => {
+      if (result === null || !activeRef.current) return;
+      const { session, jobId } = result;
       setBusy(false);
       setStage({ kind: 'waiting', session, jobId });
+      const early = earlyEvents.current.find((event) => event.payload.jobId === jobId);
+      earlyEvents.current = [];
+      if (early !== undefined) {
+        jobIdRef.current = null;
+        waitingRef.current = false;
+        if (early.kind === 'done') {
+          try {
+            finishWith(normalizeResult(early.payload.result));
+          } catch (error) {
+            setWaitingFailed(true);
+            setFailure(show(error));
+          }
+        } else {
+          setWaitingFailed(true);
+          setFailure(show(early.payload.error));
+        }
+      }
     },
     onError: (error) => {
+      if (!activeRef.current) return;
+      waitingRef.current = false;
       setBusy(false);
-      show(error);
+      setFailure(show(error));
     },
   });
 
   const loginWithPat = useMutation({
     mutationFn: () => accountLoginWithPat(host.trim(), token),
     onMutate: () => {
+      setFailure(null);
       setBusy(true);
     },
     onSuccess: (account) => {
+      if (!activeRef.current) return;
       setBusy(false);
       finishWith(account);
     },
     onError: (error) => {
+      if (!activeRef.current) return;
       setBusy(false);
-      show(error);
+      setFailure(show(error));
     },
   });
 
@@ -174,6 +265,7 @@ export function AccountLoginDialog({ open, onOpenChange }: AccountLoginDialogPro
       await cancelJob(stage.jobId).catch(() => undefined);
     }
     jobIdRef.current = null;
+    waitingRef.current = false;
     setStage({ kind: 'form' });
     setWaitingFailed(false);
   };
@@ -305,6 +397,14 @@ export function AccountLoginDialog({ open, onOpenChange }: AccountLoginDialogPro
           </div>
         )}
 
+        {failure !== null ? (
+          <ErrorState
+            title={errorText(errorTitleKey(failure.code))}
+            hint={errorText(errorHintKey(failure.code))}
+            details={failure.detail ?? failure.message}
+          />
+        ) : null}
+
         <DialogFooter>
           {stage.kind === 'waiting' ? (
             <Button
@@ -333,7 +433,7 @@ export function AccountLoginDialog({ open, onOpenChange }: AccountLoginDialogPro
           {stage.kind === 'form' && mode === 'device-flow' ? (
             <Button
               type="button"
-              disabled={busy || hostInvalid}
+              disabled={busy || hostInvalid || subscriptionFailed}
               onClick={() => startDeviceFlow.mutate()}
               data-testid="account-device-submit"
             >

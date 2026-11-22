@@ -100,6 +100,8 @@
     "exitSafeMode": "Leave safe mode"
   },
   "updateBanner": {
+    "notes": "View release notes",
+    "unsaved": "Save or close unsaved editor documents before updating.",
     "available": "A new version is available: {{version}}",
     "later": "Remind me later",
     "install": "Update now",
@@ -655,6 +657,7 @@
     "update": {
       "title": "Updates",
       "autoCheck": "Check for updates automatically",
+      "checkNow": "Check for updates now",
       "autoCheckHint": "Checks once at startup. When off, nothing is checked automatically. The check fetches one manifest and carries no personal information.",
       "skippedLabel": "Skipped version",
       "skippedNone": "No version is skipped",

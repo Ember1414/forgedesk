@@ -38,9 +38,14 @@ pnpm version:check          # 只校验三处一致（CI 门禁用）
 > **应用侧与发布侧均已就绪**（T7.1 起，v1.0.0 之后经多次发布验证）：`update_check` / `update_install`
 > 命令（见 `docs/API.md`）与状态栏横幅；`plugins.updater.{pubkey, endpoints}` 由发布流水线在构建时用
 > `scripts/ci/make-build-config.mjs --pubkey … --channel …` 注入（理由见 §4.1）——
-> **这两项刻意不写进仓库**：配置缺一即被视为"未配置"，命令返回 `configured: false`，界面不打扰用户；
+> **这两项刻意不写进仓库**：更新端点为空时命令返回 `configured: false`；配置非法则明确报错；
 > 写进仓库的代价是开发构建会从"静默无更新源"变成"每次检查都网络失败"。
 > 渠道（stable / beta）在 v1 通过**各渠道各自构建**体现；同一次构建不切换渠道（应用内文案亦如此说明）。
+
+发布配置同时开启 `requireSignedVersion`，要求签名 trusted comment 的版本与清单版本一致。
+当前 Windows/macOS 的 1.1.4 签名均已含版本。检查与下载共享界面代理设置和超时；
+设置页支持关闭自动检查后手动检查。下载、验签和安装的错误分别反馈，验签失败不能进入安装阶段。
+相关复现与原生验证边界见[专项记录](DESKTOP-UPDATER-FIXES-2026-11-22.md)。
 
 ---
 

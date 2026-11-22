@@ -100,6 +100,8 @@
     "exitSafeMode": "退出安全模式"
   },
   "updateBanner": {
+    "notes": "查看更新说明",
+    "unsaved": "请先保存或关闭未保存的编辑器文档，再更新。",
     "available": "有新版本可用：{{version}}",
     "later": "稍后提醒",
     "install": "立即更新",
@@ -655,6 +657,7 @@
     "update": {
       "title": "更新",
       "autoCheck": "自动检查更新",
+      "checkNow": "立即检查更新",
       "autoCheckHint": "启动时检查一次；关闭后不再自动检查。检查只请求一次更新清单，不携带任何个人信息。",
       "skippedLabel": "已跳过的版本",
       "skippedNone": "没有跳过任何版本",

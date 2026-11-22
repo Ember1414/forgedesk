@@ -18,13 +18,23 @@
 //!
 //! # 与前端的分工
 //!
-//! 命令只做"检查 / 安装"两件事；"什么时候检查（启动 60s + 每 24h）、跳过哪个版本、
+//! 命令只做"检查 / 安装"两件事；"什么时候检查（启动 + 每半小时）、跳过哪个版本、
 //! 用什么渠道"属于界面策略（设置项 + 状态栏横幅），不在这里写死。
 
+use std::time::Duration;
+
+use forgedesk_diagnostics::sanitize_log;
 use forgedesk_domain::{AppError, AppResult, ErrorCode};
 use serde::Serialize;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_updater::UpdaterExt;
+
+use crate::network::{resolve_proxy_settings, ProxyMode};
+use crate::state::AppState;
+
+static INSTALL_GATE: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(1);
+const CHECK_TIMEOUT: Duration = Duration::from_secs(15);
+const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(300);
 
 /// 更新进度事件名（后端 → 前端）。
 pub const EVENT_UPDATE_PROGRESS: &str = "update:progress";
@@ -66,7 +76,89 @@ struct UpdateProgressPayload {
 }
 
 fn updater_error(code: ErrorCode, message: &str, error: &tauri_plugin_updater::Error) -> AppError {
-    AppError::new(code, message.to_owned()).with_detail(error.to_string())
+    AppError::new(code, message.to_owned()).with_detail(sanitize_log(&error.to_string()))
+}
+
+fn download_error(error: &tauri_plugin_updater::Error) -> AppError {
+    use tauri_plugin_updater::Error;
+    let code = match error {
+        Error::Minisign(_)
+        | Error::Base64(_)
+        | Error::SignatureUtf8(_)
+        | Error::SignedVersionMismatch { .. }
+        | Error::MissingSignedVersion => ErrorCode::UpdateSignatureInvalid,
+        Error::Io(_) => ErrorCode::UpdateInstallFailed,
+        _ => ErrorCode::Network,
+    };
+    updater_error(code, "the update download or verification failed", error)
+}
+
+/// 检查与下载共用代理/连接超时，不能让网络设置只对 GitHub API 生效。
+fn configured_updater(
+    app: &AppHandle,
+    state: &AppState,
+) -> AppResult<Option<tauri_plugin_updater::Updater>> {
+    let (mode, url, bypass) = resolve_proxy_settings(&state.database)?;
+    let proxy = if mode == ProxyMode::Manual {
+        url.filter(|url| !url.trim().is_empty())
+            .map(|url| {
+                reqwest::Proxy::all(url)
+                    .map(|proxy| proxy.no_proxy(reqwest::NoProxy::from_string(&bypass.join(","))))
+            })
+            .transpose()
+            .map_err(|error| crate::to_app_error(&anyhow::Error::new(error)))?
+    } else {
+        None
+    };
+    let callback_app = app.clone();
+    let updater = app
+        .updater_builder()
+        .timeout(CHECK_TIMEOUT)
+        .configure_client(move |client| {
+            let client = client
+                .connect_timeout(Duration::from_secs(10))
+                .read_timeout(Duration::from_secs(30));
+            match (&mode, &proxy) {
+                (ProxyMode::None, _) => client.no_proxy(),
+                (ProxyMode::Manual, Some(proxy)) => client.proxy(proxy.clone()),
+                _ => client,
+            }
+        })
+        .on_before_exit(move || {
+            // Windows 插件直接退出进程，不经过应用的 RunEvent::Exit 清理。
+            if let Some(state) = callback_app.try_state::<AppState>() {
+                if let Err(error) = state.end_session.end() {
+                    tracing::warn!(%error, "更新退出前结束会话失败");
+                }
+            }
+            callback_app.cleanup_before_exit();
+        })
+        .build();
+    match updater {
+        Ok(updater) => Ok(Some(updater)),
+        Err(tauri_plugin_updater::Error::EmptyEndpoints) => Ok(None),
+        Err(error) => Err(updater_error(
+            ErrorCode::Validation,
+            "the updater configuration is invalid",
+            &error,
+        )),
+    }
+}
+
+#[derive(Default)]
+struct DownloadProgress {
+    received: usize,
+}
+
+impl DownloadProgress {
+    fn chunk(&mut self, bytes: usize, total: Option<u64>) -> UpdateProgressPayload {
+        self.received = self.received.saturating_add(bytes);
+        UpdateProgressPayload {
+            phase: "downloading",
+            received: self.received,
+            total,
+        }
+    }
 }
 
 fn to_dto(update: tauri_plugin_updater::Update) -> UpdateInfoDto {
@@ -83,12 +175,12 @@ fn to_dto(update: tauri_plugin_updater::Update) -> UpdateInfoDto {
 /// 未配置更新源时返回 `{ configured: false, update: null }` 而不是报错
 /// （原因见模块说明）。网络失败才返回错误——那是用户需要知道的事。
 #[tauri::command]
-pub async fn update_check(app: AppHandle) -> AppResult<UpdateCheckDto> {
-    let updater = match app.updater() {
-        Ok(updater) => updater,
-        Err(error) => {
+pub async fn update_check(app: AppHandle, state: State<'_, AppState>) -> AppResult<UpdateCheckDto> {
+    let updater = match configured_updater(&app, &state)? {
+        Some(updater) => updater,
+        None => {
             // 未配置 endpoints / 公钥：开发构建与源码自编译产物的常态
-            tracing::debug!(%error, "更新源未配置，跳过更新检查");
+            tracing::debug!("更新源未配置，跳过更新检查");
             return Ok(UpdateCheckDto {
                 configured: false,
                 update: None,
@@ -119,18 +211,33 @@ pub async fn update_check(app: AppHandle) -> AppResult<UpdateCheckDto> {
 /// `version` 必须与**本次**检查到的版本一致：界面上的信息可能已经过期（期间又发了新版），
 /// 不一致时要求界面重新确认，避免"用户点了 A、装上的却是 B"。
 ///
-/// 进度经 [`EVENT_UPDATE_PROGRESS`] 推送；安装成功后由插件重启应用（默认行为）。
+/// 进度经 [`EVENT_UPDATE_PROGRESS`] 推送；Windows 安装器重启，其他桌面平台主动重启。
 #[tauri::command]
-pub async fn update_install(app: AppHandle, version: String) -> AppResult<()> {
-    let updater = app.updater().map_err(|error| {
-        updater_error(
+pub async fn update_install(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    version: String,
+) -> AppResult<()> {
+    if version.is_empty() || version.len() > 128 || version.chars().any(char::is_whitespace) {
+        return Err(AppError::new(
+            ErrorCode::Validation,
+            "invalid update version",
+        ));
+    }
+    let _permit = INSTALL_GATE.try_acquire().map_err(|_| {
+        AppError::new(
+            ErrorCode::Validation,
+            "an update installation is already running",
+        )
+    })?;
+    let updater = configured_updater(&app, &state)?.ok_or_else(|| {
+        AppError::new(
             ErrorCode::Validation,
             "the updater is not configured for this build",
-            &error,
         )
     })?;
 
-    let update = updater
+    let mut update = updater
         .check()
         .await
         .map_err(|error| updater_error(ErrorCode::Network, "the update check failed", &error))?
@@ -138,45 +245,48 @@ pub async fn update_install(app: AppHandle, version: String) -> AppResult<()> {
 
     if update.version != version {
         return Err(AppError::new(
-            ErrorCode::Validation,
+            ErrorCode::PlanStale,
             "the available update changed; check again",
         )
         .with_detail(format!("requested {version}, available {}", update.version)));
     }
 
+    // 插件 check() 创建 Update 时把 timeout 重新设为 None，必须显式赋值。
+    update.timeout = Some(DOWNLOAD_TIMEOUT);
     let download_emitter = app.clone();
-    let install_emitter = app.clone();
-    update
-        .download_and_install(
+    let mut progress = DownloadProgress::default();
+    let bytes = update
+        .download(
             move |received, total| {
-                let _ = download_emitter.emit(
-                    EVENT_UPDATE_PROGRESS,
-                    UpdateProgressPayload {
-                        phase: "downloading",
-                        received,
-                        total,
-                    },
-                );
+                let _ =
+                    download_emitter.emit(EVENT_UPDATE_PROGRESS, progress.chunk(received, total));
             },
-            move || {
-                let _ = install_emitter.emit(
-                    EVENT_UPDATE_PROGRESS,
-                    UpdateProgressPayload {
-                        phase: "installing",
-                        received: 0,
-                        total: None,
-                    },
-                );
-            },
+            || {},
         )
         .await
-        .map_err(|error| {
-            updater_error(
-                ErrorCode::Network,
-                "the update could not be downloaded or installed",
-                &error,
-            )
-        })?;
+        .map_err(|error| download_error(&error))?;
+    // download() 返回前已验签；不可在 on_download_finish 中宣称开始安装。
+    let _ = app.emit(
+        EVENT_UPDATE_PROGRESS,
+        UpdateProgressPayload {
+            phase: "installing",
+            received: 0,
+            total: None,
+        },
+    );
+    update.install(bytes).map_err(|error| {
+        updater_error(
+            ErrorCode::UpdateInstallFailed,
+            "the update could not be installed",
+            &error,
+        )
+    })?;
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        state.end_session.end()?;
+        app.restart();
+    }
 
     Ok(())
 }
@@ -184,6 +294,39 @@ pub async fn update_install(app: AppHandle, version: String) -> AppResult<()> {
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
+    #[test]
+    fn chunk_progress_is_cumulative_and_saturates() {
+        let mut progress = super::DownloadProgress::default();
+        assert_eq!(progress.chunk(40, Some(100)).received, 40);
+        assert_eq!(progress.chunk(20, Some(100)).received, 60);
+        assert_eq!(progress.chunk(40, Some(100)).received, 100);
+        assert_eq!(progress.chunk(usize::MAX, None).received, usize::MAX);
+    }
+
+    #[test]
+    fn invalid_signatures_and_install_io_have_distinct_error_codes() {
+        let error = tauri_plugin_updater::Error::MissingSignedVersion;
+        assert_eq!(
+            super::download_error(&error).code,
+            forgedesk_domain::ErrorCode::UpdateSignatureInvalid
+        );
+        let error = tauri_plugin_updater::Error::Io(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "fixture",
+        ));
+        assert_eq!(
+            super::download_error(&error).code,
+            forgedesk_domain::ErrorCode::UpdateInstallFailed
+        );
+    }
+
+    #[test]
+    fn installation_gate_releases_after_failure() {
+        let permit = super::INSTALL_GATE.try_acquire().unwrap();
+        assert!(super::INSTALL_GATE.try_acquire().is_err());
+        drop(permit);
+        assert!(super::INSTALL_GATE.try_acquire().is_ok());
+    }
     /// 未配置时不该构造出任何"看起来有更新"的结果（钉住契约形状）。
     #[test]
     fn an_unconfigured_check_reports_no_update() {

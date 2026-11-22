@@ -48,6 +48,12 @@ beforeEach(() => {
 });
 
 describe('仓库命令', () => {
+  it('宿主返回空拒绝时保留命令来源，不能再次抛出 null', async () => {
+    invoke.mockRejectedValueOnce(null);
+    await expect(repoOpen('/fixture')).rejects.toMatchObject({
+      message: expect.stringContaining('repo_open'),
+    });
+  });
   it('repo_discover 只传 path', async () => {
     await repoDiscover('E:\\Projects\\ForgeDesk');
     expect(invoke).toHaveBeenCalledWith('repo_discover', { path: 'E:\\Projects\\ForgeDesk' });

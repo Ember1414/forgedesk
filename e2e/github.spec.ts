@@ -375,3 +375,33 @@ test('large Actions logs stay virtualized and usable in a small window', async (
   await expect(dialog).toHaveCount(0);
   expect(await page.evaluate(() => window.__errs ?? [])).toEqual([]);
 });
+
+test('login event subscription failure keeps the app usable and exposes its source', async ({
+  page,
+}) => {
+  await page.goto('/#/settings/github');
+  await expect(page.getByTestId('account-add')).toBeVisible();
+  await page.evaluate(() => {
+    const host = (
+      window as unknown as {
+        __TAURI_INTERNALS__: {
+          invoke: (command: string, args?: { event?: string }) => Promise<unknown>;
+        };
+      }
+    ).__TAURI_INTERNALS__;
+    const invoke = host.invoke;
+    host.invoke = (command, args) =>
+      command === 'plugin:event|listen' && args?.event === 'job:done'
+        ? Promise.reject(null)
+        : invoke(command, args);
+  });
+  await page.getByTestId('account-add').click();
+  await expect(page.getByTestId('account-device-submit')).toBeDisabled();
+  await page.getByRole('dialog').getByText('详情', { exact: true }).click();
+  await expect(
+    page.getByRole('dialog').getByText('IPC listen:job:done: null', { exact: true }),
+  ).toBeVisible();
+  await page.getByRole('dialog').getByRole('button', { name: '关闭', exact: true }).click();
+  await expect(page.getByTestId('account-items')).toBeVisible();
+  expect(await page.evaluate(() => window.__errs ?? [])).toEqual([]);
+});

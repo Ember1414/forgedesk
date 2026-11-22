@@ -1,17 +1,14 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 
-import { isTauriRuntime, listenUpdateProgress, updateCheck, updateInstall } from '@/lib/ipc';
+import { isTauriRuntime, listenUpdateProgress, updateInstall } from '@/lib/ipc';
 import type { UpdateProgressPayload } from '@/lib/ipc';
-import { useAppError } from '@/lib/errors';
-import {
-  DEFAULT_UPDATE_AUTO_CHECK,
-  UPDATE_AUTO_CHECK_KEY,
-  UPDATE_SKIPPED_VERSION_KEY,
-  useSettingsStore,
-} from '@/stores/settingsStore';
+import { normalizeError, useAppError } from '@/lib/errors';
+import { useEditorStore } from '@/stores/editorStore';
+import { UPDATE_QUERY_KEY, useUpdateCheck } from './useUpdateCheck';
+import { UPDATE_SKIPPED_VERSION_KEY, useSettingsStore } from '@/stores/settingsStore';
 import { Button } from '@/ui/components/button';
 
 /**
@@ -42,69 +39,48 @@ export function UpdateBanner() {
   const { t } = useTranslation('shell');
   const { show } = useAppError();
   const inTauri = isTauriRuntime();
-  const [dismissed, setDismissed] = useState(false);
+  const [dismissedVersion, setDismissedVersion] = useState<string | null>(null);
   const [progress, setProgress] = useState<UpdateProgressPayload | null>(null);
 
   // 选择器里调 `getJson`（而不是拿函数引用）：zustand 只在选择器结果变化时重渲染，
   // 因此在设置页改开关/清跳过时，这条横幅能立刻跟上（见 settingsStore 的说明）。
   const settingsLoaded = useSettingsStore((state) => state.loaded);
+  const queryClient = useQueryClient();
+  const unsaved = useEditorStore((state) => state.tabs.some((tab) => tab.draft !== tab.baseline));
   const setJson = useSettingsStore((state) => state.setJson);
-  const autoCheck = useSettingsStore((state) =>
-    state.getJson<boolean>(UPDATE_AUTO_CHECK_KEY, DEFAULT_UPDATE_AUTO_CHECK),
-  );
   const skippedVersion = useSettingsStore((state) =>
     state.getJson<string | null>(UPDATE_SKIPPED_VERSION_KEY, null),
   );
 
   // 设置没加载完就不查：否则用户明明关掉了自动检查，仍会在每次启动时发一次请求
-  const canCheck = inTauri && settingsLoaded && autoCheck;
-
-  const check = useQuery({
-    queryKey: ['app', 'update'],
-    queryFn: updateCheck,
-    enabled: canCheck,
-    staleTime: Number.POSITIVE_INFINITY,
-    retry: 0,
-  });
-
-  // 进度事件订阅：卸载时必须 unlisten（否则监听器泄漏、进度回调叠加多次）
-  useEffect(() => {
-    if (!inTauri) {
-      return;
-    }
-    let unlisten: (() => void) | null = null;
-    let cancelled = false;
-    void listenUpdateProgress((payload) => {
-      setProgress(payload);
-    })
-      .then((off) => {
-        if (cancelled) {
-          off();
-        } else {
-          unlisten = off;
-        }
-      })
-      .catch(() => undefined);
-    return () => {
-      cancelled = true;
-      unlisten?.();
-    };
-  }, [inTauri]);
+  const check = useUpdateCheck(true);
 
   const install = useMutation({
-    mutationFn: (version: string) => updateInstall(version),
+    mutationFn: async (version: string) => {
+      setProgress(null);
+      const off = await listenUpdateProgress(setProgress);
+      try {
+        await updateInstall(version);
+      } finally {
+        off();
+      }
+    },
     onError: (error) => {
       // 失败后清掉进度，让按钮回到"立即更新"可再试（错误详情由统一 Toast 呈现）
       setProgress(null);
       show(error);
+      if (normalizeError(error).code === 'PLAN_STALE') {
+        void queryClient.invalidateQueries({ queryKey: UPDATE_QUERY_KEY });
+      }
     },
   });
 
   const available = check.data?.update ?? null;
   if (
-    !canCheck ||
+    !inTauri ||
+    !settingsLoaded ||
     available === null ||
-    dismissed ||
+    dismissedVersion === available.version ||
     // 用户跳过的是"这一个版本"：发下一个版本时仍要提示
     available.version === skippedVersion
   ) {
@@ -129,6 +105,15 @@ export function UpdateBanner() {
       className="border-line bg-brand-subtle text-brand flex flex-wrap items-center justify-between gap-2 border-b px-3 py-1.5 text-12"
     >
       <span>{t('updateBanner.available', { version: available.version })}</span>
+      {unsaved ? <span>{t('updateBanner.unsaved')}</span> : null}
+      {available.notes !== null ? (
+        <details className="max-w-full">
+          <summary className="cursor-pointer">{t('updateBanner.notes')}</summary>
+          <pre className="max-h-48 overflow-auto whitespace-pre-wrap text-12">
+            {available.notes}
+          </pre>
+        </details>
+      ) : null}
 
       {statusText !== null ? <span className="opacity-80">{statusText}</span> : null}
 
@@ -138,7 +123,7 @@ export function UpdateBanner() {
           variant="ghost"
           disabled={install.isPending}
           onClick={() => {
-            setDismissed(true);
+            setDismissedVersion(available.version);
           }}
         >
           {t('updateBanner.later')}
@@ -155,7 +140,7 @@ export function UpdateBanner() {
         </Button>
         <Button
           size="sm"
-          disabled={install.isPending}
+          disabled={install.isPending || unsaved}
           onClick={() => {
             install.mutate(available.version);
           }}

@@ -290,6 +290,6 @@ describe('ErrorState', () => {
   it('详细信息默认折叠（技术细节不淹没普通用户）', () => {
     render(<ErrorState title="失败" details="fatal: not a git repository" />);
     expect(screen.getByText('fatal: not a git repository')).toBeInTheDocument();
-    expect(screen.getByText('details').closest('details')).not.toHaveAttribute('open');
+    expect(screen.getByText('详情').closest('details')).not.toHaveAttribute('open');
   });
 });

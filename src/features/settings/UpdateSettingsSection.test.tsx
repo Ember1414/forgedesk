@@ -2,7 +2,9 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { UpdateSettingsSection } from '@/features/settings/UpdateSettingsSection';
-import { settingsAll, settingsSet } from '@/lib/ipc';
+import { createTestQueryClient } from '@/test/queryClient';
+import { QueryClientProvider } from '@tanstack/react-query';
+import { settingsAll, settingsSet, updateCheck } from '@/lib/ipc';
 import {
   initialSettingsState,
   UPDATE_AUTO_CHECK_KEY,
@@ -19,11 +21,20 @@ import {
  *   自动检查开关写入设置。
  */
 vi.mock('@/lib/ipc', () => ({
+  isTauriRuntime: () => true,
+  updateCheck: vi.fn(async () => ({ configured: false, update: null })),
   settingsSet: vi.fn(async () => undefined),
   settingsAll: vi.fn(async () => ({})),
 }));
 
 const setMock = vi.mocked(settingsSet);
+function renderSection() {
+  return render(
+    <QueryClientProvider client={createTestQueryClient()}>
+      <UpdateSettingsSection />
+    </QueryClientProvider>,
+  );
+}
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -38,8 +49,20 @@ afterEach(() => {
 });
 
 describe('更新设置区块', () => {
+  it('关闭自动检查后仍可主动检查并显示结果', async () => {
+    useSettingsStore.setState({
+      ...initialSettingsState,
+      loaded: true,
+      values: { [UPDATE_AUTO_CHECK_KEY]: 'false' },
+    });
+    renderSection();
+    expect(updateCheck).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: '立即检查更新' }));
+    await waitFor(() => expect(updateCheck).toHaveBeenCalledTimes(1));
+    expect(await screen.findByRole('status')).toHaveTextContent('本地构建');
+  });
   it('没有跳过任何版本时给出明确文案，且没有清除按钮', () => {
-    render(<UpdateSettingsSection />);
+    renderSection();
 
     expect(screen.getByText('没有跳过任何版本')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '不再跳过' })).not.toBeInTheDocument();
@@ -51,7 +74,7 @@ describe('更新设置区块', () => {
       loaded: true,
       values: { [UPDATE_SKIPPED_VERSION_KEY]: '"1.1.0"' },
     });
-    render(<UpdateSettingsSection />);
+    renderSection();
 
     expect(screen.getByText('1.1.0')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '不再跳过' }));
@@ -65,7 +88,7 @@ describe('更新设置区块', () => {
   });
 
   it('关掉自动检查会写入设置', async () => {
-    render(<UpdateSettingsSection />);
+    renderSection();
 
     fireEvent.click(screen.getByRole('checkbox', { name: '自动检查更新' }));
 
