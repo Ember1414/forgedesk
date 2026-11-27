@@ -8,9 +8,9 @@ name: Dependency audit
 # 质量审查发现这条承诺从未落地（历史上查出的 2 个 high 是人工在本地跑的）。
 #
 # 触发：
-#   - 每日一次：advisory 库每天更新，漏洞是"随时间出现"的，光靠 PR 触发不够；
 #   - 依赖清单变更的 PR / push：把"带已知 CVE 的新依赖"挡在合入之前；
-#   - 手动触发。
+#   - 手动触发（workflow_dispatch）。每日定时扫描按维护者要求于 2026-11-28 关闭，
+#     避免在没有代码变化时发送主动失败通知；需要时仍可从 Actions 页面手动运行。
 #
 # 失败策略：npm 侧 --audit-level high（low/moderate 只提示——前端依赖树很大，
 # 低危条目会把门禁变成噪音）；Rust 侧用 cargo-audit 默认口径。
@@ -20,8 +20,6 @@ name: Dependency audit
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: '17 4 * * *'
   push:
     branches: [main]
     paths:
