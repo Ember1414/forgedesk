@@ -18,6 +18,31 @@
 > npm 侧必须显式指定官方 registry：国内镜像（npmmirror 等）没有实现 audit 端点，
 > 会报 `ERR_PNPM_AUDIT_ENDPOINT_NOT_EXISTS`（本机实测）。
 
+## 2026-11-27 定时审计失败复查
+
+默认分支自 2026-11-22 起连续六次定时运行失败：首次失败的
+[运行 45023423329](https://github.com/Ember1414/forgedesk/actions/runs/45023423329)
+查出 `url` 的一条漏洞，最新的
+[运行 46011571943](https://github.com/Ember1414/forgedesk/actions/runs/46011571943)
+新增 `cookie` 漏洞。npm 审计均通过 high 门禁，阻断来自 Rust 审计。
+
+| 依赖 | 公告 | 问题 | 修复 |
+| --- | --- | --- | --- |
+| `url` 2.5.8 | [RUSTSEC-2026-0592](https://rustsec.org/advisories/RUSTSEC-2026-0592) | 嵌套 `blob:` URL 调用 origin 时栈溢出 | 锁定 2.5.9，并按其要求更新 `form_urlencoded` 1.2.2 → 1.2.3 |
+| `cookie` 0.18.2 | [RUSTSEC-2026-0594](https://rustsec.org/advisories/RUSTSEC-2026-0594) | fork 后私有 Cookie nonce 可能重复 | 锁定同一 minor 的补丁版本 0.18.3 |
+
+以上均沿用当前依赖链与 API；不引入替代库或新的直接依赖。许可证审计随锁文件重新生成，
+安装包体积变化没有单独测量。修复使用上游补丁，没有添加 vulnerability 忽略项或关闭定时任务。
+
+工作流保留每日运行：新公告出现后，即使应用代码没改，旧锁文件也可能开始失败。
+只有补丁合入默认分支后，后续定时运行才会使用修复版；修复分支上通过不能替代默认分支验证。
+未来若有新的依赖漏洞，GitHub 仍可能发送新的失败通知。
+
+本次修复的本地质量门禁已通过：Vitest 95 个测试文件、946 个测试用例全部通过；
+Rust workspace 测试 1,335 个用例全部通过，`cargo fmt`、`cargo clippy -D warnings`、
+文档链接、IPC 参数形状、官网自检和合规检查均通过。Rust 漏洞扫描仍以 GitHub 工作流
+中的 `cargo-audit` 结果为最终确认，补丁合入默认分支后需检查一次新的定时或手动运行。
+
 ## 2026-11-20 发布前复查
 
 GitHub Actions 首轮 npm 审计发现 7 high、11 moderate、1 low。高危来自 Vite 8.3.0、
